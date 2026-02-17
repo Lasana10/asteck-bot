@@ -111,6 +111,11 @@ export class TelegramService {
       return this.bot.webhookCallback('/');
   }
 
+  /** Delete any existing webhook (needed for clean polling mode) */
+  public async deleteWebhook() {
+    await this.bot.telegram.deleteWebhook({ drop_pending_updates: true });
+  }
+
   private initializeHandlers() {
     // Generic bot error handler
     this.bot.catch((err, ctx) => {

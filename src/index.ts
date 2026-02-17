@@ -68,18 +68,37 @@ async function main() {
     console.log('🌐 Web endpoints ready at /health, /, and /api');
 
     // Handle webhook if WEBHOOK_DOMAIN is set
-    if (process.env.WEBHOOK_DOMAIN) {
-      console.log(`📡 Setting up Webhook at: ${process.env.WEBHOOK_DOMAIN}`);
-      app.use(telegramService.getWebhookCallback());
-      app.listen(port, () => {
-        console.log(`🚀 Server listening on port ${port} (Webhook mode)`);
+    const webhookDomain = process.env.WEBHOOK_DOMAIN;
+    if (webhookDomain) {
+      const webhookPath = `/webhook/${process.env.TELEGRAM_BOT_TOKEN}`;
+      const webhookUrl = `${webhookDomain}${webhookPath}`;
+
+      // Mount webhook handler at a secret path
+      app.use(webhookPath, telegramService.getWebhookCallback());
+
+      // Start Express FIRST, then set webhook
+      app.listen(port, async () => {
+        console.log(`🚀 Server listening on port ${port}`);
+        try {
+          // Tell Telegram where to send updates
+          const bot = telegramService.getBotInstance();
+          await bot.telegram.setWebhook(webhookUrl);
+          console.log(`✅ Webhook set: ${webhookUrl}`);
+        } catch (err) {
+          console.error('❌ Failed to set webhook:', err);
+        }
       });
     } else {
-      // Polling mode
-      console.log('📡 Entering Polling Mode... (Linking to Telegram)');
+      // Polling mode (local dev)
+      console.log('📡 Entering Polling Mode...');
+      
+      // Drop pending updates to avoid conflicts
+      const bot = telegramService.getBotInstance();
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+
       await telegramService.launch();
       app.listen(port, () => {
-        console.log(`🚀 Server listening on port ${port} (Polling mode / Health check only)`);
+        console.log(`🚀 Server listening on port ${port} (Polling mode)`);
       });
     }
 
