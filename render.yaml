@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: asteck-bot
+    env: docker
+    plan: free # Change to 'starter' if you need background workers
+    dockerContext: .
+    dockerfilePath: Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: WEBHOOK_DOMAIN
+        placeholder: "Paste your Render URL here after creation"
+
+  - type: web
+    name: asteck-dashboard
+    env: docker
+    plan: free
+    dockerContext: ./dashboard
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: PORT
+        value: 80
