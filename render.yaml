@@ -19,6 +19,14 @@ services:
         value: production
       - key: WEBHOOK_DOMAIN
         sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: OPENWEATHERMAP_API_KEY
+        sync: false
 
   - type: web
     name: asteck-dashboard
@@ -27,5 +35,11 @@ services:
     dockerContext: ./dashboard
     dockerfilePath: Dockerfile
     envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        sync: false
       - key: PORT
         value: 80
