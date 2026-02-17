@@ -983,7 +983,7 @@ export class TelegramService {
     const saved = await createIncident(incidentData);
 
     // Reward User
-    await incrementUserReports(userId, true);
+    await incrementUserReports(userId);
 
     // Notify User
     ctx.replyWithMarkdown(
@@ -1026,7 +1026,7 @@ export class TelegramService {
 
       if (analysis.type !== 'other' || isAutoDetect) {
         const finalType = isAutoDetect
-          ? (analysis.sensorData.potentialCrash ? 'accident' : 'road_damage')
+          ? (analysis.sensorData?.potentialCrash ? 'accident' : 'road_damage')
           : analysis.type as IncidentType;
 
         pendingReports.set(userId, {
