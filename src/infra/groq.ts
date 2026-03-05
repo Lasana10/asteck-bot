@@ -10,7 +10,7 @@ const groq = apiKey ? new Groq({
   timeout: 30000 // 30 second timeout for deep reasoning
 }) : null;
 
-const DEEP_SYSTEM_PROMPT = \`You are the Deep Reasoning Layer for AsTeck, the Urban Traffic Intelligence Agent for Cameroon.
+const DEEP_SYSTEM_PROMPT = `You are the Deep Reasoning Layer for AsTeck, the Urban Traffic Intelligence Agent for Cameroon.
 Your task is to perform an ELITE level analysis of traffic reports that the base layer found ambiguous or complex.
 
 STRICT PROTOCOL:
@@ -37,7 +37,7 @@ Respond ONLY with valid JSON in this format:
   "locationHint": "Specific landmark mentioned",
   "isEmergency": boolean,
   "confidence": 0-1
-}\`;
+}`;
 
 export class GroqClient {
   async analyzeDeep(text: string): Promise<ParsedIncident | null> {
@@ -51,7 +51,7 @@ export class GroqClient {
       const chatCompletion = await groq.chat.completions.create({
         messages: [
           { role: 'system', content: DEEP_SYSTEM_PROMPT },
-          { role: 'user', content: \\\`URGENT ANALYSIS REQUESTED:\\\\n\\\\n"\\\${text}"\\\` }
+          { role: 'user', content: `URGENT ANALYSIS REQUESTED:\n\n"${text}"` }
         ],
         model: 'llama-3.3-70b-versatile',
         response_format: { type: 'json_object' }
