@@ -53,51 +53,29 @@ Incident Detection Keywords (Audio/Ambient):
 - 🕳️ Heavy suspension thud, tire impact sound = road_damage
 - 📣 Screeching tires, emergency braking = hazard
 - 📢 Police sirens = police_control
-- 🔊 Constant honking, slow engine idling = traffic_jam
-
-Pidgin (PCM) Keywords for OS Synergy:
-- "motor don jam", "kak up", "spoil for road" = accident
-- "road don spoil", "big hole", "shock don cut" = road_damage
-- "oga dem", "check point", "tapioca" = police_control
-- "hold up", "kakata" = traffic_jam
-
-Incident Detection Keywords:
-- SOS, help, urgence, au secours, rescue, help me = emergency (severity 5)
-- Police, gendarmerie, contrôle routier, checkpoint, Oga for road = police_control
-- Embouteillage, bouchon, hold up, jam, road block = traffic_jam
-- Accident, collision, crash, motor don jam = accident
-- Inondation, eau, water for road, flood = flooding
-- Route cassée, nid de poule, hole for road, spoil road = road_damage
-- Travaux, chantier, road works = road_works
-- Arbre tombé, débris, danger, hazard, bad thing = hazard
-- Manifestation, grève, people de cry, protest = protest
-- Barrage, road closed = roadblock`;
+- 🔊 Constant honking, slow engine idling = traffic_jam`;
 
 export class GeminiClient {
-  private model = genAI?.getGenerativeModel({ model: 'gemini-1.5-pro' }); // Use Pro for better audio reasoning
+  // Use gemini-2.5-flash for EVERYTHING (Text, Audio, Photo) as it supports all modes on this key.
+  private model = genAI?.getGenerativeModel({ model: 'gemini-2.5-flash' }); 
 
   /**
    * Analyze a text report
    */
   async analyzeText(text: string): Promise<ParsedIncident | null> {
-    if (!this.model) {
-      console.warn('Gemini not available, using fallback parsing');
-      return this.fallbackParse(text);
-    }
+    if (!this.model) return this.fallbackParse(text);
 
     try {
       const result = await this.model.generateContent([
         { text: SYSTEM_PROMPT },
         { text: `User report: "${text}"` }
       ]);
-
+      
       const response = result.response.text();
       const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]) as ParsedIncident;
-      }
-    } catch (error) {
-      console.error('Gemini analysis error:', error);
+      if (jsonMatch) return JSON.parse(jsonMatch[0]) as ParsedIncident;
+    } catch (error: any) {
+      console.error('Gemini 2.5 analysis error:', error.message);
     }
 
     return this.fallbackParse(text);
@@ -107,33 +85,55 @@ export class GeminiClient {
    * Analyze a voice note from a URL
    */
   async analyzeVoice(fileUrl: string): Promise<ParsedIncident | null> {
-    if (!this.model) return null;
+    if (!this.model) {
+      console.warn('❌ [VOICE] Gemini not initialized');
+      return null;
+    }
 
     try {
-      const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+      // 1. Download audio
+      console.log(`🎙️ [VOICE] Downloading audio: ${fileUrl.substring(0, 50)}...`);
+      const response = await axios.get(fileUrl, {
+        responseType: 'arraybuffer',
+        timeout: 20000, 
+        maxContentLength: 10 * 1024 * 1024 
+      });
       const buffer = Buffer.from(response.data);
-      
+      console.log(`🎙️ [VOICE] Audio ready: ${(buffer.length / 1024).toFixed(1)}KB`);
+
+      // 2. Build audio part — Use 'audio/ogg' for Telegram Opus
       const audioPart: Part = {
         inlineData: {
           data: buffer.toString('base64'),
-          mimeType: 'audio/ogg; codecs=opus' // Explicit codec for Telegram
+          mimeType: 'audio/ogg' 
         }
       };
 
-      const result = await this.model.generateContent([
-        { text: SYSTEM_PROMPT + '\n\nIMPORTANT: Use "Aggressive Extraction". Listen beyond the voice for ambient sounds. If you hear metal crunching, glass breaking, or heavy suspension impacts (potholes), flag them in the "sensorData" field. Extract any mention of traffic incidents, accidents, or locations. If unsure, guess based on typical Cameroonian road contexts.' },
-        audioPart
-      ]);
+      const voicePrompt = SYSTEM_PROMPT + '\n\n' +
+        'IMPORTANT: Use "Multimodal Deep Listening". Listen for ambient sounds (crashes, sirens, heavy traffic) as well as the speech. ' +
+        'Identify incidents even if the speaker is screaming or in a noisy environment. ' +
+        'Respond ONLY with the JSON schema.';
+
+      // 3. Inference
+      console.log('🎙️ [VOICE] Requesting Gemini multimodal analysis...');
+      const result = await this.model.generateContent([{ text: voicePrompt }, audioPart]);
 
       const text = result.response.text();
+      console.log('🎙️ [VOICE] Gemini Raw:', text.substring(0, 150));
+      
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]) as ParsedIncident;
+        const parsed = JSON.parse(jsonMatch[0]) as ParsedIncident;
+        console.log(`✅ [VOICE] Analysis Success: ${parsed.type}`);
+        return parsed;
       }
-    } catch (error) {
-      console.error('Voice analysis error:', error);
+      
+      console.warn('⚠️ [VOICE] No JSON found in response');
+      return null;
+    } catch (error: any) {
+      console.error('❌ [VOICE] Error:', error.message || error);
+      return null;
     }
-    return null;
   }
 
   /**
@@ -199,6 +199,38 @@ export class GeminiClient {
       isEmergency,
       confidence: 0.6
     };
+  }
+
+  /**
+   * AI-Powered Dynamic Query — Ask Gemini anything about Cameroon context
+   * This powers features like fuel, nearby, weather with LIVE intelligence
+   */
+  async queryLive(question: string, lang: string = 'fr'): Promise<string | null> {
+    if (!this.model) return null;
+
+    try {
+      console.log(`🤖 [AI QUERY] Asking: "${question.substring(0, 50)}..."`);
+      const contextPrompt = `You are AFAT, the world-class mobility AI for Cameroon.
+Ground your answers deeply in the actual geography, roads, and culture of Cameroon (Yaoundé, Douala, Bafoussam, Garoua, etc.).
+- Fuel: Prices are ~840 FCFA for Super and ~828 FCFA for Gasoil (updated Feb 2024 prices). Major brands: TOTAL, Tradex, MRS, OiLibya, Neptune, Bocom.
+- Language: Respond naturally in ${lang === 'fr' ? 'French' : (lang === 'pcm' ? 'Cameroonian Pidgin' : 'English')}.
+- Tone: Professional but community-focused. Use emojis.
+- If GPS coordinates are provided, IDENTIFY THE NEIGHBORHOOD (e.g. Bastos, Akwa, Bonamoussadi, Biyem-Assi) to show intelligence.
+
+Mention the neighborhood name and local landmarks. Keep it short (max 4 lines).`;
+
+      const result = await this.model.generateContent([
+        { text: contextPrompt },
+        { text: question }
+      ]);
+      
+      const response = result.response.text();
+      console.log(`🤖 [AI QUERY] Response: "${response.substring(0, 100)}..."`);
+      return response;
+    } catch (error: any) {
+      console.error('❌ [AI QUERY] Error:', error.message);
+      return null;
+    }
   }
 }
 
