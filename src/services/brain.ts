@@ -23,10 +23,10 @@ export class BrainService {
 
     // Orchestration Logic: Trigger Groq if confidence is low OR if it's a complex report
     const isLowConfidence = baseAnalysis.confidence < 0.7;
-    const isComplex = text.length > 150 || /\\b(sos|urgence|emergency|help|danger|dead|mort|blocked|closed|authority|police|accident|collision|jam)\\b/i.test(text);
+    const isComplex = text.length > 150 || /\b(sos|urgence|emergency|help|danger|dead|mort|blocked|closed|authority|police|accident|collision|jam)\b/i.test(text);
 
     if (isLowConfidence || isComplex) {
-      console.log(\`🧠 [BRAIN] Level 2 Triggered (Confidence: \${baseAnalysis.confidence}, Complex: \${isComplex})\`);
+      console.log(`🧠 [BRAIN] Level 2 Triggered (Confidence: ${baseAnalysis.confidence}, Complex: ${isComplex})`);
       const level2 = await groqClient.analyzeDeep(text);
       
       if (level2) {
