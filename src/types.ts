@@ -50,8 +50,6 @@ export interface User {
   emergencyContacts?: string[]; // List of Telegram IDs
   origin?: string;           // Track ad/source origin
   subscriptionTier?: 'free' | 'guardian';
-
-  subscriptionTier?: 'free' | 'guardian';
   subscriptionExpiry?: Date;
   createdAt: Date;
 }
@@ -109,163 +107,115 @@ export const SEVERITY_LABELS: Record<Severity, { emoji: string; labelFr: string;
 
 export type Language = 'fr' | 'en' | 'pcm';
 
-// Messages in French, English, and Pidgin
+// Messages in French, English, and Pidgin (Road Guardian Elite Persona)
 export const MESSAGES: Record<string, any> = {
   welcome: {
-    fr: `🚦 *BIENVENUE / WELCOME — AsTeck Traffic Intelligence!*
-
-Je suis votre assistant trafic pour le Cameroun / I'm your traffic assistant for Cameroon.
-
-📍 *POUR SIGNALER / TO REPORT:*
-1. Appuyez sur / Press 🚨 SIGNALER / REPORT
-2. Choisissez le type d'incident / Choose incident type
-3. Partagez votre position / Share location
-
-🔔 *COMMANDES:*
-/report — Signalement / Reporting
-/alerts — Alertes Actives / Active Alerts
-/help — Aide / Help
-
-_Ensemble, rendons nos routes plus sûres! / Together, let's make our roads safer!_`,
-    en: `🚦 *BIENVENUE / WELCOME — AsTeck Traffic Intelligence!*
-
-Je suis votre assistant trafic pour le Cameroun / I'm your traffic assistant for Cameroon.
-
-📍 *POUR SIGNALER / TO REPORT:*
-1. Appuyez sur / Press 🚨 SIGNALER / REPORT
-2. Choisissez le type d'incident / Choose incident type
-3. Partagez votre position / Share location
-
-🔔 *COMMANDES:*
-/report — Signalement / Reporting
-/alerts — Alertes Actives / Active Alerts
-/help — Aide / Help
-
-_Ensemble, rendons nos routes plus sûres! / Together, let's make our roads safer!_`,
-    pcm: `🚦 *Welcome for AsTeck Traffic Intelligence!*
-
-I be your traffic assistant for diverse Cameroon road.
-
-📍 *For report wahala:*
-1. Press /report
-2. Choose the kind wahala
-3. Share your live location
-
-🔔 *Commands:*
-/report - Talk say wahala dey
-/alerts - See weh part road spoil
-/help - Help
-
-_We go make sure say road correct!_`
+    fr: `🛡️ *AFAT ROAD GUARDIAN — INFOS SECTORIELLES*
+    
+Bonjour, Gardien. Prêt à sécuriser nos routes ? 🦁
+    
+📍 *INTEL RAPIDE :*
+- 🚨 **SIGNALER** : Partagez tout incident.
+- 🔔 **ALERTES** : État actuel du secteur.
+- ⛽ **CARBURANT** : Prix & Stations via AI.
+    
+_Intelligence Partagée. Sécurité Assurée. 🚦_`,
+    en: `🛡️ *AFAT ROAD GUARDIAN — SECTOR INTEL*
+    
+Greetings, Guardian. Ready to secure the roads? 🦁
+    
+📍 *QUICK INTEL:*
+- 🚨 **SIGNALER / REPORT** : Share any incident.
+- 🔔 **ALERTES / ALERTS** : Current sector status.
+- ⛽ **CARBURANT / FUEL** : Prices & Stations via AI.
+    
+_Shared Intelligence. Guaranteed Safety. 🚦_`,
+    pcm: `🛡️ *AFAT ROAD GUARDIAN — ROAD NEWS*
+    
+Guardian how de work? Road safe for wuna? 🦁
+    
+📍 *QUICK ACTION:*
+- 🚨 **TALK WAHALA** : Tell we wetin de sup.
+- 🔔 **ROAD NEWS** : See weh part road spoil.
+- ⛽ **PETROL MONEY** : Find fuel fast fast.
+    
+_Correct Intel. Proper Waka. 🚦_`
   },
   buttons: {
-    report: { fr: '🚨 SIGNALER / REPORT', en: '🚨 SIGNALER / REPORT', pcm: '🚨 TALK WAHALA' },
-    alerts: { fr: '🔔 ALERTES / ALERTS', en: '🔔 ALERTES / ALERTS', pcm: '🔔 ROAD NEWS' },
-    fuel: { fr: '⛽ CARBURANT / FUEL', en: '⛽ CARBURANT / FUEL', pcm: '⛽ PETROL MONEY' },
-    route: { fr: '🗺️ ITINÉRAIRE / ROUTE', en: '🗺️ ITINÉRAIRE / ROUTE', pcm: '🗺️ ROAD MAP' },
-    emergency: { fr: '🆘 SOS URGENCE / EMERGENCY', en: '🆘 SOS URGENCE / EMERGENCY', pcm: '🆘 SOS URGENT' },
-    stats: { fr: '📊 STATS / LEVEL UP', en: '📊 STATS / LEVEL UP', pcm: '📊 LEVEL UP' },
-    toll: { fr: '🛣️ PÉAGE / TOLLS', en: '🛣️ PÉAGE / TOLLS', pcm: '🛣️ ROAD TAX' },
-    tips: { fr: '💡 CONSEILS / TIPS', en: '💡 CONSEILS / TIPS', pcm: '💡 ROAD SENSE' },
-    share: { fr: '🤝 PARTAGER / SHARE', en: '🤝 PARTAGER / SHARE', pcm: '🤝 SEND LINK' },
-    lang: { fr: '🌍 LANGUE / LANGUAGE', en: '🌍 LANGUE / LANGUAGE', pcm: '🌍 TONGUE' },
-    mainMenu: { fr: '🏠 MENU / HOME', en: '🏠 MENU / HOME', pcm: '🏠 MENU' }
+    report: { fr: '🚨 SIGNALER INCIDENT', en: '🚨 REPORT INCIDENT', pcm: '🚨 TALK WAHALA' },
+    alerts: { fr: '🔔 SITUATION SECTEUR', en: '🔔 SECTOR STATUS', pcm: '🔔 ROAD NEWS' },
+    fuel: { fr: '⛽ INTEL CARBURANT', en: '⛽ FUEL INTEL', pcm: '⛽ PETROL MONEY' },
+    route: { fr: '🗺️ GUIDE D\'ITINÉRAIRE', en: '🗺️ ROUTE GUIDE', pcm: '🗺️ ROAD MAP' },
+    emergency: { fr: '🆘 SOS GUARDIAN', en: '🆘 SOS GUARDIAN', pcm: '🆘 SOS URGENT' },
+    stats: { fr: '📈 MON RANG', en: '📈 MY RANK', pcm: '📈 MY LEVEL' },
+    toll: { fr: '🛣️ INFOS PÉAGES', en: '🛣️ TOLL INFOS', pcm: '🛣️ ROAD TAX' },
+    tips: { fr: '💡 SENS DE LA ROUTE', en: '💡 ROAD SENSE', pcm: '💡 ROAD SENSE' },
+    share: { fr: '🤝 RECRUTER GARDIENS', en: '🤝 RECRUIT GUARDIANS', pcm: '🤝 SEND LINK' },
+    lang: { fr: '🌍 TONGUE / LANGUE', en: '🌍 TONGUE / LANGUE', pcm: '🌍 TONGUE' },
+    mainMenu: { fr: '🏠 QG / HOME', en: '🏠 HQ / HOME', pcm: '🏠 HQ' }
   },
   selectType: {
-    fr: `🚨 *SIGNALEMENT / REPORTING*\n\nQuel type d'incident voulez-vous signaler? / What type d'incident do you want to report?`,
-    en: `🚨 *SIGNALEMENT / REPORTING*\n\nQuel type d'incident voulez-vous signaler? / What type d'incident do you want to report?`,
-    pcm: `🚨 *WAHALA DEY*\n\nWeti de sup for road? Choose the kind wahala for bottom:`
-  },
-  selectSeverity: {
-    fr: `🌡️ *GRAVITÉ / SEVERITY*\n\nQuelle est l'importance de cet incident? / How serious is this incident?`,
-    en: `🌡️ *GRAVITÉ / SEVERITY*\n\nQuelle est l'importance de cet incident? / How serious is this incident?`,
-    pcm: `🌡️ *HOW E HOT*\n\nHow hot the wahala dey? Choose the color:`
+    fr: `🛡️ *DÉPÔT D'INTEL*
+Quel type de menace ou d'incident sur le secteur?`,
+    en: `🛡️ *INTEL DROP*
+What type of threat or incident in the sector?`,
+    pcm: `🛡️ *WAHALA NEWS*
+Which kind wahala de sup for your side?`
   },
   shareLocation: {
-    fr: `📍 *POSITION / LOCATION*\n\nPartagez votre position en direct pour confirmer. / Share your live location to confirm.\n\n1. Appuyez sur / Tap 📎\n2. Choisissez / Choose "Location"\n3. Sélectionnez / Select "*Live Location*"`,
-    en: `📍 *POSITION / LOCATION*\n\nPartagez votre position en direct pour confirmer. / Share your live location to confirm.\n\n1. Appuyez sur / Tap 📎\n2. Choisissez / Choose "Location"\n3. Sélectionnez / Select "*Live Location*"`,
-    pcm: `📍 *PLACE WEH YOU DEY*\n\nShow we where the wahala dey now (Click 📎 → Location):`
+    fr: `📍 *VÉRIFICATION GPS*
+Guardiens, partagez votre position en direct pour l'analyse du secteur.`,
+    en: `📍 *GPS VERIFICATION*
+Guardians, share your live location for sector analysis.`,
+    pcm: `📍 *GEO CHECK*
+Guardian, show we weh you dey make we confirm intel.`
   },
   reportReceived: {
-    fr: '✅ *SIGNALEMENT REÇU / REPORT RECEIVED!* (+3 Trust pts 🌟)\n\n📍 Position: {location}\n🚨 Type: {type}\n\n📲 [Partager sur WhatsApp / Share to WhatsApp](https://api.whatsapp.com/send?text=🚦%20Alerte%20Trafic%20AsTeck%20:%20{type}%20a%20{location}.%20Join%20bot%20:%20https://t.me/AsTeck_Bot)\n\n_Merci! Votre rapport sera vérifié / Thank you!_',
-    en: '✅ *SIGNALEMENT REÇU / REPORT RECEIVED!* (+3 Trust pts 🌟)\n\n📍 Position: {location}\n🚨 Type: {type}\n\n📲 [Partager sur WhatsApp / Share to WhatsApp](https://api.whatsapp.com/send?text=🚦%20Alerte%20Trafic%20AsTeck%20:%20{type}%20a%20{location}.%20Join%20bot%20:%20https://t.me/AsTeck_Bot)\n\n_Merci! Votre rapport sera vérifié / Thank you!_',
-    pcm: `✅ *WE DON HEAR YOU!* (+3 Trust pts 🌟)\n\n📍 Place: {location}\n🚨 Wahala: {type}\n\n📲 [Send to WhatsApp](https://api.whatsapp.com/send?text=🚦%20Traffic%20Alerte%20AsTeck%20:%20{type}%20for%20{location}.%20Join%20bot%20:%20https://t.me/AsTeck_Bot)\n\n_Thank you! We go check am._`
-  },
-  reportBroadcast: {
-    fr: '🚨 *ALERTE TRAFIC / TRAFFIC ALERT*\n\n{emoji} *{type}*\n📍 {location}\n⏰ {time}\n\n_Soyez prudent! / Stay safe!_',
-    en: '🚨 *ALERTE TRAFIC / TRAFFIC ALERT*\n\n{emoji} *{type}*\n📍 {location}\n⏰ {time}\n\n_Soyez prudent! / Stay safe!_',
-    pcm: `🚨 *ROAD WAHALA*\n\n{emoji} *{type}*\n📍 {location}\n⏰ {time}\n\n_Shine your eye!_`
-  },
-  noActiveAlerts: {
-    fr: '✅ Aucune alerte active pour le moment. / No active alerts at the moment. 🟢 Roads clear!',
-    en: '✅ Aucune alerte active pour le moment. / No active alerts at the moment. 🟢 Roads clear!',
-    pcm: '✅ Road clear no wahala. Enjoy your waka!'
-  },
-  alertsHeader: {
-    fr: '🔔 *ALERTES ACTIVES / ACTIVE ALERTS ({count}):*\n',
-    en: '🔔 *ALERTES ACTIVES / ACTIVE ALERTS ({count}):*\n',
-    pcm: '🔔 *Active Wahala ({count}):*\n'
-  },
-  nearby: {
-    fr: '📍 Partagez votre position pour voir les alertes à proximité. / Share your location to see nearby alerts.',
-    en: '📍 Partagez votre position pour voir les alertes à proximité. / Share your location to see nearby alerts.',
-    pcm: '📍 *Show weh you dey make we see wahala dem near you:*'
-  },
-  fuelPrompt: {
-    fr: '📍 Envoyez votre position pour trouver de l\'essence. / Send location to find fuel.',
-    en: '📍 Envoyez votre position pour trouver de l\'essence. / Send location to find fuel.',
-    pcm: '📍 Show weh you dey make we find fuel for you.'
-  },
-  leaderboardHeader: {
-    fr: '📊 *CLASSEMENT / LEADERBOARD — Top Reporters:*\n\n',
-    en: '📊 *CLASSEMENT / LEADERBOARD — Top Reporters:*\n\n',
-    pcm: '📊 *Top Reporters for Cameroon*\n\n'
-  },
-  panicActivated: {
-    fr: '🆘 *MODE URGENCE ACTIVÉ / PANIC MODE ACTIVATED*\n\n📢 Signal envoyé aux admins / Signal sent to admins.\n📍 Partagez votre position LIVE / Share LIVE location.',
-    en: '🆘 *MODE URGENCE ACTIVÉ / PANIC MODE ACTIVATED*\n\n📢 Signal envoyé aux admins / Signal sent to admins.\n📍 Partagez votre position LIVE / Share LIVE location.',
-    pcm: '🆘 *PANIC MODE DON START*\n\n📢 We don tell Oga dem say you dey for problem.\n📍 Show weh you dey for LIVE make dem come take you.'
+    fr: `✅ *MISSION ACCOMPLIE!* (+5 Trust 🌟)
+    
+Guardian, votre intel est en cours d'analyse par l'IA Elite. 🛡️
+    
+📲 [Diffuser sur WhatsApp](https://api.whatsapp.com/send?text=🚦%20Alerte%20AFAT%20:%20{type}%20a%20{location}.%20Join%20HQ%20:%20https://t.me/AsTeck_Bot)`,
+    en: `✅ *MISSION COMPLETE!* (+5 Trust 🌟)
+    
+Guardian, your intel is being processed by the Elite AI. 🛡️
+    
+📲 [Broadcast to WhatsApp](https://api.whatsapp.com/send?text=🚦%20AFAT%20Alert%20:%20{type}%20at%20{location}.%20Join%20HQ%20:%20https://t.me/AsTeck_Bot)`,
+    pcm: `✅ *CORRECT INTEL!* (+5 Trust 🌟)
+    
+Guardian, we don receive your news. AI de check am! 🛡️
+    
+📲 [Send to WhatsApp](https://api.whatsapp.com/send?text=🚦%20AFAT%20Alert%20:%20{type}%20for%20{location}.%20Join%20HQ%20:%20https://t.me/AsTeck_Bot)`
   },
   help: {
-    fr: `🚦 *AsTeck Traffic — AIDE / HELP*
-
-📋 *SIGNALEMENT / REPORTING:*
-/report — Signaler / Report
-/alerts — Alertes / Alerts
-/nearby — Proximité / Nearby
-
-🚗 *SERVICES:*
-/fuel — Carburant / Fuel
-/route — Itinéraire / Directions
-/toll — Péage / Tolls
-/tips — Conseils / Tips
-/emergency — SOS / Emergency
-
-_AsTeck World-Class Intelligence_ 🚦`,
-    en: `🚦 *AsTeck Traffic — AIDE / HELP*
-
-📋 *SIGNALEMENT / REPORTING:*
-/report — Signaler / Report
-/alerts — Alertes / Alerts
-/nearby — Proximité / Nearby
-
-🚗 *SERVICES:*
-/fuel — Carburant / Fuel
-/route — Itinéraire / Directions
-/toll — Péage / Tolls
-/tips — Conseils / Tips
-/emergency — SOS / Emergency
-
-_AsTeck World-Class Intelligence_ 🚦`,
-    pcm: `🚦 *AsTeck Traffic — HELP*
-
+    fr: `🛡️ *AFAT ELITE HQ — MANUEL DE TERRAIN*
+    
+📋 *COMMANDES DE GARDIEN :*
+/report — Alerte Secteur
+/alerts — Situation Globale
+/nearby — Menaces Proches
+/fuel — Intel Carburant
+/sos — Urgence Critique
+    
+_AFAT : Intelligence Routière de Classe Mondiale_ 🚦`,
+    en: `🛡️ *AFAT ELITE HQ — FIELD MANUAL*
+    
+📋 *GUARDIAN COMMANDS:*
+/report — Sector Alert
+/alerts — Global Status
+/nearby — Local Threats
+/fuel — Fuel Intel
+/sos — Critical Emergency
+    
+_AFAT: World-Class Road Intelligence_ 🚦`,
+    pcm: `🛡️ *AFAT ELITE HQ — HELP GUIDE*
+    
 /report — Talk wahala
-/alerts — See wahala
-/fuel — Buy petrol
-/emergency — Call police
-/tips — Advice
-
-_AsTeck Correct System_ 🚦`
+/alerts — See road news
+/fuel — Petrol money
+/sos — Call for help
+    
+_AFAT: Correct System_ 🚦`
   }
 };
 
@@ -282,4 +232,3 @@ export const SAFETY_REMINDER = {
   en: '\n\n🔐 _Drive safely. Reports are anonymous._',
   pcm: '\n\n🔐 _Drive soft. Nobody go know say na you talk._'
 };
-
