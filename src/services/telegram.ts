@@ -145,15 +145,15 @@ export class TelegramService {
 
     // /start - Welcome message
     this.bot.command('start', async (ctx) => {
-      try {
         const userId = ctx.from.id.toString();
+        const payload = ctx.payload; // Capture attribution parameter
         const lang = this.getLang(userId);
         const isUserAdmin = this.isAdmin(userId);
 
-        console.log(`🚀 [START] User: ${userId} (${lang})`);
+        console.log(`🚀 [START] User: ${userId} (${lang}) | Payload: ${payload || 'none'}`);
 
-        // Register user in Supabase
-        await getOrCreateUser(userId, ctx.from.username);
+        // Register user in Supabase with attribution
+        await getOrCreateUser(userId, ctx.from.username, payload);
 
         const activeIncidents = await getActiveIncidents(12 * 60);
         const count = activeIncidents.length;
@@ -551,3 +551,4 @@ export class TelegramService {
     } catch (e) { console.error('Launch failed'); }
   }
 }
+
