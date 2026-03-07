@@ -134,7 +134,7 @@ export async function updateIncidentConfirmations(
 
 // ========== USER REPOSITORY ==========
 
-export async function getOrCreateUser(telegramId: string, username?: string): Promise<User | null> {
+export async function getOrCreateUser(telegramId: string, username?: string, origin?: string): Promise<User | null> {
   try {
     // Try to get existing user
     let { data, error } = await supabase
@@ -155,7 +155,8 @@ export async function getOrCreateUser(telegramId: string, username?: string): Pr
           accurate_reports: 0,
           language: 'fr',
           emergency_contacts: [],
-          subscription_tier: 'free'
+          subscription_tier: 'free',
+          origin: origin || 'organic' 
         })
         .select()
         .single();
@@ -480,3 +481,4 @@ export async function updateUserSubscription(
     return false;
   }
 }
+
