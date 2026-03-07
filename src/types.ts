@@ -48,6 +48,9 @@ export interface User {
   accurateReports: number;
   language: 'fr' | 'en' | 'pcm';
   emergencyContacts?: string[]; // List of Telegram IDs
+  origin?: string;           // Track ad/source origin
+  subscriptionTier?: 'free' | 'guardian';
+
   subscriptionTier?: 'free' | 'guardian';
   subscriptionExpiry?: Date;
   createdAt: Date;
@@ -279,3 +282,4 @@ export const SAFETY_REMINDER = {
   en: '\n\n🔐 _Drive safely. Reports are anonymous._',
   pcm: '\n\n🔐 _Drive soft. Nobody go know say na you talk._'
 };
+
