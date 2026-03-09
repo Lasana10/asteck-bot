@@ -231,7 +231,13 @@ export class TelegramService {
     });
     this.bot.action('menu_fuel', (ctx) => {
       ctx.answerCbQuery();
-      return ctx.reply(MESSAGES.fuelPrompt[this.getLang(ctx.from!.id.toString())]);
+      const userId = ctx.from!.id.toString();
+      const lang = this.getLang(userId);
+      pendingFuel.set(userId, { step: 'awaiting_location' });
+      return ctx.reply(MESSAGES.fuelPrompt[lang], {
+        parse_mode: 'Markdown',
+        ...this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Stations Proches' : (lang === 'pcm' ? '📍 Station dem near me' : '📍 Nearby Stations'))
+      });
     });
     this.bot.action('menu_stats', async (ctx) => {
       const stats = await getLeaderboard();
@@ -980,12 +986,24 @@ export class TelegramService {
 
     // If it's a broadcast message (Admin Flow)
     if (adminStates.get(userId)?.step === 'broadcast_message') {
-      // Admin sent a location? Probably mistake, but handled in text
       return;
     }
 
+    // Check if user is in FUEL flow — route to findFuel
+    const fuelState = pendingFuel.get(userId);
+    if (fuelState && fuelState.step === 'awaiting_location' && ctx.message && 'location' in ctx.message) {
+      pendingFuel.delete(userId);
+      return this.findFuel(ctx, ctx.message.location);
+    }
+
+    // Check if user is in ROUTE flow — route to handleRouteLocation
+    const routeState = pendingRoutes.get(userId);
+    if (routeState && ctx.message && 'location' in ctx.message) {
+      return this.handleRouteLocation(ctx, routeState);
+    }
+
     if (!pending || pending.step !== 'awaiting_location') {
-      // Maybe user just shared location randomly -> Show nearby
+      // User shared location randomly -> Show nearby
       if (ctx.message && 'location' in ctx.message) {
         await this.showNearbyIncidents(ctx, ctx.message.location);
       }
