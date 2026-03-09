@@ -156,7 +156,7 @@ export async function getOrCreateUser(telegramId: string, username?: string, ori
           language: 'fr',
           emergency_contacts: [],
           subscription_tier: 'free',
-          origin: origin || 'organic' 
+          origin: origin || 'organic'
         })
         .select()
         .single();
@@ -481,4 +481,3 @@ export async function updateUserSubscription(
     return false;
   }
 }
-
