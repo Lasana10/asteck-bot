@@ -216,6 +216,26 @@ _AFAT: World-Class Road Intelligence_ 🚦`,
 /sos — Call for help
     
 _AFAT: Correct System_ 🚦`
+  },
+  fuelPrompt: {
+    fr: `⛽ *INTEL CARBURANT*\n\nPartagez votre position pour trouver les stations les plus proches avec les prix actuels.\n\n📍 _Envoyez votre localisation ci-dessous._`,
+    en: `⛽ *FUEL INTEL*\n\nShare your location to find the nearest stations with current prices.\n\n📍 _Send your location below._`,
+    pcm: `⛽ *PETROL MONEY*\n\nShow we weh you dey, we go find petrol station near you.\n\n📍 _Send your location down._`
+  },
+  nearby: {
+    fr: `📍 *INCIDENTS PROCHES*\n\nPartagez votre position pour voir les menaces dans votre secteur (rayon de 5km).`,
+    en: `📍 *NEARBY INCIDENTS*\n\nShare your location to see threats in your sector (5km radius).`,
+    pcm: `📍 *WAHALA NEAR YOU*\n\nShow we weh you dey, we go check if any wahala dey around you (5km).`
+  },
+  leaderboardHeader: {
+    fr: `🏆 *CLASSEMENT DES GARDIENS*\n\n`,
+    en: `🏆 *GUARDIAN LEADERBOARD*\n\n`,
+    pcm: `🏆 *TOP GUARDIANS DEM*\n\n`
+  },
+  noActiveAlerts: {
+    fr: `✅ Aucun incident majeur signalé récemment. Les routes sont claires, Guardian! 🛡️`,
+    en: `✅ No major incidents reported recently. Roads are clear, Guardian! 🛡️`,
+    pcm: `✅ No wahala for road now now. Road clear, Guardian! 🛡️`
   }
 };
 
