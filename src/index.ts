@@ -116,6 +116,14 @@ async function main() {
   app.use('/api', apiRoutes);
 
   await startBot();
+
+  // Self-Pulse Keep-Alive (Elite reliability strategy)
+  const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+  if (appUrl) {
+    setInterval(() => {
+      fetch(`${appUrl}/health`).catch(() => {});
+    }, 10 * 60 * 1000);
+  }
 }
 
 main();

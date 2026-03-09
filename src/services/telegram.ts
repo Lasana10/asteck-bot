@@ -240,10 +240,23 @@ export class TelegramService {
       });
     });
     this.bot.action('menu_stats', async (ctx) => {
+      const userId = ctx.from!.id.toString();
+      const user = await getOrCreateUser(userId, ctx.from!.username);
+      const lang = this.getLang(userId);
       const stats = await getLeaderboard();
-      const lang = this.getLang(ctx.from!.id.toString());
-      let msg = MESSAGES.leaderboardHeader[lang];
+      
+      let msg = lang === 'fr' 
+        ? `👤 *VOTRE STATUT :*\n` 
+        : (lang === 'pcm' ? `👤 *YOUR LEVEL :*\n` : `👤 *YOUR STATUS :*\n`);
+      
+      if (user) {
+        const badge = getUserBadge(user.trustScore, user.reportsCount);
+        msg += `🏆 Rang: ${badge}\n🌟 Score: ${user.trustScore}/100\n📊 Signalements: ${user.reportsCount}\n\n`;
+      }
+      
+      msg += MESSAGES.leaderboardHeader[lang];
       stats.forEach((s, i) => msg += `${i+1}. @${s.username || 'Anonyme'}: ${s.trustScore} pts\n`);
+      
       ctx.answerCbQuery();
       ctx.replyWithMarkdown(msg);
     });
