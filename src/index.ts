@@ -78,9 +78,13 @@ async function startBot() {
       });
     } else {
       console.log('📡 Entering Polling Mode...');
-      await telegramService.launch();
+      // CRITICAL: Open port FIRST so Render detects it, THEN start polling
       app.listen(port, () => {
         console.log(`🚀 Server listening on port ${port} (Polling mode)`);
+      });
+      // Launch bot polling in background (non-blocking)
+      telegramService.launch().catch(err => {
+        console.error('❌ Polling launch error:', err);
       });
     }
   } catch (err) {
