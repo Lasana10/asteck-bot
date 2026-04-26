@@ -12,7 +12,7 @@ COPY package*.json ./
 COPY tsconfig.json ./
 
 # Install all dependencies
-RUN npm ci --include=dev
+RUN npm install --include=dev
 
 # Copy source code
 COPY src ./src
@@ -36,7 +36,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 
 # Install only production dependencies
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copy PM2 ecosystem config
 COPY ecosystem.config.js ./
