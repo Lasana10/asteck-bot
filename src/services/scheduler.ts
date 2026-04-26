@@ -1,17 +1,15 @@
 import { WeatherService } from './weather';
 import { getActiveIncidents } from '../infra/supabase';
 import { INCIDENT_TYPES, SEVERITY_LABELS } from '../types';
-import { DataHarvester } from './DataHarvester';
 
 /**
- * AFAT Sentinel Scheduler — Morning briefs and periodic tasks
+ * AsTeck Scheduler — Morning briefs and periodic tasks
  * Runs inside the main process (no external cron needed)
  */
 
-export class AFATSentinelScheduler {
+export class AsTeckScheduler {
   private morningBriefInterval: ReturnType<typeof setInterval> | null = null;
   private expiryInterval: ReturnType<typeof setInterval> | null = null;
-  private harvestingInterval: ReturnType<typeof setInterval> | null = null;
   private broadcastFn: ((message: string) => Promise<void>) | null = null;
 
   /**
@@ -31,27 +29,10 @@ export class AFATSentinelScheduler {
       this.runExpiryCleanup();
     }, 15 * 60 * 1000);
 
-    // Run Proprietary Data Harvesting every 4 hours
-    this.harvestingInterval = setInterval(() => {
-      this.runProprietaryHarvesting();
-    }, 4 * 60 * 60 * 1000);
+    console.log('⏰ Scheduler started (morning briefs + expiry cleanup)');
 
-    console.log('⏰ Scheduler started (briefs + expiry + harvesting)');
-
-    // Run initial small checks
+    // Run initial check
     this.checkMorningBrief();
-    this.runProprietaryHarvesting(); // Initial harvest on boot
-  }
-
-  private async runProprietaryHarvesting() {
-    try {
-      console.log('📡 Starting periodic Sentinel Harvesting...');
-      const count = await DataHarvester.harvestCityNodes('yaounde');
-      await DataHarvester.syncImageryIntelligence();
-      console.log(`✅ Periodic harvest complete. Ingested ${count} nodes.`);
-    } catch (err) {
-      console.error('❌ Harvesting error:', err);
-    }
   }
 
   stop() {
@@ -102,13 +83,15 @@ export class AFATSentinelScheduler {
 
       // Use Gemini 2.5 for Prediction
       // We will perform a direct generation request here since it's a unique prompt
+      // Importing geminiClient here to avoid circular dependency issues at top level if any
+      const { geminiClient } = await import('../infra/gemini');
       
       // HEURISTIC PREDICTION (Simulating AI for stability)
       let prediction = "🟢 *Traffic Fluid / Circulation Fluide*";
       if (incidents.length > 3) prediction = "🔴 *Traffic Heavy / Circulation Dense*";
       if (doualaWeather?.isRainWarning || yaoundeWeather?.isRainWarning) prediction = "🟡 *Rain Caution / Prudence Pluie*";
 
-      let brief = `🌅 *BULLETIN MATINAL AFAT / MORNING BRIEF*\n`;
+      let brief = `🌅 *BULLETIN MATINAL AsTeck / MORNING BRIEF*\n`;
       brief += `📅 ${date}\n\n`;
 
       // Weather section
@@ -148,7 +131,7 @@ export class AFATSentinelScheduler {
       ];
       brief += tips[Math.floor(Math.random() * tips.length)];
 
-      brief += `\n\n_AFAT Sentinel World-Class Intelligence_ 🚦\n#AFAT #Sentinel #TrafficCameroun`;
+      brief += `\n\n_AsTeck World-Class Intelligence_ 🚦\n#AsTeck #TrafficCameroun`;
 
       await this.broadcastFn(brief);
       console.log('[Scheduler] Morning brief sent');
@@ -176,4 +159,4 @@ export class AFATSentinelScheduler {
   }
 }
 
-export const scheduler = new AFATSentinelScheduler();
+export const scheduler = new AsTeckScheduler();

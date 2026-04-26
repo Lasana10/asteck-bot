@@ -6,12 +6,8 @@ import { GeoService } from './geo';
 import { WeatherService } from './weather';
 import { DirectionsService, DirectionsResult } from './directions';
 import { DriverService, CAMEROON_TOLL_ROUTES, FUEL_REFERENCE_PRICES } from './driver';
-<<<<<<< HEAD
-import { IntelligenceEngine } from '../core/brain';
-=======
 import { geminiClient } from '../infra/gemini';
 import { brainService } from './brain';
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
 import {
   createIncident,
   getActiveIncidents,
@@ -36,26 +32,14 @@ import {
   INCIDENT_TYPES,
   SEVERITY_LABELS,
   MESSAGES,
-  ROAD_AWARENESS_DISCLAIMER,
+  POLICE_DISCLAIMER,
   SAFETY_REMINDER,
   PendingReport,
   Incident,
   Coordinates,
   Language,
-  FuelStation,
-  RentUser,
-  Property,
-  PropertyType,
-  EscrowStatus,
-  TruthReport,
-  VisitStatus,
-  RentContract
+  FuelStation
 } from '../types';
-import { PropertyService } from './PropertyService';
-import { EscrowService } from './EscrowService';
-import { VerificationService } from './VerificationService';
-import { TruthEngine } from './TruthEngine';
-import { getRentUser, createRentUser } from '../infra/rent_repository';
 
 dotenv.config();
 
@@ -96,8 +80,8 @@ export class TelegramService {
   /** Helper to get the full persistent menu keyboard */
   private getPersistentKeyboard(lang: Language) {
     return Markup.keyboard([
-      [MESSAGES.buttons.report[lang], MESSAGES.buttons.alerts[lang], '🏠 RENT OS'],
-      [MESSAGES.buttons.fuel[lang], MESSAGES.buttons.route[lang], '🔑 UNLOCK'],
+      [MESSAGES.buttons.report[lang], MESSAGES.buttons.alerts[lang], MESSAGES.buttons.fuel[lang]],
+      [MESSAGES.buttons.route[lang], MESSAGES.buttons.toll[lang], '🔊 SENSOR MODE'],
       [MESSAGES.buttons.emergency[lang], MESSAGES.buttons.stats[lang], MESSAGES.buttons.share[lang]],
       [MESSAGES.buttons.lang[lang], MESSAGES.buttons.mainMenu[lang]]
     ]).resize();
@@ -146,7 +130,7 @@ export class TelegramService {
         console.log(`📡 [RAW UPDATE] ${update}...`);
 
         if (ctx.from) {
-          const text = (ctx.message && 'text' in ctx.message) ? ctx.message.text : (ctx.callbackQuery && 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : '[Media]');
+          const text = 'text' in (ctx.message || {}) ? (ctx.message as any).text : (ctx.callbackQuery ? (ctx.callbackQuery as any).data : '[Media]');
           console.log(`💬 [MESSAGE] From: ${ctx.from.id} | Name: ${ctx.from.first_name} | Input: ${text}`);
         }
 
@@ -236,100 +220,6 @@ export class TelegramService {
       await this.handlePanic(ctx);
     });
 
-    // ========== RENT OS COMMANDS ==========
-
-    // /rent_search - Search properties by neighborhood
-    this.bot.command('rent_search', async (ctx) => {
-      const neighborhood = ctx.message.text.split(' ')[1];
-      const lang = this.getLang(ctx.from.id.toString());
-      
-      const properties = await PropertyService.searchProperties({ neighborhood });
-      
-      if (properties.length === 0) {
-        return ctx.reply(lang === 'fr' ? '❌ Aucun bien trouvé dans ce quartier.' : '❌ No properties found in this area.');
-      }
-
-      for (const p of properties) {
-        let msg = `🏠 *${p.title}*\n`;
-        msg += `💰 ${p.priceXaf} FCFA/mois\n`;
-        msg += `📍 ${p.neighborhood}\n`;
-        msg += `✨ ${p.hasBorehole ? '✅ Forage' : '❌ Pas de forage'}\n`;
-        msg += `[Unlock with Escrow / Débloquer](https://t.me/AFAT_Bot?start=unlock_${p.id})`;
-
-        await ctx.replyWithMarkdown(msg);
-      }
-    });
-
-    // /unlock <propertyId> - Initiate escrow
-    this.bot.command('unlock', async (ctx) => {
-      const propertyId = ctx.message.text.split(' ')[1];
-      if (!propertyId) return ctx.reply('⚠️ Usage: /unlock <property_id>');
-      
-      const userId = ctx.from.id.toString();
-      const escrow = await EscrowService.lockMicroFee(userId, propertyId);
-      
-      if (!escrow) return ctx.reply('❌ Error initiating escrow.');
-
-      ctx.replyWithMarkdown(
-        `💳 *ANTI-SCAM ESCROW INITIALIZED*\n\n` +
-        `Amount: 1000 CFA\n` +
-        `Status: ${escrow.status}\n\n` +
-        `Dial *126# (MTN) now. Once paid, click the "I have paid" button below.`,
-        Markup.inlineKeyboard([
-          [Markup.button.callback('✅ I HAVE PAID / J\'AI PAYÉ', `pay_confirm_${escrow.id}`)]
-        ])
-      );
-    });
-
-    // /verify_visit <propertyId> - Start the World-Class AI loop
-    this.bot.command('verify_visit', async (ctx) => {
-      const propertyId = ctx.message.text.split(' ')[1];
-      if (!propertyId) return ctx.reply('⚠️ Usage: /verify_visit <property_id>');
-
-      const lang = this.getLang(ctx.from.id.toString());
-      ctx.reply(
-        lang === 'fr' 
-          ? '🛡️ *Lancement de la vérification AI en direct...*\n\nVeuillez partager votre POSITION EN DIRECT pour confirmer que vous êtes sur place.' 
-          : '🛡️ *Launching Live AI Verification...*\n\nPlease share your LIVE LOCATION to confirm you are at the property.',
-        this.getLocationKeyboard(lang, '📍 Verify Location')
-      );
-    });
-
-    // ========== RENT OS CALLBACKS ==========
-
-    this.bot.action(/^pay_confirm_(.+)$/, async (ctx) => {
-      const escrowId = ctx.match[1];
-      const lang = this.getLang(ctx.from!.id.toString());
-      
-      // World-Class Move: In a real app, we'd poll the MoMo API here.
-      // Mocking successful payment for now.
-      const success = await EscrowService.confirmPayment(escrowId, `MOMO_REF_${Date.now()}`);
-      
-      if (success) {
-        ctx.answerCbQuery('✅ Payment Confirmed!');
-        ctx.editMessageText(
-          lang === 'fr'
-            ? '✅ *PAIEMENT CONFIRMÉ!*\n\nFonds bloqués en sécurité. Vous pouvez maintenant visiter le bien. Si c\'est un scam, vous serez remboursé instantanément.'
-            : '✅ *PAYMENT CONFIRMED!*\n\nFunds held securely. You can now visit the property. If it\'s a scam, you will be refunded instantly.',
-          { parse_mode: 'Markdown' }
-        );
-      } else {
-        ctx.answerCbQuery('❌ Payment Error');
-      }
-    });
-
-    this.bot.hears('🏠 RENT OS', async (ctx) => {
-      const lang = this.getLang(ctx.from!.id.toString());
-      ctx.replyWithMarkdown(
-        `🏠 *Rent OS - Trust-as-a-Service*\n\n` +
-        `Use buttons or commands to find your next home safely.\n\n` +
-        `Commands:\n` +
-        `/rent_search <quartier> - Search\n` +
-        `/unlock <id> - Anti-Scam Escrow\n` +
-        `/verify_visit <id> - AI Proof of Visit`
-      );
-    });
-
     // ========== CALLBACK HANDLERS (Zero-Typing) ==========
     this.bot.action('menu_report', (ctx) => {
       ctx.answerCbQuery();
@@ -390,21 +280,6 @@ export class TelegramService {
       ctx.answerCbQuery('🇨🇲 Pidgin');
       ctx.editMessageText('✅ Language: Pidgin. Type /start to see the menu.');
     });
-<<<<<<< HEAD
-    this.bot.action('admin_stats', async (ctx) => {
-      ctx.answerCbQuery();
-      const userId = ctx.from!.id.toString();
-      if (!this.isAdmin(userId)) return;
-      const incidents = await getActiveIncidents(24 * 60);
-      const pendingCount = pendingReports.size;
-      ctx.reply(
-        `📉 *System Statistics (24h)*\n\n` +
-        `🚨 Active Incidents: ${incidents.length}\n` +
-        `⏳ Pending Flows: ${pendingCount}\n` +
-        `🤖 Bot Version: 1.3.0 (Audited)`,
-        { parse_mode: 'Markdown' }
-      );
-=======
     this.bot.action('admin_vitals', async (ctx) => {
       const userId = ctx.from!.id.toString();
       if (!this.isAdmin(userId)) return ctx.answerCbQuery('❌ Unauthorized');
@@ -448,7 +323,6 @@ export class TelegramService {
       ctx.answerCbQuery();
       const lang = this.getLang(ctx.from!.id.toString());
       return ctx.replyWithMarkdown(MESSAGES.help[lang]);
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
     });
     this.bot.action('admin_broadcast', (ctx) => {
       ctx.answerCbQuery();
@@ -541,7 +415,7 @@ export class TelegramService {
 
     // Share Handler
     this.bot.hears(getButtonLabels('share'), (ctx) => {
-      const shareText = encodeURIComponent('🚦 AFAT Sentinel Intelligence - Real-time traffic alerts for Cameroon! Join now: https://t.me/AFAT_Bot');
+      const shareText = encodeURIComponent('🚦 AsTeck Traffic Intelligence - Real-time traffic alerts for Cameroon! Join now: https://t.me/AsTeck_Bot');
       ctx.replyWithMarkdown(
         `📲 *Spread the word!*\n\n` +
         `[Click to Share / Cliquez pour Partager](https://t.me/share/url?url=${shareText})`,
@@ -594,12 +468,12 @@ export class TelegramService {
       const userId = ctx.from.id.toString();
       pendingReports.delete(userId);
       pendingRoutes.delete(userId);
-      return this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/start' } } as unknown as Update);
+      return this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/start' } } as any);
     });
 
     // /fuel - Fuel info
     const fuelLabels = getButtonLabels('fuel');
-    this.bot.hears(fuelLabels, (ctx) => this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/fuel' } } as unknown as Update));
+    this.bot.hears(fuelLabels, (ctx) => this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/fuel' } } as any));
     this.bot.command('fuel', (ctx) => {
       const userId = ctx.from.id.toString();
       const lang = this.getLang(userId); // Use userId here
@@ -626,7 +500,7 @@ export class TelegramService {
 
     // /route - Get directions
     const routeLabels = getButtonLabels('route');
-    this.bot.hears(routeLabels, (ctx) => this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/route' } } as unknown as Update));
+    this.bot.hears(routeLabels, (ctx) => this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/route' } } as any));
     this.bot.command('route', (ctx) => {
       const userId = ctx.from.id.toString();
       const lang = this.getLang(userId);
@@ -861,14 +735,15 @@ export class TelegramService {
         const station = stations.find(s => s.id === fuelState.stationId);
 
         if (station) {
-          const { id, lastUpdated, ...stationWithoutIdAndDate } = station;
-          const updatedStation: Omit<FuelStation, 'id' | 'lastUpdated'> = {
-            ...stationWithoutIdAndDate,
+          const updatedStation: any = {
+            ...station,
             petrolPrice: fuelState.fuelType === 'petrol' ? price : station.petrolPrice,
             dieselPrice: fuelState.fuelType === 'diesel' ? price : station.dieselPrice,
             gasPrice: fuelState.fuelType === 'gas' ? price : station.gasPrice,
             reportedBy: userId
           };
+          delete updatedStation.id;
+          delete updatedStation.lastUpdated;
 
           await saveFuelPrice(updatedStation);
           pendingFuel.delete(userId);
@@ -884,7 +759,7 @@ export class TelegramService {
       if (text === '/start' || menuLabels.includes(text)) {
         pendingReports.delete(userId);
         pendingRoutes.delete(userId);
-        return this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/start' } } as unknown as Update);
+        return this.bot.handleUpdate({ ...ctx.update, message: { ...ctx.message, text: '/start' } } as any);
       }
 
       // 3. Pending Flows (Description / Route Destination)
@@ -914,12 +789,8 @@ export class TelegramService {
       // 4. Smart analysis for direct reports (if not in flow)
       if (!pending && !routeReq) {
         ctx.replyWithChatAction('typing');
-<<<<<<< HEAD
-        const parsed = await IntelligenceEngine.observeText(text);
-=======
         // Elite Hybrid Orchestration
         const parsed = await brainService.analyze(text);
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
         if (parsed && parsed.type !== 'other') {
           pendingReports.set(userId, {
             userId,
@@ -935,8 +806,8 @@ export class TelegramService {
           let msg = `${typeInfo.emoji} *${typeLabel}* detected!\n\n` +
             MESSAGES.shareLocation[lang];
 
-          if (parsed.type === 'road_awareness') {
-            msg += ROAD_AWARENESS_DISCLAIMER[lang];
+          if (parsed.type === 'police_control') {
+            msg += POLICE_DISCLAIMER[lang];
           }
 
           const locLabel = lang === 'pcm' ? '📍 Show weh I dey' : '📍 Partager Ma Position / Share My Location';
@@ -1115,8 +986,8 @@ export class TelegramService {
     // Use editMessageText to reduce clutter
     ctx.editMessageText(
       lang === 'fr'
-        ? `📝 *Décrivez l'incident:*\n\n(Ex: "Gros trou à Carrefour Bastos", "Contrôle au rond point")`
-        : (lang === 'pcm' ? `📝 *Talk wetin happen:*\n\n(Ex: "Big hole for Bastos junction", "Oga dem dey road")` : `📝 *Describe the incident:*\n\n(Ex: "Big pothole at Bastos", "Road check")`),
+        ? `📝 *Décrivez l'incident:*\n\n(Ex: "Gros trou à Carrefour Bastos", "Policiers au rond point")`
+        : (lang === 'pcm' ? `📝 *Talk wetin happen:*\n\n(Ex: "Big hole for Bastos junction", "Police dey check point")` : `📝 *Describe the incident:*\n\n(Ex: "Big pothole at Bastos", "Police checkpoint")`),
       { parse_mode: 'Markdown' }
     );
   }
@@ -1159,16 +1030,12 @@ export class TelegramService {
       longitude: ctx.message.location.longitude
     };
 
-    // Forward coordinates to GeoService to get a human-readable address
-    const address = await GeoService.reverseGeocode(location) || "Localisation Inconnue";
-
-    const incidentData: Omit<Incident, 'id'> = {
+    const incidentData: any = {
       type: pending.type,
       description: pending.description || '',
       location,
-      address, // Ensure address is populated structurally
       severity: pending.severity || 3,
-      status: 'pending', // Follow data integrity cross-check rules
+      status: 'pending',
       reporterId: userId,
       reporterUsername: ctx.from?.username || 'anonymous',
       confirmations: 0,
@@ -1220,7 +1087,7 @@ export class TelegramService {
     pendingReports.delete(userId);
   }
 
-  // ========== VOICE HANDLER (Whisper STT → AI Classification) ==========
+  // ========== VOICE HANDLER (Gemini 2.5) ==========
   private async handleVoice(ctx: Context) {
     try {
       const userId = ctx.from!.id.toString();
@@ -1228,32 +1095,17 @@ export class TelegramService {
 
       ctx.replyWithChatAction('typing');
 
-<<<<<<< HEAD
-      // 1. Get voice file from Telegram
-=======
       // 1. Get file link
       // 1. Inform user (Live Feedback)
       const statusMsg = await ctx.reply(lang === 'fr' ? '🎙️ _Analyse du vocal en cours..._' : '🎙️ _Processing your voice note..._', { parse_mode: 'Markdown' });
       await ctx.sendChatAction('record_voice');
 
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
       if (!ctx.message || !('voice' in ctx.message)) {
         throw new Error('No voice message found in context');
       }
       const fileId = ctx.message.voice.file_id;
-      const fileLink = await ctx.telegram.getFileLink(fileId);
+      const link = await ctx.telegram.getFileLink(fileId);
 
-<<<<<<< HEAD
-      // 2. Download the audio buffer directly
-      const axios = (await import('axios')).default;
-      const audioResponse = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 15000 });
-      const audioBuffer = Buffer.from(audioResponse.data);
-      const mimeType = ctx.message.voice.mime_type || 'audio/ogg';
-
-      // 3. Primary: Groq Whisper STT (fastest, most reliable)
-      const { groqClient } = await import('../infra/groq');
-      let transcription = await groqClient.transcribeAudio(audioBuffer, mimeType);
-=======
       // 2. Process with Gemini (Audio -> Text -> Meaning)
       const baseAnalysis = await geminiClient.analyzeVoice(link.href);
       
@@ -1265,118 +1117,36 @@ export class TelegramService {
       const analysis = await brainService.orchestrate(baseAnalysis.description, baseAnalysis);
 
       if (!analysis) throw new Error('Orchestrated analysis returned null');
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
 
-      // 4. Fallback: If Whisper fails, try Gemini direct voice
-      if (!transcription) {
-        console.log('[Voice] Whisper failed, trying Gemini direct...');
-        const analysis = await IntelligenceEngine.observeVoice(fileLink.href);
-        if (analysis && analysis.type !== 'other') {
-          transcription = analysis.description || '';
-          // Use the direct analysis result
-          pendingReports.set(userId, {
-            userId,
-            type: analysis.type as IncidentType,
-            description: analysis.description || 'Voice report',
-            severity: analysis.severity as Severity,
-            step: 'awaiting_location',
-            createdAt: new Date()
-          });
+      // 3. Check for Autonomous Sensor Detection (Crash/Pothole)
+      const isAutoDetect = analysis.sensorData?.potentialCrash || analysis.sensorData?.potholeHit;
 
-          const typeInfo = INCIDENT_TYPES[analysis.type as IncidentType];
-          const typeLabel = lang === 'fr' ? typeInfo.labelFr : (lang === 'pcm' ? typeInfo.labelPcm : typeInfo.labelEn);
-          return ctx.replyWithMarkdown(
-            `🎙️ *Analyse Vocale Terminée:*\n\n` +
-            `⚠️ *Type:* ${typeInfo.emoji} ${typeLabel}\n` +
-            `📝 *Note:* "${analysis.description}"\n\n` +
-            MESSAGES.shareLocation[lang],
-            this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Valider ma Position' : '📍 Confirm Location')
-          );
-        }
-        throw new Error('Both Whisper and Gemini failed');
-      }
+      if (analysis.type !== 'other' || isAutoDetect) {
+        const finalType = isAutoDetect
+          ? (analysis.sensorData?.potentialCrash ? 'accident' : 'road_damage')
+          : analysis.type as IncidentType;
 
-      // 5. Classify the transcription via the AI Brain
-      console.log(`[Voice] Whisper transcribed: "${transcription.slice(0, 80)}..."`);
-      
-      ctx.replyWithChatAction('typing');
-      const parsed = await IntelligenceEngine.observeText(transcription, lang);
-
-      if (parsed && parsed.type !== 'other') {
         pendingReports.set(userId, {
           userId,
-<<<<<<< HEAD
-          type: parsed.type as IncidentType,
-          description: parsed.description || transcription,
-          severity: parsed.severity as Severity,
-=======
           type: finalType,
           description: analysis.description || (isAutoDetect ? 'Auto-detected via OS Synergy analysis' : 'Voice report'),
           severity: isAutoDetect ? 4 : (analysis.severity || 3),
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
           step: 'awaiting_location',
           createdAt: new Date()
         });
 
-        const typeInfo = INCIDENT_TYPES[parsed.type as IncidentType];
+        const typeInfo = INCIDENT_TYPES[finalType];
         const typeLabel = lang === 'fr' ? typeInfo.labelFr : (lang === 'pcm' ? typeInfo.labelPcm : typeInfo.labelEn);
 
         ctx.replyWithMarkdown(
-<<<<<<< HEAD
-          `🎙️ *Transcription:* "${transcription.slice(0, 120)}"\n\n` +
-          `⚠️ *Type:* ${typeInfo.emoji} ${typeLabel}\n` +
-          `📝 *Note:* "${parsed.description}"\n\n` +
-=======
           (isAutoDetect ? `🛰️ *OS SYNERGY DETECTED:* \n\n` : `🎙️ *Intelligence Vocale AsTeck:*\n\n`) +
           `⚠️ *Type:* ${typeInfo.emoji} ${typeLabel}\n` +
           `📝 *Note:* "${analysis.description || 'Ambient sound check'}"\n\n` +
           `🤖 *Analyse:* _${analysis.description || 'Situation analysée par Gemini 2.5'}_ \n\n` +
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
           MESSAGES.shareLocation[lang],
           this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Valider ma Position' : '📍 Confirm Location')
         );
       } else {
-<<<<<<< HEAD
-        // [DEEP MULTIMODAL FALLBACK]: Whisper failed to find an incident in the text.
-        // It might be due to heavy accents or focusing on speech instead of background noise.
-        // Let's pass the raw audio to Gemini 3.0 Flash to "listen" directly.
-        console.log('[Voice] Whisper text yielded no incident. Triggering Deep Multimodal Fallback...');
-        
-        ctx.replyWithChatAction('typing');
-        const deepAnalysis = await IntelligenceEngine.observeVoice(fileLink.href);
-        
-        if (deepAnalysis && deepAnalysis.type !== 'other') {
-            pendingReports.set(userId, {
-              userId,
-              type: deepAnalysis.type as IncidentType,
-              description: deepAnalysis.description || 'Voice report',
-              severity: deepAnalysis.severity as Severity,
-              step: 'awaiting_location',
-              createdAt: new Date()
-            });
-
-            const typeInfo = INCIDENT_TYPES[deepAnalysis.type as IncidentType];
-            const typeLabel = lang === 'fr' ? typeInfo.labelFr : (lang === 'pcm' ? typeInfo.labelPcm : typeInfo.labelEn);
-            
-            ctx.replyWithMarkdown(
-              `🎙️ *Analyse Vocale Profonde:*\n\n` +
-              `⚠️ *Type:* ${typeInfo.emoji} ${typeLabel}\n` +
-              `📝 *Note:* "${deepAnalysis.description}"\n\n` +
-              MESSAGES.shareLocation[lang],
-              this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Valider ma Position' : '📍 Confirm Location')
-            );
-        } else {
-          // Both engines failed to find an incident
-          ctx.replyWithMarkdown(
-            lang === 'fr'
-              ? `🎙️ *Transcription:* "${transcription.slice(0, 150)}"\n\n✅ Aucun incident détecté. Si c'est un signalement, veuillez le décrire avec des mots clés clairs.`
-              : (lang === 'pcm' ? `🎙️ *I hear say:* "${transcription.slice(0, 150)}"\n\n✅ I no see wahala. If na report, talk again clear.` : `🎙️ *Transcription:* "${transcription.slice(0, 150)}"\n\n✅ No incident detected. If this is a report, please use clear keywords.`)
-          );
-        }
-      }
-    } catch (err: unknown) {
-      console.error('[VOICE HANDLER] Error:', err instanceof Error ? err.message : err);
-=======
         // Even if type is 'other', let's use AI Smart Response to be more helpful
         const smartResp = await geminiClient.queryLive(`The user sent a voice note but it didn't sound like a specific traffic report. They might be just testing or talking. Respond helpfuly about how to report accidents or ask for road help.`, lang);
         ctx.replyWithMarkdown(smartResp ? `🤖 ${smartResp}` : (lang === 'fr'
@@ -1386,7 +1156,6 @@ export class TelegramService {
       }
     } catch (err: any) {
       console.error('[VOICE HANDLER] Error:', err.message || err);
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
       const lang = this.getLang(ctx.from?.id?.toString() || '');
       ctx.replyWithMarkdown(
         lang === 'fr'
@@ -1410,22 +1179,17 @@ export class TelegramService {
     if (!photo) return ctx.reply('❌ Photo data missing.');
     const link = await ctx.telegram.getFileLink(photo.file_id);
 
-<<<<<<< HEAD
-    ctx.replyWithChatAction('typing');
-    const analysis = await IntelligenceEngine.observePhoto(link.href);
-=======
     const statusMsg = await ctx.reply(lang === 'fr' ? '📸 _Analyse de la photo..._' : '📸 _Analyzing photo..._', { parse_mode: 'Markdown' });
     ctx.replyWithChatAction('upload_photo');
     const analysis = await geminiClient.analyzePhoto(link.href);
     try { await ctx.telegram.deleteMessage(ctx.chat!.id, statusMsg.message_id); } catch (e) {}
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
 
     if (analysis && analysis.type !== 'other') {
        pendingReports.set(userId, {
         userId,
         type: analysis.type as IncidentType,
         description: analysis.description,
-        severity: analysis.severity as Severity,
+        severity: (analysis.severity as any) as Severity,
         mediaUrl: link.href, // Save image link
         step: 'awaiting_location',
         createdAt: new Date()
@@ -1608,15 +1372,7 @@ export class TelegramService {
         msg += `\n`;
       }
 
-<<<<<<< HEAD
-      msg += `🏪 *${s.name}* (${distStr})\n`;
-      if (s.petrolPrice) msg += `   ⛽ Super: *${s.petrolPrice}* FCFA\n`;
-      if (s.dieselPrice) msg += `   🚚 Gasoil: *${s.dieselPrice}* FCFA\n`;
-      if (s.gasPrice) msg += `   🔵 Gaz: *${s.gasPrice}* FCFA\n`;
-      msg += `   ${lastUpdate}\n\n`;
-=======
       msg += lang === 'fr' ? `_💡 Données communautaires + IA. Aidez-nous en mettant à jour les prix!_` : `_💡 Community + AI data. Help us by updating prices!_`;
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
 
       await ctx.replyWithMarkdown(msg);
     } else {
@@ -1709,13 +1465,6 @@ export class TelegramService {
     }
   }
 
-<<<<<<< HEAD
-  public launch() {
-    this.bot.launch().catch(err => {
-      console.error('❌ Bot launch error:', err);
-    });
-    console.log('🤖 AFAT Sentinel Bot initialized with World-Class Architecture');
-=======
   public async launch() {
     console.log('📡 Starting AsTeck Bot Launch Sequence...');
     
@@ -1746,7 +1495,6 @@ export class TelegramService {
     };
 
     await launchBot();
->>>>>>> f5a50c353d92f18594ee0998178fe3d332513d7a
 
     // Enable graceful stop
     process.once('SIGINT', () => this.bot.stop('SIGINT'));

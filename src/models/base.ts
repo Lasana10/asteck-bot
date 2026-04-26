@@ -7,10 +7,6 @@ export interface ParsedIncident {
   locationHint?: string;
   isEmergency: boolean;
   confidence: number;
-  sensorData?: {
-    potentialCrash?: boolean;
-    potholeHit?: boolean;
-  };
 }
 
 export interface AIModel {

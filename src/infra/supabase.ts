@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { Incident, User, Coordinates, FuelStation, Route, Booking, Notification, GpsTrack, OperatorWallet, Tontine, TontineMember } from '../types';
+import { Incident, User, Coordinates, FuelStation } from '../types';
 
 dotenv.config();
 
@@ -24,16 +24,13 @@ export async function createIncident(incident: Omit<Incident, 'id'>): Promise<In
         description: incident.description,
         latitude: incident.location.latitude,
         longitude: incident.location.longitude,
-        // PostGIS geography point (WKT format)
-        location: `POINT(${incident.location.longitude} ${incident.location.latitude})`,
         address: incident.address,
         severity: incident.severity,
         status: incident.status,
         reporter_id: incident.reporterId,
         reporter_username: incident.reporterUsername,
         confirmations: incident.confirmations,
-        photo_url: incident.mediaUrl, // Map mediaUrl to photo_url
-        voice_url: incident.mediaUrl, // Also set voice_url if it's voice (handled by logic later)
+        media_url: incident.mediaUrl,
         expires_at: incident.expiresAt.toISOString(),
         created_at: incident.createdAt.toISOString()
       })
@@ -141,7 +138,7 @@ export async function getOrCreateUser(telegramId: string, username?: string, ori
   try {
     // Try to get existing user
     let { data, error } = await supabase
-      .from('profiles')
+      .from('users')
       .select('*')
       .eq('telegram_id', telegramId)
       .single();
@@ -149,13 +146,11 @@ export async function getOrCreateUser(telegramId: string, username?: string, ori
     if (error && error.code === 'PGRST116') {
       // User not found, create new one
       const { data: newUser, error: createError } = await supabase
-        .from('profiles')
+        .from('users')
         .insert({
           telegram_id: telegramId,
-          username: username,
-          full_name: username, // Initially set both
-          role: 'commuter',
-          trust_points: 50,
+          username,
+          trust_score: 50,
           reports_count: 0,
           accurate_reports: 0,
           language: 'fr',
@@ -191,18 +186,18 @@ export async function updateUserTrustScore(
   try {
     // Get current score
     const { data: user } = await supabase
-      .from('profiles')
-      .select('trust_points')
+      .from('users')
+      .select('trust_score')
       .eq('telegram_id', telegramId)
       .single();
 
     if (!user) return false;
 
-    const newScore = Math.max(0, Math.min(100, user.trust_points + delta));
+    const newScore = Math.max(0, Math.min(100, user.trust_score + delta));
 
     const { error } = await supabase
-      .from('profiles')
-      .update({ trust_points: newScore })
+      .from('users')
+      .update({ trust_score: newScore })
       .eq('telegram_id', telegramId);
 
     return !error;
@@ -221,14 +216,14 @@ export async function incrementUserReports(telegramId: string): Promise<boolean>
     // Fallback if RPC doesn't exist
     if (error) {
       const { data: user } = await supabase
-        .from('profiles')
+        .from('users')
         .select('reports_count')
         .eq('telegram_id', telegramId)
         .single();
 
       if (user) {
         await supabase
-          .from('profiles')
+          .from('users')
           .update({ reports_count: user.reports_count + 1 })
           .eq('telegram_id', telegramId);
       }
@@ -268,14 +263,10 @@ function mapDbToUser(row: any): User {
   return {
     telegramId: row.telegram_id,
     username: row.username,
-    fullName: row.full_name,
-    avatarUrl: row.avatar_url,
-    role: row.role || 'commuter',
-    trustScore: row.trust_points ?? row.trust_score ?? 0,
-    reportsCount: row.reports_count || 0,
-    accurateReports: row.accurate_reports || 0,
-    language: row.language || 'fr',
-    preferredCity: row.preferred_city,
+    trustScore: row.trust_score,
+    reportsCount: row.reports_count,
+    accurateReports: row.accurate_reports,
+    language: row.language,
     emergencyContacts: row.emergency_contacts || [],
     subscriptionTier: row.subscription_tier || 'free',
     subscriptionExpiry: row.subscription_expiry ? new Date(row.subscription_expiry) : undefined,
@@ -330,23 +321,20 @@ export function getUserBadge(trustScore: number, reportsCount: number): string {
 export async function getLeaderboard(limit: number = 10): Promise<LeaderboardEntry[]> {
   try {
     const { data, error } = await supabase
-      .from('profiles')
-      .select('full_name, username, trust_points, trust_score, reports_count')
-      .order('trust_points', { ascending: false })
+      .from('users')
+      .select('username, trust_score, reports_count')
+      .order('trust_score', { ascending: false })
       .order('reports_count', { ascending: false })
       .limit(limit);
 
     if (error || !data) return [];
 
-    return data.map((row: any) => {
-      const trustScore = row.trust_points || row.trust_score || 0;
-      return {
-        username: row.full_name || row.username,
-        trustScore: trustScore,
-        reportsCount: row.reports_count,
-        badge: getUserBadge(trustScore, row.reports_count),
-      };
-    });
+    return data.map((row: any) => ({
+      username: row.username,
+      trustScore: row.trust_score,
+      reportsCount: row.reports_count,
+      badge: getUserBadge(row.trust_score, row.reports_count),
+    }));
   } catch {
     return [];
   }
@@ -421,7 +409,7 @@ export async function getNearbyFuel(
 export async function subscribeToAlerts(telegramId: string): Promise<boolean> {
   try {
     const { error } = await supabase
-      .from('profiles')
+      .from('users')
       .update({ subscribed_alerts: true })
       .eq('telegram_id', telegramId);
     return !error;
@@ -433,7 +421,7 @@ export async function subscribeToAlerts(telegramId: string): Promise<boolean> {
 export async function unsubscribeFromAlerts(telegramId: string): Promise<boolean> {
   try {
     const { error } = await supabase
-      .from('profiles')
+      .from('users')
       .update({ subscribed_alerts: false })
       .eq('telegram_id', telegramId);
     return !error;
@@ -445,7 +433,7 @@ export async function unsubscribeFromAlerts(telegramId: string): Promise<boolean
 export async function getAlertSubscribers(): Promise<string[]> {
   try {
     const { data, error } = await supabase
-      .from('profiles')
+      .from('users')
       .select('telegram_id')
       .eq('subscribed_alerts', true);
 
@@ -461,7 +449,7 @@ export async function getAlertSubscribers(): Promise<string[]> {
 export async function updateUserContacts(telegramId: string, contacts: string[]): Promise<boolean> {
   try {
     const { error } = await supabase
-      .from('profiles')
+      .from('users')
       .update({ emergency_contacts: contacts })
       .eq('telegram_id', telegramId);
     return !error;
@@ -482,7 +470,7 @@ export async function updateUserSubscription(
     expiryDate.setDate(expiryDate.getDate() + expiryDays);
 
     const { error } = await supabase
-      .from('profiles')
+      .from('users')
       .update({ 
         subscription_tier: tier,
         subscription_expiry: expiryDate.toISOString()
@@ -490,474 +478,6 @@ export async function updateUserSubscription(
       .eq('telegram_id', telegramId);
     return !error;
   } catch {
-    return false;
-  }
-}
-
-// ========== VEHICLE TELEMETRY ==========
-
-/**
- * Update vehicle telemetry
- */
-export async function updateVehicleLocation(
-  vehicleId: string, 
-  lat: number, 
-  lng: number, 
-  speed?: number, 
-  heading?: number
-) {
-  const { error } = await supabase
-    .from('vehicles')
-    .update({
-      current_lat: lat,
-      current_lng: lng,
-      current_location: `POINT(${lng} ${lat})`,
-      current_speed: speed,
-      current_heading: heading,
-      last_ping_at: new Date().toISOString()
-    })
-    .eq('id', vehicleId);
-
-  if (error) {
-    console.error('Error updating vehicle location:', error);
-    return false;
-  }
-  return true;
-}
-
-/**
- * Update vehicle telemetry using Traccar Device ID
- */
-export async function updateVehicleLocationByTraccar(
-  traccarDeviceId: string,
-  lat: number,
-  lng: number,
-  speed?: number,
-  heading?: number
-) {
-  const { error } = await supabase
-    .from('vehicles')
-    .update({
-      current_lat: lat,
-      current_lng: lng,
-      current_location: `POINT(${lng} ${lat})`,
-      current_speed: speed,
-      current_heading: heading,
-      last_ping_at: new Date().toISOString()
-    })
-    .eq('traccar_device_id', traccarDeviceId);
-
-  if (error) {
-    console.error('Error updating vehicle location via Traccar:', error);
-    return false;
-  }
-  return true;
-}
-
-/**
- * Get all available vehicles for the map
- */
-export async function getAvailableVehicles() {
-  const { data, error } = await supabase
-    .from('vehicles')
-    .select('id, plate_number, type, current_lat, current_lng, rating, current_speed')
-    .eq('is_available', true);
-
-  if (error) {
-    console.error('Error fetching available vehicles:', error);
-    return [];
-  }
-  return data;
-}
-
-// ========== REFERRAL & GROWTH ==========
-
-/**
- * Generate a new referral code for a user
- */
-export async function generateReferralCode(userId: string): Promise<string | null> {
-  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-  const { error } = await supabase
-    .from('profiles')
-    .update({ referral_code: code })
-    .eq('id', userId);
-
-  if (error) {
-    console.error('Error generating referral code:', error);
-    return null;
-  }
-  return code;
-}
-
-/**
- * Process a referral when a new user joins
- */
-export async function processReferral(newUserId: string, referralCode: string) {
-  // 1. Find the referrer
-  const { data: referrer, error: findErr } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('referral_code', referralCode)
-    .single();
-
-  if (findErr || !referrer) return false;
-
-  // 2. Award points to referrer (50 pts)
-  await supabase.rpc('award_points', {
-    p_user_id: referrer.id,
-    p_amount: 50,
-    p_reason: 'Referral Bonus: Invited a new citizen',
-    p_ref_id: newUserId
-  });
-
-  // 3. Award points to the new user (20 pts)
-  await supabase.rpc('award_points', {
-    p_user_id: newUserId,
-    p_amount: 20,
-    p_reason: 'Welcome Bonus: Joined via referral',
-    p_ref_id: referrer.id
-  });
-
-  return true;
-}
-
-/**
- * Check if a user is currently a "Guardian" subscriber
- */
-export async function isGuardian(userId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('subscription_tier, subscription_expiry')
-    .eq('id', userId)
-    .single();
-
-  if (error || !data) return false;
-  
-  const isTier = data.subscription_tier === 'guardian';
-  const notExpired = data.subscription_expiry ? new Date(data.subscription_expiry) > new Date() : false;
-  
-  return isTier && notExpired;
-}
-// ========== ROUTE REPOSITORY ==========
-
-export async function createRoute(route: Omit<Route, 'id' | 'createdAt'>): Promise<Route | null> {
-  const { data, error } = await supabase
-    .from('routes')
-    .insert({
-      operator_id: route.operatorId,
-      name: route.name,
-      origin: route.origin,
-      destination: route.destination,
-      typical_time: route.typicalTime,
-      price_per_seat: route.pricePerSeat,
-      capacity: route.capacity,
-      vehicle_type: route.vehicleType,
-      departure_time: route.departureTime?.toISOString(),
-      is_active: route.isActive
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating route:', error);
-    return null;
-  }
-  return mapDbToRoute(data);
-}
-
-export async function getAvailableRoutes(): Promise<Route[]> {
-  const { data, error } = await supabase
-    .from('routes')
-    .select('*')
-    .eq('is_active', true)
-    .gte('departure_time', new Date().toISOString())
-    .order('departure_time', { ascending: true });
-
-  if (error) {
-    console.error('Error fetching routes:', error);
-    return [];
-  }
-  return (data || []).map(mapDbToRoute);
-}
-
-// ========== BOOKING REPOSITORY ==========
-
-export async function createBooking(booking: Omit<Booking, 'id' | 'createdAt' | 'updatedAt'>): Promise<Booking | null> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .insert({
-      passenger_id: booking.passengerId,
-      route_id: booking.routeId,
-      seat_label: booking.seatLabel,
-      status: booking.status,
-      price_paid: booking.pricePaid,
-      payment_status: booking.paymentStatus,
-      transaction_id: booking.transactionId
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating booking:', error);
-    return null;
-  }
-  return mapDbToBooking(data);
-}
-
-export async function getBookingsByPassenger(passengerId: string): Promise<Booking[]> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('*, routes(*)')
-    .eq('passenger_id', passengerId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching bookings:', error);
-    return [];
-  }
-  return (data || []).map(mapDbToBooking);
-}
-
-export async function getBookedSeats(routeId: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('seat_label')
-    .eq('route_id', routeId)
-    .in('status', ['pending', 'confirmed', 'completed']);
-
-  if (error) {
-    console.error('Error fetching booked seats:', error);
-    return [];
-  }
-  return data.map(b => b.seat_label).filter(Boolean);
-}
-
-// ========== MAPPERS (Extended) ==========
-
-function mapDbToRoute(row: any): Route {
-  return {
-    id: row.id,
-    operatorId: row.operator_id,
-    name: row.name,
-    origin: row.origin,
-    destination: row.destination,
-    typicalTime: row.typical_time,
-    pricePerSeat: row.price_per_seat,
-    capacity: row.capacity,
-    vehicleType: row.vehicle_type,
-    departureTime: row.departure_time ? new Date(row.departure_time) : undefined,
-    isActive: row.is_active,
-    createdAt: new Date(row.created_at)
-  };
-}
-
-function mapDbToBooking(row: any): Booking {
-  return {
-    id: row.id,
-    passengerId: row.passenger_id,
-    routeId: row.route_id,
-    seatLabel: row.seat_label,
-    status: row.status,
-    pricePaid: row.price_paid,
-    paymentStatus: row.payment_status,
-    transactionId: row.transaction_id,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at)
-  };
-}
-// ========== INTELLIGENCE GRID REPOSITORY ==========
-
-export async function logGpsTrack(track: Omit<GpsTrack, 'id' | 'createdAt'>): Promise<boolean> {
-  const { error } = await supabase
-    .from('gps_tracks')
-    .insert({
-      user_id: track.userId,
-      location: `POINT(${track.longitude} ${track.latitude})`,
-      speed_kph: track.speedKph,
-      heading: track.heading,
-      accuracy: track.accuracy
-    });
-
-  if (error) {
-    console.error('Error logging GPS track:', error);
-    return false;
-  }
-  return true;
-}
-
-export async function getRecentGpsTracks(minutes: number = 30): Promise<GpsTrack[]> {
-  const timeLimit = new Date(Date.now() - minutes * 60 * 1000).toISOString();
-  const { data, error } = await supabase
-    .from('gps_tracks')
-    .select('*')
-    .gt('created_at', timeLimit)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching recent GPS tracks:', error);
-    return [];
-  }
-  
-  return (data || []).map(row => ({
-    id: row.id,
-    userId: row.user_id,
-    latitude: parseFloat(row.location.match(/\((.*) (.*)\)/)[2]),
-    longitude: parseFloat(row.location.match(/\((.*) (.*)\)/)[1]),
-    speedKph: row.speed_kph,
-    heading: row.heading,
-    accuracy: row.accuracy,
-    createdAt: new Date(row.created_at)
-  }));
-}
-
-export async function getOperatorWallet(operatorId: string): Promise<OperatorWallet | null> {
-  const { data, error } = await supabase
-    .from('operator_wallets')
-    .select('*')
-    .eq('operator_id', operatorId)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-       // No wallet yet, return zeroed
-       return { operatorId, balanceXaf: 0, totalEarnedXaf: 0, updatedAt: new Date() };
-    }
-    console.error('Error fetching operator wallet:', error);
-    return null;
-  }
-  return mapDbToWallet(data);
-}
-
-// ========== MAPPERS (Extended) ==========
-
-function mapDbToWallet(row: any): OperatorWallet {
-  return {
-    operatorId: row.operator_id,
-    balanceXaf: row.balance_xaf,
-    totalEarnedXaf: row.total_earned_xaf,
-    lastWithdrawalAt: row.last_withdrawal_at ? new Date(row.last_withdrawal_at) : undefined,
-    updatedAt: new Date(row.updated_at)
-  };
-}
-
-// ========== TONTINE REPOSITORY ==========
-
-export async function getTontinesByUser(userId: string): Promise<Tontine[]> {
-  const { data, error } = await supabase
-    .from('tontine_members')
-    .select('*, tontines(*)')
-    .eq('user_id', userId);
-
-  if (error) {
-    console.error('Error fetching tontines:', error);
-    return [];
-  }
-  return (data || []).map(row => mapDbToTontine(row.tontines));
-}
-
-export async function getTontineMembers(tontineId: string): Promise<TontineMember[]> {
-  const { data, error } = await supabase
-    .from('tontine_members')
-    .select('*')
-    .eq('tontine_id', tontineId)
-    .order('payout_order', { ascending: true });
-
-  if (error) {
-    console.error('Error fetching tontine members:', error);
-    return [];
-  }
-  return (data || []).map(mapDbToTontineMember);
-}
-
-// ========== MAPPERS (Extended) ==========
-
-function mapDbToTontine(row: any): Tontine {
-  return {
-    id: row.id,
-    name: row.name,
-    contributionAmount: row.contribution_amount,
-    frequency: row.frequency,
-    totalPot: row.total_pot,
-    nextPayoutDate: new Date(row.next_payout_date),
-    status: row.status
-  };
-}
-
-function mapDbToTontineMember(row: any): TontineMember {
-  return {
-    id: row.id,
-    tontineId: row.tontine_id,
-    userId: row.user_id,
-    payoutOrder: row.payout_order,
-    hasReceivedPayout: row.has_received_payout,
-    totalContributed: row.total_contributed
-  };
-}
-
-export async function verifyBoarding(bookingId: string, operatorId: string): Promise<boolean> {
-  try {
-    // 1. Get the booking to ensure it's paid and belongs to this operator
-    const { data: booking, error: fetchError } = await supabase
-      .from('bookings')
-      .select('*, routes(*) ')
-      .eq('id', bookingId)
-      .single();
-
-    if (fetchError || !booking) return false;
-    
-    // Check if it's already completed to prevent double-credit
-    if (booking.status === 'completed') return true;
-
-    // Must be paid
-    if (booking.payment_status !== 'paid_momo' && booking.payment_status !== 'paid_cash') return false;
-    
-    // Safety check: must be the correct operator (or admin)
-    if (booking.routes.operator_id !== operatorId) {
-       // Check if operator_id is set directly on booking (alternative schema usage)
-       if (booking.operator_id !== operatorId) return false;
-    }
-
-    // 2. Mark as completed
-    const { error: updateError } = await supabase
-      .from('bookings')
-      .update({ status: 'completed', updated_at: new Date().toISOString() })
-      .eq('id', bookingId);
-    
-    if (updateError) return false;
-
-    // 3. Credit Operator Wallet
-    const amount = booking.price_xaf || booking.routes?.price_xaf || 0;
-    const commission = Math.round(amount * 0.08); // 8% Platform Fee
-    const earnings = amount - commission;
-
-    const { data: wallet } = await supabase
-      .from('operator_wallets')
-      .select('balance_xaf, total_earned_xaf')
-      .eq('operator_id', operatorId)
-      .single();
-
-    if (wallet) {
-      await supabase
-        .from('operator_wallets')
-        .update({
-          balance_xaf: wallet.balance_xaf + earnings,
-          total_earned_xaf: wallet.total_earned_xaf + earnings,
-          updated_at: new Date().toISOString()
-        })
-        .eq('operator_id', operatorId);
-    } else {
-      await supabase
-        .from('operator_wallets')
-        .insert({
-          operator_id: operatorId,
-          balance_xaf: earnings,
-          total_earned_xaf: earnings
-        });
-    }
-
-    return true;
-  } catch (err) {
-    console.error('[DB] Verify boarding error:', err);
     return false;
   }
 }
