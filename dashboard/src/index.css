@@ -1,48 +1,428 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,700&family=Manrope:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-:root {
-  color-scheme: dark;
+/* ═══════════════════════════════════════════════════════════════
+   AFAT / ASTECK — Sentinel Lens Design System
+   Art Direction: Pure Onyx Dark, Neon Intel, African Mobility
+   ═══════════════════════════════════════════════════════════════ */
+
+@theme {
+  --color-primary: #ffffff;
+  --color-primary-glow: rgba(255, 255, 255, 0.15);
+  --color-accent: #94a3b8;
+  --color-green: #10b981;
+  --color-green-glow: rgba(16, 185, 129, 0.2);
+  --color-amber: #f59e0b;
+  --color-red: #ef4444;
+  --color-purple: #8b5cf6;
+  --color-surface: #0f1520;
+  --color-bg: #080c14;
+  --color-border: rgba(255,255,255,0.08);
+  --color-text: #f8fafc;
+  --color-text-dim: rgba(248, 250, 252, 0.4);
 }
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background-color: #0f1115;
-  color: #e5e7eb;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #080c14;
+  color: #f0f4ff;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: 'Manrope', sans-serif;
+}
+
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* ── No scrollbar ───────────────────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Glass Panels ───────────────────────────────────────────── */
+.glass-panel {
+  background: rgba(15, 21, 32, 0.45);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.glass-dark {
+  background: rgba(8, 12, 20, 0.65);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.hud-border {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.02), 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.ghost-border {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ── Signature Button ───────────────────────────────────────── */
+.signature-btn {
+  background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+  color: #080c14;
+  border: none;
+  box-shadow: 0 4px 20px rgba(255, 255, 255, 0.15);
+  transition: all 0.25s ease;
+}
+.signature-btn:hover {
+  box-shadow: 0 6px 30px rgba(79, 142, 247, 0.5);
+  transform: translateY(-1px);
+}
+.signature-btn:active { transform: scale(0.97); }
+
+/* ── Neon Glow Utilities ────────────────────────────────────── */
+.glow-blue  { box-shadow: 0 0 30px rgba(79, 142, 247, 0.25), inset 0 0 10px rgba(79, 142, 247, 0.1); }
+.glow-green { box-shadow: 0 0 30px rgba(16, 185, 129, 0.25), inset 0 0 10px rgba(16, 185, 129, 0.1); }
+.glow-amber { box-shadow: 0 0 30px rgba(245, 158, 11, 0.25), inset 0 0 10px rgba(245, 158, 11, 0.1); }
+.glow-red   { box-shadow: 0 0 30px rgba(239, 68, 68, 0.25), inset 0 0 10px rgba(239, 68, 68, 0.1); }
+.text-glow-blue { text-shadow: 0 0 15px rgba(79, 142, 247, 0.6); }
+.text-glow-green { text-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+.text-glow-amber { text-shadow: 0 0 15px rgba(245, 158, 11, 0.6); }
+
+/* ════════════════════════════════════════════════════════════
+   PREMIUM KEYFRAME ANIMATIONS
+   ════════════════════════════════════════════════════════════ */
+
+/* Fade up entrance */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Float gentle */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
+/* Pulse ring */
+@keyframes pulseRing {
+  0%   { transform: scale(0.8); opacity: 0.8; }
+  80%  { transform: scale(2.0); opacity: 0; }
+  100% { transform: scale(2.0); opacity: 0; }
+}
+
+/* Shimmer sweep (skeleton / highlight) */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Radar sweep */
+@keyframes radarSweep {
+  from { transform: rotate(0deg); opacity: 0.5; }
+  to   { transform: rotate(360deg); opacity: 0.5; }
+}
+
+/* Marquee / Ticker */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* Route draw (SVG stroke-dashoffset) */
+@keyframes routeDraw {
+  from { stroke-dashoffset: 1000; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Node blink */
+@keyframes nodeBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* Slide from bottom */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Scale in */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Counter roll up */
+@keyframes rollUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* Neon flicker */
+@keyframes neonFlicker {
+  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(79, 142, 247, 0.6), 0 0 30px rgba(79, 142, 247, 0.3);
+  }
+  20%, 24%, 55% {
+    opacity: 0.6;
+    box-shadow: none;
+  }
+}
+
+/* Hero background pan */
+@keyframes heroPan {
+  0%   { background-position: 50% 50%; }
+  50%  { background-position: 55% 45%; }
+  100% { background-position: 50% 50%; }
+}
+
+/* Particle float */
+@keyframes particle {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateY(-80px) translateX(20px); opacity: 0; }
+}
+
+/* Live pulse dot */
+@keyframes livePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  50%       { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+}
+
+/* ── Animation Utility Classes ──────────────────────────────── */
+.animate-marquee {
+  display: inline-block;
+  animation: marquee 30s linear infinite;
+}
+.pause-marquee:hover {
+  animation-play-state: paused;
+}
+.animate-radar {
+  animation: radarSweep 4s linear infinite;
+  transform-origin: center;
+}
+.animate-fade-up     { animation: fadeUp 0.5s ease both; }
+.animate-float       { animation: float 3s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%);
+  background-size: 200% auto;
+  animation: shimmer 2.5s linear infinite;
+}
+.animate-slide-up    { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-scale-in    { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-route-draw  { stroke-dasharray: 1000; animation: routeDraw 2s ease both; }
+.animate-hero-pan    { animation: heroPan 20s ease-in-out infinite; }
+.animate-live        { animation: livePulse 2s ease-in-out infinite; }
+.animate-neon        { animation: neonFlicker 4s infinite; }
+
+/* Staggered animation delays */
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+.delay-500 { animation-delay: 0.5s; }
+
+/* ── Hero Map Background ─────────────────────────────────────── */
+.hero-map-bg {
+  background-image: url('/hero-map.png');
+  background-size: cover;
+  background-position: center;
+  animation: heroPan 25s ease-in-out infinite;
+}
+.operator-hero-bg {
+  background-image: url('/operator-hero.png');
+  background-size: cover;
+  background-position: center;
+  animation: heroPan 20s ease-in-out infinite;
+}
+
+/* ── Animated Particles System ──────────────────────────────── */
+.particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(79, 142, 247, 0.6);
+  animation: particle 4s ease-in-out infinite;
+}
+.particle:nth-child(1) { left: 15%; top: 80%; animation-delay: 0s; }
+.particle:nth-child(2) { left: 35%; top: 70%; animation-delay: 0.8s; background: rgba(34, 197, 94, 0.6); }
+.particle:nth-child(3) { left: 55%; top: 85%; animation-delay: 1.6s; }
+.particle:nth-child(4) { left: 75%; top: 75%; animation-delay: 0.4s; background: rgba(245, 158, 11, 0.6); }
+.particle:nth-child(5) { left: 85%; top: 90%; animation-delay: 2.0s; }
+
+/* ── Pulse Ring ────────────────────────────────────────────── */
+.pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(79, 142, 247, 0.5);
+  animation: pulseRing 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+.pulse-ring-green {
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 100px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* ── Leaflet Overrides ─────────────────────────────────────── */
+.leaflet-popup-content-wrapper {
+  background: #0f1520 !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  color: #f0f4ff !important;
+}
+.leaflet-popup-content { margin: 0 !important; color: #f0f4ff !important; }
+.leaflet-popup-tip-container { display: none !important; }
+.leaflet-container { background: #080c14 !important; }
+/* .leaflet-tile { filter: saturate(0.4) brightness(0.5) hue-rotate(195deg); } */
+.leaflet-tile { transition: filter 0.3s ease; } /* Smooth transitions for theme changes */
+
+/* ── Card & Input ──────────────────────────────────────────── */
+.card {
+  background: #0f1520;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  transition: all 0.2s ease;
+}
+
+.input-field {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #f0f4ff;
+  background: rgba(0,0,0,0.3);
+  transition: border-color 0.2s ease;
+  outline: none;
+}
+.input-field:focus { border-color: rgba(79, 142, 247, 0.5); }
+.input-field::placeholder { color: rgba(240, 244, 255, 0.2); }
+
+/* ── Severity Badges ───────────────────────────────────────── */
+.severity-1 { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.severity-2 { background: rgba(79, 142, 247, 0.15); color: #4f8ef7; }
+.severity-3 { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.severity-4 { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+.severity-5 { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+/* ── Active Tile Press Effect ───────────────────────────────── */
+.tile-press {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease;
+}
+.tile-press:active {
+  transform: scale(0.96);
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* ── Neon Border Glow ───────────────────────────────────────── */
+.border-glow-blue:focus-within,
+.border-glow-blue:hover {
+  border-color: rgba(79, 142, 247, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(79, 142, 247, 0.1);
+}
+
+/* ── Loading Skeleton ───────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 0%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 100%
+  );
+  background-size: 200% auto;
+  animation: shimmer 1.8s linear infinite;
+  border-radius: 8px;
+}
+
+::selection { background: rgba(79, 142, 247, 0.25); }
+
+/* ═══════════════════════════════════════════════════════════════
+   SENTINEL ATLAS — Map Intelligence Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Sentinel Atlas Container ──────────────────────────────── */
+.sentinel-atlas-container {
+  position: relative;
+}
+
+/* ── Road Tooltips (Sentinel branded) ─────────────────────── */
+.afat-road-tooltip {
+  background: rgba(8, 12, 20, 0.94) !important;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(96, 165, 250, 0.2) !important;
+  border-radius: 14px !important;
+  padding: 8px 14px !important;
+  color: #f0f4ff !important;
+  font-family: 'Inter', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(96, 165, 250, 0.08) !important;
+}
+.afat-road-tooltip::before { border-top-color: rgba(8, 12, 20, 0.94) !important; }
+
+/* ── Popup Cards (Rich Data Panels) ───────────────────────── */
+.afat-popup .leaflet-popup-content-wrapper {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 16px !important;
   overflow: hidden;
 }
-
-.glass-panel {
-  background: rgba(30, 32, 40, 0.65);
-  backdrop-filter: blur(12px);
+.afat-popup .leaflet-popup-content {
+  margin: 0 !important;
+  width: auto !important;
+}
+.afat-popup .leaflet-popup-tip {
+  background: rgba(15, 21, 32, 0.95) !important;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+.afat-popup .leaflet-popup-close-button {
+  color: white !important;
+  font-size: 20px !important;
+  padding: 6px 8px !important;
+  z-index: 10;
+  opacity: 0.5;
+}
+.afat-popup .leaflet-popup-close-button:hover { opacity: 1; }
+
+/* ── Marker Base Resets ───────────────────────────────────── */
+.afat-incident-marker,
+.afat-vehicle-marker,
+.afat-poi-marker,
+.afat-checkpoint-marker {
+  background: transparent !important;
+  border: none !important;
 }
 
-.pulse-amber {
-  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
-  animation: pulse 2s infinite;
+/* ── Leaflet Overrides for Sentinel Look ──────────────────── */
+.sentinel-atlas-container .leaflet-control-attribution {
+  background: rgba(8, 12, 20, 0.6) !important;
+  color: rgba(255, 255, 255, 0.3) !important;
+  font-size: 9px !important;
+  backdrop-filter: blur(8px);
+  border-radius: 8px 0 0 0;
+  padding: 2px 8px !important;
+}
+.sentinel-atlas-container .leaflet-control-attribution a {
+  color: rgba(96, 165, 250, 0.5) !important;
 }
 
 @keyframes pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.85; }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}

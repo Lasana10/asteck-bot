@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "Gare Routière de Yaoundé", "category": "transport", "icon": "bus" }, "geometry": { "type": "Point", "coordinates": [11.5145, 3.8665] } },
+    { "type": "Feature", "properties": { "name": "Marché Mokolo", "category": "market", "icon": "shopping" }, "geometry": { "type": "Point", "coordinates": [11.4965, 3.8668] } },
+    { "type": "Feature", "properties": { "name": "Carrefour Biyem-Assi", "category": "junction", "icon": "crosshair" }, "geometry": { "type": "Point", "coordinates": [11.4920, 3.8460] } },
+    { "type": "Feature", "properties": { "name": "Poste Centrale", "category": "landmark", "icon": "building" }, "geometry": { "type": "Point", "coordinates": [11.5170, 3.8660] } },
+    { "type": "Feature", "properties": { "name": "Hôpital Central de Yaoundé", "category": "health", "icon": "hospital" }, "geometry": { "type": "Point", "coordinates": [11.5155, 3.8710] } },
+    { "type": "Feature", "properties": { "name": "Université de Yaoundé I", "category": "education", "icon": "school" }, "geometry": { "type": "Point", "coordinates": [11.4952, 3.8590] } },
+    { "type": "Feature", "properties": { "name": "Palais des Congrès", "category": "landmark", "icon": "building" }, "geometry": { "type": "Point", "coordinates": [11.5100, 3.8555] } },
+    { "type": "Feature", "properties": { "name": "Stade Omnisports", "category": "sport", "icon": "stadium" }, "geometry": { "type": "Point", "coordinates": [11.5235, 3.8635] } },
+    { "type": "Feature", "properties": { "name": "Carrefour Nlongkak", "category": "junction", "icon": "crosshair" }, "geometry": { "type": "Point", "coordinates": [11.5045, 3.8780] } },
+    { "type": "Feature", "properties": { "name": "Marché Central", "category": "market", "icon": "shopping" }, "geometry": { "type": "Point", "coordinates": [11.5140, 3.8690] } },
+    { "type": "Feature", "properties": { "name": "Rond-Point de la Poste", "category": "junction", "icon": "crosshair" }, "geometry": { "type": "Point", "coordinates": [11.5140, 3.8680] } },
+    { "type": "Feature", "properties": { "name": "Bastos (Résidentiel)", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.5010, 3.8890] } },
+    { "type": "Feature", "properties": { "name": "Mvan (Gare Sud)", "category": "transport", "icon": "bus" }, "geometry": { "type": "Point", "coordinates": [11.5130, 3.8380] } },
+    { "type": "Feature", "properties": { "name": "Nsimeyong", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.5090, 3.8440] } },
+    { "type": "Feature", "properties": { "name": "Carrefour Essos", "category": "junction", "icon": "crosshair" }, "geometry": { "type": "Point", "coordinates": [11.5280, 3.8710] } },
+    { "type": "Feature", "properties": { "name": "Tsinga", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.5030, 3.8780] } },
+    { "type": "Feature", "properties": { "name": "Nkol-Eton", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.5050, 3.8960] } },
+    { "type": "Feature", "properties": { "name": "Mendong", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.4920, 3.8460] } },
+    { "type": "Feature", "properties": { "name": "Mvog-Ada", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.5180, 3.8540] } },
+    { "type": "Feature", "properties": { "name": "Emombo", "category": "neighborhood", "icon": "home" }, "geometry": { "type": "Point", "coordinates": [11.5260, 3.8540] } }
+  ]
+}

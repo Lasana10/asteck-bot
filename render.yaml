@@ -1,8 +1,8 @@
 services:
   - type: web
-    name: asteck-bot
+    name: sentinel-backend
     env: docker
-    plan: free # Change to 'starter' if you need background workers
+    plan: starter
     dockerContext: .
     dockerfilePath: Dockerfile
     healthCheckPath: /health
@@ -23,23 +23,33 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
       - key: GOOGLE_MAPS_API_KEY
         sync: false
       - key: OPENWEATHERMAP_API_KEY
         sync: false
+      - key: ARKESEL_API_KEY
+        sync: false
+      - key: ARKESEL_SENDER_ID
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: PAYMENT_API_KEY
+        sync: false
+      - key: PAYMENT_PROVIDER
+        value: pawapay
 
-  - type: web
-    name: asteck-dashboard
-    env: docker
+  - type: static_site
+    name: sentinel-dashboard
     plan: free
-    dockerContext: ./dashboard
-    dockerfilePath: Dockerfile
+    rootDir: dashboard
+    buildCommand: npm install && npm run build
+    publishPath: dist
     envVars:
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
-      - key: VITE_GOOGLE_MAPS_API_KEY
-        sync: false
-      - key: PORT
-        value: 80

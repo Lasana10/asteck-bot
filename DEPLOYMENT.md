@@ -34,9 +34,20 @@ Render is the easiest way to run this bot for free.
 3. **Set Secrets**:
    - Render will detect `render.yaml` and ask for your environment variables.
    - Paste your `TELEGRAM_BOT_TOKEN`, `SUPABASE_URL`, and `SUPABASE_KEY`.
-4. **Done**: Your bot and dashboard will be live at the URLs Render provides!
+4. **Isolated Static Frontend**: The dashboard is configured to deploy as a **Static Site**, ensuring zero interference with the bot's runtime.
 
-## 🐳 3. Deploying to a VPS (Alternative)
+## 🚀 3. High Capacity Cloud Deployment (GCP / AWS / Azure)
+For "Full Capacity" scaling (millions of concurrent users):
+
+1. **Google Cloud Run (Recommended)**:
+   - Deploy the **Bot** as a Cloud Run Service using the root `Dockerfile`.
+   - Deploy the **Dashboard** to **Firebase Hosting** or **Google Cloud Storage (Static Hosting)** for global CDN delivery.
+2. **Environment Synchronization**:
+   - Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are injected into the frontend build environment.
+3. **Database Scaling**:
+   - For full capacity, upgrade your Supabase instance to a Pro plan to handle high connection counts from the Sentinel Brain.
+
+## 🐳 4. Deploying to a VPS (Alternative)
 If you have a Linux server (Ubuntu/Debian):
 
 1. **Copy files** to your server.
@@ -55,4 +66,4 @@ If you have a Linux server (Ubuntu/Debian):
 - **Health Check**: Visit `https://your-app.onrender.com/health` to verify the bot is alive.
 - **Update**: Just `git push` again, and Render will automatically update the bot!
 
-**Mission Status: ARCHITECTURE HARMONY ACHIEVED. READY FOR LAUNCH.** 🚦
+**Mission Status: ARCHITECTURE HARMONY ACHIEVED. S.A.R. SYSTEM CORE ACTIVE. READY FOR GLOBAL SCALE.** 🚦

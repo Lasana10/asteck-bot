@@ -1,0 +1,137 @@
+[
+    {
+        "id": "master_flow",
+        "type": "tab",
+        "label": "SchoolFlow Logic",
+        "disabled": false,
+        "info": "Core SchoolFlow Logic"
+    },
+    {
+        "id": "trigger_poll_kolibri",
+        "type": "inject",
+        "z": "master_flow",
+        "name": "Poll Kolibri Database (5m)",
+        "props": [
+            { "p": "payload" }
+        ],
+        "repeat": "300",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 100,
+        "wires": [
+            [ "db_query_low_scores" ]
+        ]
+    },
+    {
+        "id": "db_query_low_scores",
+        "type": "postgres",
+        "z": "master_flow",
+        "postgresdb": "schoolflow_db",
+        "name": "SELECT * FROM kolibri_mastery_log WHERE score_percentage < 50",
+        "query": "SELECT * FROM kolibri_mastery_log WHERE score_percentage < 50 AND ai_analyzed = FALSE",
+        "output": true,
+        "x": 450,
+        "y": 100,
+        "wires": [
+            [ "format_router_payload" ]
+        ]
+    },
+    {
+        "id": "format_router_payload",
+        "type": "function",
+        "z": "master_flow",
+        "name": "Format for Qwen3 (Teacher)",
+        "func": "msg.payload = {\n    role: 'teacher',\n    task_type: 'generate_intervention',\n    payload: msg.payload\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 750,
+        "y": 100,
+        "wires": [
+            [ "call_tri_model" ]
+        ]
+    },
+    {
+        "id": "call_tri_model",
+        "type": "http request",
+        "z": "master_flow",
+        "name": "POST /api/intelligence/route",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://router:3000/api/intelligence/route",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1050,
+        "y": 100,
+        "wires": [
+            [ "write_to_teacher_insights" ]
+        ]
+    },
+    {
+        "id": "write_to_teacher_insights",
+        "type": "postgres",
+        "z": "master_flow",
+        "postgresdb": "schoolflow_db",
+        "name": "INSERT INTO teacher_insights",
+        "query": "INSERT INTO teacher_insights (class_name, topic_name, insight_text) VALUES ($1, $2, $3)",
+        "output": true,
+        "x": 1350,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "momo_webhook",
+        "type": "http in",
+        "z": "master_flow",
+        "name": "/api/momo/webhook",
+        "url": "/api/momo/webhook",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 280,
+        "wires": [
+            [ "update_fee_ledger" ]
+        ]
+    },
+    {
+        "id": "update_fee_ledger",
+        "type": "postgres",
+        "z": "master_flow",
+        "postgresdb": "schoolflow_db",
+        "name": "UPDATE fees_ledger",
+        "query": "UPDATE fees_ledger SET amount_paid = amount_paid + $1 WHERE student_id = $2",
+        "output": true,
+        "x": 450,
+        "y": 280,
+        "wires": [
+            [ "http_200_ok" ]
+        ]
+    },
+    {
+        "id": "http_200_ok",
+        "type": "http response",
+        "z": "master_flow",
+        "name": "200 Success",
+        "statusCode": "200",
+        "headers": {},
+        "x": 750,
+        "y": 280,
+        "wires": []
+    }
+]

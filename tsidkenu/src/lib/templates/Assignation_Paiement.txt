@@ -1,0 +1,30 @@
+OBJET: ASSIGNATION EN PAIEMENT DE CREANCE
+--------------------------------------------------
+RESSORT DU TRIBUNAL DE GRANDE INSTANCE DU MOURI (DOUALA)
+--------------------------------------------------
+
+A LA REQUETE DE:
+{{clientName}}, {{clientType}}, domicilié(e) à {{clientAddress}},
+Ayant pour conseil, Maître {{lawyerName}}, Avocat au Barreau du Cameroun, Cabinet TSIDKENU & ASSOCIATES.
+
+CONTRE:
+{{adversaryName}}, domicilié(e) à {{adversaryAddress}}.
+
+PLAISE AU TRIBUNAL:
+
+Attendu que par convention en date du {{contractDate}}, la requérante a fourni des services de {{serviceType}} à la partie adverse;
+
+Attendu que le montant total de la facture s'élève à la somme de {{totalAmount}} XAF;
+
+Attendu que malgré plusieurs relances et une mise en demeure restée infructueuse en date du {{noticeDate}}, le sieur {{adversaryName}} refuse de s'exécuter;
+
+PAR CES MOTIFS:
+
+- S'entendre condamner {{adversaryName}} au paiement de la somme principale de {{totalAmount}} XAF;
+- Le condamner en outre au paiement de la somme de {{damagesAmount}} XAF à titre de dommages-intérêts pour résistance abusive;
+- Ordonner l'exécution provisoire de la décision à intervenir nonobstant toutes voies de recours;
+
+SOUS TOUTES RESERVES.
+--------------------------------------------------
+Fait à Douala, le {{currentDate}}
+Pour la Requérante, Maître {{lawyerName}}

@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-heritage-green: #003629;
+  --color-heritage-sage: #56642b;
+  --color-paper-white: #f9f9f8;
+  --color-ink-black: #191c1c;
+  --color-gold-accent: #C5A059;
+}
+
+:root {
+  --background: #f9f9f8;
+  --foreground: #191c1c;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Manrope', 'Inter', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* The Editorial Archive: Non-AI, Relaxing Classic UI */
+.glass {
+  background: #ffffff;
+  border-bottom: 2px solid #edeeed;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.card-heritage {
+  background: #ffffff;
+  border: 1px solid #e1e3e2;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-heritage:hover {
+  border-color: #003629;
+  box-shadow: 0 12px 24px rgba(0, 54, 41, 0.05);
+  transform: translateY(-2px);
+}
+
+.heading-serif {
+  font-family: 'Noto Serif', serif;
+  font-weight: 700;
+  color: #003629;
+}
+
+.btn-classic {
+  background: #003629;
+  color: #ffffff;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-classic:hover {
+  background: #1d4f40;
+}

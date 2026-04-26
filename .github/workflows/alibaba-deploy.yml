@@ -1,0 +1,48 @@
+name: 🚀 Alibaba Cloud Master Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-frontend:
+    name: 🌐 Deploy Frontend to OSS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          
+      - name: Build Dashboard
+        run: |
+          cd dashboard
+          npm install
+          npm run build
+          
+      - name: Upload to Alibaba OSS
+        uses: aliyun/oss-action@master
+        with:
+          key-id: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
+          key-secret: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+          region: oss-us-east-1
+          bucket: sentinel-mobility-os
+          assets-dir: ./dashboard/dist
+
+  deploy-backend:
+    name: 🧠 Deploy Backend to ECS
+    runs-on: ubuntu-latest
+    needs: deploy-frontend
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build and Push Docker Image
+        # Note: You can use Alibaba Container Registry (ACR) here
+        run: |
+          echo "Building Docker Image..."
+          docker build -t sentinel-brain:latest .
+          
+      - name: Notify Deployment
+        run: echo "Ready for ECS linking. Please provide ECS Host IP to finalize SSH deployment."

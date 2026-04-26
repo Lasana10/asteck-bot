@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # 1. Simulated Central DB (RosarioSIS / Kolibri shared state)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: schoolflow
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: schoolflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: always
+
+  # 2. Integration Brain (Node-RED)
+  node-red:
+    image: nodered/node-red:latest
+    environment:
+      - TZ=Africa/Douala
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./node-red:/data
+    restart: always
+    depends_on:
+      - postgres
+
+  # 3. Local AI Engine (Ollama - Gemma 4 / Qwen3)
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama:/root/.ollama
+    restart: always
+
+  # 4. Autonomous Multi-Agent Controller
+  router:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./scripts:/app
+    command: >
+      sh -c "npm install axios pg express && node tri_model_router.js"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - ollama
+      - postgres
+
+  # 5. Jitsi Meet — Self-hosted on Pi's local Wi-Fi mesh (ZERO internet needed)
+  #    Students and teachers connect via dreem.local:8443
+  jitsi-web:
+    image: jitsi/web:stable
+    ports:
+      - "8443:443"
+    environment:
+      - ENABLE_AUTH=0
+      - ENABLE_GUESTS=1
+      - PUBLIC_URL=https://dreem.local:8443
+      - TZ=Africa/Douala
+    restart: always
+
+  jitsi-prosody:
+    image: jitsi/prosody:stable
+    environment:
+      - TZ=Africa/Douala
+    restart: always
+
+  jitsi-jicofo:
+    image: jitsi/jicofo:stable
+    environment:
+      - TZ=Africa/Douala
+    depends_on:
+      - jitsi-prosody
+    restart: always
+
+  jitsi-jvb:
+    image: jitsi/jvb:stable
+    ports:
+      - "10000:10000/udp"
+    environment:
+      - TZ=Africa/Douala
+    depends_on:
+      - jitsi-prosody
+    restart: always

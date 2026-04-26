@@ -37,11 +37,13 @@ You are the lead architect building **"AsTeck Traffic Intelligence"** — the wo
 | **SOS Handler** | High-severity → rapid broadcast + optional authority ping |
 | **Meta/Learner** | Daily self-review, propose improvements, evolve skills |
 
-## Tech Stack
+## Tech Stack & Architecture
 
+- **Context Reference**: See `CITYBRAIN_ARCHITECTURE.md` for the exact AI Matrix routing logic.
+- **AI Matrix**: Groq Whisper, Groq Llama 3.3, Gemma 4, and **QWN 3.6 PLUS** (via OpenRouter) powering the CityBrain Dispatcher.
 - **Telegram** (Telegraf): send/receive, inline buttons, voice/photo handling
-- **Supabase**: PostgreSQL DB for incidents, users, trust scores (realtime)
-- **Gemini AI** (free): multimodal parsing (text/voice/photo), intelligence
+- **Supabase**: PostgreSQL DB for incidents, users, trust scores, and webhooks
+- **Routing & Maps**: OpenStreetMap Nominatim for Reverse Geocoding.
 - **OpenStreetMap Nominatim**: reverse geocoding (free)
 - **OpenWeatherMap** (free tier): weather enrichment for flood warnings
 - **Future**: Web frontend (Leaflet live map), premium API for transport companies

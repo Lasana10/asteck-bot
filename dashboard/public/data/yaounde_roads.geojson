@@ -1,0 +1,255 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Boulevard du 20 Mai", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5098,3.8667],[11.5115,3.8658],[11.5140,3.8648],[11.5168,3.8640],[11.5195,3.8635],[11.5220,3.8632]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Kennedy", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5145,3.8680],[11.5130,3.8668],[11.5115,3.8655],[11.5100,3.8640],[11.5085,3.8628]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route Nationale 1 (Mvan)", "highway": "trunk", "surface": "paved", "lanes": 2, "congestion": "critical" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5095,3.8480],[11.5110,3.8430],[11.5130,3.8380],[11.5155,3.8330],[11.5175,3.8280],[11.5200,3.8230]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Germaine Ahidjo", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5180,3.8620],[11.5210,3.8628],[11.5240,3.8635],[11.5270,3.8640],[11.5300,3.8648]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Charles Atangana", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5148,3.8685],[11.5155,3.8710],[11.5160,3.8735],[11.5163,3.8760],[11.5165,3.8785]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Rue Joseph Mballa Eloumden", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5050,3.8600],[11.5070,3.8615],[11.5090,3.8630],[11.5110,3.8645],[11.5130,3.8660]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Monseigneur Vogt", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5165,3.8680],[11.5180,3.8700],[11.5195,3.8720],[11.5210,3.8740],[11.5225,3.8760]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue de l'Indépendance", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5080,3.8700],[11.5095,3.8690],[11.5110,3.8680],[11.5130,3.8670],[11.5148,3.8665]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Carrefour Nlongkak - Bastos", "highway": "primary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5045,3.8780],[11.5060,3.8810],[11.5075,3.8840],[11.5090,3.8870],[11.5100,3.8900]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Boulevard de la Réunification", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4950,3.8550],[11.4975,3.8570],[11.5000,3.8590],[11.5025,3.8610],[11.5050,3.8625]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route de Douala (N3)", "highway": "trunk", "surface": "paved", "lanes": 2, "congestion": "critical" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4800,3.8450],[11.4830,3.8470],[11.4865,3.8490],[11.4900,3.8510],[11.4940,3.8530],[11.4975,3.8550]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Foch", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5120,3.8690],[11.5135,3.8710],[11.5148,3.8730],[11.5160,3.8750]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Rue de Nachtigal", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5100,3.8720],[11.5110,3.8735],[11.5125,3.8748],[11.5140,3.8760]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Jean Paul II (Tsinga)", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5020,3.8750],[11.5035,3.8780],[11.5048,3.8810],[11.5060,3.8840]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Montée de la Présidence (Etoudi)", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5030,3.8900],[11.5040,3.8930],[11.5055,3.8960],[11.5065,3.8990],[11.5070,3.9020]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route d'Obala (N1 Nord)", "highway": "trunk", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5100,3.8900],[11.5115,3.8940],[11.5130,3.8980],[11.5140,3.9020],[11.5150,3.9060],[11.5160,3.9100]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue de Mvog-Ada", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5150,3.8630],[11.5160,3.8600],[11.5170,3.8570],[11.5180,3.8540],[11.5185,3.8510]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Rue de Melen", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4960,3.8620],[11.4980,3.8600],[11.5000,3.8580],[11.5020,3.8560],[11.5040,3.8540]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Carrefour Biyem-Assi", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "critical" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4850,3.8400],[11.4870,3.8420],[11.4895,3.8445],[11.4920,3.8460],[11.4945,3.8480]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route de Soa", "highway": "secondary", "surface": "unpaved", "lanes": 1, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5250,3.8800],[11.5280,3.8830],[11.5310,3.8860],[11.5345,3.8890],[11.5380,3.8920]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Ndi Samba (Elig Edzoa)", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5160,3.8590],[11.5175,3.8570],[11.5190,3.8555],[11.5205,3.8540]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Descente Mokolo → Melen", "highway": "residential", "surface": "unpaved", "lanes": 1, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4965,3.8650],[11.4970,3.8630],[11.4975,3.8610],[11.4980,3.8590]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Rue du Marché Mokolo", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "critical" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4940,3.8660],[11.4955,3.8665],[11.4970,3.8670],[11.4985,3.8668]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Ahmadou Ahidjo (Centre)", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5145,3.8682],[11.5148,3.8700],[11.5150,3.8720],[11.5148,3.8740],[11.5145,3.8760]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Montée Ane Rouge", "highway": "residential", "surface": "unpaved", "lanes": 1, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5000,3.8520],[11.5015,3.8540],[11.5028,3.8555],[11.5040,3.8570]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Briqueterie (Main Axis)", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5020,3.8700],[11.5035,3.8710],[11.5050,3.8718],[11.5065,3.8720],[11.5080,3.8715]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route de Mbankomo (S-W)", "highway": "secondary", "surface": "unpaved", "lanes": 1, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4750,3.8350],[11.4780,3.8370],[11.4810,3.8390],[11.4840,3.8410]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Bastos Residential Loop", "highway": "residential", "surface": "paved", "lanes": 2, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4990,3.8880],[11.5005,3.8890],[11.5020,3.8895],[11.5035,3.8890],[11.5045,3.8878]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Winston Churchill", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5050,3.8800],[11.5065,3.8790],[11.5080,3.8778],[11.5095,3.8770],[11.5110,3.8760]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Montée Jouvence (Ngoa-Ekellé)", "highway": "residential", "surface": "paved", "lanes": 1, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4930,3.8580],[11.4940,3.8600],[11.4950,3.8620],[11.4958,3.8640]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Lac Municipal → Hippodrome", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5130,3.8670],[11.5140,3.8650],[11.5155,3.8630],[11.5170,3.8615]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route de Nkol-Afamba", "highway": "residential", "surface": "unpaved", "lanes": 1, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5200,3.8850],[11.5230,3.8870],[11.5260,3.8900],[11.5290,3.8930]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Carrefour Warda → Tongolo", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5110,3.8530],[11.5120,3.8510],[11.5135,3.8490],[11.5150,3.8475]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue de la Paix (Olezoa)", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4980,3.8850],[11.4990,3.8870],[11.5005,3.8885],[11.5020,3.8895]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Descente Cradat", "highway": "residential", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5175,3.8720],[11.5185,3.8700],[11.5195,3.8680],[11.5200,3.8660]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Petite Barrière → Essos", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5220,3.8680],[11.5240,3.8690],[11.5260,3.8700],[11.5280,3.8710],[11.5300,3.8715]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Mballa", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5060,3.8680],[11.5075,3.8660],[11.5090,3.8640],[11.5100,3.8620]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Nkol-Eton (Nord)", "highway": "residential", "surface": "unpaved", "lanes": 1, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5030,3.8950],[11.5045,3.8970],[11.5060,3.8990],[11.5080,3.9010]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Axe Emombo - Terminus", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5210,3.8580],[11.5230,3.8560],[11.5250,3.8540],[11.5270,3.8520]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route Mendong", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4880,3.8500],[11.4900,3.8480],[11.4920,3.8460],[11.4940,3.8440],[11.4960,3.8425]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Accès Nsimeyong", "highway": "tertiary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5060,3.8480],[11.5075,3.8460],[11.5090,3.8440],[11.5100,3.8420]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Corridor Nkolbisson", "highway": "secondary", "surface": "unpaved", "lanes": 1, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4730,3.8600],[11.4760,3.8610],[11.4790,3.8620],[11.4820,3.8628]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route Mvog-Betsi", "highway": "residential", "surface": "unpaved", "lanes": 1, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5170,3.8500],[11.5180,3.8480],[11.5190,3.8460],[11.5200,3.8440]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Boulevard Jean-Paul II (Ouest)", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.4950,3.8700],[11.4965,3.8720],[11.4980,3.8740],[11.4995,3.8760]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Montée Omnisports → Mfandena", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5230,3.8650],[11.5235,3.8670],[11.5238,3.8690],[11.5240,3.8710]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Rue Étoa-Meki", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5105,3.8750],[11.5095,3.8740],[11.5085,3.8730],[11.5072,3.8720]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Rond-Point Intendance → Poste Centrale", "highway": "primary", "surface": "paved", "lanes": 4, "congestion": "critical" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5130,3.8680],[11.5140,3.8670],[11.5150,3.8665],[11.5160,3.8660],[11.5170,3.8658]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Axe Ngousso", "highway": "secondary", "surface": "paved", "lanes": 2, "congestion": "medium" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5200,3.8780],[11.5215,3.8800],[11.5230,3.8820],[11.5245,3.8840]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Descente Tsinga → Mokolo", "highway": "residential", "surface": "paved", "lanes": 1, "congestion": "high" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5000,3.8760],[11.4995,3.8740],[11.4988,3.8720],[11.4980,3.8700],[11.4972,3.8680]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route Efoulan", "highway": "tertiary", "surface": "unpaved", "lanes": 1, "congestion": "low" },
+      "geometry": { "type": "LineString", "coordinates": [[11.5100,3.8380],[11.5110,3.8360],[11.5125,3.8340],[11.5140,3.8320]] }
+    }
+  ]
+}

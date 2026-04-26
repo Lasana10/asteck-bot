@@ -1,0 +1,217 @@
+import React, { useState } from 'react';
+import { Camera, Shield, FileText, UploadCloud, ChevronRight, X, Compass, AlertTriangle, Zap, CheckCircle } from 'lucide-react';
+
+interface Props {
+  isVisible: boolean;
+  onClose: () => void;
+  onRegisterCustom: (data: any) => void;
+}
+
+type RegistrationTrack = 'select' | 'gov_link' | 'citizen_reg';
+
+export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props) {
+  const [track, setTrack] = useState<RegistrationTrack>('select');
+  const [govId, setGovId] = useState('');
+  const [plateNumber, setPlateNumber] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [isScanningQR, setIsScanningQR] = useState(false);
+
+  // Citizen Track State
+  const [vehicleType, setVehicleType] = useState('taxi');
+  const [driverName, setDriverName] = useState('');
+
+  if (!isVisible) return null;
+
+  const handleGovLinkSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    // Simulate secure government API hit
+    setTimeout(() => {
+      setLoading(false);
+      setSuccess(true);
+      setTimeout(() => {
+        onRegisterCustom({ 
+          role: 'operator', 
+          vehicleType: 'custom_security',
+          ids_number: govId,
+          cni_number: govId.split('-').pop(), // Mock extraction
+          plate_number: plateNumber
+        });
+        onClose();
+      }, 2000);
+    }, 1500);
+  };
+
+  const simulateQRScan = () => {
+    setIsScanningQR(true);
+    setTimeout(() => {
+      setIsScanningQR(false);
+      setGovId('CMR-MOTO-QR981');
+      setPlateNumber('CE 882 MX');
+    }, 2500);
+  };
+
+  const handleCitizenSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    // Simulate cloud upload and AI verification
+    setTimeout(() => {
+      setLoading(false);
+      setSuccess(true);
+      setTimeout(() => {
+        onRegisterCustom({ role: 'operator', vehicleType });
+        onClose();
+      }, 2000);
+    }, 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[6000] bg-slate-950/90 backdrop-blur-2xl flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="bg-slate-900 border border-white/5 rounded-[40px] w-full max-w-md shadow-2xl relative overflow-hidden ring-1 ring-white/10 flex flex-col max-h-[90vh]">
+        
+        {/* Header */}
+        <div className="p-6 pb-4 border-b border-white/5 flex items-center justify-between sticky top-0 bg-slate-900/80 backdrop-blur z-10">
+          <div>
+            <h2 className="text-xl font-black uppercase italic tracking-tighter text-white">AFAT Sentinel Hub</h2>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">{track === 'select' ? 'Identity Gateway' : track === 'gov_link' ? 'Strategic Clearance' : 'Node Registration'}</p>
+          </div>
+          <button onClick={onClose} className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto no-scrollbar flex-1">
+          {success ? (
+            <div className="flex flex-col items-center justify-center py-10 animate-in zoom-in duration-500">
+              <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center border border-green-500/20 mb-6 shadow-[0_0_40px_rgba(34,197,94,0.2)]">
+                <CheckCircle className="w-12 h-12 text-green-500" />
+              </div>
+              <h3 className="text-2xl font-black text-white uppercase italic tracking-tight mb-2">Identity Verified</h3>
+              <p className="text-sm text-slate-400 text-center font-bold">Welcome to the AFAT Mobility Grid. Your vehicle blueprint is active.</p>
+            </div>
+          ) : track === 'select' ? (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">
+                Select your registration stream to join the intelligence network. High-security profiles and standard operators follow different clearance paths.
+              </p>
+
+              <button 
+                onClick={() => setTrack('gov_link')}
+                className="w-full bg-blue-950/30 border border-blue-500/30 rounded-3xl p-6 text-left hover:bg-blue-900/40 hover:border-blue-400/50 transition-all group relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-transparent translate-x-[-100%] group-hover:translate-x-[0%] transition-transform duration-500"></div>
+                <Shield className="w-8 h-8 text-blue-400 mb-4" />
+                <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track A: Government Link</h3>
+                <p className="text-xs text-blue-200/60 font-medium">For pre-cleared state vehicles, accredited transport unions, and security fleet operators.</p>
+              </button>
+
+              <button 
+                onClick={() => setTrack('citizen_reg')}
+                className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 text-left hover:bg-white/10 hover:border-white/20 transition-all group"
+              >
+                <Compass className="w-8 h-8 text-slate-300 mb-4" />
+                <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track B: Independent Node</h3>
+                <p className="text-xs text-slate-400 font-medium">Standard registration for new Taxis, Motos, and independent Minibus operators.</p>
+              </button>
+            </div>
+          ) : track === 'gov_link' ? (
+            <form onSubmit={handleGovLinkSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
+              <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl flex gap-4 mb-6">
+                <Shield className="w-6 h-6 text-blue-400 shrink-0" />
+                <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
+                  This portal connects directly to the Strategic Identity Database. Scan your physical jacket QR or enter your credentials to port your secure vehicle blueprint to the AFAT grid.
+                </p>
+              </div>
+
+              {isScanningQR ? (
+                <div className="bg-slate-950 border border-blue-500/30 rounded-2xl p-8 flex flex-col items-center justify-center relative overflow-hidden h-48">
+                  <div className="absolute inset-0 bg-blue-500/10 animate-pulse"></div>
+                  <div className="w-full h-1 bg-blue-400 absolute top-0 left-0 animate-[routeDraw_2s_ease-in-out_infinite] blur-sm"></div>
+                  <Camera className="w-12 h-12 text-blue-400 mb-4 animate-bounce" />
+                  <p className="text-sm font-black text-white uppercase tracking-widest relative z-10">Scanning Jacket QR...</p>
+                  <p className="text-[10px] text-blue-300 font-mono mt-2 relative z-10 animate-pulse">Align QR code within frame</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <button 
+                    type="button" 
+                    onClick={simulateQRScan}
+                    className="w-full bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/30 text-blue-300 rounded-2xl p-4 flex items-center justify-center gap-3 transition-colors group"
+                  >
+                    <div className="p-2 bg-blue-500/20 rounded-lg group-hover:bg-blue-500/40 transition-colors">
+                      <Camera className="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div className="text-left flex-1">
+                      <p className="text-sm font-black uppercase tracking-wider">Scan Physical QR</p>
+                      <p className="text-[10px] uppercase font-mono tracking-widest opacity-70">Jacket or Official Badge</p>
+                    </div>
+                  </button>
+
+                  <div className="flex items-center gap-4 py-2">
+                    <div className="h-px flex-1 bg-white/10"></div>
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">OR MANUAL ENTRY</span>
+                    <div className="h-px flex-1 bg-white/10"></div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Gov Identity Number (CNI / QR ID)</label>
+                    <input required type="text" value={govId} onChange={e=>setGovId(e.target.value)} placeholder="e.g., CM-2026-X891" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Secured Plate Number</label>
+                    <input required type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono text-lg uppercase" />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+                <button disabled={loading || !govId || !plateNumber || isScanningQR} type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                  {loading ? <Zap className="w-5 h-5 animate-pulse" /> : 'Execute Clearance'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleCitizenSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
+               <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Full Name</label>
+                <input required type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Jean Dupont" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Vehicle Chassis Type</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {['moto', 'taxi', 'minibus', 'bus'].map(vt => (
+                    <button key={vt} type="button" onClick={() => setVehicleType(vt)} className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 ${vehicleType === vt ? 'bg-white text-slate-900 border-white' : 'bg-slate-950 border-white/10 text-slate-400 hover:bg-slate-900'}`}>
+                      <span className="text-2xl">{vt === 'moto' ? '🏍️' : vt === 'taxi' ? '🚕' : vt === 'minibus' ? '🚐' : '🚌'}</span>
+                      <span className="text-xs font-black uppercase tracking-wider">{vt}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-5 border border-dashed border-white/20 rounded-2xl bg-white/5 flex flex-col items-center justify-center gap-2 text-center mt-2 cursor-pointer hover:bg-white/10 transition-colors">
+                <UploadCloud className="w-8 h-8 text-slate-400 mb-1" />
+                <p className="text-sm font-bold text-white uppercase tracking-tight">Upload Documents</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">Permit • Insurance • Vehicle Photo</p>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+                <button disabled={loading || !driverName} type="submit" className="flex-1 bg-white hover:bg-slate-200 disabled:bg-white/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                  {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-900" /> : 'Submit for Verification'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,65 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Avenue Charles de Gaulle", "type": "primary" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.512, 3.864], [11.515, 3.862], [11.518, 3.860]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Boulevard du 20 Mai", "type": "primary" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.510, 3.868], [11.515, 3.868], [11.520, 3.868]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Route de Mvan", "type": "highway" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.525, 3.830], [11.528, 3.825], [11.530, 3.820]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Corridor Moto Mvan", "type": "informal_route", "risk_level": "high" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.502, 3.848], [11.505, 3.845], [11.512, 3.842], [11.515, 3.839]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Raccourci Marché Mokolo", "type": "informal_route", "risk_level": "medium" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.498, 3.855], [11.495, 3.852], [11.492, 3.849], [11.488, 3.858]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Contournement Biyem-Assi", "type": "informal_route", "risk_level": "low" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.480, 3.840], [11.485, 3.842], [11.490, 3.845], [11.495, 3.840]
+        ]
+      }
+    }
+  ]
+}
