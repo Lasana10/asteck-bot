@@ -200,8 +200,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             <AFATLogo className="w-7 h-7 text-white relative z-10" />
           </div>
           <div>
-            <h1 className="font-black text-white text-[18px] tracking-tighter uppercase italic leading-none drop-shadow-md">Mobility<span className="text-blue-500">OS</span></h1>
-            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-[0.4em] mt-1.5 italic text-glow-blue opacity-80">AFAT Intelligence</p>
+            <h1 className="font-black text-white text-[18px] tracking-tighter uppercase italic leading-none drop-shadow-md">Sentinel<span className="text-blue-500">OS</span></h1>
+            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-[0.4em] mt-1.5 italic text-glow-blue opacity-80">Universal Intelligence</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -236,8 +236,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             </div>
             <div className="flex-1 overflow-hidden whitespace-nowrap">
                <div className="inline-block animate-marquee hover:pause-marquee cursor-default">
-                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🛰️ Satellite link established via Starlink • Signal: 98%</span>
-                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🤖 Gemma 4 Intelligence: Scanning for road hazards in Mvan...</span>
+                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🤖 Sentinel AI: Scanning for hazards and property verification status...</span>
+                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🛡️ OS Protocols: ACTIVE. All systems synchronized.</span>
                   <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🚕 Node 442 verified at Carrefour Bastos • Status: Punctual</span>
                   <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🛡️ Sentinel Protocols: ACTIVE. All citizens safely tracked.</span>
                </div>
@@ -256,7 +256,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             </div>
             <div>
               <h3 className="text-[13px] font-black text-white uppercase tracking-tight italic leading-tight">No Internet? No Problem.</h3>
-              <p className="text-[10px] text-emerald-400 font-bold tracking-widest uppercase mt-0.5">Dial *121# for Mobility OS</p>
+              <p className="text-[10px] text-emerald-400 font-bold tracking-widest uppercase mt-0.5">Dial *121# for Sentinel OS</p>
             </div>
           </div>
           <div className="relative z-10 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase tracking-widest whitespace-nowrap">

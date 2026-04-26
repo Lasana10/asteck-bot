@@ -56,8 +56,8 @@ function Login() {
           <div className="absolute inset-0 bg-white/5 animate-pulse rounded-full group-hover:bg-white/10 transition-colors"></div>
           <AFATLogo className="w-16 h-16 text-white relative z-10" />
         </div>
-        <h1 className="text-4xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">AFAT</h1>
-        <p className="text-slate-500 text-center mb-12 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Sentinel Intelligence</p>
+        <h1 className="text-4xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">Sentinel</h1>
+        <p className="text-blue-500 text-center mb-12 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligence Operating System</p>
 
         {errorText && (
           <div className="bg-error/10 border border-error/20 text-error p-4 rounded-2xl text-xs mb-8 font-bold animate-shake">
@@ -298,7 +298,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
         <div className="w-16 h-16 border-4 border-surface-container border-t-primary rounded-full animate-spin mb-6 shadow-neon-primary/20"></div>
-        <p className="text-primary font-display font-medium text-[10px] tracking-[6px] uppercase animate-pulse">Establishing Intel Grid</p>
+        <p className="text-primary font-display font-medium text-[10px] tracking-[6px] uppercase animate-pulse">Initializing Sentinel OS</p>
       </div>
     );
   }
