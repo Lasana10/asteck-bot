@@ -335,6 +335,7 @@ export function InteractiveMap({
   const [activeVehicles, setActiveVehicles] = useState<Vehicle[]>([]);
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [proprietaryLandmarks, setProprietaryLandmarks] = useState<any[]>([]);
 
   // ═══ GTA-STYLE ICON FACTORIES ═══
 
