@@ -21,8 +21,13 @@ export const offlineSync = {
     const raw = localStorage.getItem(STORAGE_KEY);
     const queue: OfflineMutation[] = raw ? JSON.parse(raw) : [];
     
+    // Safety Fallback for older browsers
+    const uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+      ? crypto.randomUUID() 
+      : Math.random().toString(36).substring(2) + Date.now().toString(36);
+
     const mutation: OfflineMutation = {
-      id: crypto.randomUUID(),
+      id: uuid,
       type,
       payload,
       timestamp: Date.now()
@@ -41,8 +46,12 @@ export const offlineSync = {
     const raw = localStorage.getItem(STORAGE_KEY);
     const queue: OfflineMutation[] = raw ? JSON.parse(raw) : [];
     
+    const uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+      ? crypto.randomUUID() 
+      : Math.random().toString(36).substring(2) + Date.now().toString(36);
+
     const mutation: OfflineMutation = {
-      id: crypto.randomUUID(),
+      id: uuid,
       type,
       payload: payloadArray, // Array payload
       timestamp: Date.now()
