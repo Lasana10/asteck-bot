@@ -14,6 +14,7 @@ import { QRScanner } from './QRScanner';
 import { offlineSync } from '../../services/offlineSync';
 import { DriverDNA } from './DriverDNA';
 import { InteractiveMap } from '../shared/InteractiveMap';
+import { NegotiationPanel } from '../shared/NegotiationPanel';
 import { AFATLogo } from '../shared/AFATLogo';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
 import { telemetry } from '../../services/telemetry';
@@ -68,6 +69,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const [coPilotFeed, setCoPilotFeed] = useState<{ time: string, text: string, type: 'info' | 'warning' | 'success' }[]>([
     { time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), text: "Système Sentinel activé. Scan en cours...", type: 'info' }
   ]);
+  const [negotiatingRequest, setNegotiatingRequest] = useState<any | null>(null);
 
   const handleDownloadMap = async (regionId: 'yaounde' | 'douala' | 'cameroon') => {
     if (offlineMaps[regionId]) return;
@@ -509,6 +511,15 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                   </div>
                 </div>
                 
+                <div className="flex gap-3 relative z-10 mb-3">
+                  <button
+                    onClick={() => setNegotiatingRequest(req)}
+                    className="flex-1 bg-white/5 border border-blue-500/30 text-blue-400 font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em]"
+                  >
+                    <TrendingUp className="w-4 h-4" /> Negocier
+                  </button>
+                </div>
+
                 <div className="flex gap-3 relative z-10">
                   <button
                     onClick={() => acceptRequest(req.id)}
@@ -525,6 +536,30 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Negotiation Modal */}
+        {negotiatingRequest && (
+          <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-6 animate-in fade-in duration-300">
+            <div className="w-full max-w-sm">
+              <NegotiationPanel
+                initialPrice={negotiatingRequest.routes?.price_per_seat || 0}
+                role="operator"
+                otherPartyName="Commuter"
+                onAccept={(price) => {
+                  // In a real app, update DB. For now, simulate acceptance.
+                  acceptRequest(negotiatingRequest.id);
+                  setNegotiatingRequest(null);
+                }}
+                onReject={() => setNegotiatingRequest(null)}
+                onCounter={(price) => {
+                  // Simulate fast acceptance of counter offer
+                  acceptRequest(negotiatingRequest.id);
+                  setNegotiatingRequest(null);
+                }}
+              />
+            </div>
           </div>
         )}
 

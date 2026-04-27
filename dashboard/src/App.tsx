@@ -257,24 +257,28 @@ export default function App() {
 
     if (!sessionUser) {
       return (
-        <div className="min-h-screen flex flex-col bg-slate-950">
-          <CommuterDashboard 
-            onSignOut={() => {}} 
-            profile={{ username: 'Guest', trust_points: 0 }} 
-            activeTab={activeTab}
-            isGuest={true}
-          />
-          <div className="fixed bottom-24 left-6 right-6 z-[2000]">
-             <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 rounded-[32px] shadow-2xl flex items-center justify-between">
-                <div>
-                   <h4 className="font-black text-white text-lg leading-tight uppercase italic">AFAT — Safe Passage</h4>
-                   <p className="text-blue-100 text-xs font-bold opacity-80">Ready to start your journey?</p>
+        <div className="min-h-screen flex flex-col sentinel-bg text-white">
+          <div className="mesh-gradient" />
+          <div className="relative z-10 flex-1 flex flex-col">
+            <CommuterDashboard 
+              onSignOut={() => {}} 
+              profile={{ username: 'Guest', trust_points: 0 }} 
+              activeTab={activeTab}
+              isGuest={true}
+            />
+          </div>
+          <div className="fixed bottom-32 left-6 right-6 z-[2000] animate-fade-up">
+             <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between group overflow-hidden relative">
+                <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative z-10">
+                   <h4 className="font-black text-white text-lg leading-tight uppercase italic tracking-tighter">AFAT Safe Passage</h4>
+                   <p className="text-blue-400 text-[10px] font-black uppercase tracking-widest mt-1">Initialize Sentinel Protocol</p>
                 </div>
                 <button 
                   onClick={() => window.location.reload()} 
-                  className="bg-white text-blue-600 px-6 py-3 rounded-2xl font-black text-sm"
+                  className="bg-white text-slate-950 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-white/10 active:scale-95 transition-all relative z-10"
                 >
-                  LOGIN
+                  Connect
                 </button>
              </div>
           </div>
@@ -304,8 +308,11 @@ export default function App() {
     };
 
     return (
-      <div className="min-h-screen flex flex-col bg-slate-950">
-        {renderDashboard()}
+      <div className="min-h-screen flex flex-col sentinel-bg text-white selection:bg-blue-500/30">
+        <div className="mesh-gradient" />
+        <div className="relative z-10 flex-1 flex flex-col">
+          {renderDashboard()}
+        </div>
         <BottomNav role={userRole as any} activeTab={activeTab} onTabChange={setActiveTab} />
         {renderRoleToggle()}
         <RoleOnboarding 

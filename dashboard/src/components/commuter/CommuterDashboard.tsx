@@ -171,12 +171,51 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   // Booking flow handlers
   const handleDepartureSelect = (departure: any) => { setSelectedDeparture(departure); setView('seats'); };
-  const handleSeatSelect = (seatId: string) => { setSelectedSeatId(seatId); setView('payment'); };
+  const handleSeatSelect = (seatId: string) => { setSelectedSeatId(seatId); setView('negotiate'); };
   const handleBookingConfirm = (result: any) => { setBookingResult(result); setCurrentBookingId(result?.booking?.id); setView('ticket'); };
+
+  const handleNegotiationAccept = (finalPrice: number) => {
+    // Update the selected departure price for this specific booking session
+    setSelectedDeparture((prev: any) => ({ ...prev, price_xaf: finalPrice }));
+    setView('payment');
+  };
 
   // Sub-views
   if (view === 'departures') return <DepartureBoard onSelectDeparture={handleDepartureSelect} onBack={() => setView('home')} />;
   if (view === 'seats' && selectedDeparture) return <SeatSelector departure={selectedDeparture} onConfirmSeat={handleSeatSelect} onBack={() => setView('departures')} />;
+  
+  if (view === 'negotiate' && selectedDeparture) {
+    return (
+      <div className="min-h-screen sentinel-bg flex flex-col p-6 pt-16">
+        <div className="mesh-gradient" />
+        <div className="relative z-10 flex-1">
+          <div className="mb-10 text-center animate-in fade-in slide-in-from-top duration-700">
+            <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-3">Live Bidding</h2>
+            <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em]">Propose your fare to the operator</p>
+          </div>
+          
+          <NegotiationPanel 
+            initialPrice={selectedDeparture.price_xaf}
+            role="commuter"
+            otherPartyName={selectedDeparture.operator_name}
+            onAccept={handleNegotiationAccept}
+            onReject={() => setView('seats')}
+            onCounter={(price) => {
+               // In a real app, this would push to Supabase. For now, we simulate a "Fast Acceptance"
+               handleNegotiationAccept(price);
+            }}
+          />
+          
+          <div className="mt-12 bg-white/5 border border-white/10 rounded-[2rem] p-6 text-center backdrop-blur-md">
+            <ShieldCheck className="w-8 h-8 text-blue-400 mx-auto mb-3" />
+            <p className="text-white font-black text-[14px] uppercase italic tracking-tighter">Safe Passage Protocol</p>
+            <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest mt-1">Your bid is encrypted and sent to the grid.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (view === 'payment' && selectedDeparture && selectedSeatId) {
     return (
       <PaymentSheet 
@@ -185,7 +224,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         routeName={selectedDeparture.route_name} 
         seatLabel={selectedSeatId.split('-').pop() || '1'} 
         onPaymentComplete={(method, txId) => handleBookingConfirm({ id: `BK-${Date.now()}`, transactionId: txId, origin: selectedDeparture.origin, destination: selectedDeparture.destination, seatLabel: selectedSeatId.split('-').pop(), price: selectedDeparture.price_xaf, operatorName: selectedDeparture.operator_name, departureTime: selectedDeparture.departure_time, routeName: selectedDeparture.route_name })} 
-        onBack={() => setView('seats')} 
+        onBack={() => setView('negotiate')} 
       />
     );
   }

@@ -59,28 +59,35 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
   const accentText   = ROLE_TEXT[role] ?? ROLE_TEXT.commuter;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-[#080c14]/90 backdrop-blur-xl border-t border-white/6 px-2 pt-3 pb-5 flex items-center justify-around z-[1000] safe-area-inset-bottom">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = activeTab === tab.id;
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[5000] w-[calc(100%-48px)] max-w-lg">
+      <nav className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-2.5 rounded-[2rem] flex items-center justify-around shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
 
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            className={`flex flex-col items-center gap-1 min-w-[56px] transition-all duration-200 active:scale-90 ${
-              isActive ? accentText : 'text-white/30 hover:text-white/60'
-            }`}
-          >
-            <div className={`p-2.5 rounded-2xl transition-all duration-200 ${isActive ? accentActive : ''}`}>
-              <Icon className="w-5 h-5" />
-            </div>
-            <span className={`text-[9px] font-black uppercase tracking-widest leading-none transition-all ${isActive ? 'opacity-100' : 'opacity-0'}`}>
-              {tab.label}
-            </span>
-          </button>
-        );
-      })}
-    </nav>
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
+              className={`flex-1 flex flex-col items-center gap-1.5 transition-all duration-300 relative group py-2 rounded-2xl ${
+                isActive ? accentText : 'text-white/20 hover:text-white/40'
+              }`}
+            >
+              <div className={`p-2 rounded-xl transition-all duration-300 ${isActive ? accentActive : 'group-hover:bg-white/5'}`}>
+                <Icon className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-105'}`} />
+              </div>
+              
+              {isActive && (
+                <div className={`absolute -bottom-1 w-1 h-1 rounded-full ${ROLE_TEXT[role] || 'bg-blue-400'} shadow-[0_0_10px_currentColor] animate-pulse`} />
+              )}
+              
+              <span className={`text-[8px] font-black uppercase tracking-[0.2em] leading-none transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-90 h-0 overflow-hidden'}`}>
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
   );
 }
