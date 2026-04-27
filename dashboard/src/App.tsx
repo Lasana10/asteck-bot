@@ -133,7 +133,7 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Changed to false: NEVER block UI on boot
   const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'notifications' | 'profile'>('home');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
@@ -158,26 +158,17 @@ export default function App() {
   };
 
   useEffect(() => {
-    // ═══ SAFETY TIMEOUT ═══
-    // If Supabase doesn't respond within 3 seconds, force into Guest Mode.
-    // This prevents the app from hanging on the loading screen forever.
-    const safetyTimer = setTimeout(() => {
-      console.warn('[AFAT] Init timeout — forcing Guest Mode');
-      setLoading(false);
-    }, 3000);
-
+    // ═══ INSTANT BOOT ═══
+    // Instead of waiting, we let the UI load instantly as Guest.
+    // If Supabase eventually resolves, it updates the state seamlessly.
+    
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSessionUser(session?.user ?? null);
       if (session?.user) {
         fetchRole(session.user.id);
-      } else {
-        setLoading(false);
       }
-      clearTimeout(safetyTimer);
     }).catch((err) => {
       console.error('[AFAT] Supabase init error:', err);
-      setLoading(false);
-      clearTimeout(safetyTimer);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -188,13 +179,11 @@ export default function App() {
         telemetry.start(user.id);
       } else {
         setUserRole(null);
-        setLoading(false);
         telemetry.stop();
       }
     });
 
     return () => {
-      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
   }, []);
@@ -212,21 +201,16 @@ export default function App() {
           setShowOnboarding(true);
         }
       } else {
-        console.error("Failed to fetch profile or profile not found:", error);
         setUserRole('commuter'); 
         setUserProfile({ full_name: 'Voyageur AFAT', trust_points: 0 });
       }
     } catch (err) {
-      console.error("An unexpected error occurred while fetching profile:", err);
       setUserRole('commuter'); 
       setUserProfile({ full_name: 'Voyageur AFAT', trust_points: 0 });
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleSignOut = async () => {
-    setLoading(true);
     await signOut();
   };
 
@@ -260,7 +244,6 @@ export default function App() {
                   setUserRole(r as string);
                   setSessionUser({ id: 'dev-id', phone: '237000000' });
                   setUserProfile({ id: 'dev-id', full_name: `Citoyen AFAT`, role: r, trust_points: isGuardian ? 850 : 120, subscription_tier: isGuardian ? 'guardian' : 'free' });
-                  setLoading(false);
                   setIsProtocolHubOpen(false);
                 }}
                 className={`w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border text-left ${
@@ -308,14 +291,8 @@ export default function App() {
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
-        <div className="w-16 h-16 border-4 border-surface-container border-t-primary rounded-full animate-spin mb-6 shadow-neon-primary/20"></div>
-        <p className="text-primary font-display font-medium text-[10px] tracking-[6px] uppercase animate-pulse">Establishing Intel Grid</p>
-      </div>
-    );
-  }
+  // ═══ NO MORE LOADING SCREEN ═══
+  // We completely removed the `if (loading)` block. The app loads instantly.
 
   // GUEST MODE (Commuter experience without login)
   if (!sessionUser) {
