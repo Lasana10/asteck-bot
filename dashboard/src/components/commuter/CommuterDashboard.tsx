@@ -4,7 +4,8 @@ import {
   Mic, Trophy, Bell, Ticket, X, Send, Clock, ChevronRight,
   Shield, Zap, MessageCircle, Star, TrendingUp, MapPin,
   Settings, Download, Database, Info, Layers, Activity, CheckCircle, Fingerprint,
-  MoreVertical, Briefcase, Layout, Box, Navigation, User, Map as MapIcon, Phone
+  MoreVertical, Briefcase, Layout, Box, Navigation, User, Map as MapIcon, Phone,
+  Cloud, RefreshCw, ArrowUpRight, Wifi
 } from 'lucide-react';
 import { AFATLogo } from '../shared/AFATLogo';
 import { InteractiveMap } from '../shared/InteractiveMap';
