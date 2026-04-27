@@ -1,22 +1,12 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
 /**
- * Sentinel AI Gateway
+ * AFAT Sentinel AI Gateway
  * Provides a unified, rate-limited interface for all grid intelligence.
- * Currently runs client-side for rapid development, but designed to be 
- * swapped for a Supabase Edge Function in 1-click once production keys are issued.
+ * Uses fetch-based API calls so NO external SDK dependencies are required.
  */
 
 class SentinelGateway {
-  private genAI: GoogleGenerativeAI | null = null;
+  private geminiKey: string = import.meta.env.VITE_GEMINI_API_KEY || '';
   private groqKey: string = import.meta.env.VITE_GROQ_API_KEY || '';
-
-  constructor() {
-    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (geminiKey) {
-      this.genAI = new GoogleGenerativeAI(geminiKey);
-    }
-  }
 
   /**
    * Primary Strategic Reasoner (Llama 3.3 70B via Groq)
@@ -57,19 +47,29 @@ class SentinelGateway {
   }
 
   /**
-   * Real-time Response Logic (Gemini 1.5 Flash)
+   * Real-time Response Logic (Gemini Flash via REST API)
    * Fast, cost-effective reasoning for immediate grid updates.
+   * Uses direct REST call instead of SDK to avoid missing dependency issues.
    */
   async getFlashResponse(prompt: string): Promise<string> {
-    if (!this.genAI) {
+    if (!this.geminiKey) {
       console.warn('[SentinelGateway] Gemini Key missing. MOCKING Response.');
-      return "Sentinel AI: Connection to local grid limited.";
+      return "AFAT Intelligence: Connection to local grid limited.";
     }
 
     try {
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const result = await model.generateContent(prompt);
-      return result.response.text();
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }]
+          })
+        }
+      );
+      const data = await response.json();
+      return data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from Gemini.';
     } catch (err) {
       console.error('[SentinelGateway] Gemini Flash failed:', err);
       throw err;

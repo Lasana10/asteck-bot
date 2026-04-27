@@ -56,8 +56,8 @@ function Login() {
           <div className="absolute inset-0 bg-white/5 animate-pulse rounded-full group-hover:bg-white/10 transition-colors"></div>
           <AFATLogo className="w-16 h-16 text-white relative z-10" />
         </div>
-        <h1 className="text-4xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">Sentinel</h1>
-        <p className="text-blue-500 text-center mb-12 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligence Operating System</p>
+        <h1 className="text-4xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">AFAT</h1>
+        <p className="text-slate-500 text-center mb-12 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligent Safe Passage</p>
 
         {errorText && (
           <div className="bg-error/10 border border-error/20 text-error p-4 rounded-2xl text-xs mb-8 font-bold animate-shake">
@@ -136,7 +136,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'notifications' | 'profile'>('home');
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false); // Refined dev switcher state
+  const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
   const [isRegistrationHubOpen, setIsRegistrationHubOpen] = useState(false);
 
   const forceRole = (role: string, vehicleType?: string, idData?: any) => {
@@ -158,11 +158,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Safety timeout: 5 seconds max for initialization
-    const timer = setTimeout(() => {
-      console.warn('[Sentinel OS] Init Timeout - Forcing Guest Mode');
+    // ═══ SAFETY TIMEOUT ═══
+    // If Supabase doesn't respond within 3 seconds, force into Guest Mode.
+    // This prevents the app from hanging on the loading screen forever.
+    const safetyTimer = setTimeout(() => {
+      console.warn('[AFAT] Init timeout — forcing Guest Mode');
       setLoading(false);
-    }, 5000);
+    }, 3000);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSessionUser(session?.user ?? null);
@@ -171,11 +173,11 @@ export default function App() {
       } else {
         setLoading(false);
       }
-      clearTimeout(timer);
-    }).catch(err => {
-      console.error('[Sentinel OS] Supabase Error:', err);
+      clearTimeout(safetyTimer);
+    }).catch((err) => {
+      console.error('[AFAT] Supabase init error:', err);
       setLoading(false);
-      clearTimeout(timer);
+      clearTimeout(safetyTimer);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -192,7 +194,7 @@ export default function App() {
     });
 
     return () => {
-      clearTimeout(timer);
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
   }, []);
@@ -210,16 +212,14 @@ export default function App() {
           setShowOnboarding(true);
         }
       } else {
-        // If there's an error or no data, set default commuter role
         console.error("Failed to fetch profile or profile not found:", error);
         setUserRole('commuter'); 
-        setUserProfile({ full_name: 'Sentinel Citizen', trust_points: 0 });
+        setUserProfile({ full_name: 'Voyageur AFAT', trust_points: 0 });
       }
     } catch (err) {
-      // Catch any unexpected errors during the async operation
       console.error("An unexpected error occurred while fetching profile:", err);
       setUserRole('commuter'); 
-      setUserProfile({ full_name: 'Sentinel Citizen', trust_points: 0 });
+      setUserProfile({ full_name: 'Voyageur AFAT', trust_points: 0 });
     } finally {
       setLoading(false);
     }
@@ -259,7 +259,7 @@ export default function App() {
                   const isGuardian = label === 'Guardian';
                   setUserRole(r as string);
                   setSessionUser({ id: 'dev-id', phone: '237000000' });
-                  setUserProfile({ id: 'dev-id', full_name: `Sentinel Citizen`, role: r, trust_points: isGuardian ? 850 : 120, subscription_tier: isGuardian ? 'guardian' : 'free' });
+                  setUserProfile({ id: 'dev-id', full_name: `Citoyen AFAT`, role: r, trust_points: isGuardian ? 850 : 120, subscription_tier: isGuardian ? 'guardian' : 'free' });
                   setLoading(false);
                   setIsProtocolHubOpen(false);
                 }}
@@ -312,7 +312,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
         <div className="w-16 h-16 border-4 border-surface-container border-t-primary rounded-full animate-spin mb-6 shadow-neon-primary/20"></div>
-        <p className="text-primary font-display font-medium text-[10px] tracking-[6px] uppercase animate-pulse">Initializing Sentinel OS</p>
+        <p className="text-primary font-display font-medium text-[10px] tracking-[6px] uppercase animate-pulse">Establishing Intel Grid</p>
       </div>
     );
   }
@@ -330,8 +330,8 @@ export default function App() {
         <div className="fixed bottom-24 left-6 right-6 z-[2000] animate-in slide-in-from-bottom duration-1000">
            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 rounded-[32px] shadow-2xl flex items-center justify-between ring-4 ring-white/10">
               <div>
-                 <h4 className="font-black text-white text-lg leading-tight uppercase italic">Ready for Intelligence?</h4>
-                 <p className="text-blue-100 text-xs font-bold opacity-80 mt-1">Sign in to access the full Sentinel Intelligence Grid.</p>
+                 <h4 className="font-black text-white text-lg leading-tight uppercase italic">Ready to ride?</h4>
+                 <p className="text-blue-100 text-xs font-bold opacity-80 mt-1">Sign in to book and track rides in real-time.</p>
               </div>
               <button 
                 onClick={() => window.location.reload()} 
@@ -345,8 +345,8 @@ export default function App() {
              onClick={() => setIsRegistrationHubOpen(true)}
              className="w-full mt-4 bg-slate-900 border border-white/10 hover:bg-slate-800 hover:border-white/20 text-white rounded-[24px] py-4 font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 shadow-xl transition-all"
            >
-             <ShieldAlert className="w-4 h-4 text-blue-400" />
-             Join the Sentinel Fleet
+             <Car className="w-4 h-4 text-blue-400" />
+             Drive with AFAT Sentinel
            </button>
         </div>
         <BottomNav role="commuter" activeTab={activeTab} onTabChange={setActiveTab} />
