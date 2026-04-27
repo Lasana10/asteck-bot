@@ -290,15 +290,27 @@ User input: "${userText}"`;
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isThinking}
                   className="bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-400 hover:text-amber-400 p-3 rounded-2xl transition-all"
-                  title="Envoyer une photo (Llama Vision)"
+                  title="Scan & Detect Intelligence (Llama Vision)"
                 >
                   <Camera className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInput("Assistant, I want to report something via voice. Start audio scanning.");
+                    handleSend();
+                  }}
+                  disabled={isThinking}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-400 hover:text-purple-400 p-3 rounded-2xl transition-all"
+                  title="Voice Intelligence (AFAT Audio)"
+                >
+                  <Mic className="w-4 h-4" />
                 </button>
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Pose ta question..."
+                  placeholder="Ask AFAT Guidance..."
                   className="flex-1 bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 transition-colors"
                 />
                 <button

@@ -1000,8 +1000,14 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   };
 
   return (
-    <div className="min-h-screen bg-[#080c14] text-white overflow-hidden">
+    <div className="min-h-screen bg-[#080c14] text-white overflow-hidden relative">
       {currentContent()}
+      {isIntelligenceOpen && renderIntelligenceSettings()}
+      
+      {/* ── Version Indicator (Deployment Validation) ── */}
+      <div className="fixed bottom-2 right-2 z-[9999] pointer-events-none opacity-20">
+         <p className="text-[6px] font-mono text-white">AFAT Grid v1.0.8-stable [RECOVERY_ENABLED]</p>
+      </div>
 
       {/* ── Report Modal ──────────────────────────────── */}
       {isReportModalOpen && (

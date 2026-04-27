@@ -133,7 +133,7 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false); 
+  const [loading, setLoading] = useState(false); // Changed to false: NEVER block UI on boot
   const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'notifications' | 'profile'>('home');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
@@ -257,7 +257,7 @@ export default function App() {
 
     if (!sessionUser) {
       return (
-        <div className="min-h-screen flex flex-col bg-slate-950 px-4 pt-12">
+        <div className="min-h-screen flex flex-col bg-slate-950">
           <CommuterDashboard 
             onSignOut={() => {}} 
             profile={{ username: 'Guest', trust_points: 0 }} 
