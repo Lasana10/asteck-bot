@@ -820,16 +820,28 @@ export class TelegramService {
         // 5. AI-Powered Smart Response — Dynamic and contextual
         ctx.sendChatAction('typing');
         const aiResponse = await geminiClient.queryLive(
-          `The user said: "${text}". Provide a brief, helpful response related to Cameroon traffic, roads, or mobility. If their message is a question, answer it. If it's unclear, suggest how to use AsTeck (voice reports, /fuel, /nearby, /weather commands). Keep it under 3 lines.`,
+          `The user said: "${text}". 
+           Provide a brief, conversational response. 
+           If it sounds like a traffic inquiry, answer it. 
+           If it is a general chat, be friendly and invite them to use AsTeck features.
+           If they are reporting something but didn't give details, ask them to send a voice note or photo for "Deep Scan".
+           Keep it under 3 lines.`,
           lang
         );
+        
+        const helpButtons = Markup.inlineKeyboard([
+          [Markup.button.callback('🎙️ Send Voice', 'menu_report'), Markup.button.callback('📸 Send Photo', 'menu_report')],
+          [Markup.button.callback('❓ How it works', 'menu_help')]
+        ]);
+
         if (aiResponse) {
-          ctx.replyWithMarkdown(`🤖 ${aiResponse}`);
+          ctx.replyWithMarkdown(`🤖 ${aiResponse}`, helpButtons);
         } else {
           ctx.replyWithMarkdown(
             lang === 'fr'
               ? `🤖 *Besoin d'aide?* Utilisez les boutons ci-dessus ou envoyez un vocal pour signaler un incident.`
-              : (lang === 'pcm' ? `🤖 *You de find help?* Use the buttons dem for up or send voice note make we report wahala.` : `🤖 *Need help?* Use the buttons above or send a voice note to report an incident.`)
+              : (lang === 'pcm' ? `🤖 *You de find help?* Use the buttons dem for up or send voice note make we report wahala.` : `🤖 *Need help?* Use the buttons above or send a voice note to report an incident.`),
+            helpButtons
           );
         }
       }
@@ -1179,9 +1191,11 @@ export class TelegramService {
     if (!photo) return ctx.reply('❌ Photo data missing.');
     const link = await ctx.telegram.getFileLink(photo.file_id);
 
-    const statusMsg = await ctx.reply(lang === 'fr' ? '📸 _Analyse de la photo..._' : '📸 _Analyzing photo..._', { parse_mode: 'Markdown' });
+    const statusMsg = await ctx.reply(lang === 'fr' ? '📸 _Scan SENTINEL en cours..._' : '📸 _SENTINEL Deep Scan in progress..._', { parse_mode: 'Markdown' });
     ctx.replyWithChatAction('upload_photo');
-    const analysis = await geminiClient.analyzePhoto(link.href);
+    
+    // Use the new deep analysis
+    const analysis: any = await geminiClient.analyzePhoto(link.href);
     try { await ctx.telegram.deleteMessage(ctx.chat!.id, statusMsg.message_id); } catch (e) {}
 
     if (analysis && analysis.type !== 'other') {
@@ -1196,13 +1210,29 @@ export class TelegramService {
       });
 
       const typeInfo = INCIDENT_TYPES[analysis.type];
+      const scene = analysis.sceneData;
+
+      let msg = `📸 *SCAN SENTINEL TERMINÉ:*\n\n` +
+                `⚠️ *Type:* ${typeInfo.emoji} ${analysis.type}\n` +
+                `📝 *Note:* "${analysis.description}"\n\n`;
+
+      if (scene) {
+        if (scene.licensePlates?.length > 0) msg += `🪪 *Plaques Détectées:* ${scene.licensePlates.join(', ')}\n`;
+        if (scene.landmarks?.length > 0) msg += `📍 *Points de Repère:* ${scene.landmarks.join(', ')}\n`;
+        if (scene.vehicles) msg += `🚗 *Trafic:* ${JSON.stringify(scene.vehicles)}\n`;
+      }
+
+      msg += `\n` + MESSAGES.shareLocation[lang];
 
       ctx.replyWithMarkdown(
-        `📸 *Analyse Photo Terminée:*\n\n` +
-        `⚠️ *Type:* ${typeInfo.emoji} ${analysis.type}\n` +
-        `📝 *Note:* "${analysis.description}"\n\n` +
-        MESSAGES.shareLocation[lang],
+        msg,
         this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Valider ma Position' : '📍 Confirm Location')
+      );
+    } else {
+      ctx.replyWithMarkdown(
+        lang === 'fr'
+          ? `🤖 *Photo analysée:* Je ne vois pas d'incident routier évident ici, mais j'ai enregistré l'image pour la base de données AFAT. S'il s'agit d'un signalement, tapez-le en texte.`
+          : `🤖 *Photo analyzed:* I don't see an obvious road incident here, but I've saved the image for the AFAT database. If this is a report, please type it as text.`
       );
     }
   }

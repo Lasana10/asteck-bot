@@ -13,7 +13,8 @@ export interface WhatsAppMessage {
   body?: string;
   latitude?: number;
   longitude?: number;
-  audioUrl?: string; // For voice notes via WhatsApp
+  audioUrl?: string; // For voice notes
+  photoUrl?: string; // For images/scans
   timestamp: string;
 }
 
@@ -31,7 +32,6 @@ export class WhatsAppBridge {
 
   /**
    * Initializes the WhatsApp Logic Bridge.
-   * In a production environment, this is where you would link the whatsapp-web.js Client.
    */
   public initialize(): void {
     console.log('✅ WhatsApp Logic Bridge: Ready for incoming webhooks/messages.');
@@ -45,48 +45,68 @@ export class WhatsAppBridge {
 
     // 1. Handle Voice Notes (Multi-modal AI Recognition)
     if (message.audioUrl) {
-       const extraction = await IntelligenceEngine.observeVoice(message.audioUrl) as any;
-       if (extraction && extraction.type) {
-         
-         // Fix: Actually create the incident for the Cross-Check System
+       const extraction: any = await geminiClient.analyzeVoice(message.audioUrl);
+       if (extraction && extraction.type !== 'other') {
          await createIncident({
            type: extraction.type as IncidentType,
            description: extraction.description || '',
-           location: { latitude: 0, longitude: 0 }, // Pending valid geo
-           address: extraction.address || extraction.locationHint || '',
+           location: { latitude: 0, longitude: 0 }, 
+           address: extraction.locationHint || '',
            severity: extraction.severity || 3,
-           status: 'pending', // Enforced zero-trust validation
+           status: 'pending',
            reporterId: message.from,
            reporterUsername: message.from,
            confirmations: 0,
            createdAt: new Date(),
            expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000)
          });
-
-         return `📍 Signalement reçu: ${extraction.description || extraction.type}. L'OS Principal a été alerté pour validation. Merci!`;
+         return `🎙️ *ANALYSE VOCALE:* ${extraction.description}. \n\n📍 Envoyez maintenant votre POSITION pour finaliser le signalement.`;
        }
-       return "Désolé, je n'ai pas pu analyser votre message vocal. Essayez de parler plus clairement ou tapez 'Aide'.";
+       return "Désolé, je n'ai pas pu analyser votre message vocal. Essayez de parler plus clairement.";
     }
 
-    // 2. Handle Location Sharing + "Vite" (Quick Booking)
+    // 2. Handle Photos (SENTINEL Deep Scan)
+    if (message.photoUrl) {
+       const analysis: any = await geminiClient.analyzePhoto(message.photoUrl);
+       if (analysis && analysis.type !== 'other') {
+          const scene = analysis.sceneData;
+          let reportMsg = `📸 *SCAN SENTINEL:* ${analysis.description}\n`;
+          if (scene?.licensePlates?.length > 0) reportMsg += `🪪 Plaques: ${scene.licensePlates.join(', ')}\n`;
+          
+          await createIncident({
+            type: analysis.type as IncidentType,
+            description: analysis.description,
+            location: { latitude: 0, longitude: 0 },
+            mediaUrl: message.photoUrl,
+            severity: analysis.severity || 3,
+            status: 'pending',
+            reporterId: message.from,
+            reporterUsername: message.from,
+            createdAt: new Date()
+          });
+
+          return `${reportMsg}\n📍 Envoyez votre POSITION pour terminer.`;
+       }
+       return "🤖 Image reçue pour la base de données. Pour un signalement urgent, envoyez un vocal ou du texte.";
+    }
+
+    // 3. Handle Location Sharing
     if (message.latitude && message.longitude) {
        return this.handleQuickBooking(message.from, message.latitude, message.longitude);
     }
 
-    // 3. Command Logic
-    if (text.includes('vite')) {
-      return "Envoyez-moi votre position via WhatsApp pour trouver le taxi le plus proche instantanément! 🏎️💨";
+    // 4. Command Logic & Conversational AI
+    if (text.includes('aide') || text.includes('help')) {
+      return "MobilityOS Aide:\n1. Envoyez votre position 📍 pour un taxi.\n2. Envoyez un vocal 🎙️ ou une photo 📸 pour signaler un danger.\n3. Tapez 'STATUS' pour vos billets.";
     }
 
     if (text.includes('status')) {
       return this.handleStatusCheck(message.from);
     }
 
-    if (text.includes('aide') || text.includes('help')) {
-      return "MobilityOS Aide:\n1. Envoyez votre position 📍 pour un taxi.\n2. Envoyez un vocal 🎙️ pour signaler un danger (inondation, bouchon).\n3. Tapez 'STATUS' pour vos billets.";
-    }
-
-    return "Bienvenue sur MobilityOS 🇨🇲. Tapez 'AIDE' pour les instructions ou envoyez votre POSITION pour un taxi direct.";
+    // Conversational Fallback
+    const aiResp = await geminiClient.queryLive(`The user on WhatsApp said: "${text}". Be a helpful traffic assistant. Suggest sending a voice note or photo if they want to report something.`, 'fr');
+    return aiResp || "Bienvenue sur AFAT. Tapez 'AIDE' pour les instructions.";
   }
 
   private async handleQuickBooking(phone: string, lat: number, lng: number) {

@@ -140,6 +140,14 @@ export class GeminiClient {
    * Analyze a photo from a URL
    */
   async analyzePhoto(imageUrl: string): Promise<ParsedIncident | null> {
+    return this.analyzePhotoDeep(imageUrl); // Redirect to deep analysis for better data
+  }
+
+  /**
+   * Analyze a photo from a URL with deep scene extraction
+   * (License plates, landmarks, objects, and hazard intensity)
+   */
+  async analyzePhotoDeep(imageUrl: string): Promise<ParsedIncident & { sceneData?: any } | null> {
     if (!this.model) return null;
 
     try {
@@ -153,18 +161,26 @@ export class GeminiClient {
         }
       };
 
+      const deepPrompt = SYSTEM_PROMPT + '\n\n' +
+        'DEEP SCAN MODE: Identify and return extra scene details in the "sceneData" field:\n' +
+        '- licensePlates: Array of strings found in the image (e.g. CE 123 AA)\n' +
+        '- landmarks: Recognizable Cameroonian buildings, junctions, or signage (e.g. Total Bastos, Palais des Sports)\n' +
+        '- vehicles: Count and types (taxis, motos, trucks)\n' +
+        '- intensity: Scale 1-10 of the visual danger\n\n' +
+        'Respond ONLY with the JSON schema.';
+
       const result = await this.model.generateContent([
-        { text: SYSTEM_PROMPT + '\n\nAnalyze this image for any traffic incidents or hazards.' },
+        { text: deepPrompt },
         imagePart
       ]);
 
       const text = result.response.text();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]) as ParsedIncident;
+        return JSON.parse(jsonMatch[0]);
       }
     } catch (error) {
-      console.error('Photo analysis error:', error);
+      console.error('Deep Photo analysis error:', error);
     }
     return null;
   }
