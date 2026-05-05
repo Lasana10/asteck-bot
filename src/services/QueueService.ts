@@ -9,7 +9,9 @@ import { aiRouter } from './AIRouter';
 import { supabase } from '../infra/supabase';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const connection = new Redis(REDIS_URL);
+const connection = new Redis(REDIS_URL, {
+  maxRetriesPerRequest: null
+});
 
 // ── 1. DRIVER DNA QUEUE ───────────────────────────────────────
 export const dnaQueue = new Queue('driver-dna', { connection });
