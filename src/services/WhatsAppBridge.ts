@@ -68,26 +68,36 @@ export class WhatsAppBridge {
 
   private async handleVoiceNote(from: string, url: string): Promise<string> {
     try {
-      // Download audio and send to THE LISTEN (Whisper)
+      // 🎙️ 1. DOWNLOAD & TRANSCRIVE
       const response = await fetch(url);
       const buffer = Buffer.from(await response.arrayBuffer());
-      
       const transcription = await aiRouter.listen(buffer);
       
-      // Analyze intent with THE PREDICTIVE MIND
+      if (!transcription.text) throw new Error('Empty transcription');
+
+      // 🧠 2. ANALYZE WITH PREDICTIVE MIND
       const analysis = await aiRouter.predict(
-        `User voice note: "${transcription.text}". \nClassify as: INCIDENT, BOOKING, or QUESTION. Return JSON { intent, type, severity, summary }.`
+        `User voice note: "${transcription.text}". 
+         Classify as: INCIDENT, BOOKING, or QUESTION. 
+         Return ONLY JSON: { "intent": "INCIDENT|BOOKING|QUESTION", "type": "string", "severity": 1-5, "summary": "string" }`
       );
       
-      const result = JSON.parse(analysis.text);
+      // Robust JSON extraction
+      const jsonMatch = analysis.text.match(/\{[\s\S]*\}/);
+      const result = jsonMatch ? JSON.parse(jsonMatch[0]) : { intent: 'QUESTION' };
       
       if (result.intent === 'INCIDENT') {
-        return `🎙️ *INTEL REÇU:* ${result.summary}\n\n📍 Envoyez votre POSITION pour confirmer le lieu.`;
+        return `🎙️ *INTEL VOCAL:* ${result.summary || transcription.text}\n\n📍 *ACTION:* Envoyez votre POSITION pour mobiliser le réseau Sentinel.`;
       }
       
-      return `🎙️ *TRANSCRIPTION:* "${transcription.text}"\n\nComment puis-je vous aider avec cette information?`;
+      if (result.intent === 'BOOKING') {
+        return `🚖 *DEMANDE DE RIDE:* "${transcription.text}"\n\nJe cherche un conducteur. Confirmez votre position GPS.`;
+      }
+      
+      return `🤖 *AI SENTINEL:* "${transcription.text}"\n\nComment puis-je vous assister davantage?`;
     } catch (err) {
-      return "Désolé, je n'ai pas pu traiter votre message vocal. Réessayez ou tapez votre message.";
+      console.error('❌ WhatsApp Voice Error:', err);
+      return "🎙️ *AUDIO REÇU:* Le signal est faible ou bruyant. Pouvez-vous reformuler ou envoyer une photo?";
     }
   }
 
