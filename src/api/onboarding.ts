@@ -312,6 +312,86 @@ router.post('/fare/respond', async (req: Request, res: Response) => {
   }
 });
 
+// ── DRIVER POSTS AVAILABILITY/PRICE ──────────────────────────────────────────
+router.post('/fare/driver-post', async (req: Request, res: Response) => {
+  try {
+    const { driver_id, origin, destination, price, vehicle_type, departure_time } = req.body;
+
+    if (!driver_id || !origin || !destination || !price) {
+      return res.status(400).json({ error: 'Missing: driver_id, origin, destination, price' });
+    }
+
+    const { data, error } = await supabase
+      .from('driver_offers')
+      .insert({
+        driver_id,
+        origin,
+        destination,
+        price,
+        vehicle_type: vehicle_type || 'any',
+        departure_time: departure_time || null,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString() // 4h expiry
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      offer: data,
+      message: `Offer posted: ${origin} → ${destination} at ${price} XAF. Passengers can now book you.`
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Driver offer posting failed' });
+  }
+});
+
+// ── MARKET INTELLIGENCE (Get Average & Suggested Price) ──────────────────────
+router.get('/fare/market-stats', async (req: Request, res: Response) => {
+  try {
+    const { origin, destination } = req.query;
+
+    if (!origin || !destination) {
+      return res.status(400).json({ error: 'Origin and destination required' });
+    }
+
+    // Fetch recent successful fares for this route
+    const { data: fares } = await supabase
+      .from('fare_requests')
+      .select('proposed_price')
+      .eq('origin', origin)
+      .eq('destination', destination)
+      .eq('status', 'confirmed')
+      .limit(50);
+
+    const prices = (fares || []).map(f => f.proposed_price);
+    const avgPrice = prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+    
+    // AI Suggestion based on market pulse
+    const aiSuggestion = await aiRouter.route('negotiate', {
+      route: `${origin} to ${destination}`,
+      distance: 10, // Mock distance
+      demand: 'normal',
+      offer: avgPrice || 500
+    });
+
+    const parsedAi = JSON.parse(aiSuggestion.text);
+
+    res.status(200).json({
+      route: { origin, destination },
+      average_price: avgPrice,
+      sample_size: prices.length,
+      market_price: parsedAi.suggested_price || avgPrice || 500,
+      ai_reasoning: parsedAi.reasoning || 'Based on historical corridor data.'
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Market stats failed' });
+  }
+});
+
 // ── FATIGUE CHECK ────────────────────────────────────────────────────────────
 router.get('/driver/fatigue/:driver_id', async (req: Request, res: Response) => {
   try {

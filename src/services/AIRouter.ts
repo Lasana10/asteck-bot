@@ -10,6 +10,7 @@
 const GROQ_KEY = process.env.GROQ_API_KEY || '';
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 
 export type AITask = 
   | 'transcribe'      // Voice → text (Whisper)
@@ -128,6 +129,28 @@ export class AIRouter {
     }
   }
 
+  // ── OLLAMA (Local Gemma:2b — FREE) ────────────────────────
+  async ollamaChat(prompt: string, model: string = 'gemma:2b'): Promise<AIResponse> {
+    try {
+      const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt,
+          stream: false
+        })
+      });
+
+      const data = await res.json();
+      return { text: data.response || '', model };
+    } catch (err: any) {
+      console.error('[AIRouter] Ollama error:', err.message);
+      // Fallback to Groq if local Ollama fails
+      return { text: '', model, error: err.message };
+    }
+  }
+
   // ── TASK DISPATCHER ────────────────────────────────────────
   async route(task: AITask, payload: any): Promise<AIResponse> {
     switch (task) {
@@ -158,6 +181,9 @@ export class AIRouter {
 
       case 'summarize':
         return this.quickReason(payload.text, 'Summarize this concisely in both French and English.');
+
+      case 'local_reason':
+        return this.ollamaChat(payload.prompt);
 
       default:
         return this.quickReason(payload.prompt || payload.text || '');

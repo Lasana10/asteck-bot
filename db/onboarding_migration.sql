@@ -48,8 +48,23 @@ CREATE TABLE IF NOT EXISTS fare_requests (
   expires_at      TIMESTAMPTZ NOT NULL
 );
 
--- Enable realtime on fare_requests
+-- 4. Driver offers table (drivers post their prices)
+CREATE TABLE IF NOT EXISTS driver_offers (
+  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  driver_id       UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  origin          TEXT NOT NULL,
+  destination     TEXT NOT NULL,
+  price           INTEGER NOT NULL CHECK (price >= 0),
+  vehicle_type    TEXT NOT NULL,
+  departure_time  TIMESTAMPTZ,
+  status          TEXT DEFAULT 'active' CHECK (status IN ('active', 'matched', 'expired', 'cancelled')),
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  expires_at      TIMESTAMPTZ NOT NULL
+);
+
+-- Enable realtime
 ALTER TABLE fare_requests REPLICA IDENTITY FULL;
+ALTER TABLE driver_offers REPLICA IDENTITY FULL;
 
 -- 4. Fatigue reset function (call daily at midnight via cron)
 CREATE OR REPLACE FUNCTION reset_driver_fatigue()
@@ -100,6 +115,7 @@ END $$;
 -- 8. Index for fast fare browsing
 CREATE INDEX IF NOT EXISTS idx_fare_requests_status ON fare_requests(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_fare_requests_origin ON fare_requests(origin);
+CREATE INDEX IF NOT EXISTS idx_driver_offers_route ON driver_offers(origin, destination, status);
 CREATE INDEX IF NOT EXISTS idx_vehicles_operator ON vehicles(operator_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_phone ON profiles(phone);
 CREATE INDEX IF NOT EXISTS idx_profiles_contractor ON profiles(contractor_code);

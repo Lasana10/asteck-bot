@@ -41,6 +41,8 @@ services:
         sync: false
       - key: PAYMENT_PROVIDER
         value: pawapay
+      - key: OLLAMA_URL
+        value: http://localhost:11434
 
   - type: static_site
     name: sentinel-dashboard
