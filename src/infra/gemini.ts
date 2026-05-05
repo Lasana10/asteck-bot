@@ -197,7 +197,7 @@ export class GeminiClient {
     // Detect incident type
     let type: IncidentType = 'other';
     if (/\b(accident|collision|crash)\b/i.test(lowerText)) type = 'accident';
-    else if (/\b(police|gendarmerie|contrôle|control|checkpoint)\b/i.test(lowerText)) type = 'police_control';
+    else if (/\b(police|gendarmerie|contrôle|control|checkpoint)\b/i.test(lowerText)) type = 'road_awareness';
     else if (/\b(flood|inondation|eau|water)\b/i.test(lowerText)) type = 'flooding';
     else if (/\b(embouteillage|bouchon|jam|traffic|congestion)\b/i.test(lowerText)) type = 'traffic_jam';
     else if (/\b(travaux|chantier|works|construction)\b/i.test(lowerText)) type = 'road_works';

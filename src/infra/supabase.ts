@@ -13,6 +13,26 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// ========== TRACCAR INTEGRATION ==========
+export async function updateVehicleLocationByTraccar(
+  deviceId: string,
+  latitude: number,
+  longitude: number,
+  speed: number,
+  course: number
+): Promise<void> {
+  try {
+    await supabase.from('vehicles').update({
+      current_location: `POINT(${longitude} ${latitude})`,
+      speed,
+      course,
+      last_ping: new Date().toISOString()
+    }).eq('traccar_device_id', deviceId);
+  } catch (err) {
+    console.error('[DB] Traccar update exception:', err);
+  }
+}
+
 // ========== INCIDENT REPOSITORY ==========
 
 export async function createIncident(incident: Omit<Incident, 'id'>): Promise<Incident | null> {

@@ -11,7 +11,7 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { AIModel, ParsedIncident } from '../models/base';
-import { SIGNAL_ZERO_CONSTITUTION, MULTI_TASK_PROTOCOL } from '../core/constitution';
+import { SIGNAL_ZERO_CONSTITUTION } from '../core/constitution';
 
 dotenv.config();
 
@@ -43,7 +43,7 @@ export class OpenRouterClient implements AIModel {
         {
           model: this.modelSlug,
           messages: [
-            { role: 'system', content: SIGNAL_ZERO_CONSTITUTION + "\n\n" + MULTI_TASK_PROTOCOL },
+            { role: 'system', content: SIGNAL_ZERO_CONSTITUTION },
             { role: 'user', content: text }
           ],
           response_format: { type: 'json_object' },

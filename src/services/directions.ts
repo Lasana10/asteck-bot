@@ -47,6 +47,15 @@ export class DirectionsService {
     return `${result.primary.duration} (${result.primary.distance})`;
   }
 
+  /**
+   * Get traffic condition at a specific coordinate
+   */
+  static async getTrafficCondition(coord: Coordinates): Promise<'congested' | 'slow' | 'normal' | 'unknown'> {
+    // Note: Real-time traffic layer requires a different API integration. 
+    // Returning 'unknown' as a safe default for the VerifierAgent.
+    return 'unknown';
+  }
+
   // ========== GOOGLE MAPS ==========
   private static async googleDirections(
     origin: Coordinates,

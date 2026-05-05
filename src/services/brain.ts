@@ -30,7 +30,8 @@ export class BrainService {
           severity: parsed.severity || 3,
           description: parsed.description || text,
           confidence: parsed.confidence || 0.9,
-          locationHint: parsed.locationHint
+          locationHint: parsed.locationHint,
+          isEmergency: (parsed.severity || 3) >= 4
         };
       } catch (e) {
         console.warn('⚠️ Predictive Mind JSON parse failed, falling back to Pulse.');
@@ -42,7 +43,8 @@ export class BrainService {
       type: 'other',
       severity: 3,
       description: pulseResponse.text,
-      confidence: 0.8
+      confidence: 0.8,
+      isEmergency: false
     };
   }
 }

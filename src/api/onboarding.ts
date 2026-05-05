@@ -39,9 +39,10 @@ router.post('/driver/register', async (req: Request, res: Response) => {
     let verificationStatus = 'pending';
     if (selfie_base64) {
       try {
-        const result = await aiRouter.analyzeImage(selfie_base64,
-          'Verify this is a real person selfie for driver registration. Check for: clear face visible, no masks, good lighting. Return JSON: { verified: boolean, confidence: number, issues: [] }'
-        );
+        const result = await aiRouter.route('vision', {
+          image: selfie_base64,
+          prompt: 'Verify this is a real person selfie for driver registration. Check for: clear face visible, no masks, good lighting. Return JSON: { verified: boolean, confidence: number, issues: [] }'
+        });
         const parsed = JSON.parse(result.text);
         verificationStatus = parsed.verified ? 'verified' : 'needs_review';
       } catch {

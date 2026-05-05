@@ -8,6 +8,7 @@ import { DirectionsService, DirectionsResult } from './directions';
 import { DriverService, CAMEROON_TOLL_ROUTES, FUEL_REFERENCE_PRICES } from './driver';
 import { geminiClient } from '../infra/gemini';
 import { brainService } from './brain';
+import { aiRouter } from './AIRouter';
 import {
   createIncident,
   getActiveIncidents,
@@ -806,7 +807,7 @@ export class TelegramService {
           let msg = `${typeInfo.emoji} *${typeLabel}* detected!\n\n` +
             MESSAGES.shareLocation[lang];
 
-          if (parsed.type === 'police_control') {
+          if (parsed.type === 'road_awareness') {
             msg += POLICE_DISCLAIMER[lang];
           }
 
@@ -1118,17 +1119,28 @@ export class TelegramService {
       const fileId = ctx.message.voice.file_id;
       const link = await ctx.telegram.getFileLink(fileId);
 
-      // 2. Process with Gemini (Audio -> Text -> Meaning)
-      const baseAnalysis = await geminiClient.analyzeVoice(link.href);
+      // 2. Process with TRI-BRAIN ARCHITECTURE
+      // A. THE LISTEN (Groq Whisper)
+      const response = await fetch(link.href);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const transcription = await aiRouter.listen(buffer, lang === 'fr' ? 'fr' : 'en');
       
       try { await ctx.telegram.deleteMessage(ctx.chat!.id, statusMsg.message_id); } catch (e) {}
 
-      if (!baseAnalysis) throw new Error('Analysis returned null');
+      if (!transcription.text) throw new Error('Transcription returned empty');
 
-      // 2.5 Elite Orchestration: Re-reason with Groq if needed
-      const analysis = await brainService.orchestrate(baseAnalysis.description, baseAnalysis);
+      // B. THE PREDICTIVE MIND (Qwen 3.6 Plus Elite via Groq/OpenRouter)
+      const aiResponse = await aiRouter.predict(
+        `User voice note: "${transcription.text}". 
+         Classify as a traffic incident. 
+         Return ONLY JSON: { "type": "accident|police_control|flooding|traffic_jam|road_damage|road_works|hazard|protest|roadblock|sos|other", "severity": 1-5, "description": "string", "sensorData": {"potentialCrash": false, "potholeHit": false} }`
+      );
 
-      if (!analysis) throw new Error('Orchestrated analysis returned null');
+      // Robust JSON extraction
+      const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/);
+      const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+      if (!analysis) throw new Error('Predictive Mind failed to parse JSON');
 
       // 3. Check for Autonomous Sensor Detection (Crash/Pothole)
       const isAutoDetect = analysis.sensorData?.potentialCrash || analysis.sensorData?.potholeHit;
