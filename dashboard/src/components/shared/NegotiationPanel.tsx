@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, MessageCircle, Check, X, ArrowRight, User, ShieldCheck, TrendingUp, ChevronRight, Zap } from 'lucide-react';
+import { DollarSign, MessageCircle, Check, X, ArrowRight, User, ShieldCheck, TrendingUp, ChevronRight, Zap, Activity } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
 interface Props {

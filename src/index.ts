@@ -3,6 +3,7 @@ import { TelegramService } from './services/telegram';
 import { scheduler } from './services/scheduler';
 import apiRoutes from './api/routes';
 import dotenv from 'dotenv';
+import cors from 'cors';
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ console.log(`
 const app = express();
 const port = process.env.PORT || 3000;
 
+app.use(cors());
 app.use(express.json());
 
 // Global error handling to prevent silent hangs
