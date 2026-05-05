@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "asteck-bot",
+  "compatibility_date": "2026-05-05",
+  "assets": {
+    "directory": "dashboard/dist"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
