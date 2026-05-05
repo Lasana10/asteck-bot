@@ -6,7 +6,7 @@ export type Coordinates = {
 // Incident types for Cameroon traffic reporting
 export type IncidentType = 
   | 'accident'        // 🚗 Accident
-  | 'police_control'  // 👮 Police/Gendarmerie checkpoint
+  | 'road_awareness'  // 🛡️ Road awareness / Verification zone
   | 'flooding'        // 🌊 Flooding/Inondation
   | 'traffic_jam'     // 🚦 Traffic jam/Embouteillage
   | 'road_damage'     // 🕳️ Road damage/Nid de poule
@@ -84,7 +84,7 @@ export interface FuelStation {
 // Incident type metadata for UI
 export const INCIDENT_TYPES: Record<IncidentType, { emoji: string; labelFr: string; labelEn: string; labelPcm: string }> = {
   accident: { emoji: '🚗', labelFr: 'Accident', labelEn: 'Accident', labelPcm: 'Accident' },
-  police_control: { emoji: '👮', labelFr: 'Contrôle Routier', labelEn: 'Road Checkpoint', labelPcm: 'Police / Checkpoint' },
+  road_awareness: { emoji: '🛡️', labelFr: 'Zone de Vigilance', labelEn: 'Awareness Zone', labelPcm: 'Watch Area' },
   flooding: { emoji: '🌊', labelFr: 'Inondation', labelEn: 'Flooding', labelPcm: 'Water for Road' },
   traffic_jam: { emoji: '🚦', labelFr: 'Embouteillage', labelEn: 'Traffic Jam', labelPcm: 'Heavy Traffic' },
   road_damage: { emoji: '🕳️', labelFr: 'Route Endommagée', labelEn: 'Road Damage', labelPcm: 'Road Spoil / Pot-hole' },

@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { TelegramService } from './services/telegram';
 import { scheduler } from './services/scheduler';
 import apiRoutes from './api/routes';
+import onboardingRoutes from './api/onboarding';
 import dotenv from 'dotenv';
 import cors from 'cors';
 
@@ -116,6 +117,7 @@ async function main() {
   });
 
   app.use('/api', apiRoutes);
+  app.use('/api/onboard', onboardingRoutes);
 
   await startBot();
 
