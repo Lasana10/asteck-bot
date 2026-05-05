@@ -1,6 +1,9 @@
 import express, { Request, Response } from 'express';
-import { createIncident, getActiveIncidents } from '../infra/supabase';
+import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
 import { IncidentType, Severity } from '../types';
+import { waBridge } from '../services/WhatsAppBridge';
+import crypto from 'crypto';
+import { dnaQueue } from '../services/QueueService';
 
 const router = express.Router();
 
@@ -151,18 +154,106 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
 // ── PAYMENT WEBHOOK (PawaPay callback) ────────────────────────────────────
 router.post('/webhook/pawapay', async (req: Request, res: Response) => {
   try {
-    const { transactionId, status, amount } = req.body;
+    const { transactionId, status, externalId } = req.body;
     
-    console.log(`💰 PawaPay webhook: ${transactionId} → ${status}`);
+    console.log(`💰 PawaPay webhook: ${transactionId} (Ext: ${externalId}) → ${status}`);
 
-    // TODO: Verify PawaPay signature header
-    // TODO: Update booking status in Supabase
-    // TODO: Emit Socket.io event to update frontend in real-time
+    // Update booking status in Supabase if transaction is completed
+    if (status === 'COMPLETED' && externalId) {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: 'confirmed', payment_status: 'paid' })
+        .eq('id', externalId);
+
+      if (error) console.error('Error updating booking:', error);
+      
+      // TODO: Emit Socket.io event here if socket server is initialized
+      // io.to(externalId).emit('payment_confirmed', { transactionId });
+    }
 
     res.status(200).json({ received: true });
   } catch (error) {
     console.error('Webhook error:', error);
     res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+// ── WHATSAPP WEBHOOK (Twilio) ─────────────────────────────────────────────
+router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
+  try {
+    const response = await waBridge.handleWebhook(req.body);
+    
+    // Twilio expects TwiML in response, but for WhatsApp we can just send the text back 
+    // or use their MessagingResponse. Since we handle it in waBridge, we send a 200.
+    res.set('Content-Type', 'text/xml');
+    res.send(`<Response><Message>${response}</Message></Response>`);
+  } catch (error) {
+    console.error('WhatsApp Webhook error:', error);
+    res.status(500).send('<Response><Message>Désolé, une erreur est survenue.</Message></Response>');
+  }
+});
+
+// ── GUARDIAN MODE (Token-based Live Watch) ────────────────────────────────
+router.post('/guardian/token', async (req: Request, res: Response) => {
+  try {
+    const { booking_id, expires_in_minutes } = req.body;
+    
+    if (!booking_id) return res.status(400).json({ error: 'booking_id required' });
+
+    const token = require('crypto').randomBytes(16).toString('hex');
+    const expiresAt = new Date(Date.now() + (expires_in_minutes || 60) * 60 * 1000);
+
+    const { error } = await supabase
+      .from('guardian_tokens')
+      .insert({
+        token,
+        booking_id,
+        expires_at: expiresAt
+      });
+
+    if (error) throw error;
+
+    res.status(200).json({
+      token,
+      watch_url: `https://afat.app/watch/${token}`,
+      expires_at: expiresAt
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── TRIP COMPLETION (Triggers DNA Update) ────────────────────────────────
+router.post('/booking/complete', async (req: Request, res: Response) => {
+  try {
+    const { booking_id, driver_id, rating, feedback } = req.body;
+
+    if (!booking_id || !driver_id) {
+      return res.status(400).json({ error: 'booking_id and driver_id required' });
+    }
+
+    // 1. Update booking status
+    const { error: updateError } = await supabase
+      .from('bookings')
+      .update({ 
+        status: 'completed', 
+        rating, 
+        feedback,
+        completed_at: new Date().toISOString() 
+      })
+      .eq('id', booking_id);
+
+    if (updateError) throw updateError;
+
+    // 2. Trigger Async DNA Pipeline
+    await dnaQueue.add(`dna-update-${booking_id}`, { driverId: driver_id, tripId: booking_id });
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Trip completed. DriverDNA update queued.' 
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

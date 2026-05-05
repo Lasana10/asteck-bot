@@ -62,9 +62,19 @@ CREATE TABLE IF NOT EXISTS driver_offers (
   expires_at      TIMESTAMPTZ NOT NULL
 );
 
+-- 5. Guardian tokens table (Secure live watch links)
+CREATE TABLE IF NOT EXISTS guardian_tokens (
+  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  token         TEXT NOT NULL UNIQUE,
+  booking_id    UUID NOT NULL, -- or reference to trip
+  expires_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable realtime
 ALTER TABLE fare_requests REPLICA IDENTITY FULL;
 ALTER TABLE driver_offers REPLICA IDENTITY FULL;
+ALTER TABLE guardian_tokens REPLICA IDENTITY FULL;
 
 -- 4. Fatigue reset function (call daily at midnight via cron)
 CREATE OR REPLACE FUNCTION reset_driver_fatigue()

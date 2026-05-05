@@ -1,21 +1,25 @@
 /**
- * WhatsApp Accessibility Bridge
- * Foundation for chat-based transport interactions.
- * Uses Twilio WhatsApp API / Meta Cloud API patterns.
+ * AFAT OS — WhatsApp Logic Bridge (Twilio Edition)
+ * 
+ * This service handles incoming messages from WhatsApp (via Twilio Webhooks)
+ * and uses the Tri-Brain AI Router for intelligence.
  */
 
-import { IntelligenceEngine } from '../core/brain';
-import { supabase, createIncident } from '../infra/supabase';
+import { aiRouter } from './AIRouter';
+import { supabase } from '../infra/supabase';
 import { IncidentType } from '../types';
 
-export interface WhatsAppMessage {
-  from: string;
-  body?: string;
-  latitude?: number;
-  longitude?: number;
-  audioUrl?: string; // For voice notes
-  photoUrl?: string; // For images/scans
-  timestamp: string;
+const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+
+export interface WhatsAppIncoming {
+  From: string;
+  Body?: string;
+  Latitude?: string;
+  Longitude?: string;
+  MediaUrl0?: string;
+  MediaContentType0?: string;
 }
 
 export class WhatsAppBridge {
@@ -31,111 +35,113 @@ export class WhatsAppBridge {
   }
 
   /**
-   * Initializes the WhatsApp Logic Bridge.
+   * Process incoming Twilio WhatsApp Webhook
    */
-  public initialize(): void {
-    console.log('✅ WhatsApp Logic Bridge: Ready for incoming webhooks/messages.');
+  async handleWebhook(data: WhatsAppIncoming): Promise<string> {
+    const from = data.From;
+    const body = data.Body || '';
+    const hasMedia = !!data.MediaUrl0;
+    const isAudio = data.MediaContentType0?.includes('audio');
+    const isImage = data.MediaContentType0?.includes('image');
+    const isLocation = !!data.Latitude && !!data.Longitude;
+
+    console.log(`📱 WhatsApp from ${from}: ${body || '[Media]'}`);
+
+    // ── 1. HANDLE VOICE (THE LISTEN) ─────────────────────────
+    if (hasMedia && isAudio && data.MediaUrl0) {
+      return this.handleVoiceNote(from, data.MediaUrl0);
+    }
+
+    // ── 2. HANDLE LOCATION ──────────────────────────────────
+    if (isLocation) {
+      return this.handleLocation(from, parseFloat(data.Latitude!), parseFloat(data.Longitude!));
+    }
+
+    // ── 3. HANDLE IMAGE (THE PULSE VISION) ──────────────────
+    if (hasMedia && isImage && data.MediaUrl0) {
+      return this.handleImage(from, data.MediaUrl0, body);
+    }
+
+    // ── 4. HANDLE TEXT (THE PREDICTIVE MIND / PULSE) ────────
+    return this.handleText(from, body);
+  }
+
+  private async handleVoiceNote(from: string, url: string): Promise<string> {
+    try {
+      // Download audio and send to THE LISTEN (Whisper)
+      const response = await fetch(url);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      
+      const transcription = await aiRouter.listen(buffer);
+      
+      // Analyze intent with THE PREDICTIVE MIND
+      const analysis = await aiRouter.predict(
+        `User voice note: "${transcription.text}". \nClassify as: INCIDENT, BOOKING, or QUESTION. Return JSON { intent, type, severity, summary }.`
+      );
+      
+      const result = JSON.parse(analysis.text);
+      
+      if (result.intent === 'INCIDENT') {
+        return `🎙️ *INTEL REÇU:* ${result.summary}\n\n📍 Envoyez votre POSITION pour confirmer le lieu.`;
+      }
+      
+      return `🎙️ *TRANSCRIPTION:* "${transcription.text}"\n\nComment puis-je vous aider avec cette information?`;
+    } catch (err) {
+      return "Désolé, je n'ai pas pu traiter votre message vocal. Réessayez ou tapez votre message.";
+    }
+  }
+
+  private async handleLocation(from: string, lat: number, lng: number): Promise<string> {
+    // Logic for booking or finalizing report
+    return `📍 *POSITION REÇUE:* (${lat}, ${lng}). \n\nRecherche du transport le plus proche...`;
+  }
+
+  private async handleImage(from: string, url: string, caption: string): Promise<string> {
+    try {
+      const response = await fetch(url);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const base64 = buffer.toString('base64');
+      
+      const vision = await aiRouter.route('vision', { image: base64, prompt: caption || 'Analyze this transport-related image.' });
+      
+      return `📸 *ANALYSE SENTINEL:* ${vision.text}\n\nTerminé.`;
+    } catch (err) {
+      return "Erreur lors du scan de l'image.";
+    }
+  }
+
+  private async handleText(from: string, text: string): Promise<string> {
+    const response = await aiRouter.route('pulse', { text });
+    return response.text;
   }
 
   /**
-   * Process incoming messages from commuters
+   * Send outbound message via Twilio
    */
-  async handleIncoming(message: WhatsAppMessage): Promise<string> {
-    const text = (message.body || '').toLowerCase().trim();
-
-    // 1. Handle Voice Notes (Multi-modal AI Recognition)
-    if (message.audioUrl) {
-       const extraction: any = await geminiClient.analyzeVoice(message.audioUrl);
-       if (extraction && extraction.type !== 'other') {
-         await createIncident({
-           type: extraction.type as IncidentType,
-           description: extraction.description || '',
-           location: { latitude: 0, longitude: 0 }, 
-           address: extraction.locationHint || '',
-           severity: extraction.severity || 3,
-           status: 'pending',
-           reporterId: message.from,
-           reporterUsername: message.from,
-           confirmations: 0,
-           createdAt: new Date(),
-           expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000)
-         });
-         return `🎙️ *ANALYSE VOCALE:* ${extraction.description}. \n\n📍 Envoyez maintenant votre POSITION pour finaliser le signalement.`;
-       }
-       return "Désolé, je n'ai pas pu analyser votre message vocal. Essayez de parler plus clairement.";
+  async sendMessage(to: string, body: string): Promise<void> {
+    if (!TWILIO_SID || !TWILIO_AUTH_TOKEN) {
+      console.warn('⚠️ Twilio credentials missing. Message not sent.');
+      return;
     }
 
-    // 2. Handle Photos (SENTINEL Deep Scan)
-    if (message.photoUrl) {
-       const analysis: any = await geminiClient.analyzePhoto(message.photoUrl);
-       if (analysis && analysis.type !== 'other') {
-          const scene = analysis.sceneData;
-          let reportMsg = `📸 *SCAN SENTINEL:* ${analysis.description}\n`;
-          if (scene?.licensePlates?.length > 0) reportMsg += `🪪 Plaques: ${scene.licensePlates.join(', ')}\n`;
-          
-          await createIncident({
-            type: analysis.type as IncidentType,
-            description: analysis.description,
-            location: { latitude: 0, longitude: 0 },
-            mediaUrl: message.photoUrl,
-            severity: analysis.severity || 3,
-            status: 'pending',
-            reporterId: message.from,
-            reporterUsername: message.from,
-            createdAt: new Date()
-          });
+    try {
+      const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+      const params = new URLSearchParams();
+      params.append('To', to);
+      params.append('From', TWILIO_WHATSAPP_NUMBER);
+      params.append('Body', body);
 
-          return `${reportMsg}\n📍 Envoyez votre POSITION pour terminer.`;
-       }
-       return "🤖 Image reçue pour la base de données. Pour un signalement urgent, envoyez un vocal ou du texte.";
+      await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params
+      });
+    } catch (err) {
+      console.error('❌ Twilio send error:', err);
     }
-
-    // 3. Handle Location Sharing
-    if (message.latitude && message.longitude) {
-       return this.handleQuickBooking(message.from, message.latitude, message.longitude);
-    }
-
-    // 4. Command Logic & Conversational AI
-    if (text.includes('aide') || text.includes('help')) {
-      return "MobilityOS Aide:\n1. Envoyez votre position 📍 pour un taxi.\n2. Envoyez un vocal 🎙️ ou une photo 📸 pour signaler un danger.\n3. Tapez 'STATUS' pour vos billets.";
-    }
-
-    if (text.includes('status')) {
-      return this.handleStatusCheck(message.from);
-    }
-
-    // Conversational Fallback
-    const aiResp = await geminiClient.queryLive(`The user on WhatsApp said: "${text}". Be a helpful traffic assistant. Suggest sending a voice note or photo if they want to report something.`, 'fr');
-    return aiResp || "Bienvenue sur AFAT. Tapez 'AIDE' pour les instructions.";
-  }
-
-  private async handleQuickBooking(phone: string, lat: number, lng: number) {
-    // Logic to find nearest available vehicle (PostGIS)
-    const { data: route, error } = await supabase.rpc('find_nearest_route', {
-      p_lat: lat,
-      p_lng: lng
-    });
-
-    if (error || !route) {
-        return "Aucun transport disponible près de vous pour le moment. Réessayez dans quelques minutes.";
-    }
-
-    return `✅ Itinéraire trouvé: ${route.name} (${route.price_xaf} FCFA). Un chauffeur a été alerté. Restez sur place!`;
-  }
-
-  private async handleStatusCheck(phone: string) {
-    const { data: bookings } = await supabase
-      .from('bookings')
-      .select('status, price_xaf')
-      .eq('phone', phone) // or link via profile
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (bookings && bookings.length > 0) {
-      return `Votre dernier trajet est [${bookings[0].status.toUpperCase()}]. Prix: ${bookings[0].price_xaf} FCFA.`;
-    }
-
-    return "Vous n'avez pas de trajet actif pour le moment.";
   }
 }
 
