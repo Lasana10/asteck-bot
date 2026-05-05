@@ -257,4 +257,27 @@ router.post('/booking/complete', async (req: Request, res: Response) => {
   }
 });
 
+// ── WHATSAPP WEBHOOK (Twilio Integration) ──────────────────────────────
+router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
+  try {
+    const reply = await waBridge.handleWebhook(req.body);
+    
+    // Twilio expects TwiML response
+    res.set('Content-Type', 'text/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`);
+  } catch (error: any) {
+    console.error('❌ WhatsApp Webhook Error:', error);
+    res.status(500).send('Webhook Error');
+  }
+});
+
+// ── HEALTH CHECK ─────────────────────────────────────────────────────────
+router.get('/health', (req: Request, res: Response) => {
+  res.status(200).json({ 
+    status: 'online', 
+    service: 'AFAT OS Sentinel', 
+    timestamp: new Date().toISOString() 
+  });
+});
+
 export default router;

@@ -67,6 +67,10 @@ export class TelegramService {
     this.channelId = process.env.TELEGRAM_CHANNEL_ID;
 
     this.initializeHandlers();
+    
+    this.bot.launch().then(() => {
+      console.log('🤖 [TELEGRAM] Sentinel Bot is LIVE and listening.');
+    });
   }
 
   private getLang(userId: string): Language {
