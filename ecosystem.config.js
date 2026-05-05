@@ -7,8 +7,8 @@ module.exports = {
     {
       name: 'sentinel-backend',
       script: 'dist/index.js',
-      instances: 2,
-      exec_mode: 'cluster',
+      instances: 1,
+      exec_mode: 'fork',
       max_memory_restart: '512M',
       watch: false,
       env: {
