@@ -5,8 +5,21 @@ import apiRoutes from './api/routes';
 import onboardingRoutes from './api/onboarding';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import * as Sentry from "@sentry/node";
+import { nodeProfilingIntegration } from "@sentry/profiling-node";
+import { CronService } from './services/CronJobs';
 
 dotenv.config();
+
+// Initialize Sentry
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  integrations: [
+    nodeProfilingIntegration(),
+  ],
+  tracesSampleRate: 1.0,
+  profilesSampleRate: 1.0,
+});
 
 console.log(`
 ╔═══════════════════════════════════════════════════════════╗
@@ -106,6 +119,9 @@ async function main() {
     console.error('❌ Missing environment variables:', missing.join(', '));
     process.exit(1);
   }
+
+  // Initialize Agentic Cron Jobs
+  CronService.init();
 
   // Health Check endpoints
   app.get('/health', (req, res) => {

@@ -1,6 +1,7 @@
-import { ModelFactory } from '../models/factory';
-import { supabase } from '../supabaseClient';
-import { IntelligenceEngine } from '../core/brain';
+import { aiRouter } from './AIRouter';
+import { supabase } from '../infra/supabase';
+import { TelegramService } from './telegram';
+import { waBridge } from './WhatsAppBridge';
 
 /**
  * ============================================================================
@@ -18,37 +19,48 @@ export class AgenticWorkflows {
   /**
    * 1. THE GHOST DISPATCHER
    * Watches the grid for demand spikes. When a cluster of commuters is detected
-   * in a zone (e.g., Carrefour Bastos) during rain, it autonomously messages
+   * in a zone (e.g., Akwa) during rain, it autonomously messages
    * drivers to reroute before the traffic jams occur.
    */
   static async triggerGhostDispatcher(zone: string, demandLevel: number) {
-    if (demandLevel < 5) return; // Only trigger on high demand
+    if (demandLevel < 5) return;
 
     console.log(`[Ghost Dispatcher] 👻 Detected demand spike at ${zone} (Level ${demandLevel})`);
     
-    // Qwen 3.6+ calculates the optimal multiplier
-    const qwen = ModelFactory.getModelForTask('prediction');
-    const analysis = await qwen.analyzeText(
-      `Demand spike at ${zone}. Level: ${demandLevel}. Calculate surge multiplier (between 1.1x and 2.0x). Return only JSON: {"multiplier": 1.5, "reason": "..."}`
-    );
-
-    let multiplier = 1.2;
-    if (analysis && typeof analysis === 'object' && 'multiplier' in analysis) {
-       // Note: Safely handling varying JSON responses from base model wrapper
-       multiplier = (analysis as any).multiplier || 1.2; 
-    }
-
-    console.log(`[Ghost Dispatcher] 📈 Calculated Surge: ${multiplier}x. Sourcing idle Sentinels...`);
-
-    // In a real database, we query active drivers within 3km of 'zone' who are 'available'
-    const mockIdleDrivers = ['Driver_A', 'Driver_B', 'Driver_C'];
-
-    // Gemma 4 orchestrates the message dispatch
-    mockIdleDrivers.forEach(driver => {
-      console.log(`📡 [Gemma Orchestration] Dispatching Push to ${driver}: "Urgent: Move to ${zone} for a ${multiplier}x Trust Point surge."`);
+    // THE PREDICTIVE MIND calculates the optimal surge multiplier
+    const analysis = await aiRouter.route('predict', {
+      prompt: `Demand spike at ${zone}. Level: ${demandLevel}. Calculate surge multiplier (between 1.1x and 2.0x). Return JSON: {"multiplier": 1.5, "reason": "..."}`
     });
 
-    return { zone, multiplier, driversAlerted: mockIdleDrivers.length };
+    let multiplier = 1.2;
+    try {
+      const parsed = JSON.parse(analysis.text);
+      multiplier = parsed.multiplier || 1.2;
+    } catch (e) {}
+
+    // Query active drivers within the vicinity (Mock geographic range for now)
+    const { data: idleDrivers } = await supabase
+      .from('profiles')
+      .select('id, phone, telegram_id')
+      .eq('role', 'operator')
+      .eq('is_active', true)
+      .limit(5);
+
+    const telegram = new TelegramService();
+
+    for (const driver of (idleDrivers || [])) {
+      const msg = `⚡ AFAT GRID ALERT: High demand detected at ${zone}. Surge: ${multiplier}x Trust Points. Move to zone for priority bookings.`;
+      
+      // Dispatch via Telegram if available, else WhatsApp
+      if (driver.telegram_id) {
+        await telegram.getBotInstance().telegram.sendMessage(driver.telegram_id, msg);
+      } else if (driver.phone) {
+        // waBridge logic for outbound is usually via Twilio API directly
+        console.log(`📡 [WhatsApp Push] Sending to ${driver.phone}: ${msg}`);
+      }
+    }
+
+    return { zone, multiplier, driversAlerted: idleDrivers?.length || 0 };
   }
 
   /**
@@ -59,53 +71,79 @@ export class AgenticWorkflows {
   static async evaluateZeroClickCommute(userId: string, usualRoute: { origin: string, dest: string }) {
     console.log(`[Zero-Click] 🧠 Evaluating daily commute for User ${userId}: ${usualRoute.origin} -> ${usualRoute.dest}`);
     
-    // Check IntelligenceEngine for threats on that specific route
-    const threatLevel = await IntelligenceEngine.predict(usualRoute.origin, 'fr');
+    // Check Intelligence for threats on that specific route
+    const threatReport = await aiRouter.route('pulse', {
+      prompt: `Is there any traffic jam, accident or roadblock between ${usualRoute.origin} and ${usualRoute.dest} right now? Answer with 'ALERT' if there is an issue, else 'CLEAR'.`
+    });
     
-    // Mocking an incident detection logic
-    const hasObstruction = threatLevel.toLowerCase().includes('dense') || threatLevel.toLowerCase().includes('accident');
+    const hasObstruction = threatReport.text.toUpperCase().includes('ALERT');
 
     if (hasObstruction) {
-      console.log(`[Zero-Click] 🛑 Obstruction detected on ${usualRoute.origin}. Engaging Auto-Negotiator...`);
+      console.log(`[Zero-Click] 🛑 Obstruction detected. Engaging Auto-Negotiator...`);
       
-      // Auto-Negotiator Logic
-      const negotiatedPrice = 500; // CFA
-      const selectedNode = 'Node 402';
+      // Find a suitable driver (Sentinel)
+      const { data: driver } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'operator')
+        .eq('is_active', true)
+        .order('driver_dna_score', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!driver) return { status: 'no_drivers' };
+
+      // Auto-Negotiate Price
+      const negotiation = await aiRouter.route('negotiate', {
+        route: `${usualRoute.origin} to ${usualRoute.dest}`,
+        demand: 'high',
+        offer: 500
+      });
+
+      const price = 500; // Fallback
       
-      console.log(`[Auto-Negotiator] 🤝 Locked rate with ${selectedNode} at ${negotiatedPrice} CFA using User Trust Points.`);
+      const msg = `🚗 [Zero-Click] Votre trajet habituel est bloqué. J'ai pré-réservé ${driver.full_name} (${driver.contractor_code}) pour ${price} CFA. Départ à 7:25 AM. Tapez OUI pour confirmer.`;
       
-      // We would push an SMS or Telegram here
-      console.log(`📱 [Push Notification sent]: "Your route from ${usualRoute.origin} is blocked. I've re-routed and pre-booked ${selectedNode} for ${negotiatedPrice} CFA. ETA 7:25 AM. Tap YES to confirm."`);
+      // Fetch user profile for contact
+      const { data: user } = await supabase.from('profiles').select('telegram_id, phone').eq('id', userId).single();
       
-      return { status: 'pre-booked', node: selectedNode, price: negotiatedPrice };
+      if (user?.telegram_id) {
+        const telegram = new TelegramService();
+        await telegram.getBotInstance().telegram.sendMessage(user.telegram_id, msg);
+      }
+
+      return { status: 'pre-booked', driverId: driver.id, price };
     }
 
-    console.log(`[Zero-Click] ✅ Route clear. No action needed.`);
     return { status: 'clear' };
   }
 
   /**
    * 3. THE SELF-HEALING MAP
-   * Validates manual user reports autonomously using GPS sensor fusion.
+   * Validates manual user reports autonomously using GPS telemetry logic.
    */
   static async autonomousVerification(incidentId: string, coordinates: { lat: number, lng: number }) {
-    console.log(`[Self-Healing Map] 🛡️ Monitoring GPS telemetry around incident ${incidentId}...`);
+    // Query GPS tracks around the incident within the last 5 minutes
+    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     
-    // In production, this constantly listens to Traccar sockets.
-    // If 3 consecutive vehicles show a speed drop > 50% at coordinates, resolve to 100%.
+    const { data: nearbyTracks } = await supabase
+      .from('gps_tracks')
+      .select('speed_kph')
+      .gt('created_at', fiveMinsAgo)
+      // Geographic bounding box filtering would go here
+      .limit(10);
 
-    const mockSpeedDropDetected = true; // Simulating telemetry feedback
+    if (!nearbyTracks || nearbyTracks.length < 3) return false;
 
-    if (mockSpeedDropDetected) {
-      console.log(`[Self-Healing Map] 🚔 Telemetry confirms hazard at [${coordinates.lat}, ${coordinates.lng}]. Upgrading confidence to 100%.`);
-      
-      // Elevate confidence in DB
+    const avgSpeed = nearbyTracks.reduce((s, t) => s + (t.speed_kph || 0), 0) / nearbyTracks.length;
+
+    // If avg speed is < 15kph in a 50kph zone, verify the jam
+    if (avgSpeed < 15) {
       await supabase
         .from('incidents')
         .update({ confidence: 100, status: 'verified_autonomously' })
         .eq('id', incidentId);
         
-      console.log(`[Self-Healing Map] 🌐 Grid updated globally. Rerouting inbound traffic.`);
       return true;
     }
     

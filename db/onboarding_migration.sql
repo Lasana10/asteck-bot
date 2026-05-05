@@ -15,6 +15,8 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS max_daily_hours INTEGER DEFAULT 12
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS operator_id UUID REFERENCES profiles(id);
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS emergency_contact TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS usual_route JSONB; -- { "origin": "Bastos", "dest": "Akwa" }
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS telegram_id TEXT;
 
 -- 2. Vehicles table (full spec)
 CREATE TABLE IF NOT EXISTS vehicles (
