@@ -1,46 +1,49 @@
-import { geminiClient, ParsedIncident } from '../infra/gemini';
-import { groqClient } from '../infra/groq';
+import { aiRouter } from './AIRouter';
+import { ParsedIncident } from '../models/base';
 
 export class BrainService {
   /**
-   * Orchestrate analysis using Hybrid logic:
-   * Level 1: Gemini 2.5 Flash (Fast, Multimodal)
-   * Level 2: Groq Llama 3.3 70B (Deep Reasoning, Elite logic)
+   * AFAT OS — TRI-BRAIN Orchestration
+   * Level 1: THE PULSE (Gemini 3.0 Flash) — Reality Context
+   * Level 2: THE PREDICTIVE MIND (Qwen 3.6 Plus) — Deep Logic
    */
   async analyze(text: string): Promise<ParsedIncident | null> {
-    console.log('🧠 [BRAIN] Starting Hybrid Analysis...');
+    console.log('🧠 [BRAIN] Engaging THE PULSE (Reality Context)...');
     
-    // Level 1: Standard Fast Analysis (Multimodal or Text)
-    const level1 = await geminiClient.analyzeText(text);
-    return this.orchestrate(text, level1);
-  }
+    // Stage 1: Reality Context & Quick Analysis
+    const pulseResponse = await aiRouter.route('pulse', { text });
+    
+    // Stage 2: Orchestration (Deep Logic Trigger)
+    // If it's complex or has specific keywords, engage THE PREDICTIVE MIND
+    const isComplex = text.length > 100 || /\b(sos|urgence|emergency|help|danger|accident|momo|payment|booking|route)\b/i.test(text);
 
-  /**
-   * Internal orchestrator to decide if Level 2 is needed
-   */
-  async orchestrate(text: string, baseAnalysis: ParsedIncident | null): Promise<ParsedIncident | null> {
-    if (!baseAnalysis) return null;
+    if (isComplex) {
+      console.log('🧠 [BRAIN] Engaging THE PREDICTIVE MIND (Deep Logic)...');
+      const predictiveResponse = await aiRouter.route('predict', { 
+        prompt: `Analyze this request for transport/safety action: "${text}". \nOutput JSON { type, severity, description, confidence, action_required }.`
+      });
 
-    // Orchestration Logic: Trigger Groq if confidence is low OR if it's a complex report
-    const isLowConfidence = baseAnalysis.confidence < 0.7;
-    const isComplex = text.length > 150 || /\b(sos|urgence|emergency|help|danger|dead|mort|blocked|closed|authority|police|accident|collision|jam)\b/i.test(text);
-
-    if (isLowConfidence || isComplex) {
-      console.log(`🧠 [BRAIN] Level 2 Triggered (Confidence: ${baseAnalysis.confidence}, Complex: ${isComplex})`);
-      const level2 = await groqClient.analyzeDeep(text);
-      
-      if (level2) {
-        console.log('🧠 [BRAIN] Level 2 Response Integrated (Elite Reasoning)');
+      try {
+        const parsed = JSON.parse(predictiveResponse.text);
         return {
-          ...level2,
-          // Keep sensor data from Stage 1 if available
-          sensorData: baseAnalysis.sensorData
+          type: parsed.type || 'other',
+          severity: parsed.severity || 3,
+          description: parsed.description || text,
+          confidence: parsed.confidence || 0.9,
+          locationHint: parsed.locationHint
         };
+      } catch (e) {
+        console.warn('⚠️ Predictive Mind JSON parse failed, falling back to Pulse.');
       }
     }
 
-    console.log('🧠 [BRAIN] Level 1 Response Sufficient.');
-    return baseAnalysis;
+    // Default to Pulse Analysis
+    return {
+      type: 'other',
+      severity: 3,
+      description: pulseResponse.text,
+      confidence: 0.8
+    };
   }
 }
 
