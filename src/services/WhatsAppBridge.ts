@@ -111,6 +111,19 @@ export class WhatsAppBridge {
   }
 
   private async handleText(from: string, text: string): Promise<string> {
+    const cmd = text.trim().toUpperCase();
+
+    // ── 5. STRUCTURED MENU OVERRIDE ───────────────────────────
+    if (['MENU', 'HELP', '#', 'AIDE', 'LISTE'].includes(cmd)) {
+      return `🏁 *MENU AFAT OS* 🏁\n\n` +
+             `👉 *1. RÉSERVER* : Tapez "Besoin d'un taxi vers [Destination]"\n` +
+             `👉 *2. SIGNALER* : Envoyez un Audio ou une Photo d'un incident.\n` +
+             `👉 *3. POSITION* : Envoyez votre position GPS.\n` +
+             `👉 *4. SOLDE* : Tapez "Mon solde".\n` +
+             `👉 *5. SOS* : Tapez "URGENCE" pour une alerte immédiate.\n\n` +
+             `_Je suis votre assistant IA Sentinel. Parlez-moi normalement._`;
+    }
+
     const response = await aiRouter.route('pulse', { text });
     return response.text;
   }
