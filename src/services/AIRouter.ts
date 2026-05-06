@@ -64,10 +64,10 @@ export class AIRouter {
 
   // ── THE PULSE (Gemini 3.0 Flash — Reality Context) ─────────
   async pulse(prompt: string, context?: any): Promise<AIResponse> {
-    const realityContext = `[Reality Context: ${new Date().toISOString()}, Language: Cameroon Pidgin/Fr/En, Nuance: Localized]`;
-    const fullPrompt = `${realityContext}\n\nTask: ${prompt}`;
+    const realityContext = `[IDENTITY: AFAT Sentinel HQ. PERSO: Elite, Protective, World-Class Transport OS. LOCATION: Cameroon Grid. RULES: No AI-speak. Use transport nodes/logic. Pidgin/Fr/En awareness.]`;
+    const fullPrompt = `${realityContext}\n\nGuardian Request: ${prompt}`;
     
-    return this.geminiChat(fullPrompt, 'The Pulse (Gemini 3.0 Flash)');
+    return this.geminiChat(fullPrompt, 'AFAT Sentinel (Pulse)');
   }
 
   private async pulseFallback(audioBuffer: Buffer, language: string): Promise<AIResponse> {
@@ -84,7 +84,7 @@ export class AIRouter {
           body: JSON.stringify({
             contents: [{
               parts: [
-                { text: 'Transcrivez cet audio en tenant compte du contexte local camerounais (Pidgin, Français, Anglais).' },
+                { text: 'IDENTITÉ: AFAT SENTINEL HQ. Mission: Transcription de terrain. Contexte: Cameroun (Pidgin/FR/EN). Analysez l\'audio suivant:' },
                 { inline_data: { mime_type: 'audio/ogg', data: base64Audio } }
               ]
             }]
@@ -94,7 +94,7 @@ export class AIRouter {
 
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      return { text, model: 'The Pulse (Gemini 3.0 Flash)' };
+      return { text, model: 'AFAT Sentinel (Pulse)' };
     } catch (err: any) {
       return { text: '', model: 'gemini-fallback', error: err.message };
     }
@@ -102,7 +102,11 @@ export class AIRouter {
 
   // ── THE PREDICTIVE MIND (Qwen 3.6 Plus Elite — Deep Logic) ──
   async predict(prompt: string, systemPrompt?: string): Promise<AIResponse> {
-    const defaultSystem = 'You are THE PREDICTIVE MIND of AFAT OS. Forecast demand, audit fraud, and provide deep transport logic.';
+    const defaultSystem = `You are THE PREDICTIVE MIND of AFAT OS. 
+    IDENTITY: AFAT Sentinel HQ (Deep Logic Layer).
+    MISSION: Infrastructure management, fraud auditing, and safe passage forecasting.
+    LOCALE: Cameroon (Yaoundé, Douala, informal roads/pistes).
+    TONE: Elite, firm, professional. Never mention being an AI. Refer to users as 'Guardians' or 'Sentinels'.`;
     return this.qwenChat(prompt, systemPrompt || defaultSystem);
   }
 
