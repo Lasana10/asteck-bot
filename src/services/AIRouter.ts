@@ -41,7 +41,7 @@ export class AIRouter {
 
     try {
       const formData = new FormData();
-      formData.append('file', new Blob([new Uint8Array(audioBuffer)]), 'audio.webm');
+      formData.append('file', new Blob([new Uint8Array(audioBuffer)]), 'audio.ogg');
       formData.append('model', 'whisper-large-v3');
       formData.append('language', language);
       formData.append('response_format', 'json');
@@ -85,7 +85,7 @@ export class AIRouter {
             contents: [{
               parts: [
                 { text: 'Transcrivez cet audio en tenant compte du contexte local camerounais (Pidgin, Français, Anglais).' },
-                { inline_data: { mime_type: 'audio/webm', data: base64Audio } }
+                { inline_data: { mime_type: 'audio/ogg', data: base64Audio } }
               ]
             }]
           })

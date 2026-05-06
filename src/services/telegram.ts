@@ -67,10 +67,6 @@ export class TelegramService {
     this.channelId = process.env.TELEGRAM_CHANNEL_ID;
 
     this.initializeHandlers();
-    
-    this.bot.launch().then(() => {
-      console.log('🤖 [TELEGRAM] Sentinel Bot is LIVE and listening.');
-    });
   }
 
   private getLang(userId: string): Language {
@@ -1545,5 +1541,13 @@ export class TelegramService {
     // Enable graceful stop
     process.once('SIGINT', () => this.bot.stop('SIGINT'));
     process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
+  }
+
+  public getBotInstance() {
+    return this.bot;
+  }
+
+  public getWebhookCallback() {
+    return this.bot.webhookCallback(`/webhook/${process.env.TELEGRAM_BOT_TOKEN}`);
   }
 }

@@ -2,7 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
-const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+// ═══ AUTO-DETECTION: Render Backend URL ═══
+const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
+const apiBaseUrl = import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
 
 if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
   console.warn('⚠️ Supabase env vars missing. Running in mock mode.');
