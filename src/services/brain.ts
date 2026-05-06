@@ -1,5 +1,6 @@
 import { aiRouter } from './AIRouter';
 import { ParsedIncident } from '../models/base';
+import { supabase } from '../infra/supabase';
 
 export class BrainService {
   /**
@@ -46,6 +47,42 @@ export class BrainService {
       confidence: 0.8,
       isEmergency: false
     };
+  }
+
+  // ── DRIVER DNA & TRUST SCORE ──────────────────────────────
+  /**
+   * Calculates the Safety Score (0-100) for a driver based on:
+   */
+  async calculateDriverDNA(driverId: string): Promise<{ score: number, tier: string }> {
+    console.log(`🧠 [BRAIN] Calculating DriverDNA for ${driverId}...`);
+    
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('trust_points, role')
+      .eq('id', driverId)
+      .single();
+
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('rating')
+      .eq('operator_id', driverId)
+      .not('rating', 'is', null);
+
+    const ratingsCount = bookings?.length || 0;
+    const avgRating = ratingsCount > 0 
+      ? bookings!.reduce((acc, curr) => acc + (curr.rating || 0), 0) / ratingsCount 
+      : 4.5;
+
+    // Logic: Base 70 + (Points / 100) + (AvgRating * 5)
+    let score = 70 + ((profile?.trust_points || 0) / 100) + (avgRating * 4);
+    score = Math.min(Math.max(score, 0), 100);
+
+    let tier = 'Iron';
+    if (score > 90) tier = 'Diamond Sentinel';
+    else if (score > 80) tier = 'Platinum';
+    else if (score > 60) tier = 'Gold';
+
+    return { score: Math.round(score), tier };
   }
 }
 
