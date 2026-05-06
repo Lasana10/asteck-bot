@@ -6,6 +6,7 @@
  */
 
 import { aiRouter } from './AIRouter';
+import { brainService } from './brain';
 import { supabase } from '../infra/supabase';
 import { IncidentType } from '../types';
 
@@ -132,6 +133,21 @@ export class WhatsAppBridge {
              `👉 *4. SOLDE* : Tapez "Mon solde".\n` +
              `👉 *5. SOS* : Tapez "URGENCE" pour une alerte immédiate.\n\n` +
              `_Je suis votre assistant IA Sentinel. Parlez-moi normalement._`;
+    }
+
+    // ── 4. HANDLE TEXT (THE AGENTIC LOOP) ──────────────────
+    const analysis = await brainService.analyze(text);
+    
+    if (analysis) {
+      if (analysis.type === 'booking') {
+        return `🚖 *AGENTIC SEARCH:* Recherche d'un Sentinel vers *${analysis.locationHint || 'votre destination'}*...\n\n_Score de confiance: ${Math.round(analysis.confidence * 100)}%_`;
+      }
+      
+      if (analysis.isEmergency) {
+        return `🚨 *ALERTE SOS:* Votre signal est reçu par la Grille Sentinel. Restez sur place, l'assistance est en route.`;
+      }
+
+      return analysis.description;
     }
 
     const response = await aiRouter.route('pulse', { text });

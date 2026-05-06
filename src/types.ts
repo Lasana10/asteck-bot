@@ -175,17 +175,17 @@ Guardian, show we weh you dey make we confirm intel.`
     
 Guardian, votre intel est en cours d'analyse par l'IA Elite. 🛡️
     
-📲 [Diffuser sur WhatsApp](https://api.whatsapp.com/send?text=🚦%20Alerte%20AFAT%20:%20{type}%20a%20{location}.%20Join%20HQ%20:%20https://t.me/AsTeck_Bot)`,
+📲 [Diffuser sur WhatsApp](https://api.whatsapp.com/send?text=🚦%20Alerte%20AFAT%20:%20{type}%20a%20{location}.%20Voir%20sur%20la%20carte%20:%20https://dashboard.afat.cm)`,
     en: `✅ *MISSION COMPLETE!* (+5 Trust 🌟)
     
 Guardian, your intel is being processed by the Elite AI. 🛡️
     
-📲 [Broadcast to WhatsApp](https://api.whatsapp.com/send?text=🚦%20AFAT%20Alert%20:%20{type}%20at%20{location}.%20Join%20HQ%20:%20https://t.me/AsTeck_Bot)`,
+📲 [Broadcast to WhatsApp](https://api.whatsapp.com/send?text=🚦%20AFAT%20Alert%20:%20{type}%20at%20{location}.%20View%20on%20map%20:%20https://dashboard.afat.cm)`,
     pcm: `✅ *CORRECT INTEL!* (+5 Trust 🌟)
     
 Guardian, we don receive your news. AI de check am! 🛡️
     
-📲 [Send to WhatsApp](https://api.whatsapp.com/send?text=🚦%20AFAT%20Alert%20:%20{type}%20for%20{location}.%20Join%20HQ%20:%20https://t.me/AsTeck_Bot)`
+📲 [Send to WhatsApp](https://api.whatsapp.com/send?text=🚦%20AFAT%20Alert%20:%20{type}%20for%20{location}.%20View%20on%20map%20:%20https://dashboard.afat.cm)`
   },
   help: {
     fr: `🛡️ *AFAT ELITE HQ — MANUEL DE TERRAIN*
