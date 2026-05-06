@@ -13,16 +13,16 @@ interface Props {
 // ── Per-role tab definitions ────────────────────────────────────
 const TAB_CONFIG: Record<string, { id: string; label: string; icon: React.ElementType }[]> = {
   commuter: [
-    { id: 'home',          label: 'Accueil',     icon: Home },
-    { id: 'bookings',      label: 'Voyages',     icon: Ticket },
-    { id: 'notifications', label: 'Alertes',     icon: Bell },
-    { id: 'profile',       label: 'Profil',      icon: User },
+    { id: 'home',          label: 'HQ / Home',   icon: Home },
+    { id: 'bookings',      label: 'Safe Passage',icon: Ticket },
+    { id: 'notifications', label: 'Grid Intel',  icon: Radio },
+    { id: 'profile',       label: 'Citizen',     icon: User },
   ],
   operator: [
-    { id: 'home',          label: 'Terminal',    icon: Radio },
-    { id: 'bookings',      label: 'Demandes',    icon: QrCode },
-    { id: 'notifications', label: 'Alertes',     icon: Bell },
-    { id: 'profile',       label: 'Profil',      icon: User },
+    { id: 'home',          label: 'Terminal',    icon: Home },
+    { id: 'bookings',      label: 'Marketplace', icon: QrCode },
+    { id: 'notifications', label: 'Grid Intel',  icon: Radio },
+    { id: 'profile',       label: 'Sentinel',    icon: User },
   ],
   planner: [
     { id: 'home',          label: 'Carte',       icon: Map },

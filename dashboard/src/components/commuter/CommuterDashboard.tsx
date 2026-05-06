@@ -248,8 +248,11 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           {/* Intelligence Pulse Indicator */}
           <div className="hidden sm:flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl">
              <div className="flex flex-col items-end">
-                <p className="text-[7px] font-black text-white/40 uppercase tracking-widest">Gemma 4 Pulse</p>
-                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-tight">Nominal</p>
+                <p className="text-[7px] font-black text-white/40 uppercase tracking-widest">Grid Nodes Active</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-tight">{activeVehicles.length} Sentinels</span>
+                  <span className="text-[9px] font-black text-emerald-400 uppercase tracking-tight">412 Guardians</span>
+                </div>
              </div>
              <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
           </div>

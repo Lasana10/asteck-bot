@@ -1,7 +1,7 @@
 "use client"
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ⚖️, Upload, BarChart3, ShieldCheck, ChevronRight } from 'lucide-react';
+import { Gavel, Upload, BarChart3, ShieldCheck, ChevronRight } from 'lucide-react';
 
 export default function PrecedentAnalyzer() {
   const [analyzing, setAnalyzing] = useState(false);

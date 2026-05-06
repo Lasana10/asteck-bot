@@ -35,31 +35,10 @@ interface AIResponse {
 
 export class AIRouter {
 
-  // ── THE LISTEN (Groq Whisper) ──────────────────────────────
+  // ── THE LISTEN (Gemini 3.0 Flash Multimodal) ──────────────────────────────
   async listen(audioBuffer: Buffer, language: string = 'fr'): Promise<AIResponse> {
-    if (!GROQ_KEY) return this.pulseFallback(audioBuffer, language);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', new Blob([new Uint8Array(audioBuffer)]), 'audio.ogg');
-      formData.append('model', 'whisper-large-v3');
-      formData.append('language', language);
-      formData.append('response_format', 'json');
-
-      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
-        body: formData
-      });
-
-      if (!res.ok) throw new Error('Whisper failed');
-
-      const data = await res.json();
-      return { text: data.text || '', model: 'groq-whisper-v3' };
-    } catch (err: any) {
-      console.error('⚠️ Whisper failed, engaging THE PULSE (Gemini 3.0) fallback...');
-      return this.pulseFallback(audioBuffer, language);
-    }
+    console.log('🎙️ [LISTEN] Engaging Gemini 3.0 Flash for audio processing...');
+    return this.pulseFallback(audioBuffer, language);
   }
 
   // ── THE PULSE (Gemini 3.0 Flash — Reality Context) ─────────

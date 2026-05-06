@@ -1,29 +1,50 @@
 "use client"
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Database, Gavel, Settings, User, ShieldCheck, Network, Folder } from 'lucide-react';
-import PrecedentAnalyzer from './components/PrecedentAnalyzer';
-import FirmDashboard from './components/FirmDashboard';
-import ComplianceVault from './components/ComplianceVault';
-import EmpowermentEngine from './components/EmpowermentEngine';
-import DigitalFolder from './components/DigitalFolder';
+import { LayoutDashboard, Database, Gavel, Settings, User, ShieldCheck, Network, Folder, Bell, Cpu, BookOpen, Clock, Milestone, FileStack, Server, Target, UserPlus, Globe, Award } from 'lucide-react';
+import PrecedentAnalyzer from '@/components/PrecedentAnalyzer';
+import FirmDashboard from '@/components/FirmDashboard';
+import ComplianceVault from '@/components/ComplianceVault';
+import GrowthNetwork from '@/components/GrowthNetwork';
+import DigitalFolder from '@/components/DigitalFolder';
+import CaseLedger from '@/components/CaseLedger';
+import BillingPayments from '@/components/BillingPayments';
+import NotificationCenter from '@/components/NotificationCenter';
+import LoopholeDetector from '@/components/LoopholeDetector';
+import LexCore from '@/components/LexCore';
+import PanAfricanLaw from '@/components/PanAfricanLaw';
+import ConflictShield from '@/components/ConflictShield';
+import BillableTimer from '@/components/BillableTimer';
+import MatterPipeline from '@/components/MatterPipeline';
+import EvidenceMaster from '@/components/EvidenceMaster';
+import SovereignNode from '@/components/SovereignNode';
+import InternEmpowerment from '@/components/InternEmpowerment';
+import FileVault from '@/components/FileVault';
+import LitigationOutcome from '@/components/LitigationOutcome';
+import ClientIntake from '@/components/ClientIntake';
+import LegalFirstAid from '@/components/LegalFirstAid';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'firm' | 'bull' | 'vault' | 'compliance' | 'empowerment' | 'folder'>('bull');
+  const [activeTab, setActiveTab] = useState<'bull' | 'compliance' | 'empowerment' | 'folder' | 'ledger' | 'billing' | 'alerts' | 'loophole' | 'lex' | 'bible' | 'conflict' | 'timer' | 'pipeline' | 'evidence' | 'sovereign' | 'vault' | 'outcome' | 'intake' | 'public'>('lex');
 
   const menuItems = [
-    { id: 'bull', label: 'Analytics', icon: Gavel },
-    { id: 'folder', label: 'Court Folders', icon: Folder },
-    { id: 'firm', label: 'FirmOS Command', icon: LayoutDashboard },
-    { id: 'vault', label: 'Knowledge Vault', icon: Database },
-    { id: 'compliance', label: 'Compliance Guardian', icon: ShieldCheck },
-    { id: 'empowerment', label: 'Growth Network', icon: Network },
+    { id: 'lex', label: 'TSIDEK Command', icon: Cpu },
+    { id: 'outcome', label: 'Litigation Strategy', icon: Target },
+    { id: 'intake', label: 'Client Intake', icon: UserPlus },
+    { id: 'public', label: 'Justice Guide', icon: Globe },
+    { id: 'bible', label: 'Pan-African Bible', icon: BookOpen },
+    { id: 'pipeline', label: 'Matter Pipeline', icon: Milestone },
+    { id: 'ledger', label: 'Case Ledger', icon: LayoutDashboard },
+    { id: 'billing', label: 'Billing & Payments', icon: Database },
+    { id: 'alerts', label: 'Sentinel Alerts', icon: Bell },
+    { id: 'empowerment', label: 'Intern Mastery', icon: Award },
+    { id: 'vault', label: 'Sovereign Vault', icon: FileStack },
   ];
 
   return (
     <div className="min-h-screen bg-paper-white text-slate-700">
-      {/* Sidebar Navigation */}
-      <nav className="fixed left-0 top-0 h-full w-20 border-r border-slate-200 bg-white flex flex-col items-center py-8 gap-10 z-50 shadow-sm">
+      {/* Sidebar Navigation (Desktop) */}
+      <nav className="hidden md:flex fixed left-0 top-0 h-full w-20 border-r border-slate-200 bg-white flex-col items-center py-8 gap-10 z-50 shadow-sm">
         <div className="w-10 h-10 bg-heritage-green rounded flex items-center justify-center shadow-lg">
           <span className="text-white font-black text-xl heading-serif">T</span>
         </div>
@@ -40,30 +61,31 @@ export default function Home() {
               {activeTab === item.id && (
                 <motion.div 
                   layoutId="active-nav"
-                  className="absolute left-0 top-1/4 w-1 h-1/2 bg-teal-accent rounded-r-full"
+                  className="absolute left-0 top-1/4 w-1 h-1/2 bg-heritage-green rounded-r-full"
                 />
               )}
-              <span className="absolute left-24 px-3 py-1.5 bg-navy-800 text-teal-accent text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap uppercase tracking-widest border border-teal-accent/20">
-                {item.label}
-              </span>
             </button>
           ))}
         </div>
+      </nav>
 
-        <div className="mt-auto flex flex-col gap-6">
-          <button className="text-slate-500 hover:text-teal-accent transition-colors"><Settings className="w-6 h-6" /></button>
-          <div className="w-10 h-10 rounded-full border border-teal-accent/20 p-1">
-             <div className="w-full h-full rounded-full bg-navy-800 flex items-center justify-center text-[10px] font-bold text-teal-accent uppercase cursor-pointer hover:bg-teal-glow transition-all">
-                JD
-             </div>
-          </div>
-        </div>
+      {/* Bottom Navigation (Mobile) */}
+      <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around py-4 z-50 shadow-2xl">
+        {menuItems.slice(0, 4).map((item) => (
+          <button 
+            key={item.id}
+            onClick={() => setActiveTab(item.id as any)}
+            className={`p-2 rounded-lg transition-all ${activeTab === item.id ? 'text-heritage-green' : 'text-slate-400'}`}
+          >
+            <item.icon className="w-6 h-6" />
+          </button>
+        ))}
       </nav>
 
       {/* Header */}
       <header className="pl-32 pr-8 py-6 flex justify-between items-center bg-white/80 backdrop-blur-md fixed top-0 w-full z-40 border-b border-slate-200">
         <h2 className="text-xs font-bold text-slate-400 uppercase tracking-[0.4em]">
-          CAMEROON • OHADA • CEMAC <span className="text-heritage-green ml-2 tracking-widest">TSIDKENU OPERATIONAL CORE</span>
+          PAN-AFRICAN LEGAL OPERATIONS <span className="text-heritage-green ml-2 tracking-widest">TSIDEK SOFTWARE</span>
         </h2>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3 px-4 py-2 rounded-full glass border-none">
@@ -83,18 +105,17 @@ export default function Home() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
           >
-            {activeTab === 'bull' && <PrecedentAnalyzer />}
-            {activeTab === 'folder' && <DigitalFolder />}
-            {activeTab === 'firm' && <FirmDashboard />}
-            {activeTab === 'compliance' && <ComplianceVault />}
-            {activeTab === 'empowerment' && <EmpowermentEngine />}
-            {activeTab === 'vault' && (
-              <div className="p-20 text-center space-y-4">
-                <Database className="w-12 h-12 text-slate-700 mx-auto" />
-                <h3 className="text-slate-500 font-bold uppercase tracking-widest text-sm">Knowledge Vault</h3>
-                <p className="text-xs text-slate-600 max-w-sm mx-auto">Access restricted. Encrypted local storage (OneDrive) syncing with firm context...</p>
-              </div>
-            )}
+            {activeTab === 'lex' && <LexCore />}
+            {activeTab === 'outcome' && <LitigationOutcome />}
+            {activeTab === 'intake' && <ClientIntake />}
+            {activeTab === 'public' && <LegalFirstAid />}
+            {activeTab === 'bible' && <PanAfricanLaw />}
+            {activeTab === 'pipeline' && <MatterPipeline />}
+            {activeTab === 'ledger' && <CaseLedger />}
+            {activeTab === 'billing' && <BillingPayments />}
+            {activeTab === 'alerts' && <NotificationCenter />}
+            {activeTab === 'empowerment' && <InternEmpowerment />}
+            {activeTab === 'vault' && <FileVault />}
           </motion.div>
         </AnimatePresence>
       </div>

@@ -1,7 +1,9 @@
 "use client"
 import React from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Folder, CheckCircle, Clock, ExternalLink, Download, ChevronRight } from 'lucide-react';
+import { FileText, Folder, CheckCircle, Clock, ExternalLink, Download, ChevronRight, Calendar } from 'lucide-react';
+import { DeadlineCalculator } from '@/lib/deadline-engine/calculator';
+import { OHADA_RULES } from '@/lib/deadline-engine/rules';
 
 export default function DigitalFolder() {
   const [timeline, setTimeline] = React.useState([
@@ -9,6 +11,12 @@ export default function DigitalFolder() {
     { event: "Template Verification", time: "09:15 AM", status: "Done" },
     { event: "Matter Initialized", time: "Yesterday", status: "Done" }
   ]);
+
+  const documentStack = [
+    { title: "Assignation (Draft v1)", date: "2024-04-12", status: "Ready", type: "Court Form" },
+    { title: "Procuration Spéciale", date: "2024-04-10", status: "Signed", type: "Client Doc" },
+    { title: "Bordereau de Pièces", date: "2024-04-14", status: "In Progress", type: "Index" }
+  ];
 
   const caseMetadata = {
     title: "Assignation en Paiement - Société Maritime X",
@@ -19,7 +27,6 @@ export default function DigitalFolder() {
   };
 
   const handleContextualize = () => {
-    // In production, this calls the OpenClaw smart_autofill and OneDrive mirror logic
     const newEntry = { event: "OneDrive Mirror Complete", time: "Just now", status: "Done" };
     setTimeline([newEntry, ...timeline]);
   };
@@ -84,6 +91,30 @@ export default function DigitalFolder() {
 
         {/* Sidebar Status / Actions */}
         <div className="space-y-8">
+          <div className="glass p-6 rounded-lg space-y-6">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-heritage-green flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              OHADA Procedural Clock
+            </h3>
+            <div className="p-4 bg-slate-50 rounded border border-slate-100 space-y-3">
+              <p className="text-[10px] text-slate-500 uppercase font-bold">Current Step: {OHADA_RULES.ASSIGNATION_AU_FOND.name}</p>
+              <div className="flex justify-between items-end">
+                <div className="space-y-1">
+                   <p className="text-xs text-slate-400">Trigger: Signification</p>
+                   <p className="text-sm font-bold text-heritage-green">Exp: {
+                     DeadlineCalculator.calculateDeadline(new Date(), OHADA_RULES.ASSIGNATION_AU_FOND.days, OHADA_RULES.ASSIGNATION_AU_FOND.type).toLocaleDateString('fr-FR')
+                   }</p>
+                </div>
+                <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">
+                   8 Days Franc
+                </span>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed italic">
+              *Calculated using @ada/deadline-engine rules for Cameroon jurisdictions.
+            </p>
+          </div>
+
           <div className="glass p-6 rounded-lg space-y-6">
             <h3 className="text-sm font-bold uppercase tracking-widest text-heritage-green">TSIDKENU Activity</h3>
             <div className="space-y-4">

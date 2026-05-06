@@ -127,13 +127,19 @@ export class WhatsAppBridge {
     // ── 5. STRUCTURED MENU OVERRIDE ───────────────────────────
     if (['MENU', 'HELP', '#', 'AIDE', 'LISTE'].includes(cmd)) {
       return `🏁 *MENU AFAT OS* 🏁\n\n` +
-             `👉 *1. RÉSERVER* : Tapez "Besoin d'un taxi vers [Destination]"\n` +
-             `👉 *2. SIGNALER* : Envoyez un Audio ou une Photo d'un incident.\n` +
-             `👉 *3. POSITION* : Envoyez votre position GPS.\n` +
-             `👉 *4. SOLDE* : Tapez "Mon solde".\n` +
-             `👉 *5. SOS* : Tapez "URGENCE" pour une alerte immédiate.\n\n` +
-             `_Je suis votre assistant IA Sentinel. Parlez-moi normalement._`;
+             `👉 *1. RÉSERVER* : Lancer une recherche de transport.\n` +
+             `👉 *2. SIGNALER* : Signaler un incident sur la route.\n` +
+             `👉 *3. POSITION* : Partager votre position actuelle.\n` +
+             `👉 *4. SOLDE* : Consulter vos Trust Points / Wallet.\n` +
+             `👉 *5. SOS* : Alerte d'urgence immédiate.\n\n` +
+             `_AFAT Sentinel HQ. Parlez-moi normalement ou utilisez les numéros._`;
     }
+
+    if (cmd === '1') return `🚖 *RÉSERVATION:* Où allez-vous ? (Ex: "Besoin d'un taxi vers Mendong")`;
+    if (cmd === '2') return `🚨 *SIGNALEMENT:* Envoyez une note vocale ou une photo de l'incident.`;
+    if (cmd === '3') return `📍 *POSITION:* Veuillez utiliser la fonction "Partager ma position" de WhatsApp.`;
+    if (cmd === '4') return `💰 *SOLDE:* Vous avez actuellement le statut Guardian. Vos Trust Points se synchronisent sur le Dashboard. (https://dashboard.afat.cm)`;
+    if (cmd === '5') return `🆘 *URGENCE:* Alerte SOS activée. La Grille Sentinel est informée.`;
 
     // ── 4. HANDLE TEXT (THE AGENTIC LOOP) ──────────────────
     const analysis = await brainService.analyze(text);
