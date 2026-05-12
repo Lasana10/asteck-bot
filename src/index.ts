@@ -93,29 +93,34 @@ async function startBot() {
     }, 5 * 60 * 1000);
 
     // Handle webhook/polling
-    const webhookDomain = process.env.WEBHOOK_DOMAIN;
+    const webhookDomain = process.env.WEBHOOK_DOMAIN || process.env.RENDER_EXTERNAL_URL;
+    
     if (webhookDomain) {
       const webhookPath = `/webhook/${process.env.TELEGRAM_BOT_TOKEN}`;
       const webhookUrl = `${webhookDomain}${webhookPath}`;
+      
       app.use(webhookPath, telegramService.getWebhookCallback());
       
       app.listen(port, async () => {
         console.log(`🚀 Server listening on port ${port}`);
         try {
           const bot = telegramService.getBotInstance();
+          // FORCE DELETE old webhook to clear 409 Conflicts
+          await bot.telegram.deleteWebhook({ drop_pending_updates: true });
           await bot.telegram.setWebhook(webhookUrl);
-          console.log(`✅ Webhook set: ${webhookUrl}`);
+          console.log(`✅ Webhook synchronized: ${webhookUrl}`);
         } catch (err) {
-          console.error('❌ Failed to set webhook:', err);
+          console.error('❌ Webhook Sync Failed:', err);
         }
       });
     } else {
-      console.log('📡 Entering Polling Mode...');
-      // CRITICAL: Open port FIRST so Render detects it, THEN start polling
+      console.warn('⚠️ No WEBHOOK_DOMAIN found. Falling back to Polling...');
       app.listen(port, () => {
         console.log(`🚀 Server listening on port ${port} (Polling mode)`);
       });
-      // Launch bot polling in background (non-blocking)
+      // Force delete webhook before polling
+      const bot = telegramService.getBotInstance();
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
       telegramService.launch().catch(err => {
         console.error('❌ Polling launch error:', err);
       });
