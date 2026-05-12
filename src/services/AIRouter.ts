@@ -230,38 +230,18 @@ export class AIRouter {
   }
 
   private async qwenChat(prompt: string, systemPrompt: string): Promise<AIResponse> {
-    // Try Groq first for Qwen
-    if (GROQ_KEY) {
-      try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${GROQ_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'qwen-qwq-32b',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: prompt }
-            ]
-          })
-        });
-        const data = await res.json();
-        if (data.choices?.[0]?.message?.content) {
-          return { text: data.choices[0].message.content, model: 'The Predictive Mind (Qwen 3.6+)' };
-        }
-      } catch (e) {}
-    }
-
-    // Fallback to OpenRouter
+    const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
+    
     if (OPENROUTER_KEY) {
       try {
+        console.log('🧠 [PREDICT] Engaging Qwen 2.5 72B Instruct (Plus Elite)...');
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${OPENROUTER_KEY}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://afat.cm',
+            'X-Title': 'AFAT OS Sentinel'
           },
           body: JSON.stringify({
             model: 'qwen/qwen-2.5-72b-instruct',
@@ -272,11 +252,14 @@ export class AIRouter {
           })
         });
         const data = await res.json();
-        return { text: data.choices?.[0]?.message?.content || '', model: 'The Predictive Mind (Qwen via OpenRouter)' };
-      } catch (e) {}
+        return { text: data.choices[0].message.content || '', model: 'Predictive Mind (Qwen Elite)' };
+      } catch (e: any) {
+        console.warn('⚠️ [PREDICT] OpenRouter Qwen failed, falling back to Gemini...');
+      }
     }
-
-    return { text: 'Predictive Mind Offline', model: 'The Predictive Mind' };
+    
+    // Final fallback to Gemini 3.0 Flash if OpenRouter/Qwen fails
+    return this.geminiChat(prompt, 'Predictive Mind (Gemini Fallback)');
   }
 }
 
