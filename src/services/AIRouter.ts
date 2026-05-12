@@ -142,7 +142,7 @@ export class AIRouter {
     return { text: '', model: 'gemini-fallback', error: 'All audio mime types rejected by Gemini' };
   }
 
-  // ── THE PREDICTIVE MIND (Qwen 3.6 Plus Elite — Deep Logic) ──
+  // ── THE PREDICTIVE MIND (Qwen 2.5 72B Elite — Deep Logic) ──
   async predict(prompt: string, systemPrompt?: string): Promise<AIResponse> {
     const defaultSystem = `You are THE PREDICTIVE MIND of AFAT OS. 
     IDENTITY: AFAT Sentinel HQ (Deep Logic Layer).
