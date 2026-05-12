@@ -56,8 +56,8 @@ Incident Detection Keywords (Audio/Ambient):
 - 🔊 Constant honking, slow engine idling = traffic_jam`;
 
 export class GeminiClient {
-  // Use gemini-2.0-flash for EVERYTHING (Text, Audio, Photo)
-  private model = genAI?.getGenerativeModel({ model: 'gemini-2.0-flash' }); 
+  // Gemini 3.0 Flash — Absolute Latest AI Engine
+  private model = genAI?.getGenerativeModel({ model: 'gemini-3.0-flash' }); 
 
   /**
    * Analyze a text report

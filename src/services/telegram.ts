@@ -1120,7 +1120,7 @@ export class TelegramService {
     pendingReports.delete(userId);
   }
 
-  // ========== VOICE HANDLER (Gemini SDK — Proven Path) ==========
+  // ========== VOICE HANDLER (Groq Whisper → Gemini Text — Bulletproof) ==========
   private async handleVoice(ctx: Context) {
     const userId = ctx.from!.id.toString();
     const lang = this.getLang(userId);
@@ -1131,7 +1131,6 @@ export class TelegramService {
         lang === 'fr' ? '🎙️ _Analyse du vocal en cours..._' : '🎙️ _Processing your voice note..._',
         { parse_mode: 'Markdown' }
       );
-      await ctx.sendChatAction('record_voice');
 
       if (!ctx.message || !('voice' in ctx.message)) {
         throw new Error('No voice message found');
@@ -1139,22 +1138,68 @@ export class TelegramService {
 
       const fileId = ctx.message.voice.file_id;
       const fileSize = ctx.message.voice.file_size || 0;
-      console.log(`🎙️ [VOICE] File ID: ${fileId}, Size: ${(fileSize / 1024).toFixed(1)}KB`);
+      console.log(`🎙️ [VOICE] File: ${fileId}, Size: ${(fileSize / 1024).toFixed(1)}KB`);
 
+      // Step 1: Download audio from Telegram
       const link = await ctx.telegram.getFileLink(fileId);
-      console.log(`🎙️ [VOICE] Download URL: ${link.href.substring(0, 60)}...`);
+      const audioResponse = await fetch(link.href);
+      const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+      console.log(`🎙️ [VOICE] Downloaded ${audioBuffer.length} bytes`);
 
-      // Use the proven GeminiClient SDK path (gemini.ts) — NOT raw fetch
-      const analysis = await geminiClient.analyzeVoice(link.href);
+      // Step 2: Transcribe with Groq Whisper (ultra-fast, purpose-built for audio)
+      let transcription = '';
+      const groqKey = process.env.GROQ_API_KEY;
+      
+      if (groqKey) {
+        console.log('🎙️ [VOICE] Sending to Groq Whisper...');
+        const formData = new FormData();
+        const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
+        formData.append('file', blob, 'voice.ogg');
+        formData.append('model', 'whisper-large-v3');
+        formData.append('language', lang === 'pcm' ? 'en' : lang);
+
+        const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${groqKey}` },
+          body: formData
+        });
+
+        if (whisperRes.ok) {
+          const whisperData = await whisperRes.json();
+          transcription = whisperData.text || '';
+          console.log(`✅ [VOICE] Groq transcription: "${transcription.substring(0, 80)}"`);
+        } else {
+          const errText = await whisperRes.text();
+          console.warn(`⚠️ [VOICE] Groq failed (${whisperRes.status}): ${errText.substring(0, 100)}`);
+        }
+      }
+
+      // If Groq failed, try AIRouter's pulseFallback 
+      if (!transcription) {
+        console.log('🎙️ [VOICE] Groq unavailable, trying Gemini raw transcription...');
+        const fallback = await aiRouter.listen(audioBuffer, lang);
+        transcription = fallback.text || '';
+      }
 
       try { await ctx.telegram.deleteMessage(ctx.chat!.id, statusMsg.message_id); } catch (e) {}
 
+      if (!transcription) {
+        ctx.replyWithMarkdown(
+          lang === 'fr'
+            ? `⚠️ *Vocal reçu mais transcription impossible.*\n\n✍️ Tapez votre message ou 📸 envoyez une photo.`
+            : `⚠️ *Voice received but transcription failed.*\n\n✍️ Type your message or 📸 send a photo.`
+        );
+        return;
+      }
+
+      // Step 3: Analyze transcription with Gemini text analysis (rock-solid)
+      const analysis = await geminiClient.analyzeText(transcription);
+
       if (analysis && analysis.type !== 'other') {
-        // Incident detected — enter report flow
         pendingReports.set(userId, {
           userId,
           type: analysis.type,
-          description: analysis.description || 'Voice report',
+          description: analysis.description || transcription.substring(0, 100),
           severity: analysis.severity || 3,
           step: 'awaiting_location',
           createdAt: new Date()
@@ -1165,37 +1210,32 @@ export class TelegramService {
 
         ctx.replyWithMarkdown(
           `🎙️ *Intelligence Vocale AFAT:*\n\n` +
+          `💬 *Transcription:* _"${transcription.substring(0, 120)}"_\n\n` +
           `⚠️ *Type:* ${typeInfo.emoji} ${typeLabel}\n` +
           `📝 *Analyse:* _${analysis.description}_ \n` +
           `🎯 *Confiance:* ${Math.round(analysis.confidence * 100)}%\n\n` +
           MESSAGES.shareLocation[lang],
           this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Valider ma Position' : '📍 Confirm Location')
         );
-      } else if (analysis) {
-        // Analysis worked but no specific incident
-        ctx.replyWithMarkdown(
-          lang === 'fr'
-            ? `🎙️ *Vocal reçu.* Analyse: _${analysis.description}_\n\nSi c'est un incident, précisez le type ou envoyez une photo.`
-            : `🎙️ *Voice received.* Analysis: _${analysis.description}_\n\nIf it's an incident, specify the type or send a photo.`
-        );
       } else {
-        // Analysis returned null — Gemini key likely missing
-        console.error('🔴 [VOICE] geminiClient.analyzeVoice returned null. Check GEMINI_API_KEY on Render.');
+        // No incident detected, respond conversationally
+        const smartResponse = await geminiClient.queryLive(
+          `A user sent a voice note saying: "${transcription}". Respond helpfully in ${lang === 'fr' ? 'French' : 'English'} as a transport intelligence assistant. If they're reporting something, guide them. Keep it short (3 lines max).`,
+          lang
+        );
+
         ctx.replyWithMarkdown(
-          lang === 'fr'
-            ? `⚠️ *Analyse indisponible.* Le moteur IA est temporairement hors ligne.\n\n✍️ Tapez votre signalement en texte ou 📸 envoyez une photo.`
-            : `⚠️ *Analysis unavailable.* The AI engine is temporarily offline.\n\n✍️ Type your report or 📸 send a photo.`
+          `🎙️ *Vocal analysé:*\n💬 _"${transcription.substring(0, 120)}"_\n\n` +
+          (smartResponse || (lang === 'fr' ? '✅ Message reçu. Tapez un mot-clé ou envoyez votre position.' : '✅ Message received. Type a keyword or share your location.'))
         );
       }
     } catch (err: any) {
       console.error('🔴 [VOICE FATAL]', err);
-      const errorDetail = err.response?.data?.error?.message || err.message || 'Unknown Protocol Error';
-      const errorStage = err.config ? 'DOWNLOAD_STAGE' : 'ANALYSIS_STAGE';
-      
+      const errorDetail = err.message || 'Unknown';
       ctx.replyWithMarkdown(
         lang === 'fr'
-          ? `❌ *Échec de l'Analyse:* \`${errorStage}\`\n\n🔍 *Détail:* \`${errorDetail.substring(0, 100)}\`\n\n_Le Sentinel suggère d'utiliser le texte ou une photo pendant que nous recalibrons le capteur audio._`
-          : `❌ *Analysis Failed:* \`${errorStage}\`\n\n🔍 *Detail:* \`${errorDetail.substring(0, 100)}\`\n\n_The Sentinel suggests using text or photo while we recalibrate the audio sensor._`
+          ? `❌ *Erreur:* \`${errorDetail.substring(0, 100)}\`\n\n✍️ Tapez votre signalement ou 📸 envoyez une photo.`
+          : `❌ *Error:* \`${errorDetail.substring(0, 100)}\`\n\n✍️ Type your report or 📸 send a photo.`
       );
     }
   }
