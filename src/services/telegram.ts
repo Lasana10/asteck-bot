@@ -104,15 +104,6 @@ export class TelegramService {
     return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
   }
 
-  /** Expose bot for scheduler and webhooks */
-  public getBotInstance() {
-    return this.bot;
-  }
-
-  public getWebhookCallback() {
-      return this.bot.webhookCallback('/');
-  }
-
   /** Delete any existing webhook (needed for clean polling mode) */
   public async deleteWebhook() {
     await this.bot.telegram.deleteWebhook({ drop_pending_updates: true });

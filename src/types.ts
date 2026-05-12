@@ -15,6 +15,7 @@ export type IncidentType =
   | 'protest'         // ✊ Protest/Manifestation
   | 'roadblock'       // 🛑 Roadblock/Barrage
   | 'sos'             // 🆘 Emergency/Urgence
+  | 'booking'         // 🚖 Transport Booking
   | 'other';          // ❓ Other/Autre
 
 export type Severity = 1 | 2 | 3 | 4 | 5;
@@ -91,8 +92,9 @@ export const INCIDENT_TYPES: Record<IncidentType, { emoji: string; labelFr: stri
   road_works: { emoji: '🚧', labelFr: 'Travaux Routiers', labelEn: 'Road Works', labelPcm: 'Road Work' },
   hazard: { emoji: '⚠️', labelFr: 'Danger sur la Route', labelEn: 'Road Hazard', labelPcm: 'Danger for Road' },
   protest: { emoji: '✊', labelFr: 'Manifestation', labelEn: 'Protest', labelPcm: 'People dem de cry' },
-  roadblock: { emoji: '🛑', labelFr: 'Barrage', labelEn: 'Roadblock', labelPcm: 'Road Block' },
+  roadblock: { emoji: '🛑', labelFr: 'Barrage', labelEn: 'Roadblock', labelPcm: 'Road block' },
   sos: { emoji: '🆘', labelFr: 'URGENCE', labelEn: 'EMERGENCY', labelPcm: 'Urgent Wahala' },
+  booking: { emoji: '🚖', labelFr: 'Réservation', labelEn: 'Booking', labelPcm: 'Need Motor' },
   other: { emoji: '❓', labelFr: 'Autre', labelEn: 'Other', labelPcm: 'Other thing' }
 };
 
