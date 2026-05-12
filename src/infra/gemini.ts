@@ -92,47 +92,46 @@ export class GeminiClient {
 
     try {
       // 1. Download audio
-      console.log(`🎙️ [VOICE] Downloading audio: ${fileUrl.substring(0, 50)}...`);
+      console.log(`🎙️ [VOICE] Downloading audio from Telegram: ${fileUrl.substring(0, 40)}...`);
       const response = await axios.get(fileUrl, {
         responseType: 'arraybuffer',
-        timeout: 20000, 
-        maxContentLength: 10 * 1024 * 1024 
+        timeout: 15000, 
+        maxContentLength: 5 * 1024 * 1024 
       });
       const buffer = Buffer.from(response.data);
-      console.log(`🎙️ [VOICE] Audio ready: ${(buffer.length / 1024).toFixed(1)}KB`);
+      const base64Data = buffer.toString('base64');
+      console.log(`🎙️ [VOICE] Audio Downloaded: ${(buffer.length / 1024).toFixed(1)}KB`);
 
-      // 2. Build audio part — Use 'audio/ogg' for Telegram Opus
-      const audioPart: Part = {
-        inlineData: {
-          data: buffer.toString('base64'),
-          mimeType: 'audio/ogg' 
-        }
-      };
+      const voicePrompt = `${SYSTEM_PROMPT}\n\nIMPORTANT: Analyze this audio carefully. It may contain background noise or local Cameroonian accents. Respond ONLY in the requested JSON format.`;
 
-      const voicePrompt = SYSTEM_PROMPT + '\n\n' +
-        'IMPORTANT: Use "Multimodal Deep Listening". Listen for ambient sounds (crashes, sirens, heavy traffic) as well as the speech. ' +
-        'Identify incidents even if the speaker is screaming or in a noisy environment. ' +
-        'Respond ONLY with the JSON schema.';
-
-      // 3. Inference
-      console.log('🎙️ [VOICE] Requesting Gemini multimodal analysis...');
-      const result = await this.model.generateContent([{ text: voicePrompt }, audioPart]);
-
-      const text = result.response.text();
-      console.log('🎙️ [VOICE] Gemini Raw:', text.substring(0, 150));
-      
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]) as ParsedIncident;
-        console.log(`✅ [VOICE] Analysis Success: ${parsed.type}`);
-        return parsed;
+      // Try with audio/ogg first (Standard for Telegram)
+      try {
+        console.log('🎙️ [VOICE] Attempting Gemini analysis (audio/ogg)...');
+        const result = await this.model!.generateContent([
+          { text: voicePrompt },
+          { inlineData: { data: base64Data, mimeType: 'audio/ogg' } }
+        ]);
+        const text = result.response.text();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]) as ParsedIncident;
+      } catch (oggErr: any) {
+        console.warn(`⚠️ [VOICE] audio/ogg failed, trying fallback mime... ${oggErr.message}`);
+        
+        // Fallback to audio/mpeg (sometimes works better for certain headers)
+        const result = await this.model!.generateContent([
+          { text: voicePrompt },
+          { inlineData: { data: base64Data, mimeType: 'audio/mpeg' } }
+        ]);
+        const text = result.response.text();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]) as ParsedIncident;
       }
-      
-      console.warn('⚠️ [VOICE] No JSON found in response');
+
+      console.error('❌ [VOICE] No JSON found in any Gemini response');
       return null;
     } catch (error: any) {
-      console.error('❌ [VOICE] Error:', error.message || error);
-      return null;
+      console.error('❌ [VOICE] Fatal Error:', error.message || error);
+      throw new Error(`AI Analysis Failed: ${error.message || 'Unknown error'}`);
     }
   }
 
