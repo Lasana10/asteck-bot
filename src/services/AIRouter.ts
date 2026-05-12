@@ -35,10 +35,51 @@ interface AIResponse {
 
 export class AIRouter {
 
-  // ── THE LISTEN (Gemini 3.0 Flash Multimodal) ──────────────────────────────
+  // ── THE LISTEN (Cross-API Racing for Speed) ──────────────────────────
   async listen(audioBuffer: Buffer, language: string = 'fr'): Promise<AIResponse> {
-    console.log('🎙️ [LISTEN] Engaging Gemini 3.0 Flash for audio processing...');
-    return this.pulseFallback(audioBuffer, language);
+    console.log('🎙️ [LISTEN] Racing Groq Whisper vs Gemini Flash for speed...');
+    
+    // We race the two engines. Groq is usually faster for pure text, 
+    // Gemini is better for contextual analysis.
+    const tasks = [
+      this.groqWhisper(audioBuffer, language),
+      this.pulseFallback(audioBuffer, language)
+    ];
+
+    try {
+      // Return the first one that successfully gives us text
+      const result = await Promise.any(tasks.map(t => t.then(res => {
+        if (!res.text || res.error) throw new Error('Empty or error');
+        return res;
+      })));
+      
+      console.log(`✅ [LISTEN] Race won by: ${result.model}`);
+      return result;
+    } catch (err) {
+      // If both fail, try one last time with Gemini as it's the most robust
+      return this.pulseFallback(audioBuffer, language);
+    }
+  }
+
+  private async groqWhisper(audioBuffer: Buffer, language: string): Promise<AIResponse> {
+    if (!GROQ_KEY) return { text: '', model: 'groq', error: 'No key' };
+    try {
+      const formData = new FormData();
+      const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
+      formData.append('file', blob, 'audio.ogg');
+      formData.append('model', 'whisper-large-v3');
+      formData.append('language', language);
+
+      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
+        body: formData
+      });
+      const data = await res.json();
+      return { text: data.text || '', model: 'Groq Whisper (Speed Node)' };
+    } catch (e: any) {
+      return { text: '', model: 'groq', error: e.message };
+    }
   }
 
   // ── THE PULSE (Gemini 3.0 Flash — Reality Context) ─────────
