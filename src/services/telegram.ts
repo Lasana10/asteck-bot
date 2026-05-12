@@ -1188,11 +1188,14 @@ export class TelegramService {
         );
       }
     } catch (err: any) {
-      console.error('[VOICE HANDLER] Error:', err.message || err);
+      console.error('🔴 [VOICE FATAL]', err);
+      const errorDetail = err.response?.data?.error?.message || err.message || 'Unknown Protocol Error';
+      const errorStage = err.config ? 'DOWNLOAD_STAGE' : 'ANALYSIS_STAGE';
+      
       ctx.replyWithMarkdown(
         lang === 'fr'
-          ? `❌ *Erreur vocale:* ${err.message?.substring(0, 80) || 'Inconnue'}\n\nEssayez:\n1. 🔄 Réenvoyer le vocal (< 1 min)\n2. ✍️ Taper votre signalement\n3. 📸 Envoyer une photo`
-          : `❌ *Voice error:* ${err.message?.substring(0, 80) || 'Unknown'}\n\nTry:\n1. 🔄 Resend the voice (< 1 min)\n2. ✍️ Type your report\n3. 📸 Send a photo`
+          ? `❌ *Échec de l'Analyse:* \`${errorStage}\`\n\n🔍 *Détail:* \`${errorDetail.substring(0, 100)}\`\n\n_Le Sentinel suggère d'utiliser le texte ou une photo pendant que nous recalibrons le capteur audio._`
+          : `❌ *Analysis Failed:* \`${errorStage}\`\n\n🔍 *Detail:* \`${errorDetail.substring(0, 100)}\`\n\n_The Sentinel suggests using text or photo while we recalibrate the audio sensor._`
       );
     }
   }

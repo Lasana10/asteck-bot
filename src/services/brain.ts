@@ -2,6 +2,9 @@ import { aiRouter } from './AIRouter';
 import { ParsedIncident } from '../models/base';
 import { supabase } from '../infra/supabase';
 
+// ── CONVERSATIONAL CONSCIOUSNESS (Context Memory) ──
+const userContexts = new Map<string, { lastIntent?: string; history: any[] }>();
+
 export class BrainService {
   /**
    * AFAT OS — TRI-BRAIN Orchestration
