@@ -50,33 +50,55 @@ export class AIRouter {
   }
 
   private async pulseFallback(audioBuffer: Buffer, language: string): Promise<AIResponse> {
-    if (!GEMINI_KEY) return { text: '', model: 'mock', error: 'No GEMINI_API_KEY' };
-
-    try {
-      // Using Gemini Flash as a multimodal fallback for audio transcription
-      const base64Audio = audioBuffer.toString('base64');
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: 'IDENTITÉ: AFAT SENTINEL HQ. Mission: Transcription de terrain. Contexte: Cameroun (Pidgin/FR/EN). Analysez l\'audio suivant:' },
-                { inline_data: { mime_type: 'audio/ogg', data: base64Audio } }
-              ]
-            }]
-          })
-        }
-      );
-
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      return { text, model: 'AFAT Sentinel (Pulse)' };
-    } catch (err: any) {
-      return { text: '', model: 'gemini-fallback', error: err.message };
+    if (!GEMINI_KEY) {
+      console.error('🔴 [LISTEN] GEMINI_API_KEY is not set! Voice will always fail.');
+      return { text: '', model: 'none', error: 'GEMINI_API_KEY missing from environment' };
     }
+
+    const base64Audio = audioBuffer.toString('base64');
+    const mimeTypes = ['audio/ogg', 'audio/oga', 'audio/mp4', 'audio/webm'];
+
+    for (const mimeType of mimeTypes) {
+      try {
+        console.log(`🎙️ [LISTEN] Trying Gemini with mime: ${mimeType}, size: ${audioBuffer.length} bytes`);
+        
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `Transcribe this audio exactly as spoken. The speaker is in Cameroon and may use French, English, or Pidgin. Output ONLY the transcription text, nothing else.` },
+                  { inline_data: { mime_type: mimeType, data: base64Audio } }
+                ]
+              }]
+            })
+          }
+        );
+
+        if (!res.ok) {
+          const errorBody = await res.text();
+          console.warn(`⚠️ [LISTEN] Gemini returned ${res.status} for ${mimeType}: ${errorBody.substring(0, 200)}`);
+          continue; // Try next mime type
+        }
+
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        
+        if (text) {
+          console.log(`✅ [LISTEN] Transcription successful with ${mimeType}: "${text.substring(0, 80)}..."`);
+          return { text, model: 'AFAT Sentinel (Pulse)' };
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ [LISTEN] ${mimeType} attempt failed: ${err.message}`);
+      }
+    }
+
+    // Final fallback: ask Gemini to describe what it heard without inline audio
+    console.error('🔴 [LISTEN] All mime types failed. Audio transcription unavailable.');
+    return { text: '', model: 'gemini-fallback', error: 'All audio mime types rejected by Gemini' };
   }
 
   // ── THE PREDICTIVE MIND (Qwen 3.6 Plus Elite — Deep Logic) ──
