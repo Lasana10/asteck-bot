@@ -212,6 +212,35 @@ export class TelegramService {
       await this.handlePanic(ctx);
     });
 
+    // /diagnostic - System health check (admin only)
+    this.bot.command('diagnostic', async (ctx) => {
+      const userId = ctx.from!.id.toString();
+      if (!this.isAdmin(userId)) {
+        return ctx.reply('🔒 Admin only.');
+      }
+
+      const checks = [
+        { name: 'TELEGRAM_BOT_TOKEN', ok: !!process.env.TELEGRAM_BOT_TOKEN },
+        { name: 'GEMINI_API_KEY', ok: !!process.env.GEMINI_API_KEY },
+        { name: 'GROQ_API_KEY', ok: !!process.env.GROQ_API_KEY },
+        { name: 'OPENROUTER_API_KEY', ok: !!process.env.OPENROUTER_API_KEY },
+        { name: 'SUPABASE_URL', ok: !!process.env.SUPABASE_URL },
+        { name: 'SUPABASE_KEY', ok: !!process.env.SUPABASE_KEY },
+        { name: 'TWILIO_ACCOUNT_SID', ok: !!process.env.TWILIO_ACCOUNT_SID },
+        { name: 'WEBHOOK_DOMAIN', ok: !!process.env.WEBHOOK_DOMAIN },
+        { name: 'RENDER_EXTERNAL_URL', ok: !!process.env.RENDER_EXTERNAL_URL },
+      ];
+
+      let msg = `🛡️ *AFAT SENTINEL DIAGNOSTIC*\n\n`;
+      checks.forEach(c => {
+        msg += `${c.ok ? '✅' : '❌'} ${c.name}\n`;
+      });
+      msg += `\n🕐 Server Time: ${new Date().toISOString()}`;
+      msg += `\n🌐 Node: ${process.version}`;
+
+      ctx.replyWithMarkdown(msg);
+    });
+
     // ========== CALLBACK HANDLERS (Zero-Typing) ==========
     this.bot.action('menu_report', (ctx) => {
       ctx.answerCbQuery();
@@ -1091,93 +1120,79 @@ export class TelegramService {
     pendingReports.delete(userId);
   }
 
-  // ========== VOICE HANDLER (Gemini 2.5) ==========
+  // ========== VOICE HANDLER (Gemini SDK — Proven Path) ==========
   private async handleVoice(ctx: Context) {
+    const userId = ctx.from!.id.toString();
+    const lang = this.getLang(userId);
+
     try {
-      const userId = ctx.from!.id.toString();
-      const lang = this.getLang(userId);
-
       ctx.replyWithChatAction('typing');
-
-      // 1. Get file link
-      // 1. Inform user (Live Feedback)
-      const statusMsg = await ctx.reply(lang === 'fr' ? '🎙️ _Analyse du vocal en cours..._' : '🎙️ _Processing your voice note..._', { parse_mode: 'Markdown' });
+      const statusMsg = await ctx.reply(
+        lang === 'fr' ? '🎙️ _Analyse du vocal en cours..._' : '🎙️ _Processing your voice note..._',
+        { parse_mode: 'Markdown' }
+      );
       await ctx.sendChatAction('record_voice');
 
       if (!ctx.message || !('voice' in ctx.message)) {
-        throw new Error('No voice message found in context');
+        throw new Error('No voice message found');
       }
-      const fileId = ctx.message.voice.file_id;
-      const link = await ctx.telegram.getFileLink(fileId);
 
-      // 2. Process with TRI-BRAIN ARCHITECTURE
-      // A. THE LISTEN (Groq Whisper)
-      const response = await fetch(link.href);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const transcription = await aiRouter.listen(buffer, lang === 'fr' ? 'fr' : 'en');
-      
+      const fileId = ctx.message.voice.file_id;
+      const fileSize = ctx.message.voice.file_size || 0;
+      console.log(`🎙️ [VOICE] File ID: ${fileId}, Size: ${(fileSize / 1024).toFixed(1)}KB`);
+
+      const link = await ctx.telegram.getFileLink(fileId);
+      console.log(`🎙️ [VOICE] Download URL: ${link.href.substring(0, 60)}...`);
+
+      // Use the proven GeminiClient SDK path (gemini.ts) — NOT raw fetch
+      const analysis = await geminiClient.analyzeVoice(link.href);
+
       try { await ctx.telegram.deleteMessage(ctx.chat!.id, statusMsg.message_id); } catch (e) {}
 
-      if (!transcription.text) throw new Error('Transcription returned empty');
-
-      // B. THE PREDICTIVE MIND (Qwen 3.6 Plus Elite via Groq/OpenRouter)
-      const aiResponse = await aiRouter.predict(
-        `User voice note: "${transcription.text}". 
-         Classify as a traffic incident. 
-         Return ONLY JSON: { "type": "accident|police_control|flooding|traffic_jam|road_damage|road_works|hazard|protest|roadblock|sos|other", "severity": 1-5, "description": "string", "sensorData": {"potentialCrash": false, "potholeHit": false} }`
-      );
-
-      // Robust JSON extraction
-      const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/);
-      const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-
-      if (!analysis) throw new Error('Predictive Mind failed to parse JSON');
-
-      // 3. Check for Autonomous Sensor Detection (Crash/Pothole)
-      const isAutoDetect = analysis.sensorData?.potentialCrash || analysis.sensorData?.potholeHit;
-
-      if (analysis.type !== 'other' || isAutoDetect) {
-        const finalType = isAutoDetect
-          ? (analysis.sensorData?.potentialCrash ? 'accident' : 'road_damage')
-          : analysis.type as IncidentType;
-
+      if (analysis && analysis.type !== 'other') {
+        // Incident detected — enter report flow
         pendingReports.set(userId, {
           userId,
-          type: finalType,
-          description: analysis.description || (isAutoDetect ? 'Auto-detected via OS Synergy analysis' : 'Voice report'),
-          severity: isAutoDetect ? 4 : (analysis.severity || 3),
+          type: analysis.type,
+          description: analysis.description || 'Voice report',
+          severity: analysis.severity || 3,
           step: 'awaiting_location',
           createdAt: new Date()
         });
 
-        const typeInfo = INCIDENT_TYPES[finalType];
+        const typeInfo = INCIDENT_TYPES[analysis.type];
         const typeLabel = lang === 'fr' ? typeInfo.labelFr : (lang === 'pcm' ? typeInfo.labelPcm : typeInfo.labelEn);
 
         ctx.replyWithMarkdown(
-          (isAutoDetect ? `🛰️ *OS SYNERGY DETECTED:* \n\n` : `🎙️ *Intelligence Vocale AsTeck:*\n\n`) +
+          `🎙️ *Intelligence Vocale AFAT:*\n\n` +
           `⚠️ *Type:* ${typeInfo.emoji} ${typeLabel}\n` +
-          `📝 *Note:* "${analysis.description || 'Ambient sound check'}"\n\n` +
-          `🤖 *Analyse:* _${analysis.description || 'Situation analysée par Gemini 2.5'}_ \n\n` +
+          `📝 *Analyse:* _${analysis.description}_ \n` +
+          `🎯 *Confiance:* ${Math.round(analysis.confidence * 100)}%\n\n` +
           MESSAGES.shareLocation[lang],
           this.getLocationKeyboard(lang, lang === 'fr' ? '📍 Valider ma Position' : '📍 Confirm Location')
         );
+      } else if (analysis) {
+        // Analysis worked but no specific incident
+        ctx.replyWithMarkdown(
+          lang === 'fr'
+            ? `🎙️ *Vocal reçu.* Analyse: _${analysis.description}_\n\nSi c'est un incident, précisez le type ou envoyez une photo.`
+            : `🎙️ *Voice received.* Analysis: _${analysis.description}_\n\nIf it's an incident, specify the type or send a photo.`
+        );
       } else {
-        // Even if type is 'other', let's use AI Smart Response to be more helpful
-        const smartResp = await geminiClient.queryLive(`The user sent a voice note but it didn't sound like a specific traffic report. They might be just testing or talking. Respond helpfuly about how to report accidents or ask for road help.`, lang);
-        ctx.replyWithMarkdown(smartResp ? `🤖 ${smartResp}` : (lang === 'fr'
-          ? '😕 Je n\'ai pas bien compris. Pouvez-vous répéter ou écrire?'
-          : (lang === 'pcm' ? '😕 I no hear well. Abeg talk again or write am.' : '😕 I didn\'t catch that. Please repeat or type it.'))
+        // Analysis returned null — Gemini key likely missing
+        console.error('🔴 [VOICE] geminiClient.analyzeVoice returned null. Check GEMINI_API_KEY on Render.');
+        ctx.replyWithMarkdown(
+          lang === 'fr'
+            ? `⚠️ *Analyse indisponible.* Le moteur IA est temporairement hors ligne.\n\n✍️ Tapez votre signalement en texte ou 📸 envoyez une photo.`
+            : `⚠️ *Analysis unavailable.* The AI engine is temporarily offline.\n\n✍️ Type your report or 📸 send a photo.`
         );
       }
     } catch (err: any) {
       console.error('[VOICE HANDLER] Error:', err.message || err);
-      const lang = this.getLang(ctx.from?.id?.toString() || '');
       ctx.replyWithMarkdown(
         lang === 'fr'
-          ? `❌ *Analyse vocale échouée.*\n\nEssayez:\n1. 🔄 Réenvoyer le vocal (< 1 min)\n2. ✍️ Taper votre signalement en texte\n3. 📸 Envoyer une photo`
-          : (lang === 'pcm'
-            ? `❌ *Voice analysis no work.*\n\nTry:\n1. 🔄 Send the voice again (< 1 min)\n2. ✍️ Type wetin happen\n3. 📸 Send picture`
-            : `❌ *Voice analysis failed.*\n\nPlease try:\n1. 🔄 Resend the voice note (< 1 min)\n2. ✍️ Type your report instead\n3. 📸 Send a photo`)
+          ? `❌ *Erreur vocale:* ${err.message?.substring(0, 80) || 'Inconnue'}\n\nEssayez:\n1. 🔄 Réenvoyer le vocal (< 1 min)\n2. ✍️ Taper votre signalement\n3. 📸 Envoyer une photo`
+          : `❌ *Voice error:* ${err.message?.substring(0, 80) || 'Unknown'}\n\nTry:\n1. 🔄 Resend the voice (< 1 min)\n2. ✍️ Type your report\n3. 📸 Send a photo`
       );
     }
   }
