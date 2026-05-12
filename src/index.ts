@@ -99,7 +99,10 @@ async function startBot() {
       const webhookPath = `/webhook/${process.env.TELEGRAM_BOT_TOKEN}`;
       const webhookUrl = `${webhookDomain}${webhookPath}`;
       
-      app.use(webhookPath, telegramService.getWebhookCallback());
+      app.post(webhookPath, (req: Request, res: Response) => {
+        const bot = telegramService.getBotInstance();
+        bot.handleUpdate(req.body, res);
+      });
       
       app.listen(port, async () => {
         console.log(`🚀 Server listening on port ${port}`);

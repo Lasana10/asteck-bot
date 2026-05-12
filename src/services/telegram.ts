@@ -664,13 +664,13 @@ export class TelegramService {
 
     // ========== MESSAGE HANDLERS (Intelligent AI Processing) ==========
 
-    // Voice messages -> Gemini 2.5 Analysis
-    this.bot.on('voice', async (ctx) => {
+    // Voice messages -> Gemini 3.0 Flash Analysis
+    this.bot.on(message('voice'), async (ctx) => {
       await this.handleVoice(ctx);
     });
 
-    // Photos -> Gemini 2.5 Analysis
-    this.bot.on('photo', async (ctx) => {
+    // Photos -> Gemini 3.0 Flash Analysis
+    this.bot.on(message('photo'), async (ctx) => {
       await this.handlePhoto(ctx);
     });
 
