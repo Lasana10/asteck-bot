@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Camera, ShieldCheck, CheckCircle2, Loader2, AlertTriangle, Upload } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { apiBaseUrl, supabase } from '../../supabaseClient';
 
 export function DriverVerification() {
   const [step, setStep] = useState(1);
@@ -19,42 +19,30 @@ export function DriverVerification() {
       // 1. Convert to Base64
       const base64 = await fileToBase64(file);
 
-      // 2. Call Llama 3.2 Vision (via our backend/groq) for KYD validation
-      // In a real app we'd call our backend API to protect the key, but for the dashboard
-      // we'll emulate the Vision API call here using the Vite env variable.
-      const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-      
-      if (!groqKey) {
-        throw new Error("Clé API Groq manquante");
-      }
-
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const response = await fetch(`${apiBaseUrl}/api/ai/vision`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${groqKey}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.2-11b-vision-preview',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { 
-                  type: 'text', 
-                  text: 'Extract the following from this Cameroonian ID or Driver License: 1) Is it a valid ID? 2) Name, 3) Document Number, 4) Expiration Date. Return ONLY JSON.' 
-                },
-                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } }
-              ]
-            }
-          ],
-          temperature: 0.1,
-          response_format: { type: "json_object" }
+          image: base64,
+          prompt: 'Extract the following from this Cameroonian ID or Driver License: 1) Is it a valid ID? 2) Name, 3) Document Number, 4) Expiration Date. Return ONLY JSON.'
         })
       });
 
       const data = await response.json();
-      const analysis = JSON.parse(data.choices[0].message.content);
+      const rawText = typeof data.text === 'string' ? data.text : '';
+      let analysis: any = { valid: false, error: 'No OCR details returned by the low-cost vision path.', raw: rawText };
+
+      try {
+        analysis = rawText ? JSON.parse(rawText) : analysis;
+      } catch {
+        if (rawText) {
+          analysis = {
+            valid: /valid|verified|license|identity/i.test(rawText),
+            raw: rawText,
+            error: /valid|verified|license|identity/i.test(rawText) ? undefined : 'Document needs manual review.'
+          };
+        }
+      }
 
       setVerificationResult(analysis);
       

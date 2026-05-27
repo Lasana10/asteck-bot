@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Loader2, Bot, Sparkles, Camera, Cpu, Mic } from 'lucide-react';
+import { apiBaseUrl } from '../../supabaseClient';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -40,94 +41,65 @@ Sound like a calm local guide who knows the streets — never mention AI, models
 Reply in the same language the user writes in (French or English).
 Use phrases like "heads-up", "usually at this hour", "from what we see" instead of technical terms.`;
 
-  // ========== BLENDED AI LOGIC ==========
-  // 1. Text Strategy → Groq Llama 3.3 70B (Complex reasoning)
-  // 2. Text Output → Gemini 2.5 Flash (Voice/Conversational wrapper)
-  // 3. Photos → Groq Llama 3.2 Vision (specialized for traffic image analysis)
+  const callBackendAI = async (payload: Record<string, any>): Promise<string> => {
+    const response = await fetch(`${apiBaseUrl}/api/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || 'AI backend request failed');
+    }
+
+    return data?.text || '';
+  };
 
   const callLlamaStrategy = async (userText: string): Promise<string> => {
-    const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!groqKey) return ''; // Degrade gracefully to just Gemini
-
     const strategyPrompt = `You are the Strategic Reasoning Layer of AFAT Sentinel AI. 
 Analyze the user's intent, current role (${userRole}), and context (${context || 'None'}).
 Formulate a brief, hidden response strategy (1-2 sentences) about how the conversational AI should answer.
 Focus on safety, Cameroon etiquette, and practical tips. Do NOT write the actual reply to the user.
 User input: "${userText}"`;
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${groqKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: strategyPrompt }],
-        temperature: 0.1,
-        max_tokens: 150
-      })
+    return callBackendAI({
+      prompt: strategyPrompt,
+      user_name: userName,
+      user_role: userRole,
+      context,
+      task: 'predict',
+      language: navigator.language?.startsWith('fr') ? 'fr' : 'en',
     });
-
-    const data = await response.json();
-    return data?.choices?.[0]?.message?.content || '';
   };
 
   const callGemini = async (userText: string, strategy: string = ''): Promise<string> => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('NO_KEY');
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            { role: 'user', parts: [{ text: systemPrompt + (strategy ? `\n\n[STRATEGIC DIRECTIVE FROM LLAMA BRAIN]:\n${strategy}\nIncorporate this strategy into your friendly response.` : '') }] },
-            { role: 'model', parts: [{ text: 'Compris. Je suis AFAT Sentinel AI, prêt à assister.' }] },
-            ...messages.map(m => ({
-              role: m.role === 'user' ? 'user' : 'model',
-              parts: [{ text: m.content }]
-            })),
-            { role: 'user', parts: [{ text: userText }] }
-          ]
-        })
-      }
-    );
-
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Réponse indisponible.';
+    return callBackendAI({
+      prompt: userText,
+      user_name: userName,
+      user_role: userRole,
+      context: `${context || ''}${strategy ? `\nHidden strategy: ${strategy}` : ''}`,
+      task: 'summarize',
+      language: navigator.language?.startsWith('fr') ? 'fr' : 'en',
+    });
   };
 
   const callLlamaVision = async (base64Image: string): Promise<string> => {
-    const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!groqKey) throw new Error('NO_KEY');
-
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const response = await fetch(`${apiBaseUrl}/api/ai/vision`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${groqKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama-3.2-11b-vision-preview',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: systemPrompt + '\n\nAnalyze this traffic photo. Describe what you see, identify any incidents, hazards, or notable conditions. Be concise.' },
-              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
-            ]
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 300
+        image: base64Image,
+        prompt: systemPrompt + '\n\nAnalyze this traffic photo. Describe what you see, identify any incidents, hazards, or notable conditions. Be concise.'
       })
     });
 
     const data = await response.json();
-    return data?.choices?.[0]?.message?.content || 'Analyse photo indisponible.';
+    if (!response.ok) {
+      throw new Error(data?.error || 'Vision request failed');
+    }
+
+    return data?.text || 'Analyse photo indisponible.';
   };
 
   const handleSend = async () => {

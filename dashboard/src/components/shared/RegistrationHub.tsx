@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Camera, Shield, FileText, UploadCloud, ChevronRight, X, Compass, AlertTriangle, Zap, CheckCircle } from 'lucide-react';
+import { Camera, Shield, FileText, UploadCloud, ChevronRight, X, Compass, AlertTriangle, Zap, CheckCircle, Users, Phone } from 'lucide-react';
+import { registerCompany, registerDriver, registerPassenger } from '../../supabaseClient';
 
 interface Props {
   isVisible: boolean;
@@ -7,7 +8,7 @@ interface Props {
   onRegisterCustom: (data: any) => void;
 }
 
-type RegistrationTrack = 'select' | 'gov_link' | 'citizen_reg';
+type RegistrationTrack = 'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company';
 
 export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
@@ -20,27 +21,49 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
   // Citizen Track State
   const [vehicleType, setVehicleType] = useState('taxi');
   const [driverName, setDriverName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [emergencyContact, setEmergencyContact] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
+  const [fleetSize, setFleetSize] = useState('');
+  const [errorText, setErrorText] = useState('');
 
   if (!isVisible) return null;
 
   const handleGovLinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorText('');
     setLoading(true);
-    // Simulate secure government API hit
-    setTimeout(() => {
+
+    registerDriver({
+      full_name: `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`,
+      phone,
+      national_id: govId,
+      license_number: `SEC-${govId.split('-').pop() || Date.now().toString(36).toUpperCase()}`,
+      vehicle_type: 'taxi',
+      vehicle_plate: plateNumber,
+      vehicle_capacity: 4,
+    }).then(({ data, error }) => {
       setLoading(false);
+
+      if (error) {
+        setErrorText(error.message);
+        return;
+      }
+
       setSuccess(true);
       setTimeout(() => {
         onRegisterCustom({ 
           role: 'operator', 
           vehicleType: 'custom_security',
-          ids_number: govId,
-          cni_number: govId.split('-').pop(), // Mock extraction
-          plate_number: plateNumber
+          ids_number: data?.driver?.contractor_code || govId,
+          cni_number: govId.split('-').pop(),
+          plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
+          full_name: `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`
         });
         onClose();
-      }, 2000);
-    }, 1500);
+      }, 1500);
+    });
   };
 
   const simulateQRScan = () => {
@@ -54,16 +77,94 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
 
   const handleCitizenSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorText('');
     setLoading(true);
-    // Simulate cloud upload and AI verification
-    setTimeout(() => {
+
+    registerDriver({
+      full_name: driverName,
+      phone,
+      national_id: govId || `AFAT-${Date.now().toString(36).toUpperCase()}`,
+      license_number: `LIC-${Date.now().toString(36).toUpperCase()}`,
+      vehicle_type: vehicleType,
+      vehicle_plate: plateNumber || null,
+      vehicle_capacity: vehicleType === 'moto' ? 1 : vehicleType === 'bus' ? 30 : vehicleType === 'minibus' ? 14 : 4,
+    }).then(({ data, error }) => {
       setLoading(false);
+
+      if (error) {
+        setErrorText(error.message);
+        return;
+      }
+
       setSuccess(true);
       setTimeout(() => {
-        onRegisterCustom({ role: 'operator', vehicleType });
+        onRegisterCustom({
+          role: 'operator',
+          vehicleType,
+          ids_number: data?.driver?.contractor_code,
+          plate_number: data?.driver?.vehicle?.plate_number || plateNumber
+        });
         onClose();
-      }, 2000);
-    }, 2000);
+      }, 1500);
+    });
+  };
+
+  const handleCommuterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorText('');
+    setLoading(true);
+
+    const { data, error } = await registerPassenger({
+      full_name: driverName,
+      phone,
+      emergency_contact: emergencyContact || null,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setErrorText(error.message);
+      return;
+    }
+
+    setSuccess(true);
+    setTimeout(() => {
+      onRegisterCustom({
+        role: 'commuter',
+        full_name: data?.user?.full_name || driverName,
+      });
+      onClose();
+    }, 1500);
+  };
+
+  const handleCompanySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorText('');
+    setLoading(true);
+
+    const { data, error } = await registerCompany({
+      company_name: companyName,
+      phone,
+      contact_person: contactPerson || null,
+      fleet_size: fleetSize ? Number(fleetSize) : null,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setErrorText(error.message);
+      return;
+    }
+
+    setSuccess(true);
+    setTimeout(() => {
+      onRegisterCustom({
+        role: 'planner',
+        full_name: data?.profile?.full_name || contactPerson || companyName,
+        company_name: data?.company?.company_name || companyName,
+      });
+      onClose();
+    }, 1500);
   };
 
   return (
@@ -74,7 +175,13 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
         <div className="p-6 pb-4 border-b border-white/5 flex items-center justify-between sticky top-0 bg-slate-900/80 backdrop-blur z-10">
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-tighter text-white">AFAT Sentinel Hub</h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">{track === 'select' ? 'Identity Gateway' : track === 'gov_link' ? 'Strategic Clearance' : 'Node Registration'}</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">
+              {track === 'select' ? 'Identity Gateway' :
+               track === 'gov_link' ? 'Strategic Clearance' :
+               track === 'commuter' ? 'Commuter Access' :
+               track === 'company' ? 'Fleet Enrollment' :
+               'Node Registration'}
+            </p>
           </div>
           <button onClick={onClose} className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
             <X className="w-5 h-5" />
@@ -97,6 +204,15 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
               </p>
 
               <button 
+                onClick={() => setTrack('commuter')}
+                className="w-full bg-emerald-950/30 border border-emerald-500/30 rounded-3xl p-6 text-left hover:bg-emerald-900/40 hover:border-emerald-400/50 transition-all group"
+              >
+                <Users className="w-8 h-8 text-emerald-400 mb-4" />
+                <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track 0: Commuter</h3>
+                <p className="text-xs text-emerald-100/60 font-medium">Fast passenger access for booking, guardian safety, tickets, and live trip intelligence.</p>
+              </button>
+
+              <button 
                 onClick={() => setTrack('gov_link')}
                 className="w-full bg-blue-950/30 border border-blue-500/30 rounded-3xl p-6 text-left hover:bg-blue-900/40 hover:border-blue-400/50 transition-all group relative overflow-hidden"
               >
@@ -114,7 +230,47 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track B: Independent Node</h3>
                 <p className="text-xs text-slate-400 font-medium">Standard registration for new Taxis, Motos, and independent Minibus operators.</p>
               </button>
+
+              <button 
+                onClick={() => setTrack('company')}
+                className="w-full bg-amber-950/30 border border-amber-500/30 rounded-3xl p-6 text-left hover:bg-amber-900/40 hover:border-amber-400/50 transition-all group"
+              >
+                <FileText className="w-8 h-8 text-amber-400 mb-4" />
+                <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track C: Company / Fleet</h3>
+                <p className="text-xs text-amber-100/60 font-medium">For agencies, unions, and fleet coordinators preparing multi-vehicle onboarding and route operations.</p>
+              </button>
             </div>
+          ) : track === 'commuter' ? (
+            <form onSubmit={handleCommuterSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Full Name</label>
+                <input required type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Marie Atangana" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Phone Number</label>
+                <div className="flex bg-slate-950 border border-white/10 rounded-2xl overflow-hidden">
+                  <span className="flex items-center px-4 text-slate-400 font-mono border-r border-white/10">+237</span>
+                  <input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Emergency Contact</label>
+                <input type="tel" value={emergencyContact} onChange={e=>setEmergencyContact(e.target.value)} placeholder="Optional guardian line" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono" />
+              </div>
+
+              {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
+
+              <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+                <button disabled={loading || !driverName || !phone} type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-500/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                  {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-950" /> : 'Create Commuter Access'}
+                </button>
+              </div>
+            </form>
           ) : track === 'gov_link' ? (
             <form onSubmit={handleGovLinkSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
               <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl flex gap-4 mb-6">
@@ -163,8 +319,18 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Secured Plate Number</label>
                     <input required type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono text-lg uppercase" />
                   </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Operator Phone</label>
+                    <div className="flex bg-slate-950 border border-white/10 rounded-2xl overflow-hidden">
+                      <span className="flex items-center px-4 text-slate-400 font-mono border-r border-white/10">+237</span>
+                      <input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
+                    </div>
+                  </div>
                 </div>
               )}
+
+              {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
 
               <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
@@ -175,11 +341,24 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 </button>
               </div>
             </form>
-          ) : (
+          ) : track === 'citizen_reg' ? (
             <form onSubmit={handleCitizenSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
                <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Full Name</label>
                 <input required type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Jean Dupont" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Phone Number</label>
+                <div className="flex bg-slate-950 border border-white/10 rounded-2xl overflow-hidden">
+                  <span className="flex items-center px-4 text-slate-400 font-mono border-r border-white/10">+237</span>
+                  <input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Plate Number</label>
+                <input type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono uppercase" />
               </div>
 
               <div>
@@ -200,12 +379,50 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">Permit • Insurance • Vehicle Photo</p>
               </div>
 
+              {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
+
               <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
                 <button disabled={loading || !driverName} type="submit" className="flex-1 bg-white hover:bg-slate-200 disabled:bg-white/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
                   {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-900" /> : 'Submit for Verification'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleCompanySubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Company or Union Name</label>
+                <input required type="text" value={companyName} onChange={e=>setCompanyName(e.target.value)} placeholder="AFAT Express Union" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Coordinator Name</label>
+                <input required type="text" value={contactPerson} onChange={e=>setContactPerson(e.target.value)} placeholder="Operations lead" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Contact Phone</label>
+                <div className="flex bg-slate-950 border border-white/10 rounded-2xl overflow-hidden">
+                  <span className="flex items-center px-4 text-slate-400 font-mono border-r border-white/10">+237</span>
+                  <input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Estimated Fleet Size</label>
+                <input type="number" min="1" value={fleetSize} onChange={e=>setFleetSize(e.target.value)} placeholder="12" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono" />
+              </div>
+
+              {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
+
+              <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+                <button disabled={loading || !companyName || !contactPerson || !phone} type="submit" className="flex-1 bg-amber-400 hover:bg-amber-300 disabled:bg-amber-400/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                  {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-950" /> : 'Enroll Fleet'}
                 </button>
               </div>
             </form>

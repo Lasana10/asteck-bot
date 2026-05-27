@@ -2,6 +2,7 @@ import { aiRouter } from './AIRouter';
 import { supabase } from '../infra/supabase';
 import { TelegramService } from './telegram';
 import { waBridge } from './WhatsAppBridge';
+import { extractFirstJsonObject } from './aiParsing';
 
 /**
  * ============================================================================
@@ -34,7 +35,7 @@ export class AgenticWorkflows {
 
     let multiplier = 1.2;
     try {
-      const parsed = JSON.parse(analysis.text);
+      const parsed = extractFirstJsonObject(analysis.text) || {};
       multiplier = parsed.multiplier || 1.2;
     } catch (e) {}
 

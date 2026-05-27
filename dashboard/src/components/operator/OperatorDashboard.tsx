@@ -5,7 +5,7 @@ import {
   MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio,
   Database, Download, CheckCircle, Activity, Layout, Layers, Box, Cloud, Wifi, RefreshCw, ArrowUpRight
 } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { getOperatorWalletLedger, requestOperatorWithdrawal, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { VoiceReporter } from '../shared/VoiceReporter';
 import { QRCodeGenerator } from '../shared/QRCodeGenerator';
@@ -44,6 +44,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const [driveTimeMinutes, setDriveTimeMinutes] = useState(0);
   const [showFatigueAlert, setShowFatigueAlert] = useState(false);
   const [wallet, setWallet] = useState<any>(null);
+  const [walletLedger, setWalletLedger] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showTontineHub, setShowTontineHub] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
@@ -116,6 +117,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     fetchVehicle();
     fetchRequests();
     fetchWallet();
+    fetchWalletLedger();
     fetchIncidents();
 
     const channel = supabase
@@ -123,6 +125,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
         fetchRequests();
         fetchWallet();
+        fetchWalletLedger();
       })
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'operator_wallets',
@@ -221,6 +224,12 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     setWallet(data);
   };
 
+  const fetchWalletLedger = async () => {
+    if (!profile?.id) return;
+    const { data } = await getOperatorWalletLedger(profile.id);
+    setWalletLedger(data || []);
+  };
+
   const fetchHistory = async () => {
     if (!profile?.id) return;
     const { data } = await supabase
@@ -252,13 +261,12 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     if (!amount || amount <= 0) return;
-    const { error } = await supabase.from('operator_wallets')
-      .update({ balance_xaf: (wallet?.balance_xaf || 0) - amount })
-      .eq('operator_id', profile?.id);
+    const { error } = await requestOperatorWithdrawal(profile?.id, amount);
     if (!error) {
       setShowWithdraw(false);
       setWithdrawAmount('');
       fetchWallet();
+      fetchWalletLedger();
     }
   };
 
@@ -377,6 +385,28 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           </div>
         </div>
       </div>
+
+      {walletLedger.length > 0 && (
+        <div className="mt-4 rounded-[2rem] border border-white/10 bg-white/5 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.25em] text-white/40 font-black">Recent Ledger</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/30 font-mono">{walletLedger.length} entries</p>
+          </div>
+          <div className="space-y-2">
+            {walletLedger.slice(0, 3).map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 px-4 py-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-tight text-white">{entry.entry_type.replace('_', ' ')}</p>
+                  <p className="text-[10px] font-mono uppercase tracking-widest text-white/30">{entry.status}</p>
+                </div>
+                <p className={`text-sm font-black ${entry.direction === 'credit' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {entry.direction === 'credit' ? '+' : '-'}{Number(entry.net_amount || 0).toLocaleString()} XAF
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* ── Vehicle + DNA Row ───────────────────────────── */}
       <div className="grid grid-cols-2 gap-4">
         {/* Vehicle card */}
