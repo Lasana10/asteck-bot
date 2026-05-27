@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { X, ShieldCheck, ShieldAlert, Loader2 } from 'lucide-react';
-import { verifyBoarding } from '../../supabaseClient';
+import { verifyBoarding, verifyBoardingToken } from '../../supabaseClient';
 
 interface Props {
   operatorId: string;
@@ -25,7 +25,10 @@ export function QRScanner({ operatorId, onClose, onSuccess }: Props) {
       scanner.clear();
       try {
         const data = JSON.parse(decodedText);
-        if (data.bid) {
+        if (data.t && data.s) {
+          setScanResult(data);
+          handleSecureVerify(data);
+        } else if (data.bid) {
           setScanResult(data);
           handleVerify(data.bid);
         } else {
@@ -59,6 +62,21 @@ export function QRScanner({ operatorId, onClose, onSuccess }: Props) {
     } else {
       setIsVerifying(false);
       setError("Verification Failed: Booking not found, unpaid, or wrong operator.");
+    }
+  };
+
+  const handleSecureVerify = async (ticket: any) => {
+    setIsVerifying(true);
+    setError(null);
+
+    const { data, error } = await verifyBoardingToken(ticket, operatorId);
+
+    if (!error && data?.success) {
+      setIsVerifying(false);
+      onSuccess(data.booking_id);
+    } else {
+      setIsVerifying(false);
+      setError(error?.message || 'Secure verification failed.');
     }
   };
 

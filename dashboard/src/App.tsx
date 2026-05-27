@@ -12,6 +12,7 @@ import { RoleOnboarding } from './components/shared/RoleOnboarding';
 import { RegistrationHub } from './components/shared/RegistrationHub';
 import { telemetry } from './services/telemetryService';
 import { AICopilot } from './components/shared/AICopilot';
+import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
@@ -130,6 +131,17 @@ function Login() {
 // ==============================================================================
 
 export default function App() {
+  const pathname = window.location.pathname || '/';
+  const watchMatch = pathname.match(/^\/watch\/([^/]+)$/);
+
+  if (watchMatch?.[1]) {
+    return <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />;
+  }
+
+  return <AppShell />;
+}
+
+function AppShell() {
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -145,8 +157,8 @@ export default function App() {
       setUserRole(role);
       setSessionUser({ id: 'dev-id', phone: '237000000' });
       setUserProfile({
-        id: 'dev-id',
-        full_name: idData?.ids_number ? `Sentinel ${idData.ids_number.split('-').pop()}` : `${vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) + ' ' : ''}Test ${role.charAt(0).toUpperCase() + role.slice(1)}`,
+        id: idData?.id || 'dev-id',
+        full_name: idData?.full_name || (idData?.ids_number ? `Sentinel ${idData.ids_number.split('-').pop()}` : `${vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) + ' ' : ''}Test ${role.charAt(0).toUpperCase() + role.slice(1)}`),
         role: role,
         trust_points: 500,
         subscription_tier: role === 'commuter' ? 'free' : 'guardian',
@@ -154,6 +166,7 @@ export default function App() {
         ids_number: idData?.ids_number || null,
         cni_number: idData?.cni_number || null,
         plate_number: idData?.plate_number || null,
+        company_name: idData?.company_name || null,
         is_verified: !!idData?.ids_number
       });
       setLoading(false);
@@ -163,6 +176,7 @@ export default function App() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         setSessionUser(session?.user ?? null);
         if (session?.user) {
+          localStorage.setItem('afat_user_id', session.user.id);
           fetchRole(session.user.id);
         }
       }).catch((err) => {
@@ -173,9 +187,11 @@ export default function App() {
         const user = session?.user ?? null;
         setSessionUser(user);
         if (user) {
+          localStorage.setItem('afat_user_id', user.id);
           fetchRole(user.id);
           telemetry.start(user.id);
         } else {
+          localStorage.removeItem('afat_user_id');
           setUserRole(null);
           telemetry.stop();
         }

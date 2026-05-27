@@ -45,13 +45,17 @@ export function RevenueDashboard({ onBack }: Props) {
       .select('id', { count: 'exact' })
       .eq('is_available', true);
 
-    // Fetch total wallets for revenue
-    const { data: wallets } = await supabase
-      .from('operator_wallets')
-      .select('balance_xaf, total_earned');
+    const { data: ledger } = await supabase
+      .from('wallet_ledger')
+      .select('entry_type, gross_amount, commission_amount, net_amount, created_at')
+      .gte('created_at', since);
 
-    const totalEarned = wallets?.reduce((sum, w) => sum + (w.total_earned || w.balance_xaf || 0), 0) || 0;
-    const commission = Math.round(totalEarned * 0.10); // 10% platform commission
+    const totalEarned = ledger?.reduce((sum, entry) => {
+      if (entry.entry_type === 'ride_credit') return sum + Number(entry.gross_amount || 0);
+      return sum;
+    }, 0) || 0;
+
+    const commission = ledger?.reduce((sum, entry) => sum + Number(entry.commission_amount || 0), 0) || 0;
 
     // Generate sparkline data (simulate daily distribution)
     const ridesTrend = Array.from({ length: Math.min(daysAgo, 7) }, () => Math.floor(Math.random() * 50 + 10));

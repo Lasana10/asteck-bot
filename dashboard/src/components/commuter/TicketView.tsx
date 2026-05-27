@@ -1,6 +1,7 @@
-import React from 'react';
-import { ArrowLeft, Download, Share2, Clock, MapPin, User, QrCode } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Download, Share2, Clock, MapPin, User, QrCode, Shield } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { createGuardianToken, issueSecureTicket } from '../../supabaseClient';
 
 interface Props {
   booking: {
@@ -20,14 +21,37 @@ interface Props {
 }
 
 export function TicketView({ booking, onBack }: Props) {
-  // HMAC-signed ticket data for QR
-  const ticketPayload = JSON.stringify({
+  const [ticketPayload, setTicketPayload] = useState('');
+  const [guardianUrl, setGuardianUrl] = useState('');
+  const [guardianBusy, setGuardianBusy] = useState(false);
+
+  const fallbackPayload = useMemo(() => JSON.stringify({
     bid: booking.id,
     txid: booking.transactionId,
     seat: booking.seatLabel,
     route: booking.routeName,
     ts: Date.now(),
-  });
+  }), [booking.id, booking.transactionId, booking.seatLabel, booking.routeName]);
+
+  useEffect(() => {
+    let active = true;
+
+    issueSecureTicket(booking.id).then(({ data, error }) => {
+      if (!active) return;
+
+      if (!error && data?.ticket) {
+        setTicketPayload(JSON.stringify(data.ticket));
+        return;
+      }
+
+      console.warn('[AFAT] Secure ticket issuance failed, falling back to local payload.', error);
+      setTicketPayload(fallbackPayload);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [booking.id, fallbackPayload]);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -36,6 +60,32 @@ export function TicketView({ booking, onBack }: Props) {
         text: `Trajet: ${booking.origin} → ${booking.destination}\nPlace: ${booking.seatLabel}\nPrix: ${booking.price} FCFA`,
       });
     }
+  };
+
+  const handleGuardianShare = async () => {
+    if (guardianBusy) return;
+    setGuardianBusy(true);
+
+    const { data, error } = await createGuardianToken(booking.id);
+    setGuardianBusy(false);
+
+    if (error || !data?.watch_url) {
+      console.error('[AFAT] Guardian link creation failed:', error);
+      return;
+    }
+
+    setGuardianUrl(data.watch_url);
+
+    if (navigator.share) {
+      await navigator.share({
+        title: `AFAT Guardian Watch — ${booking.routeName}`,
+        text: `Suivez ce trajet AFAT en direct: ${data.watch_url}`,
+        url: data.watch_url,
+      });
+      return;
+    }
+
+    await navigator.clipboard.writeText(data.watch_url);
   };
 
   return (
@@ -49,6 +99,27 @@ export function TicketView({ booking, onBack }: Props) {
         <button onClick={handleShare} className="p-2 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
           <Share2 className="w-5 h-5" />
         </button>
+      </div>
+
+      <div className="w-full max-w-sm mb-6 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+            <Shield className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-emerald-300">Guardian Trip Sharing</p>
+            <p className="text-sm font-bold text-white">Share a live watch link with family or a trusted contact.</p>
+          </div>
+        </div>
+        <button
+          onClick={handleGuardianShare}
+          className="w-full rounded-2xl bg-emerald-500 text-slate-950 py-3 text-xs font-black uppercase tracking-widest"
+        >
+          {guardianBusy ? 'Creating Guardian Link...' : 'Share Guardian Link'}
+        </button>
+        {guardianUrl && (
+          <p className="mt-3 break-all text-[10px] font-mono text-emerald-200">{guardianUrl}</p>
+        )}
       </div>
 
       {/* Ticket Card */}
@@ -90,7 +161,7 @@ export function TicketView({ booking, onBack }: Props) {
           {/* QR Code */}
           <div className="flex justify-center mb-6">
             <div className="bg-white p-4 rounded-2xl">
-              <QRCodeSVG value={ticketPayload} size={160} />
+              <QRCodeSVG value={ticketPayload || fallbackPayload} size={160} />
             </div>
           </div>
           <p className="text-center text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-6">

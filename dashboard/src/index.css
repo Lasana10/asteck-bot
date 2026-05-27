@@ -110,6 +110,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   border-color: rgba(59, 130, 246, 0.5);
   transform: translateY(-2px);
 }
+.shadow-ambient-float {
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.02), 0 10px 30px rgba(0, 0, 0, 0.5);
 }

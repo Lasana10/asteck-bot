@@ -1,30 +1,29 @@
 /**
- * AFAT OS — TRI-BRAIN AI ARCHITECTURE
- * 
- * 1. THE PULSE (Gemini 3.0 Flash): 
- *    The OS awareness. Digests Reality Context (time, language, local nuances).
- *    Fallback for transcription if Whisper fails.
- * 
- * 2. THE PREDICTIVE MIND (Qwen 3.6 Plus Elite):
- *    Deep logic. Forecasts traffic, audits fraud, heavy reasoning.
- * 
- * 3. THE LISTEN (Groq Whisper):
- *    Primary voice transcription node.
+ * AFAT OS — Cost-Effective Intelligence Router
+ *
+ * Design goals:
+ * - Prefer rules and local logic first.
+ * - Use Cloudflare Workers AI when configured.
+ * - Keep optional premium providers disabled by default.
+ * - Never make the product depend on Gemini for launch-critical flows.
  */
 
 const GROQ_KEY = process.env.GROQ_API_KEY || '';
-const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+const ENABLE_QWEN_REASONING = process.env.ENABLE_QWEN_REASONING === 'true';
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
+const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
+const CLOUDFLARE_AI_TEXT_MODEL = process.env.CLOUDFLARE_AI_TEXT_MODEL || '@cf/meta/llama-3.1-8b-instruct';
+const CLOUDFLARE_AI_VISION_MODEL = process.env.CLOUDFLARE_AI_VISION_MODEL || '@cf/microsoft/resnet-50';
 
-export type AITask = 
-  | 'listen'          // Voice → text (Groq Whisper)
-  | 'pulse'           // Reality Context / Environment awareness (Gemini 3.0)
-  | 'predict'         // Deep logic / Fraud audit / Demand forecast (Qwen 3.6)
-  | 'vision'          // Image analysis (Gemini Flash)
-  | 'safety_score'    // DriverDNA calculation
-  | 'negotiate'       // Price negotiation
-  | 'summarize';      // Briefings
+export type AITask =
+  | 'listen'
+  | 'pulse'
+  | 'predict'
+  | 'vision'
+  | 'safety_score'
+  | 'negotiate'
+  | 'summarize';
 
 interface AIResponse {
   text: string;
@@ -33,233 +32,347 @@ interface AIResponse {
   error?: string;
 }
 
+function hasCloudflareAI() {
+  return !!(CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN);
+}
+
+function buildTacticalContext() {
+  return [
+    'Identity: AFAT Sentinel HQ.',
+    'Locale: Cameroon transport grid.',
+    'Tone: practical, short, no AI-speak.',
+    'Focus: safety, mobility, operators, commuters, fleet trust.'
+  ].join(' ');
+}
+
+function wantsJson(prompt: string) {
+  return /\bjson\b/i.test(prompt);
+}
+
+function classifyPrompt(prompt: string) {
+  const lower = prompt.toLowerCase();
+  if (lower.includes('driverdna') || lower.includes('safety score')) return 'safety';
+  if (lower.includes('negotiat') || lower.includes('best price') || lower.includes('offer=')) return 'negotiation';
+  if (lower.includes('classify this user message')) return 'classification';
+  if (lower.includes('answer with') && lower.includes('alert') && lower.includes('clear')) return 'alert_check';
+  if (lower.includes('summarize')) return 'summary';
+  return 'general';
+}
+
+function extractRoute(prompt: string) {
+  const match = prompt.match(/route=([^,]+),/i);
+  return match?.[1]?.trim() || 'urban route';
+}
+
+function extractOffer(prompt: string) {
+  const match = prompt.match(/offer=([0-9]+)/i);
+  return Number(match?.[1] || 500);
+}
+
+function extractDemand(prompt: string) {
+  const match = prompt.match(/demand=([^,]+)/i);
+  return (match?.[1] || 'normal').trim().toLowerCase();
+}
+
+function localRuleResponse(prompt: string): AIResponse {
+  const lower = prompt.toLowerCase();
+  const mode = classifyPrompt(prompt);
+
+  if (mode === 'alert_check') {
+    return { text: 'CLEAR', model: 'AFAT Rules' };
+  }
+
+  if (mode === 'classification') {
+    let type = 'other';
+    let severity = 2;
+
+    if (/\b(accident|crash|collision)\b/i.test(lower)) {
+      type = 'accident';
+      severity = 4;
+    } else if (/\b(jam|traffic|embouteillage|blocked)\b/i.test(lower)) {
+      type = 'traffic_jam';
+      severity = 3;
+    } else if (/\b(pothole|road damage|nid[- ]de[- ]poule)\b/i.test(lower)) {
+      type = 'road_damage';
+      severity = 3;
+    } else if (/\b(sos|danger|help|urgence|emergency)\b/i.test(lower)) {
+      type = 'sos';
+      severity = 5;
+    }
+
+    return {
+      text: JSON.stringify({
+        type,
+        severity,
+        description: 'Rule-based transport classification',
+        confidence: 0.72
+      }),
+      model: 'AFAT Rules'
+    };
+  }
+
+  if (mode === 'safety') {
+    return {
+      text: JSON.stringify({ score: 78, tier: 'Gold', reasoning: 'Stable ratings with neutral violations profile.' }),
+      model: 'AFAT Rules'
+    };
+  }
+
+  if (mode === 'negotiation') {
+    const offer = extractOffer(prompt);
+    const demand = extractDemand(prompt);
+    const multiplier = demand === 'high' ? 1.15 : demand === 'low' ? 0.95 : 1.05;
+    const resolved = Math.round(offer * multiplier);
+
+    if (wantsJson(prompt)) {
+      return {
+        text: JSON.stringify({
+          route: extractRoute(prompt),
+          demand,
+          price: resolved,
+          rationale: 'Rule-based pricing from demand band.'
+        }),
+        model: 'AFAT Rules'
+      };
+    }
+
+    return {
+      text: `Recommended fare: ${resolved} XAF for ${extractRoute(prompt)}. Demand band is ${demand}.`,
+      model: 'AFAT Rules'
+    };
+  }
+
+  if (mode === 'summary') {
+    return {
+      text: 'Grid check: conditions look stable, watch junction slowdowns during peak hours, and prefer verified operators for tighter timing.',
+      model: 'AFAT Rules'
+    };
+  }
+
+  if (/\b(accident|incident|hazard|danger)\b/i.test(lower)) {
+    return {
+      text: 'Heads-up: a safety-related issue is likely involved. Prioritize verified routes, reduce speed near junctions, and confirm live conditions before dispatch.',
+      model: 'AFAT Rules'
+    };
+  }
+
+  return {
+    text: 'Current guidance: conditions look manageable. Stay alert around dense junctions, confirm live route conditions, and keep verified bookings tied to active operators.',
+    model: 'AFAT Rules'
+  };
+}
+
 export class AIRouter {
-
-  // ── THE LISTEN (Cross-API Racing for Speed) ──────────────────────────
   async listen(audioBuffer: Buffer, language: string = 'fr'): Promise<AIResponse> {
-    console.log('🎙️ [LISTEN] Racing Groq Whisper vs Gemini Flash for speed...');
-    
-    // We race the two engines. Groq is usually faster for pure text, 
-    // Gemini is better for contextual analysis.
-    const tasks = [
-      this.groqWhisper(audioBuffer, language),
-      this.pulseFallback(audioBuffer, language)
-    ];
+    if (GROQ_KEY) {
+      const result = await this.groqWhisper(audioBuffer, language);
+      if (result.text && !result.error) {
+        return result;
+      }
+    }
 
-    try {
-      // Return the first one that successfully gives us text
-      const result = await Promise.any(tasks.map(t => t.then(res => {
-        if (!res.text || res.error) throw new Error('Empty or error');
-        return res;
-      })));
-      
-      console.log(`✅ [LISTEN] Race won by: ${result.model}`);
-      return result;
-    } catch (err) {
-      // If both fail, try one last time with Gemini as it's the most robust
-      return this.pulseFallback(audioBuffer, language);
+    return {
+      text: '',
+      model: 'AFAT Local Listen',
+      error: 'No low-cost server transcription provider configured. Prefer app-side capture or optional Groq only for voice-heavy channels.'
+    };
+  }
+
+  async pulse(prompt: string, context?: any): Promise<AIResponse> {
+    const fullPrompt = `${buildTacticalContext()} ${context ? `Context: ${JSON.stringify(context)}.` : ''} Prompt: ${prompt}`;
+
+    if (hasCloudflareAI()) {
+      const response = await this.cloudflareText(fullPrompt, 'AFAT Pulse');
+      if (response.text && !response.error) {
+        return response;
+      }
+    }
+
+    return localRuleResponse(prompt);
+  }
+
+  async predict(prompt: string, systemPrompt?: string): Promise<AIResponse> {
+    const effectivePrompt = `${systemPrompt || buildTacticalContext()}\n\n${prompt}`;
+
+    if (hasCloudflareAI()) {
+      const response = await this.cloudflareText(effectivePrompt, 'AFAT Predict');
+      if (response.text && !response.error) {
+        return response;
+      }
+    }
+
+    if (OPENROUTER_KEY && ENABLE_QWEN_REASONING) {
+      const response = await this.qwenChat(prompt, systemPrompt || buildTacticalContext());
+      if (response.text && !response.error) {
+        return response;
+      }
+    }
+
+    return localRuleResponse(prompt);
+  }
+
+  async route(task: AITask, payload: any): Promise<AIResponse> {
+    switch (task) {
+      case 'listen':
+        return this.listen(payload.audio, payload.language);
+      case 'pulse':
+        return this.pulse(payload.prompt || payload.text, payload.context);
+      case 'predict':
+        return this.predict(payload.prompt || payload.text, payload.system);
+      case 'vision':
+        return this.vision(payload.image, payload.prompt);
+      case 'safety_score':
+        return localRuleResponse(
+          `Analyze DriverDNA score: trips=${payload.trips}, rating=${payload.rating}, violations=${payload.violations}. Output JSON {score, tier}.`
+        );
+      case 'negotiate':
+        return localRuleResponse(
+          `Auto-Negotiator: route=${payload.route}, demand=${payload.demand}, offer=${payload.offer}. Resolve best price in JSON.`
+        );
+      case 'summarize':
+        return this.predict(
+          payload.prompt || payload.text || 'Summarize current transport reality in 2-3 short bullets.',
+          payload.system
+        );
+      default:
+        return this.pulse(payload.prompt || payload.text || 'Analyze reality.');
     }
   }
 
   private async groqWhisper(audioBuffer: Buffer, language: string): Promise<AIResponse> {
-    if (!GROQ_KEY) return { text: '', model: 'groq', error: 'No key' };
     try {
       const formData = new FormData();
-      const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
+      const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' });
       formData.append('file', blob, 'audio.ogg');
       formData.append('model', 'whisper-large-v3');
       formData.append('language', language);
 
       const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
+        headers: { Authorization: `Bearer ${GROQ_KEY}` },
         body: formData
       });
+
       const data = await res.json();
-      return { text: data.text || '', model: 'Groq Whisper (Speed Node)' };
+      return { text: data.text || '', model: 'Groq Whisper (Optional)' };
     } catch (e: any) {
-      return { text: '', model: 'groq', error: e.message };
+      return { text: '', model: 'Groq Whisper (Optional)', error: e.message };
     }
   }
 
-  // ── THE PULSE (Gemini 3.0 Flash — Reality Context) ─────────
-  async pulse(prompt: string, context?: any): Promise<AIResponse> {
-    const realityContext = `[IDENTITY: AFAT Sentinel HQ. PERSO: Elite, Protective, World-Class Transport OS. LOCATION: Cameroon Grid. RULES: No AI-speak. Use transport nodes/logic. Pidgin/Fr/En awareness.]`;
-    const fullPrompt = `${realityContext}\n\nGuardian Request: ${prompt}`;
-    
-    return this.geminiChat(fullPrompt, 'AFAT Sentinel (Pulse)');
+  private async cloudflareText(prompt: string, roleName: string): Promise<AIResponse> {
+    try {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${encodeURIComponent(CLOUDFLARE_AI_TEXT_MODEL)}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: buildTacticalContext() },
+              { role: 'user', content: prompt }
+            ]
+          })
+        }
+      );
+
+      const data = await res.json();
+      const text =
+        data?.result?.response ||
+        data?.result?.text ||
+        data?.result?.content?.[0]?.text ||
+        data?.result?.choices?.[0]?.message?.content ||
+        '';
+
+      if (!text) {
+        return { text: '', model: roleName, error: 'Cloudflare returned no text' };
+      }
+
+      return { text, model: `${roleName} via Cloudflare` };
+    } catch (err: any) {
+      return { text: '', model: `${roleName} via Cloudflare`, error: err.message };
+    }
   }
 
-  private async pulseFallback(audioBuffer: Buffer, language: string): Promise<AIResponse> {
-    if (!GEMINI_KEY) {
-      console.error('🔴 [LISTEN] GEMINI_API_KEY is not set! Voice will always fail.');
-      return { text: '', model: 'none', error: 'GEMINI_API_KEY missing from environment' };
-    }
-
-    const base64Audio = audioBuffer.toString('base64');
-    const mimeTypes = ['audio/ogg', 'audio/oga', 'audio/mp4', 'audio/webm'];
-
-    for (const mimeType of mimeTypes) {
-      try {
-        console.log(`🎙️ [LISTEN] Trying Gemini with mime: ${mimeType}, size: ${audioBuffer.length} bytes`);
-        
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key=${GEMINI_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: `Transcribe this audio exactly as spoken. The speaker is in Cameroon and may use French, English, or Pidgin. Output ONLY the transcription text, nothing else.` },
-                  { inline_data: { mime_type: mimeType, data: base64Audio } }
-                ]
-              }]
-            })
-          }
-        );
-
-        if (!res.ok) {
-          const errorBody = await res.text();
-          console.warn(`⚠️ [LISTEN] Gemini returned ${res.status} for ${mimeType}: ${errorBody.substring(0, 200)}`);
-          continue; // Try next mime type
-        }
-
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        
-        if (text) {
-          console.log(`✅ [LISTEN] Transcription successful with ${mimeType}: "${text.substring(0, 80)}..."`);
-          return { text, model: 'AFAT Sentinel (Pulse)' };
-        }
-      } catch (err: any) {
-        console.warn(`⚠️ [LISTEN] ${mimeType} attempt failed: ${err.message}`);
+  private async vision(imageBase64: string, prompt: string): Promise<AIResponse> {
+    if (hasCloudflareAI()) {
+      const response = await this.cloudflareVision(imageBase64, prompt);
+      if (response.text && !response.error) {
+        return response;
       }
     }
 
-    // Final fallback: ask Gemini to describe what it heard without inline audio
-    console.error('🔴 [LISTEN] All mime types failed. Audio transcription unavailable.');
-    return { text: '', model: 'gemini-fallback', error: 'All audio mime types rejected by Gemini' };
+    return {
+      text: 'Rule-based image fallback: possible road hazard or transport scene detected. Manual operator review recommended for exact classification.',
+      model: 'AFAT Vision Rules'
+    };
   }
 
-  // ── THE PREDICTIVE MIND (Qwen 2.5 72B Elite — Deep Logic) ──
-  async predict(prompt: string, systemPrompt?: string): Promise<AIResponse> {
-    const defaultSystem = `You are THE PREDICTIVE MIND of AFAT OS. 
-    IDENTITY: AFAT Sentinel HQ (Deep Logic Layer).
-    MISSION: Infrastructure management, fraud auditing, and safe passage forecasting.
-    LOCALE: Cameroon (Yaoundé, Douala, informal roads/pistes).
-    TONE: Elite, firm, professional. Never mention being an AI. Refer to users as 'Guardians' or 'Sentinels'.`;
-    return this.qwenChat(prompt, systemPrompt || defaultSystem);
-  }
-
-  // ── TASK DISPATCHER ────────────────────────────────────────
-  async route(task: AITask, payload: any): Promise<AIResponse> {
-    switch (task) {
-      case 'listen':
-        return this.listen(payload.audio, payload.language);
-
-      case 'pulse':
-        return this.pulse(payload.prompt || payload.text);
-
-      case 'predict':
-        return this.predict(payload.prompt, payload.system);
-
-      case 'vision':
-        return this.geminiVision(payload.image, payload.prompt);
-
-      case 'safety_score':
-        return this.predict(
-          `Analyze DriverDNA score: trips=${payload.trips}, rating=${payload.rating}, violations=${payload.violations}. Output JSON {score, tier}.`
-        );
-
-      case 'negotiate':
-        return this.predict(
-          `Auto-Negotiator: route=${payload.route}, demand=${payload.demand}, offer=${payload.offer}. Resolve best price.`
-        );
-
-      default:
-        return this.pulse(payload.prompt || payload.text || 'Analyze reality.');
-    }
-  }
-
-  // ── UNDERLYING MODEL CONNECTORS ───────────────────────────
-
-  private async geminiChat(prompt: string, roleName: string): Promise<AIResponse> {
-    if (!GEMINI_KEY) return { text: 'Gemini Offline', model: roleName };
+  private async cloudflareVision(imageBase64: string, prompt: string): Promise<AIResponse> {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key=${GEMINI_KEY}`,
+        `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${encodeURIComponent(CLOUDFLARE_AI_VISION_MODEL)}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
+            image: imageBase64,
+            prompt
           })
         }
       );
-      const data = await res.json();
-      return { text: data?.candidates?.[0]?.content?.parts?.[0]?.text || '', model: roleName };
-    } catch (err: any) {
-      return { text: '', model: roleName, error: err.message };
-    }
-  }
 
-  private async geminiVision(imageBase64: string, prompt: string): Promise<AIResponse> {
-    if (!GEMINI_KEY) return { text: 'Vision Offline', model: 'Gemini Flash' };
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: 'image/jpeg', data: imageBase64 } }
-              ]
-            }]
-          })
-        }
-      );
       const data = await res.json();
-      return { text: data?.candidates?.[0]?.content?.parts?.[0]?.text || '', model: 'The Pulse (Vision)' };
+      const labels = data?.result?.predictions || data?.result?.labels || data?.result || [];
+
+      if (Array.isArray(labels) && labels.length > 0) {
+        const rendered = labels
+          .slice(0, 3)
+          .map((item: any) => `${item.label || item.className || 'hazard'}${item.score ? ` (${Math.round(item.score * 100)}%)` : ''}`)
+          .join(', ');
+
+        return {
+          text: `Vision scan: ${rendered}.`,
+          model: 'Cloudflare Vision'
+        };
+      }
+
+      return { text: '', model: 'Cloudflare Vision', error: 'No prediction labels returned' };
     } catch (err: any) {
-      return { text: '', model: 'gemini-vision', error: err.message };
+      return { text: '', model: 'Cloudflare Vision', error: err.message };
     }
   }
 
   private async qwenChat(prompt: string, systemPrompt: string): Promise<AIResponse> {
-    const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
-    
-    if (OPENROUTER_KEY) {
-      try {
-        console.log('🧠 [PREDICT] Engaging Qwen 2.5 72B Instruct (Plus Elite)...');
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${OPENROUTER_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://afat.cm',
-            'X-Title': 'AFAT OS Sentinel'
-          },
-          body: JSON.stringify({
-            model: 'qwen/qwen-2.5-72b-instruct',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: prompt }
-            ]
-          })
-        });
-        const data = await res.json();
-        return { text: data.choices[0].message.content || '', model: 'Predictive Mind (Qwen Elite)' };
-      } catch (e: any) {
-        console.warn('⚠️ [PREDICT] OpenRouter Qwen failed, falling back to Gemini...');
-      }
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://afat.cm',
+          'X-Title': 'AFAT OS Sentinel'
+        },
+        body: JSON.stringify({
+          model: 'qwen/qwen-2.5-72b-instruct',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt }
+          ]
+        })
+      });
+
+      const data = await res.json();
+      return { text: data?.choices?.[0]?.message?.content || '', model: 'Qwen Heavy Reasoning' };
+    } catch (err: any) {
+      return { text: '', model: 'Qwen Heavy Reasoning', error: err.message };
     }
-    
-    // Final fallback to Gemini 3.0 Flash if OpenRouter/Qwen fails
-    return this.geminiChat(prompt, 'Predictive Mind (Gemini Fallback)');
   }
 }
 

@@ -5,7 +5,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-k
 
 // ═══ AUTO-DETECTION: Render Backend URL ═══
 const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
-const apiBaseUrl = import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
+export const apiBaseUrl = import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
 
 if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
   console.warn('⚠️ Supabase env vars missing. Running in mock mode.');
@@ -163,6 +163,51 @@ export async function registerVehicle(vehicleData: any) {
   return { data, error };
 }
 
+export async function registerPassenger(passengerData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/onboard/passenger/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(passengerData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Passenger registration failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function registerDriver(driverData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/onboard/driver/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(driverData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Driver registration failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function registerCompany(companyData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/onboard/company/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(companyData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Company registration failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function getOperatorVehicles(operatorId: string) {
   const { data, error } = await supabase
     .from('vehicles')
@@ -235,6 +280,238 @@ export async function createBooking(bookingData: any) {
     .select()
     .single();
   return { data, error };
+}
+
+export async function createSeatHold(holdData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/booking/seat-hold`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(holdData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Seat hold failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function releaseSeatHold(holdId: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/booking/seat-hold/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hold_id: holdId }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Seat hold release failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function createBookingFromHold(bookingData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/booking/create-from-hold`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bookingData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Booking creation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function getOperatorWalletLedger(operatorId: string) {
+  const { data, error } = await supabase
+    .from('wallet_ledger')
+    .select('*')
+    .eq('operator_id', operatorId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  return { data, error };
+}
+
+export async function requestOperatorWithdrawal(operatorId: string, amount: number) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/wallet/withdraw`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operator_id: operatorId, amount }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Withdrawal failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function getCompanyMembership(profileId: string) {
+  const { data, error } = await supabase
+    .from('company_memberships')
+    .select('role, status, companies:company_id(id, name, fleet_size, contact_person)')
+    .eq('profile_id', profileId)
+    .eq('status', 'active')
+    .maybeSingle();
+  return { data, error };
+}
+
+export async function issueSecureTicket(bookingId: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ticket/issue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: bookingId }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Ticket issuance failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function createGuardianToken(bookingId: string, expiresInMinutes: number = 180) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/guardian/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        booking_id: bookingId,
+        expires_in_minutes: expiresInMinutes,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Guardian link creation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchGuardianWatch(token: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/guardian/watch/${token}`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Guardian watch lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function finalizeBookingPayment(bookingId: string, method: string, transactionId?: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/payment/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        booking_id: bookingId,
+        transaction_id: transactionId,
+        method,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Payment finalization failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchOpsReportCenter() {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ops/report-center`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Report center fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function updateOpsReportStatus(reportId: string, status: string, resolverId?: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ops/reports/${reportId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, resolver_id: resolverId }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Report status update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchSafetyScore(lat?: number, lng?: number, radiusKm: number = 5) {
+  try {
+    const params = new URLSearchParams();
+    if (lat !== undefined) params.set('lat', String(lat));
+    if (lng !== undefined) params.set('lng', String(lng));
+    params.set('radius_km', String(radiusKm));
+    const res = await fetch(`${apiBaseUrl}/api/ops/safety-score?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Safety score fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchDemandRadar() {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ops/demand-radar`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Demand radar fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchActiveDispatches() {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/dispatch/active`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function createDispatchAssignment(dispatchData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/dispatch/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dispatchData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch assignment failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchPaymentProviderReadiness() {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/payment/provider-readiness`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Payment readiness fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
 }
 
 export async function getMyBookings(passengerId: string) {
@@ -376,6 +653,13 @@ export function subscribeToVehicles(callback: (payload: any) => void) {
     .subscribe();
 }
 
+export function subscribeToMovementLogs(callback: (payload: any) => void) {
+  return supabase
+    .channel('public:movement_logs')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'movement_logs' }, callback)
+    .subscribe();
+}
+
 export function subscribeToBookings(userId: string, callback: (payload: any) => void) {
   return supabase
     .channel(`public:bookings:user=${userId}`)
@@ -406,11 +690,51 @@ export function subscribeToNotifications(userId: string, callback: (payload: any
 
 
 export async function verifyBoarding(bookingId: string, operatorId: string) {
+  const { data: booking, error: fetchError } = await supabase
+    .from('bookings')
+    .select('id, operator_id, status, payment_status')
+    .eq('id', bookingId)
+    .eq('operator_id', operatorId)
+    .single();
+
+  if (fetchError || !booking) {
+    return false;
+  }
+
+  const status = booking.status || '';
+  const paymentStatus = booking.payment_status || '';
+  const validStatus = ['confirmed', 'accepted'].includes(status);
+  const validPayment = paymentStatus === 'paid' || paymentStatus === 'cash_due';
+
+  if (!validStatus || !validPayment) {
+    return false;
+  }
+
   const { data, error } = await supabase
     .from('bookings')
     .update({ status: 'boarded', updated_at: new Date().toISOString() })
     .eq('id', bookingId)
+    .eq('operator_id', operatorId)
     .select()
     .single();
+
   return !error && data;
+}
+
+export async function verifyBoardingToken(ticket: any, operatorId: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ticket/verify-boarding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticket,
+        operator_id: operatorId,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Ticket verification failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
 }

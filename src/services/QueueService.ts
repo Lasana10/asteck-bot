@@ -7,6 +7,7 @@ import { Queue, Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
 import { aiRouter } from './AIRouter';
 import { supabase } from '../infra/supabase';
+import { extractFirstJsonObject } from './aiParsing';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new Redis(REDIS_URL, {
@@ -46,7 +47,10 @@ const worker = new Worker('driver-dna', async (job: Job) => {
        Output JSON { new_score, tier, reasoning }.`
     );
 
-    const result = JSON.parse(analysis.text);
+    const result = extractFirstJsonObject(analysis.text);
+    if (!result) {
+      throw new Error(`AI response was not valid JSON: ${analysis.text.substring(0, 120)}`);
+    }
 
     // 3. Update profile
     await supabase

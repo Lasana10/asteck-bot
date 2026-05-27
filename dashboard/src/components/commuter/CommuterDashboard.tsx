@@ -15,7 +15,7 @@ import { DepartureBoard } from './DepartureBoard';
 import { SeatSelector } from './SeatSelector';
 import { PaymentSheet } from './PaymentSheet';
 import { TicketView } from './TicketView';
-import { supabase } from '../../supabaseClient';
+import { createBookingFromHold, createSeatHold, releaseSeatHold, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { CommuterWallet } from './CommuterWallet';
@@ -78,9 +78,12 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   // Booking flow state
   const [selectedDeparture, setSelectedDeparture] = useState<any>(null);
   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
+  const [currentSeatHoldId, setCurrentSeatHoldId] = useState<string | null>(null);
   const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
   const [bookingResult, setBookingResult] = useState<any>(null);
   const [activeVehicles, setActiveVehicles] = useState<any[]>([]);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [bookingInFlight, setBookingInFlight] = useState(false);
 
   useEffect(() => {
     const fetchSentiment = async () => {
@@ -170,13 +173,79 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   };
 
   // Booking flow handlers
-  const handleDepartureSelect = (departure: any) => { setSelectedDeparture(departure); setView('seats'); };
-  const handleSeatSelect = (seatId: string) => { setSelectedSeatId(seatId); setView('negotiate'); };
+  const handleDepartureSelect = (departure: any) => {
+    setSelectedDeparture(departure);
+    setSelectedSeatId(null);
+    setCurrentSeatHoldId(null);
+    setCurrentBookingId(null);
+    setBookingResult(null);
+    setBookingError(null);
+    setView('seats');
+  };
+
+  const handleSeatSelect = async (seatId: string) => {
+    if (!selectedDeparture || !profile?.id) {
+      return;
+    }
+
+    setBookingInFlight(true);
+    setBookingError(null);
+
+    if (currentSeatHoldId) {
+      await releaseSeatHold(currentSeatHoldId);
+    }
+
+    const seatLabel = seatId.split('-').pop() || seatId;
+    const { data, error } = await createSeatHold({
+      passenger_id: profile.id,
+      operator_id: selectedDeparture.operator_id,
+      route_id: selectedDeparture.id,
+      seat_label: seatLabel,
+    });
+
+    setBookingInFlight(false);
+
+    if (error || !data?.hold?.id) {
+      setBookingError(error?.message || 'Cette place est deja reservee ou indisponible.');
+      return;
+    }
+
+    setSelectedSeatId(seatId);
+    setCurrentSeatHoldId(data.hold.id);
+    setCurrentBookingId(null);
+    setView('negotiate');
+  };
+
   const handleBookingConfirm = (result: any) => { setBookingResult(result); setCurrentBookingId(result?.booking?.id); setView('ticket'); };
 
-  const handleNegotiationAccept = (finalPrice: number) => {
-    // Update the selected departure price for this specific booking session
-    setSelectedDeparture((prev: any) => ({ ...prev, price_xaf: finalPrice }));
+  const handleNegotiationAccept = async (finalPrice: number) => {
+    if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId) {
+      return;
+    }
+
+    setBookingError(null);
+    setBookingInFlight(true);
+
+    const seatLabel = selectedSeatId.split('-').pop() || selectedSeatId;
+    const departureWithNegotiatedPrice = { ...selectedDeparture, price_xaf: finalPrice };
+
+    const { data, error } = await createBookingFromHold({
+      hold_id: currentSeatHoldId,
+      passenger_id: profile.id,
+      final_price: finalPrice,
+    });
+
+    setBookingInFlight(false);
+
+    if (error || !data?.booking?.id) {
+      console.error('[AFAT] Failed to create booking before payment:', error);
+      setBookingError('Cette place vient d\'etre prise ou la reservation a echoue. Veuillez reessayer.');
+      setView('seats');
+      return;
+    }
+
+    setSelectedDeparture(departureWithNegotiatedPrice);
+    setCurrentBookingId(data.booking.id);
     setView('payment');
   };
 
@@ -205,6 +274,18 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
                handleNegotiationAccept(price);
             }}
           />
+
+          {bookingInFlight && (
+            <div className="mt-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-center text-[11px] font-bold uppercase tracking-widest text-blue-300">
+              Reservation de la place en cours...
+            </div>
+          )}
+
+          {bookingError && (
+            <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-[11px] font-bold uppercase tracking-widest text-red-300">
+              {bookingError}
+            </div>
+          )}
           
           <div className="mt-12 bg-white/5 border border-white/10 rounded-[2rem] p-6 text-center backdrop-blur-md">
             <ShieldCheck className="w-8 h-8 text-blue-400 mx-auto mb-3" />
@@ -219,11 +300,24 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   if (view === 'payment' && selectedDeparture && selectedSeatId) {
     return (
       <PaymentSheet 
+        bookingId={currentBookingId || undefined}
         amount={selectedDeparture.price_xaf} 
         operatorName={selectedDeparture.operator_name} 
         routeName={selectedDeparture.route_name} 
         seatLabel={selectedSeatId.split('-').pop() || '1'} 
-        onPaymentComplete={(method, txId) => handleBookingConfirm({ id: `BK-${Date.now()}`, transactionId: txId, origin: selectedDeparture.origin, destination: selectedDeparture.destination, seatLabel: selectedSeatId.split('-').pop(), price: selectedDeparture.price_xaf, operatorName: selectedDeparture.operator_name, departureTime: selectedDeparture.departure_time, routeName: selectedDeparture.route_name })} 
+        onPaymentComplete={(method, txId) => handleBookingConfirm({
+          id: currentBookingId,
+          transactionId: txId,
+          paymentMethod: method,
+          origin: selectedDeparture.origin,
+          destination: selectedDeparture.destination,
+          seatLabel: selectedSeatId.split('-').pop(),
+          price: selectedDeparture.price_xaf,
+          operatorName: selectedDeparture.operator_name,
+          departureTime: selectedDeparture.departure_time,
+          routeName: selectedDeparture.route_name,
+          booking: { id: currentBookingId }
+        })} 
         onBack={() => setView('negotiate')} 
       />
     );

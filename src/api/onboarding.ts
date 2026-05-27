@@ -186,6 +186,93 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
   }
 });
 
+// ── COMPANY / FLEET REGISTRATION ────────────────────────────────────────────
+router.post('/company/register', async (req: Request, res: Response) => {
+  try {
+    const { company_name, phone, contact_person, fleet_size, notes } = req.body;
+
+    if (!company_name || !phone) {
+      return res.status(400).json({ error: 'Missing: company_name, phone' });
+    }
+
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('phone', phone)
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(409).json({ error: 'A company or coordinator already exists with this phone number' });
+    }
+
+    const coordinatorName = contact_person || `${company_name} Coordinator`;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .insert({
+        full_name: coordinatorName,
+        phone,
+        role: 'planner',
+        trust_points: 100,
+        is_active: true,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .insert({
+        name: company_name,
+        phone,
+        contact_person: coordinatorName,
+        fleet_size: fleet_size || null,
+        notes: notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (companyError) throw companyError;
+
+    const { error: membershipError } = await supabase
+      .from('company_memberships')
+      .insert({
+        company_id: company.id,
+        profile_id: data.id,
+        role: 'owner',
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+    if (membershipError) throw membershipError;
+
+    res.status(201).json({
+      success: true,
+      company: {
+        id: company.id,
+        company_name: company.name,
+        contact_person: coordinatorName,
+        fleet_size: company.fleet_size,
+        notes: company.notes,
+      },
+      profile: {
+        id: data.id,
+        role: 'planner',
+        full_name: coordinatorName,
+      },
+      message: `${company_name} is now queued for AFAT fleet onboarding.`
+    });
+  } catch (error: any) {
+    console.error('Company registration error:', error);
+    res.status(500).json({ error: error.message || 'Company registration failed' });
+  }
+});
+
 // ── CLIENT FARE POSTING (Passengers post their prices) ───────────────────────
 router.post('/fare/post', async (req: Request, res: Response) => {
   try {

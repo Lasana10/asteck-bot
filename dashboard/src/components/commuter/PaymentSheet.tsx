@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CreditCard, Check, Loader2, Shield } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { fetchPaymentProviderReadiness, finalizeBookingPayment } from '../../supabaseClient';
 
 interface Props {
   amount: number;
@@ -17,41 +17,79 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
   const [phone, setPhone] = useState('');
   const [processing, setProcessing] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [errorText, setErrorText] = useState('');
+  const [providerReadiness, setProviderReadiness] = useState<any>(null);
+
+  useEffect(() => {
+    fetchPaymentProviderReadiness().then(({ data }) => {
+      if (data) setProviderReadiness(data);
+    });
+  }, []);
 
   const commission = Math.round(amount * 0.08); // 8% platform commission
   const driverReceives = amount - commission;
+  const readinessMode = providerReadiness?.mode || 'unknown';
+  const livePawaPay = Boolean(providerReadiness?.ready?.pawapay);
+  const securityBadge = livePawaPay
+    ? 'Securise via PawaPay'
+    : readinessMode === 'live_or_hybrid'
+      ? 'Mode hybride mobile money'
+      : 'Mode operationnel local + ledger';
 
   const handlePay = async () => {
-    if (!selectedMethod) return;
-    setProcessing(true);
-
-    // Simulate payment processing
-    await new Promise(resolve => setTimeout(resolve, 2500));
-
-    const txId = `TX-${Date.now().toString(36).toUpperCase()}`;
-
-    // Update Supabase booking
-    if (bookingId) {
-      const { error } = await supabase
-        .from('bookings')
-        .update({
-          status: 'confirmed',
-          payment_status: 'paid_momo',
-          transaction_id: txId,
-          price_paid: amount,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', bookingId);
-      
-      if (error) console.error('Error finalizing booking:', error);
+    if (!selectedMethod || !bookingId) {
+      setErrorText('Reservation introuvable. Veuillez recommencer la procedure.');
+      return;
     }
 
-    setProcessing(false);
-    setCompleted(true);
+    setProcessing(true);
+    setErrorText('');
 
-    setTimeout(() => {
-      onPaymentComplete(selectedMethod, txId);
-    }, 1500);
+    const txId = selectedMethod === 'cash'
+      ? `CASH-${Date.now().toString(36).toUpperCase()}`
+      : `TX-${Date.now().toString(36).toUpperCase()}`;
+
+    try {
+      if (selectedMethod !== 'cash') {
+        const apiBaseUrl = import.meta.env.VITE_API_URL ||
+          (window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1')
+            ? 'https://asteck-bot.onrender.com'
+            : 'http://localhost:3000');
+
+        const response = await fetch(`${apiBaseUrl}/api/payment/checkout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount,
+            phone,
+            booking_id: bookingId,
+            provider: selectedMethod,
+          })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || result.message || 'Le paiement mobile money a echoue.');
+        }
+      }
+
+      const { data: finalizeData, error } = await finalizeBookingPayment(bookingId, selectedMethod, txId);
+      if (error || !finalizeData?.success) {
+        throw new Error(error?.message || 'Impossible de finaliser le paiement.');
+      }
+
+      setProcessing(false);
+      setCompleted(true);
+
+      setTimeout(() => {
+        onPaymentComplete(selectedMethod, finalizeData.transaction_id || txId);
+      }, 1500);
+    } catch (err: any) {
+      console.error('[AFAT] Payment finalization failed:', err);
+      setProcessing(false);
+      setErrorText(err.message || 'Impossible de finaliser le paiement.');
+    }
   };
 
   if (completed) {
@@ -105,6 +143,12 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
         {/* Payment Methods */}
         <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-[2px] mb-4">Méthode de paiement</h3>
+
+        {errorText && (
+          <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {errorText}
+          </div>
+        )}
         
         <div className="space-y-3 mb-6">
           {/* MTN MoMo */}
@@ -176,7 +220,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         {/* Security Badge */}
         <div className="flex items-center justify-center gap-2 mb-4 text-slate-500">
           <Shield className="w-4 h-4" />
-          <span className="text-[10px] font-mono uppercase tracking-widest">Chiffré via PawaPay</span>
+          <span className="text-[10px] font-mono uppercase tracking-widest">{securityBadge}</span>
         </div>
 
         {/* Pay Button */}

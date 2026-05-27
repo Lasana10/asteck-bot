@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, BarChart3, LogOut, Activity, Users, AlertCircle, TrendingUp } from 'lucide-react';
+import { ShieldAlert, BarChart3, LogOut, Activity, Users, AlertCircle, TrendingUp, Radio, Route, CheckCircle, XCircle, Siren } from 'lucide-react';
 import { InteractiveMap } from '../shared/InteractiveMap';
-import { supabase } from '../../supabaseClient';
+import {
+  createDispatchAssignment,
+  fetchActiveDispatches,
+  fetchDemandRadar,
+  fetchOpsReportCenter,
+  fetchSafetyScore,
+  getCompanyMembership,
+  supabase,
+  updateOpsReportStatus
+} from '../../supabaseClient';
 import { INFRA_CONFIG } from '../../infra/config';
 import { ExternalLink, Terminal, Database, Cpu } from 'lucide-react';
 
@@ -15,9 +24,16 @@ export function PlannerDashboard({ onSignOut }: Props) {
     activeOperators: 0,
     gridPulses: 0,
     avgSeverity: 0,
+    companies: 0,
   });
   const [incidents, setIncidents] = useState<any[]>([]);
   const [tracks, setTracks] = useState<any[]>([]);
+  const [companyContext, setCompanyContext] = useState<any>(null);
+  const [reportCenter, setReportCenter] = useState<any>(null);
+  const [safetyScore, setSafetyScore] = useState<any>(null);
+  const [demandRadar, setDemandRadar] = useState<any>(null);
+  const [dispatches, setDispatches] = useState<any[]>([]);
+  const [opsMessage, setOpsMessage] = useState('');
 
   useEffect(() => {
     fetchIntelligence();
@@ -36,6 +52,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
 
     // 2. Fetch Active Operators
     const { count: operatorCount } = await supabase.from('vehicles').select('*', { count: 'exact', head: true }).eq('is_available', true);
+    const { count: companyCount } = await supabase.from('companies').select('*', { count: 'exact', head: true });
     
     // 3. Fetch Grid Pulses (GPS Tracks in last 5 mins)
     const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -54,9 +71,52 @@ export function PlannerDashboard({ onSignOut }: Props) {
     setStats(prev => ({ 
       ...prev, 
       activeOperators: operatorCount || 0,
-      gridPulses: pulseCount || 0
+      gridPulses: pulseCount || 0,
+      companies: companyCount || 0
     }));
+
+    const [reportRes, safetyRes, demandRes, dispatchRes] = await Promise.all([
+      fetchOpsReportCenter(),
+      fetchSafetyScore(3.866, 11.514, 8),
+      fetchDemandRadar(),
+      fetchActiveDispatches(),
+    ]);
+
+    if (reportRes.data) setReportCenter(reportRes.data);
+    if (safetyRes.data) setSafetyScore(safetyRes.data);
+    if (demandRes.data) setDemandRadar(demandRes.data);
+    if (dispatchRes.data?.dispatches) setDispatches(dispatchRes.data.dispatches);
   };
+
+  const handleReportAction = async (id: string, status: 'verified' | 'resolved' | 'dismissed') => {
+    const profileId = localStorage.getItem('afat_user_id') || undefined;
+    const { error } = await updateOpsReportStatus(id, status, profileId);
+    setOpsMessage(error ? error.message : `Report marked ${status}.`);
+    fetchIntelligence();
+  };
+
+  const handleQuickDispatch = async () => {
+    const firstVehicle = demandRadar?.vehicles?.[0];
+    const firstRoute = demandRadar?.routes?.[0];
+    const { error } = await createDispatchAssignment({
+      operator_id: firstVehicle?.operator_id,
+      vehicle_id: firstVehicle?.id,
+      booking_id: firstRoute?.id,
+      route_id: firstRoute?.route_id,
+      origin: firstRoute?.routes?.origin || 'Yaounde Grid',
+      destination: firstRoute?.routes?.destination || 'High-demand sector',
+      priority: demandRadar?.summary?.recommendation === 'add_supply' ? 'high' : 'normal',
+      notes: 'Auto-created from planner demand radar.',
+    });
+    setOpsMessage(error ? error.message : 'Dispatch assigned from demand radar.');
+    fetchIntelligence();
+  };
+
+  useEffect(() => {
+    const profileId = localStorage.getItem('afat_user_id');
+    if (!profileId) return;
+    getCompanyMembership(profileId).then(({ data }) => setCompanyContext(data || null));
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -97,7 +157,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
              { label: 'Active Hazards', val: stats.totalIncidents, icon: AlertCircle, color: 'text-red-500' },
              { label: 'Live Fleets', val: stats.activeOperators, icon: Users, color: 'text-blue-500' },
              { label: 'Grid Pulses', val: stats.gridPulses, icon: TrendingUp, color: 'text-purple-500' },
-             { label: 'Network Health', val: '98%', icon: Activity, color: 'text-emerald-500' }
+             { label: 'Companies', val: stats.companies, icon: Users, color: 'text-cyan-500' }
            ].map((m, i) => (
              <div key={i} className="bg-slate-900 border border-slate-800 p-6 rounded-3xl group hover:border-slate-700 transition-colors">
                 <m.icon className={`w-5 h-5 ${m.color} mb-4`} />
@@ -106,6 +166,16 @@ export function PlannerDashboard({ onSignOut }: Props) {
              </div>
            ))}
         </div>
+
+        {companyContext?.companies && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <p className="text-[10px] text-slate-500 uppercase font-mono tracking-widest mb-2">Company Context</p>
+            <h3 className="text-xl font-bold">{companyContext.companies.name}</h3>
+            <p className="text-sm text-slate-400 mt-1">
+              Fleet size: {companyContext.companies.fleet_size || 'n/a'} · Membership: {companyContext.role}
+            </p>
+          </div>
+        )}
 
         {/* Intelligence Map Section */}
         <div className="grid lg:grid-cols-3 gap-8">
@@ -140,6 +210,90 @@ export function PlannerDashboard({ onSignOut }: Props) {
                  {incidents.length === 0 && <p className="text-center text-slate-700 font-mono text-xs py-20">No data streams detected.</p>}
               </div>
            </div>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-emerald-400" />
+                Safety Score
+              </h3>
+              <span className={`text-xs font-black uppercase px-3 py-1 rounded-full border ${
+                safetyScore?.level === 'stable' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' :
+                safetyScore?.level === 'caution' ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' :
+                'text-red-400 border-red-500/20 bg-red-500/10'
+              }`}>
+                {safetyScore?.level || 'syncing'}
+              </span>
+            </div>
+            <p className="text-5xl font-black tracking-tighter">{safetyScore?.score || reportCenter?.summary?.safety_score || 100}</p>
+            <p className="text-xs text-slate-500 mt-2">Nearby incidents: {safetyScore?.incident_count || 0} · Severe: {safetyScore?.severe_count || 0}</p>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Radio className="w-5 h-5 text-blue-400" />
+                Demand Radar
+              </h3>
+              <button onClick={handleQuickDispatch} className="text-[10px] font-black uppercase tracking-widest bg-blue-500/10 border border-blue-500/20 text-blue-300 px-3 py-2 rounded-xl">
+                Assign
+              </button>
+            </div>
+            <p className="text-3xl font-black">{demandRadar?.summary?.pressure ?? 0}</p>
+            <p className="text-xs text-slate-500 mt-2">
+              {demandRadar?.summary?.booking_count || 0} bookings · {demandRadar?.summary?.active_vehicles || 0} live vehicles · {demandRadar?.summary?.recommendation || 'balanced'}
+            </p>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <h3 className="font-bold text-lg flex items-center gap-2 mb-5">
+              <Route className="w-5 h-5 text-purple-400" />
+              Dispatch Queue
+            </h3>
+            <p className="text-3xl font-black">{dispatches.length}</p>
+            <p className="text-xs text-slate-500 mt-2">Queued, assigned, en-route and arrival jobs.</p>
+            {opsMessage && <p className="text-[11px] text-blue-300 mt-4">{opsMessage}</p>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Siren className="w-5 h-5 text-red-400" />
+              Report Center
+            </h3>
+            <span className="text-xs text-slate-500">{reportCenter?.summary?.active || incidents.length} active signals</span>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {(reportCenter?.reports || incidents).slice(0, 6).map((report: any) => (
+              <div key={report.id} className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase text-white">{String(report.type || 'incident').replace('_', ' ')}</p>
+                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{report.description || report.address || 'Verified location signal'}</p>
+                  </div>
+                  <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${
+                    Number(report.severity || 0) >= 4 ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
+                  }`}>
+                    LVL {report.severity || 1}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-4">
+                  <button onClick={() => handleReportAction(report.id, 'verified')} className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <CheckCircle className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleReportAction(report.id, 'resolved')} className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <Activity className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleReportAction(report.id, 'dismissed')} className="p-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20">
+                    <XCircle className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Infrastructure Control - Supporting Tools */}

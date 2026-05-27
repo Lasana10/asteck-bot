@@ -1,6 +1,7 @@
 import { aiRouter } from './AIRouter';
 import { ParsedIncident } from '../models/base';
 import { supabase } from '../infra/supabase';
+import { extractFirstJsonObject } from './aiParsing';
 
 // ── CONVERSATIONAL CONSCIOUSNESS (Context Memory) ──
 const userContexts = new Map<string, { lastIntent?: string; history: any[] }>();
@@ -60,20 +61,8 @@ Return ONLY valid JSON (no markdown, no explanation):
 {"type":"booking|accident|traffic_jam|road_damage|sos|other","severity":1,"description":"brief summary","confidence":0.8}`
       });
 
-      // Robust JSON extraction — handles markdown code blocks, thinking text, etc.
-      const jsonMatch = predictiveResponse.text.match(/\{[^{}]*"type"\s*:\s*"[^"]+"/);
-      if (jsonMatch) {
-        // Find the complete JSON object
-        const startIdx = predictiveResponse.text.indexOf(jsonMatch[0]);
-        let depth = 0;
-        let endIdx = startIdx;
-        for (let i = startIdx; i < predictiveResponse.text.length; i++) {
-          if (predictiveResponse.text[i] === '{') depth++;
-          if (predictiveResponse.text[i] === '}') depth--;
-          if (depth === 0) { endIdx = i + 1; break; }
-        }
-        const jsonStr = predictiveResponse.text.substring(startIdx, endIdx);
-        const parsed = JSON.parse(jsonStr);
+      const parsed = extractFirstJsonObject(predictiveResponse.text);
+      if (parsed) {
         
         return {
           type: parsed.type || 'other',
