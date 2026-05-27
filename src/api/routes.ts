@@ -119,6 +119,23 @@ function scoreFromIncidentLoad(incidentCount: number, severeCount: number) {
   return Math.max(5, Math.min(100, score));
 }
 
+function scoreFromCompliance(records: any[]) {
+  if (!records.length) return 0;
+  const verified = records.filter((record) => record.status === 'verified').length;
+  const dueSoon = records.filter((record) => {
+    if (!record.due_at) return false;
+    const remaining = new Date(record.due_at).getTime() - Date.now();
+    return remaining <= 30 * 24 * 60 * 60 * 1000 && remaining > 0;
+  }).length;
+  const overdue = records.filter((record) => {
+    if (!record.due_at) return false;
+    return new Date(record.due_at).getTime() <= Date.now() && record.status !== 'verified';
+  }).length;
+
+  const score = 100 - (overdue * 22) - (dueSoon * 7) + (verified * 5);
+  return Math.max(0, Math.min(100, score));
+}
+
 function parsePointText(location?: string | null) {
   if (!location) return null;
   const match = location.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/i);
@@ -636,6 +653,55 @@ router.get('/ops/demand-radar', async (_req: Request, res: Response) => {
   }
 });
 
+router.get('/ops/compliance-radar', async (_req: Request, res: Response) => {
+  try {
+    const lookback = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: records, error } = await supabase
+      .from('compliance_records')
+      .select('*')
+      .gte('created_at', lookback)
+      .order('updated_at', { ascending: false })
+      .limit(200);
+
+    if (error) throw error;
+
+    const items = records || [];
+    const active = items.filter((record: any) => !['verified', 'missing'].includes(record.status));
+    const verified = items.filter((record: any) => record.status === 'verified');
+    const dueSoon = items.filter((record: any) => {
+      if (!record.due_at) return false;
+      const remaining = new Date(record.due_at).getTime() - Date.now();
+      return remaining > 0 && remaining <= 30 * 24 * 60 * 60 * 1000;
+    });
+    const overdue = items.filter((record: any) => {
+      if (!record.due_at) return false;
+      return new Date(record.due_at).getTime() <= Date.now() && record.status !== 'verified';
+    });
+
+    const byRole = items.reduce((acc: Record<string, number>, record: any) => {
+      acc[record.role] = (acc[record.role] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.status(200).json({
+      success: true,
+      summary: {
+        total: items.length,
+        active: active.length,
+        verified: verified.length,
+        due_soon: dueSoon.length,
+        overdue: overdue.length,
+        score: scoreFromCompliance(items),
+      },
+      by_role: byRole,
+      records: items,
+    });
+  } catch (error: any) {
+    console.error('Compliance radar error:', error);
+    res.status(500).json({ error: error.message || 'Compliance radar failed' });
+  }
+});
+
 router.get('/dispatch/active', async (_req: Request, res: Response) => {
   try {
     const { data, error } = await supabase
@@ -650,6 +716,97 @@ router.get('/dispatch/active', async (_req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Active dispatch fetch error:', error);
     res.status(500).json({ error: error.message || 'Active dispatch fetch failed' });
+  }
+});
+
+router.get('/compliance/summary/:profileId', async (req: Request, res: Response) => {
+  try {
+    const { profileId } = req.params;
+
+    const { data: profileRecords, error: profileError } = await supabase
+      .from('compliance_records')
+      .select('*')
+      .eq('profile_id', profileId)
+      .order('updated_at', { ascending: false });
+
+    if (profileError) throw profileError;
+
+    const { data: memberships, error: membershipError } = await supabase
+      .from('company_memberships')
+      .select('company_id, role, status, companies:company_id(id, name, fleet_size)')
+      .eq('profile_id', profileId)
+      .eq('status', 'active');
+
+    if (membershipError) throw membershipError;
+
+    const companyIds = (memberships || []).map((membership: any) => membership.company_id).filter(Boolean);
+    const { data: companyRecords, error: companyRecordsError } = companyIds.length
+      ? await supabase
+          .from('compliance_records')
+          .select('*')
+          .in('company_id', companyIds)
+          .order('updated_at', { ascending: false })
+      : { data: [], error: null as any };
+
+    if (companyRecordsError) throw companyRecordsError;
+
+    const records = [...(profileRecords || []), ...(companyRecords || [])];
+    const score = scoreFromCompliance(records);
+    const overdue = records.filter((record: any) => {
+      if (!record.due_at) return false;
+      return new Date(record.due_at).getTime() <= Date.now() && record.status !== 'verified';
+    }).length;
+
+    res.status(200).json({
+      success: true,
+      summary: {
+        total: records.length,
+        verified: records.filter((record: any) => record.status === 'verified').length,
+        due_soon: records.filter((record: any) => {
+          if (!record.due_at) return false;
+          const remaining = new Date(record.due_at).getTime() - Date.now();
+          return remaining > 0 && remaining <= 30 * 24 * 60 * 60 * 1000;
+        }).length,
+        overdue,
+        score,
+      },
+      memberships: memberships || [],
+      records,
+    });
+  } catch (error: any) {
+    console.error('Compliance summary error:', error);
+    res.status(500).json({ error: error.message || 'Compliance summary failed' });
+  }
+});
+
+router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    const allowed = ['missing', 'pending', 'submitted', 'verified', 'expired', 'rejected', 'needs_followup'];
+
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: 'Invalid compliance status' });
+    }
+
+    const { data, error } = await supabase
+      .from('compliance_records')
+      .update({
+        status,
+        notes: notes || null,
+        verified_at: status === 'verified' ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(200).json({ success: true, record: data });
+  } catch (error: any) {
+    console.error('Compliance status update error:', error);
+    res.status(500).json({ error: error.message || 'Compliance status update failed' });
   }
 });
 

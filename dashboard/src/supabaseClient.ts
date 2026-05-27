@@ -514,6 +514,43 @@ export async function fetchPaymentProviderReadiness() {
   }
 }
 
+export async function fetchComplianceRadar() {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ops/compliance-radar`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Compliance radar fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchComplianceSummary(profileId: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/compliance/summary/${profileId}`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Compliance summary fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function updateComplianceStatus(recordId: string, status: string, notes?: string) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/compliance/${recordId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notes }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Compliance update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function getMyBookings(passengerId: string) {
   const { data, error } = await supabase
     .from('bookings')

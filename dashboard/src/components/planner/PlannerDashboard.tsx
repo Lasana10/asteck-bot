@@ -3,6 +3,7 @@ import { ShieldAlert, BarChart3, LogOut, Activity, Users, AlertCircle, TrendingU
 import { InteractiveMap } from '../shared/InteractiveMap';
 import {
   createDispatchAssignment,
+  fetchComplianceRadar,
   fetchActiveDispatches,
   fetchDemandRadar,
   fetchOpsReportCenter,
@@ -32,6 +33,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
   const [reportCenter, setReportCenter] = useState<any>(null);
   const [safetyScore, setSafetyScore] = useState<any>(null);
   const [demandRadar, setDemandRadar] = useState<any>(null);
+  const [complianceRadar, setComplianceRadar] = useState<any>(null);
   const [dispatches, setDispatches] = useState<any[]>([]);
   const [opsMessage, setOpsMessage] = useState('');
 
@@ -75,17 +77,19 @@ export function PlannerDashboard({ onSignOut }: Props) {
       companies: companyCount || 0
     }));
 
-    const [reportRes, safetyRes, demandRes, dispatchRes] = await Promise.all([
+    const [reportRes, safetyRes, demandRes, dispatchRes, complianceRes] = await Promise.all([
       fetchOpsReportCenter(),
       fetchSafetyScore(3.866, 11.514, 8),
       fetchDemandRadar(),
       fetchActiveDispatches(),
+      fetchComplianceRadar(),
     ]);
 
     if (reportRes.data) setReportCenter(reportRes.data);
     if (safetyRes.data) setSafetyScore(safetyRes.data);
     if (demandRes.data) setDemandRadar(demandRes.data);
     if (dispatchRes.data?.dispatches) setDispatches(dispatchRes.data.dispatches);
+    if (complianceRes.data) setComplianceRadar(complianceRes.data);
   };
 
   const handleReportAction = async (id: string, status: 'verified' | 'resolved' | 'dismissed') => {
@@ -255,6 +259,41 @@ export function PlannerDashboard({ onSignOut }: Props) {
             <p className="text-3xl font-black">{dispatches.length}</p>
             <p className="text-xs text-slate-500 mt-2">Queued, assigned, en-route and arrival jobs.</p>
             {opsMessage && <p className="text-[11px] text-blue-300 mt-4">{opsMessage}</p>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Database className="w-5 h-5 text-cyan-400" />
+              Compliance Radar
+            </h3>
+            <span className="text-xs text-slate-500">{complianceRadar?.summary?.total || 0} tracked records</span>
+          </div>
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Score</p>
+              <p className="text-3xl font-black mt-1">{complianceRadar?.summary?.score ?? 0}</p>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Verified</p>
+              <p className="text-3xl font-black mt-1 text-emerald-400">{complianceRadar?.summary?.verified ?? 0}</p>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Due Soon</p>
+              <p className="text-3xl font-black mt-1 text-amber-400">{complianceRadar?.summary?.due_soon ?? 0}</p>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Overdue</p>
+              <p className="text-3xl font-black mt-1 text-red-400">{complianceRadar?.summary?.overdue ?? 0}</p>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
+            {Object.entries(complianceRadar?.by_role || {}).map(([role, count]) => (
+              <span key={role} className="px-3 py-1 rounded-full border border-slate-700 bg-slate-950/60 text-slate-300">
+                {role}: {String(count)}
+              </span>
+            ))}
           </div>
         </div>
 
