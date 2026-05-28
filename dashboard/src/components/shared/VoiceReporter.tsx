@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Mic, Square, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { apiBaseUrl, supabase } from '../../supabaseClient';
 
 export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: () => void }) {
   const [isRecording, setIsRecording] = useState(false);
@@ -49,11 +49,7 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
       formData.append('audio', audioBlob, 'report.webm');
       formData.append('reporter_id', profile.id);
 
-      // Call our existing Express Intelligence Bridge
-      // Note: In VITE, import.meta.env.VITE_API_URL should point to the Express server
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      
-      const response = await fetch(`${apiUrl}/api/intelligence/voice-report`, {
+      const response = await fetch(`${apiBaseUrl}/api/intelligence/voice-report`, {
         method: 'POST',
         body: formData,
       });

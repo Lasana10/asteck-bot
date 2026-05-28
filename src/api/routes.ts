@@ -146,6 +146,13 @@ function parsePointText(location?: string | null) {
   return { latitude, longitude };
 }
 
+function publicError(error: any, fallback: string) {
+  console.error(fallback, error);
+  return process.env.NODE_ENV === 'production'
+    ? fallback
+    : error?.message || fallback;
+}
+
 // ── AUTHENTICATION (OTP Flow) ────────────────────────────────
 router.post('/auth/send-otp', async (req: Request, res: Response) => {
   try {
@@ -217,6 +224,48 @@ router.get('/incidents', async (req: Request, res: Response) => {
     res.status(200).json(incidents);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch incidents' });
+  }
+});
+
+router.post('/broadcast', async (req: Request, res: Response) => {
+  try {
+    const { message, directive, target_role, source, tier, severity, metadata } = req.body;
+    const finalDirective = String(directive || message || '').trim();
+
+    if (!finalDirective) {
+      return res.status(400).json({ error: 'message or directive is required' });
+    }
+
+    const payload = {
+      source: source || 'dashboard',
+      basis: 'manual_broadcast',
+      directive: finalDirective.slice(0, 600),
+      tier: tier || (Number(severity || 0) >= 4 ? 1 : 2),
+      target_role: target_role || 'all',
+      status: Number(severity || 0) >= 4 ? 'broadcasted' : 'pending_admin',
+      metadata: metadata || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('sentinel_directives')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('Broadcast accepted without persistence:', error.message);
+      return res.status(202).json({
+        success: true,
+        persisted: false,
+        directive: payload,
+      });
+    }
+
+    res.status(201).json({ success: true, persisted: true, directive: data });
+  } catch (error: any) {
+    res.status(500).json({ error: publicError(error, 'Broadcast failed') });
   }
 });
 

@@ -8,6 +8,7 @@ import cors from 'cors';
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import { CronService } from './services/CronJobs';
+import { apiRateLimiter, requestLogger, sanitizeInput, securityHeaders } from './middleware/security';
 
 dotenv.config();
 
@@ -35,25 +36,33 @@ console.log(`
 const app = express();
 const port = process.env.PORT || 3000;
 
+app.disable('x-powered-by');
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CLOUDFLARE_PREVIEW_URL,
+  'https://asteck-bot.pages.dev',
+  'https://c56d4984.asteck-bot.pages.dev',
+  'https://asteck-bot.asanadaniel8.workers.dev',
+  'https://dashboard.afat.cm',
+  'http://localhost:5173',
+  'http://localhost:3000'
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: [
-    'https://asteck-bot.asanadaniel8.workers.dev',
-    'https://dashboard.afat.cm',
-    'http://localhost:5173',
-    'http://localhost:3000'
-  ],
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (/^https:\/\/[a-z0-9-]+\.asteck-bot\.pages\.dev$/i.test(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed by AFAT CORS policy'));
+  },
   credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Security headers
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  next();
-});
+app.use(securityHeaders);
+app.use(requestLogger);
+app.use(sanitizeInput);
+app.use('/api', apiRateLimiter);
 
 // Global error handling to prevent silent hangs
 process.on('unhandledRejection', (reason, promise) => {
