@@ -1,0 +1,106 @@
+[
+  {
+    "id": "cached-sentinel-yaounde-poste",
+    "name": "Yaounde Poste Central Sentinel",
+    "plate_number": "AFAT-101",
+    "type": "verified_sentinel",
+    "latitude": 3.8665,
+    "longitude": 11.5167,
+    "current_speed": 28,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-sentinel-mvog-mbi",
+    "name": "Mvog-Mbi Dispatch Node",
+    "plate_number": "AFAT-114",
+    "type": "verified_sentinel",
+    "latitude": 3.8559,
+    "longitude": 11.5283,
+    "current_speed": 34,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-sentinel-bastos",
+    "name": "Bastos Guardian Patrol",
+    "plate_number": "AFAT-207",
+    "type": "verified_sentinel",
+    "latitude": 3.8892,
+    "longitude": 11.5121,
+    "current_speed": 22,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-sentinel-biyem",
+    "name": "Biyem-Assi Safe Passage",
+    "plate_number": "AFAT-305",
+    "type": "verified_sentinel",
+    "latitude": 3.8424,
+    "longitude": 11.4848,
+    "current_speed": 31,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-sentinel-essos",
+    "name": "Essos Corridor Rider",
+    "plate_number": "AFAT-419",
+    "type": "verified_sentinel",
+    "latitude": 3.8726,
+    "longitude": 11.5368,
+    "current_speed": 26,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-hazard-nlongkak",
+    "name": "Nlongkak Slow Traffic",
+    "type": "hazard",
+    "latitude": 3.8791,
+    "longitude": 11.5212,
+    "status": "verified",
+    "severity": 3,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-hazard-emana",
+    "name": "Emana Road Obstruction",
+    "type": "hazard",
+    "latitude": 3.9148,
+    "longitude": 11.5102,
+    "status": "verified",
+    "severity": 4,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-sentinel-odza",
+    "name": "Odza Terminal Sentinel",
+    "plate_number": "AFAT-522",
+    "type": "verified_sentinel",
+    "latitude": 3.7899,
+    "longitude": 11.5249,
+    "current_speed": 39,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  },
+  {
+    "id": "cached-sentinel-douala-akwa",
+    "name": "Douala Akwa Relay",
+    "plate_number": "AFAT-704",
+    "type": "verified_sentinel",
+    "latitude": 4.0505,
+    "longitude": 9.7043,
+    "current_speed": 24,
+    "status": "verified",
+    "severity": 1,
+    "source": "cached_stream"
+  }
+]

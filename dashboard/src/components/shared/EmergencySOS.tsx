@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, X, Phone, MapPin, Shield, Radio, Loader2 } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { AlertTriangle, Phone, MapPin, Shield, Loader2 } from 'lucide-react';
+import { sendPanicAlert, supabase } from '../../supabaseClient';
 
 interface Props {
   userId: string;
@@ -35,30 +35,46 @@ export function EmergencySOS({ userId, userName, onClose }: Props) {
 
     const location = coords || { lat: 3.848, lng: 11.502 };
 
-    // 1. Insert SOS incident into database
-    await supabase.from('incidents').insert({
-      type: 'emergency',
-      description: `🆘 EMERGENCY SOS from ${userName}. Location: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`,
+    const { error } = await sendPanicAlert({
+      user_id: userId,
+      user_name: userName,
       latitude: location.lat,
       longitude: location.lng,
-      severity: 5,
-      source: 'sos_button',
-      status: 'active',
-      reporter_id: userId,
-      reporter_username: userName
+      source: 'sos_button'
     });
 
-    // 2. Log the SOS event
-    try {
-      await supabase.from('sos_events').insert({
+    if (error) {
+      await supabase.from('incidents').insert({
+        type: 'emergency',
+        description: `EMERGENCY SOS from ${userName}. Location: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`,
+        latitude: location.lat,
+        longitude: location.lng,
+        severity: 5,
+        source: 'sos_button_fallback',
+        status: 'active',
+        reporter_id: userId,
+        reporter_username: userName
+      });
+
+      try {
+        await supabase.from('sos_events').insert({
+          user_id: userId,
+          latitude: location.lat,
+          longitude: location.lng,
+          status: 'active'
+        });
+      } catch {}
+    } else {
+      try {
+        await supabase.from('sos_events').insert({
         user_id: userId,
         latitude: location.lat,
         longitude: location.lng,
         status: 'active'
-      });
-    } catch {} // Table may not exist yet, graceful fail
+        });
+      } catch {}
+    }
 
-    // 3. Trigger vibration if available
     if (navigator.vibrate) {
       navigator.vibrate([200, 100, 200, 100, 500]);
     }

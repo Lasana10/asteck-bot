@@ -121,6 +121,21 @@ export async function submitIncident(incidentData: any) {
   return { data, error };
 }
 
+export async function sendPanicAlert(alertData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/sos/panic`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(alertData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'SOS dispatch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function confirmIncident(incidentId: string, userId: string, vote: 'confirm'|'deny') {
     const { data: confirmData, error: confirmErr } = await supabase
         .from('confirmations')

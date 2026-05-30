@@ -7,8 +7,10 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<any>(null);
 
   const startRecording = async () => {
     try {
@@ -16,6 +18,25 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      setLiveTranscript('');
+
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = navigator.language || 'fr-CM';
+        recognition.onresult = (event: any) => {
+          const transcript = Array.from(event.results)
+            .map((result: any) => result?.[0]?.transcript || '')
+            .join(' ')
+            .trim();
+          setLiveTranscript(transcript);
+        };
+        recognition.onerror = () => undefined;
+        recognition.start();
+      }
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -37,6 +58,8 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      recognitionRef.current?.stop?.();
+      recognitionRef.current = null;
       setIsRecording(false);
       setIsProcessing(true);
     }
@@ -57,6 +80,7 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
       const data = await response.json();
       
       if (!response.ok) throw new Error(data.error || 'Failed to process audio.');
+      const transcript = liveTranscript || data.transcription || 'Voice report received';
 
       // Helper to get real GPS
       const getRealLocation = (): Promise<{lat: number, lng: number}> => {
@@ -82,7 +106,7 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
         reporter_id: profile.id,
         reporter_username: profile.username || 'Voice Agent',
         type: data.classification?.type || 'other',
-        description: data.transcription,
+        description: transcript,
         severity: data.classification?.severity || 3,
         latitude: lat,
         longitude: lng,
@@ -133,6 +157,12 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
              <p className={`mt-8 text-sm font-mono tracking-widest uppercase transition-opacity ${isRecording ? 'text-red-400 animate-pulse' : 'text-slate-500'}`}>
                 {isRecording ? 'Recording... Release to Transmit' : 'Hold to Speak'}
              </p>
+             {liveTranscript && (
+               <div className="mt-4 w-full rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-left">
+                 <p className="mb-1 text-[9px] font-black uppercase tracking-[0.22em] text-blue-300">Live transcript</p>
+                 <p className="text-sm font-medium leading-relaxed text-blue-50">{liveTranscript}</p>
+               </div>
+             )}
            </>
         )}
 

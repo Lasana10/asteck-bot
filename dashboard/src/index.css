@@ -338,6 +338,32 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .leaflet-popup-content { margin: 0 !important; color: #f0f4ff !important; }
 .leaflet-popup-tip-container { display: none !important; }
 .leaflet-container { background: #080c14 !important; }
+.sentinel-atlas-container .leaflet-container {
+  background: #05070b !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+.sentinel-atlas-container .leaflet-control-container {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+.sentinel-atlas-container .leaflet-interactive {
+  outline: none;
+}
+.sentinel-atlas-container .afat-tiles-standard {
+  filter: saturate(0.6) brightness(0.58) contrast(1.18) hue-rotate(175deg);
+}
+.sentinel-atlas-container .afat-tiles-satellite {
+  filter: saturate(0.85) brightness(0.62) contrast(1.12);
+}
+.sentinel-atlas-container .afat-tiles-hybrid {
+  filter: saturate(0.78) brightness(0.55) contrast(1.18);
+}
+.sentinel-atlas-container .afat-tiles-hybrid-labels {
+  filter: invert(1) hue-rotate(180deg) saturate(0.3) brightness(1.1);
+  mix-blend-mode: screen;
+}
+.sentinel-atlas-container .afat-tiles-intel {
+  filter: saturate(0.75) brightness(0.72) contrast(1.22) hue-rotate(12deg);
+}
 /* .leaflet-tile { filter: saturate(0.4) brightness(0.5) hue-rotate(195deg); } */
 .leaflet-tile { transition: filter 0.3s ease; } /* Smooth transitions for theme changes */
 

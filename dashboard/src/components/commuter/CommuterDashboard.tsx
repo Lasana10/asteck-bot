@@ -440,6 +440,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           incidents={incidents} 
           tracks={activeVehicles} 
           showInformal={showInformalRoutes}
+          mapMode={mapMode}
           role="commuter"
         />
         

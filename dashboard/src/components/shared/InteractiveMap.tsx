@@ -1,13 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Activity,
-  Car,
-  MapPin,
-  Navigation2,
-  Radio,
-  ShieldAlert,
-  Wifi
-} from 'lucide-react';
+import { Activity, MapPin, Navigation2, Radio, ShieldAlert, Wifi } from 'lucide-react';
+import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import type { LatLngBoundsExpression, LatLngExpression } from 'leaflet';
 import { supabase, subscribeToMovementLogs, subscribeToVehicles } from '../../supabaseClient';
 
 type PointLike = {
@@ -29,6 +23,7 @@ type PointLike = {
   heading?: number;
   updated_at?: string;
   created_at?: string;
+  source?: string;
 };
 
 interface InteractiveMapProps {
@@ -40,9 +35,33 @@ interface InteractiveMapProps {
   driveMode?: boolean;
   showInformal?: boolean;
   role?: 'commuter' | 'operator' | 'admin';
+  mapMode?: 'standard' | 'satellite' | 'hybrid' | 'intel';
 }
 
-const DEFAULT_CENTER = { latitude: 3.866, longitude: 11.514 };
+const DEFAULT_CENTER: LatLngExpression = [3.866, 11.514];
+
+const TILE_LAYERS = {
+  standard: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors',
+    className: 'afat-tiles-standard',
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    className: 'afat-tiles-satellite',
+  },
+  hybrid: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    className: 'afat-tiles-hybrid',
+  },
+  intel: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    className: 'afat-tiles-intel',
+  },
+};
 
 function parseLocationText(location?: string) {
   if (!location) return null;
@@ -50,7 +69,7 @@ function parseLocationText(location?: string) {
   if (!match) return null;
   const longitude = Number(match[1]);
   const latitude = Number(match[2]);
-  if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
 
@@ -60,68 +79,63 @@ function extractPoint(item?: PointLike | null) {
   const latitude = item.latitude ?? item.lat ?? item.current_lat ?? parsedLocation?.latitude;
   const longitude = item.longitude ?? item.lng ?? item.current_lng ?? parsedLocation?.longitude;
   if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
-  if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
-}
-
-function normalizePoints(points: PointLike[], fallbackCenter = DEFAULT_CENTER) {
-  const extracted = points
-    .map((point) => ({ point, coords: extractPoint(point) }))
-    .filter((entry): entry is { point: PointLike; coords: { latitude: number; longitude: number } } => Boolean(entry.coords));
-
-  if (extracted.length === 0) {
-    return {
-      entries: [] as Array<{ point: PointLike; x: number; y: number; coords: { latitude: number; longitude: number } }>,
-      bounds: {
-        minLat: fallbackCenter.latitude - 0.02,
-        maxLat: fallbackCenter.latitude + 0.02,
-        minLng: fallbackCenter.longitude - 0.02,
-        maxLng: fallbackCenter.longitude + 0.02
-      }
-    };
-  }
-
-  let minLat = extracted[0].coords.latitude;
-  let maxLat = extracted[0].coords.latitude;
-  let minLng = extracted[0].coords.longitude;
-  let maxLng = extracted[0].coords.longitude;
-
-  extracted.forEach(({ coords }) => {
-    minLat = Math.min(minLat, coords.latitude);
-    maxLat = Math.max(maxLat, coords.latitude);
-    minLng = Math.min(minLng, coords.longitude);
-    maxLng = Math.max(maxLng, coords.longitude);
-  });
-
-  const latPadding = Math.max((maxLat - minLat) * 0.22, 0.01);
-  const lngPadding = Math.max((maxLng - minLng) * 0.22, 0.01);
-
-  minLat -= latPadding;
-  maxLat += latPadding;
-  minLng -= lngPadding;
-  maxLng += lngPadding;
-
-  const spanLat = Math.max(maxLat - minLat, 0.0001);
-  const spanLng = Math.max(maxLng - minLng, 0.0001);
-
-  return {
-    entries: extracted.map(({ point, coords }) => {
-      const x = ((coords.longitude - minLng) / spanLng) * 100;
-      const y = 100 - ((coords.latitude - minLat) / spanLat) * 100;
-      return { point, coords, x, y };
-    }),
-    bounds: { minLat, maxLat, minLng, maxLng }
-  };
-}
-
-function severityTone(severity?: number) {
-  if (severity && severity >= 4) return 'border-red-400/50 bg-red-500/15 text-red-200';
-  if (severity && severity >= 3) return 'border-amber-400/40 bg-amber-500/15 text-amber-100';
-  return 'border-blue-400/30 bg-blue-500/15 text-blue-100';
 }
 
 function markerLabel(item: PointLike, fallback: string) {
   return item.name || item.label || item.plate_number || item.id || fallback;
+}
+
+function severityColor(severity?: number) {
+  if (severity && severity >= 5) return '#ef4444';
+  if (severity && severity >= 4) return '#f97316';
+  if (severity && severity >= 3) return '#f59e0b';
+  return '#38bdf8';
+}
+
+function pointToLatLng(item: PointLike): LatLngExpression | null {
+  const coords = extractPoint(item);
+  if (!coords) return null;
+  return [coords.latitude, coords.longitude];
+}
+
+function FitMapToSignals({ points }: { points: PointLike[] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const latLngs = points.map(pointToLatLng).filter(Boolean) as LatLngExpression[];
+    if (latLngs.length === 0) {
+      map.setView(DEFAULT_CENTER, 13);
+      return;
+    }
+
+    if (latLngs.length === 1) {
+      map.setView(latLngs[0], 14);
+      return;
+    }
+
+    map.fitBounds(latLngs as LatLngBoundsExpression, { padding: [44, 44], maxZoom: 15 });
+  }, [map, points]);
+
+  return null;
+}
+
+function SignalPopup({ point, fallback }: { point: PointLike; fallback: string }) {
+  return (
+    <div className="min-w-[180px] bg-slate-950 p-3 text-white">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/40">
+        {point.type || point.source || fallback}
+      </p>
+      <p className="mt-1 text-sm font-black text-white">{markerLabel(point, fallback)}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white/50">
+        <span>Severity {point.severity || 1}</span>
+        <span>{point.status || 'verified'}</span>
+        {point.current_speed !== undefined && <span>{Math.round(Number(point.current_speed))} km/h</span>}
+        {point.source && <span>{point.source}</span>}
+      </div>
+    </div>
+  );
 }
 
 export function InteractiveMap({
@@ -132,10 +146,29 @@ export function InteractiveMap({
   trackedVehicle = null,
   driveMode = false,
   showInformal = false,
-  role = 'commuter'
+  role = 'commuter',
+  mapMode = 'standard',
 }: InteractiveMapProps) {
   const [liveTracks, setLiveTracks] = useState<PointLike[]>([]);
   const [liveVehicles, setLiveVehicles] = useState<PointLike[]>([]);
+  const [cachedNodes, setCachedNodes] = useState<PointLike[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch('/data/cached_nodes.json')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data)) setCachedNodes(data);
+      })
+      .catch(() => {
+        if (!cancelled) setCachedNodes([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const vehiclesChannel = subscribeToVehicles((payload) => {
@@ -156,11 +189,11 @@ export function InteractiveMap({
     const refresh = async () => {
       const [{ data: vehiclesData }, { data: movementData }] = await Promise.all([
         supabase.from('vehicles').select('*').eq('is_available', true).limit(20),
-        supabase.from('movement_logs').select('*').order('created_at', { ascending: false }).limit(12)
+        supabase.from('movement_logs').select('*').order('created_at', { ascending: false }).limit(12),
       ]);
 
-      if (vehiclesData) setLiveVehicles(vehiclesData);
-      if (movementData) setLiveTracks(movementData);
+      if (vehiclesData?.length) setLiveVehicles(vehiclesData);
+      if (movementData?.length) setLiveTracks(movementData);
     };
 
     refresh();
@@ -171,54 +204,139 @@ export function InteractiveMap({
     };
   }, []);
 
-  const allTrackedPoints = useMemo(() => {
-    return [
-      ...incidents,
-      ...tracks,
+  const realVehicleSignals = useMemo(() => [...tracks, ...liveTracks, ...liveVehicles], [tracks, liveTracks, liveVehicles]);
+  const fallbackNodes = realVehicleSignals.length === 0 && incidents.length === 0 ? cachedNodes : [];
+
+  const vehicleSignals = useMemo(
+    () => (realVehicleSignals.length ? realVehicleSignals : fallbackNodes.filter((node) => node.type !== 'hazard')),
+    [realVehicleSignals, fallbackNodes]
+  );
+
+  const hazardSignals = useMemo(
+    () => (incidents.length ? incidents : fallbackNodes.filter((node) => node.type === 'hazard' || Number(node.severity || 0) >= 4)),
+    [incidents, fallbackNodes]
+  );
+
+  const routeSignals = useMemo(() => routePath.map(pointToLatLng).filter(Boolean) as LatLngExpression[], [routePath]);
+  const movementRoute = useMemo(
+    () => vehicleSignals.slice(0, 8).map(pointToLatLng).filter(Boolean) as LatLngExpression[],
+    [vehicleSignals]
+  );
+
+  const allSignals = useMemo(
+    () => [
+      ...hazardSignals,
+      ...vehicleSignals,
       ...routePath,
       ...checkpoints,
-      ...liveTracks,
-      ...liveVehicles,
-      ...(trackedVehicle ? [trackedVehicle] : [])
-    ].filter(Boolean) as PointLike[];
-  }, [incidents, tracks, routePath, checkpoints, liveTracks, liveVehicles, trackedVehicle]);
+      ...(trackedVehicle ? [trackedVehicle] : []),
+    ],
+    [hazardSignals, vehicleSignals, routePath, checkpoints, trackedVehicle]
+  );
 
-  const normalized = useMemo(() => normalizePoints(allTrackedPoints), [allTrackedPoints]);
-  const incidentPoints = useMemo(() => normalizePoints(incidents), [incidents]);
-  const trackPoints = useMemo(() => normalizePoints([...tracks, ...liveTracks]), [tracks, liveTracks]);
-  const routePoints = useMemo(() => normalizePoints(routePath), [routePath]);
-  const checkpointPoints = useMemo(() => normalizePoints(checkpoints), [checkpoints]);
-
-  const primaryVehicle = trackedVehicle || liveVehicles[0] || tracks[0] || null;
-  const primaryPoint = extractPoint(primaryVehicle);
-
-  const polylinePoints = useMemo(() => {
-    const merged = [...routePoints.entries, ...trackPoints.entries];
-    if (merged.length < 2) return '';
-    return merged
-      .sort((a, b) => {
-        const ta = new Date((a.point.updated_at || a.point.created_at || 0) as any).getTime();
-        const tb = new Date((b.point.updated_at || b.point.created_at || 0) as any).getTime();
-        return ta - tb;
-      })
-      .map(({ x, y }) => `${x},${y}`)
-      .join(' ');
-  }, [routePoints.entries, trackPoints.entries]);
+  const tileLayer = TILE_LAYERS[mapMode] || TILE_LAYERS.standard;
+  const primaryVehicle = trackedVehicle || liveVehicles[0] || tracks[0] || fallbackNodes[0] || null;
+  const primaryLatLng = pointToLatLng(primaryVehicle || {});
+  const activeSignalCount = liveTracks.length + liveVehicles.length + incidents.length;
+  const usingCachedStream = activeSignalCount === 0 && cachedNodes.length > 0;
 
   return (
-    <div className="relative h-full min-h-[260px] overflow-hidden rounded-[28px] border border-white/10 bg-[#05070b] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(96,165,250,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_45%)]" />
-      <div className="absolute inset-0 opacity-30" style={{
-        backgroundImage:
-          'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)',
-        backgroundSize: '28px 28px'
-      }} />
-      <div className="absolute inset-0" style={{
-        backgroundImage:
-          'radial-gradient(circle at 20% 20%, rgba(59,130,246,0.08), transparent 0), radial-gradient(circle at 80% 25%, rgba(16,185,129,0.06), transparent 0), radial-gradient(circle at 55% 85%, rgba(244,63,94,0.05), transparent 0)'
-      }} />
+    <div className="sentinel-atlas-container relative h-full min-h-[260px] overflow-hidden rounded-[28px] border border-white/10 bg-[#05070b] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+      <MapContainer
+        center={DEFAULT_CENTER}
+        zoom={13}
+        scrollWheelZoom={false}
+        className="absolute inset-0 z-0 h-full w-full"
+        zoomControl={false}
+      >
+        <TileLayer key={mapMode} url={tileLayer.url} attribution={tileLayer.attribution} className={tileLayer.className} />
+        {mapMode === 'hybrid' && (
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            opacity={0.32}
+            attribution="&copy; OpenStreetMap contributors"
+            className="afat-tiles-hybrid-labels"
+          />
+        )}
 
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur-xl">
+        <FitMapToSignals points={allSignals} />
+
+        {showInformal && movementRoute.length > 1 && (
+          <Polyline positions={movementRoute} pathOptions={{ color: '#34d399', weight: 4, opacity: 0.72, dashArray: '8 8' }} />
+        )}
+
+        {routeSignals.length > 1 && (
+          <Polyline positions={routeSignals} pathOptions={{ color: '#38bdf8', weight: 5, opacity: 0.74 }} />
+        )}
+
+        {hazardSignals.map((point, idx) => {
+          const position = pointToLatLng(point);
+          if (!position) return null;
+          const color = severityColor(point.severity);
+          return (
+            <CircleMarker
+              key={`hazard-${point.id || point.created_at || idx}`}
+              center={position}
+              radius={9 + Math.min(Number(point.severity || 1), 5)}
+              pathOptions={{ color, fillColor: color, fillOpacity: 0.35, weight: 2 }}
+            >
+              <Popup className="afat-popup">
+                <SignalPopup point={point} fallback="Hazard signal" />
+              </Popup>
+            </CircleMarker>
+          );
+        })}
+
+        {vehicleSignals.map((point, idx) => {
+          const position = pointToLatLng(point);
+          if (!position) return null;
+          return (
+            <CircleMarker
+              key={`vehicle-${point.id || point.updated_at || idx}`}
+              center={position}
+              radius={7}
+              pathOptions={{ color: '#60a5fa', fillColor: '#1d4ed8', fillOpacity: 0.72, weight: 2 }}
+            >
+              <Popup className="afat-popup">
+                <SignalPopup point={point} fallback="Verified sentinel" />
+              </Popup>
+            </CircleMarker>
+          );
+        })}
+
+        {checkpoints.map((point, idx) => {
+          const position = pointToLatLng(point);
+          if (!position) return null;
+          return (
+            <CircleMarker
+              key={`checkpoint-${point.id || point.name || idx}`}
+              center={position}
+              radius={6}
+              pathOptions={{ color: '#22d3ee', fillColor: '#0891b2', fillOpacity: 0.65, weight: 2 }}
+            >
+              <Popup className="afat-popup">
+                <SignalPopup point={point} fallback="Checkpoint" />
+              </Popup>
+            </CircleMarker>
+          );
+        })}
+
+        {primaryLatLng && (
+          <CircleMarker
+            center={primaryLatLng}
+            radius={13}
+            pathOptions={{ color: '#34d399', fillColor: '#10b981', fillOpacity: 0.42, weight: 3 }}
+          >
+            <Popup className="afat-popup">
+              <SignalPopup point={primaryVehicle || {}} fallback="Primary dispatch" />
+            </Popup>
+          </CircleMarker>
+        )}
+      </MapContainer>
+
+      <div className="pointer-events-none absolute inset-0 z-10 bg-[radial-gradient(circle_at_top,rgba(96,165,250,0.14),transparent_38%),linear-gradient(180deg,rgba(0,0,0,0.05),rgba(0,0,0,0.38))]" />
+
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur-xl">
         <Activity className="h-4 w-4 text-emerald-400" />
         <div>
           <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/40">Dispatch Map</p>
@@ -228,107 +346,36 @@ export function InteractiveMap({
         </div>
       </div>
 
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur-xl">
-        <Radio className="h-4 w-4 text-blue-400 animate-pulse" />
+      <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur-xl">
+        <Radio className="h-4 w-4 animate-pulse text-blue-400" />
         <div className="text-right">
-          <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/40">Live sync</p>
+          <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/40">
+            {usingCachedStream ? 'Cached stream' : 'Live sync'}
+          </p>
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white">
-            {liveTracks.length + liveVehicles.length + incidents.length} active signals
+            {usingCachedStream ? cachedNodes.length : activeSignalCount} active signals
           </p>
         </div>
       </div>
 
-      <div className="absolute inset-0 z-10">
-        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          {polylinePoints && (
-            <polyline
-              points={polylinePoints}
-              fill="none"
-              stroke="rgba(56, 189, 248, 0.7)"
-              strokeWidth="0.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeDasharray={showInformal ? '0' : '1.5 1'}
-            />
-          )}
-          {routePoints.entries.slice(0, 1).map(({ x, y }, idx) => (
-            <circle key={idx} cx={x} cy={y} r="1.4" fill="rgba(96,165,250,0.9)" />
-          ))}
-        </svg>
-
-        {incidentPoints.entries.map(({ point, x, y }, idx) => (
-          <div
-            key={`incident-${idx}-${point.id || point.created_at || idx}`}
-            className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] shadow-2xl ${severityTone(point.severity)}`}
-            style={{ left: `${x}%`, top: `${y}%` }}
-          >
-            <div className="flex items-center gap-1.5">
-              <ShieldAlert className="h-3 w-3" />
-              <span>{markerLabel(point, 'Incident')}</span>
-            </div>
+      {allSignals.length === 0 && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center px-8 text-center">
+          <div className="max-w-xs rounded-[24px] border border-white/10 bg-black/55 px-5 py-4 backdrop-blur-xl">
+            <Wifi className="mx-auto mb-2 h-5 w-5 text-blue-400" />
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-white">Waiting for live dispatch</p>
+            <p className="mt-1 text-[10px] font-medium text-white/45">
+              The map stays online and will hydrate as telemetry, vehicles, or reports arrive.
+            </p>
           </div>
-        ))}
-
-        {checkpointPoints.entries.map(({ point, x, y }, idx) => (
-          <div
-            key={`checkpoint-${idx}-${point.id || point.name || idx}`}
-            className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1.5 text-[8px] font-black uppercase tracking-[0.22em] text-cyan-50 shadow-xl backdrop-blur-md"
-            style={{ left: `${x}%`, top: `${y}%` }}
-          >
-            <div className="flex items-center gap-1.5">
-              <MapPin className="h-3 w-3" />
-              <span>{markerLabel(point, 'Checkpoint')}</span>
-            </div>
-          </div>
-        ))}
-
-        {trackPoints.entries.map(({ point, x, y }, idx) => (
-          <div
-            key={`track-${idx}-${point.id || point.updated_at || idx}`}
-            className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
-            style={{ left: `${x}%`, top: `${y}%` }}
-          >
-            <div className="absolute inset-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-400/20 blur-md" />
-            <div className="relative flex h-7 w-7 items-center justify-center rounded-full border border-blue-300/50 bg-slate-950/90 shadow-[0_0_20px_rgba(59,130,246,0.35)]">
-              <Car className="h-3.5 w-3.5 text-blue-300" />
-            </div>
-          </div>
-        ))}
-
-        {primaryPoint && (
-          <div
-            className="absolute z-30 -translate-x-1/2 -translate-y-1/2"
-            style={{
-              left: `${((primaryPoint.longitude - normalized.bounds.minLng) / Math.max(normalized.bounds.maxLng - normalized.bounds.minLng, 0.0001)) * 100}%`,
-              top: `${100 - ((primaryPoint.latitude - normalized.bounds.minLat) / Math.max(normalized.bounds.maxLat - normalized.bounds.minLat, 0.0001)) * 100}%`
-            }}
-          >
-            <div className="absolute inset-0 rounded-full bg-emerald-400/20 blur-xl animate-pulse" />
-            <div className="relative flex h-12 w-12 items-center justify-center rounded-full border border-emerald-300/60 bg-black/90 shadow-[0_0_30px_rgba(16,185,129,0.45)]">
-              <Navigation2 className="h-5 w-5 text-emerald-300" />
-            </div>
-          </div>
-        )}
-
-        {normalized.entries.length === 0 && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center px-8 text-center">
-            <div className="max-w-xs rounded-[24px] border border-white/10 bg-black/55 px-5 py-4 backdrop-blur-xl">
-              <Wifi className="mx-auto mb-2 h-5 w-5 text-blue-400" />
-              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-white">Waiting for live dispatch</p>
-              <p className="mt-1 text-[10px] font-medium text-white/45">
-                When telemetry, vehicles, or incident reports arrive, the map updates in place.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="absolute bottom-4 left-4 right-4 z-20 flex flex-wrap items-center gap-2">
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl">
-          <span className="text-blue-300">{tracks.length + liveTracks.length}</span> moving nodes
+          <span className="text-blue-300">{vehicleSignals.length}</span> moving nodes
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl">
-          <span className="text-emerald-300">{incidents.length}</span> hazard signals
+          <span className="text-emerald-300">{hazardSignals.length}</span> hazard signals
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl">
           <span className="text-cyan-300">{checkpoints.length}</span> checkpoints
@@ -338,10 +385,23 @@ export function InteractiveMap({
             live dispatch feed
           </div>
         )}
-        <div className="ml-auto rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/45 backdrop-blur-xl">
-          {showInformal ? 'informal routes visible' : 'formal routes only'}
+        <div className="ml-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/45 backdrop-blur-xl">
+          {mapMode === 'satellite' || mapMode === 'hybrid' ? <Navigation2 className="h-3 w-3" /> : <MapPin className="h-3 w-3" />}
+          {mapMode}
         </div>
       </div>
+
+      {usingCachedStream && (
+        <div className="absolute bottom-16 right-4 z-20 rounded-2xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[8px] font-black uppercase tracking-[0.2em] text-blue-100 backdrop-blur-xl">
+          demo intelligence hydrated
+        </div>
+      )}
+
+      {hazardSignals.length > 0 && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-red-400/20">
+          <ShieldAlert className="h-24 w-24" />
+        </div>
+      )}
     </div>
   );
 }

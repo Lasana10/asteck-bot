@@ -53,6 +53,13 @@ const ROLE_TEXT: Record<string, string> = {
   admin:    'text-red-400',
 };
 
+const ROLE_DOT: Record<string, string> = {
+  commuter: 'bg-blue-400',
+  operator: 'bg-green-400',
+  planner:  'bg-purple-400',
+  admin:    'bg-red-400',
+};
+
 export function BottomNav({ role, activeTab, onTabChange }: Props) {
   const tabs = TAB_CONFIG[role] ?? TAB_CONFIG.commuter;
   const accentActive = ROLE_ACCENT[role] ?? ROLE_ACCENT.commuter;
@@ -60,7 +67,7 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[5000] w-[calc(100%-48px)] max-w-lg">
-      <nav className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-2.5 rounded-[2rem] flex items-center justify-around shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
+      <nav className="bg-slate-950/80 backdrop-blur-2xl border border-cyan-400/10 p-2.5 rounded-[2rem] flex items-center justify-around shadow-[0_20px_60px_rgba(0,0,0,0.55),0_0_28px_rgba(59,130,246,0.08)]">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -70,15 +77,15 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`flex-1 flex flex-col items-center gap-1.5 transition-all duration-300 relative group py-2 rounded-2xl ${
-                isActive ? accentText : 'text-white/20 hover:text-white/40'
+                isActive ? accentText : 'text-slate-500 hover:text-cyan-200'
               }`}
             >
-              <div className={`p-2 rounded-xl transition-all duration-300 ${isActive ? accentActive : 'group-hover:bg-white/5'}`}>
+              <div className={`p-2 rounded-xl transition-all duration-300 ${isActive ? accentActive : 'group-hover:bg-cyan-400/10'}`}>
                 <Icon className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-105'}`} />
               </div>
               
               {isActive && (
-                <div className={`absolute -bottom-1 w-1 h-1 rounded-full ${ROLE_TEXT[role] || 'bg-blue-400'} shadow-[0_0_10px_currentColor] animate-pulse`} />
+                <div className={`absolute -bottom-1 w-1 h-1 rounded-full ${ROLE_DOT[role] || 'bg-blue-400'} shadow-[0_0_10px_currentColor] animate-pulse`} />
               )}
               
               <span className={`text-[8px] font-black uppercase tracking-[0.2em] leading-none transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-90 h-0 overflow-hidden'}`}>

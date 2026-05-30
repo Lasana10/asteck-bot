@@ -217,6 +217,70 @@ router.post('/report', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/sos/panic', async (req: Request, res: Response) => {
+  try {
+    const { user_id, user_name, latitude, longitude, source } = req.body;
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+
+    if (!user_id || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'user_id, latitude and longitude are required' });
+    }
+
+    const incidentPayload = {
+      type: 'emergency',
+      description: `Emergency SOS from ${user_name || 'AFAT user'}. Location: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+      latitude: lat,
+      longitude: lng,
+      location: `POINT(${lng} ${lat})`,
+      severity: 5,
+      source: source || 'sos_button',
+      status: 'active',
+      reporter_id: user_id,
+      reporter_username: user_name || 'AFAT user',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: incident, error: incidentError } = await supabase
+      .from('incidents')
+      .insert(incidentPayload)
+      .select()
+      .single();
+
+    if (incidentError) {
+      console.warn('SOS accepted without incident persistence:', incidentError.message);
+      return res.status(202).json({
+        success: true,
+        persisted: false,
+        status: 'active',
+        alert: incidentPayload,
+      });
+    }
+
+    const { error: sosError } = await supabase
+      .from('sos_events')
+      .insert({
+        user_id,
+        incident_id: incident.id,
+        latitude: lat,
+        longitude: lng,
+        status: 'active',
+        created_at: new Date().toISOString(),
+      });
+
+    res.status(201).json({
+      success: true,
+      persisted: true,
+      status: 'active',
+      incident_id: incident.id,
+      sos_logged: !sosError,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: publicError(error, 'SOS dispatch failed') });
+  }
+});
+
 // Fetch Active Incidents for Mapbox/Native App View
 router.get('/incidents', async (req: Request, res: Response) => {
   try {
