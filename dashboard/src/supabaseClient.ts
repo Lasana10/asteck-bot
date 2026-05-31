@@ -530,6 +530,21 @@ export async function createDispatchAssignment(dispatchData: any) {
   }
 }
 
+export async function createServiceRequest(serviceData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/service/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(serviceData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Service request failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchPaymentProviderReadiness() {
   try {
     const res = await fetch(`${apiBaseUrl}/api/payment/provider-readiness`);

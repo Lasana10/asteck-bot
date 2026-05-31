@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Headphones, Search, PackageOpen, Car, Clock, MessageCircle, Star, ChevronRight, X, Send, Loader2 } from 'lucide-react';
+import { createServiceRequest } from '../../supabaseClient';
 
 interface Props {
   userId: string;
@@ -14,6 +15,8 @@ export function ConciergeHelp({ userId, userName, onClose }: Props) {
   const [message, setMessage] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [reference, setReference] = useState('');
+  const [errorText, setErrorText] = useState('');
 
   const services = [
     {
@@ -49,11 +52,35 @@ export function ConciergeHelp({ userId, userName, onClose }: Props) {
   const handleSubmit = async () => {
     if (!message.trim() || !selectedService) return;
     setLoading(true);
+    setErrorText('');
 
-    // In production: this would create a support ticket in Supabase
-    // and notify the nearest concierge agent via Telegram
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    const serviceTypeMap: Record<ServiceType, string> = {
+      vip_request: 'taxi_hire',
+      lost_found: 'lost_found',
+      complaint: 'complaint',
+      special_needs: 'special_needs'
+    };
 
+    const { data, error } = await createServiceRequest({
+      requester_id: userId,
+      contact_name: userName,
+      service_type: serviceTypeMap[selectedService],
+      origin: 'AFAT Concierge',
+      priority: selectedService === 'special_needs' || selectedService === 'vip_request' ? 'high' : 'normal',
+      notes: message,
+      metadata: {
+        channel: 'app_concierge',
+        concierge_track: selectedService
+      }
+    });
+
+    if (error) {
+      setErrorText(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setReference(data?.service_request?.id || data?.dispatch?.id || '');
     setSubmitted(true);
     setLoading(false);
   };
@@ -68,7 +95,7 @@ export function ConciergeHelp({ userId, userName, onClose }: Props) {
           </div>
           <h3 className="text-xl font-black text-emerald-500 uppercase mb-2">Demande Envoyée</h3>
           <p className="text-slate-400 text-sm mb-6">Notre équipe concierge vous contactera sous 15 minutes.</p>
-          <p className="text-[10px] text-slate-600 font-mono mb-8">Référence: #AST-{Date.now().toString(36).toUpperCase()}</p>
+          <p className="text-[10px] text-slate-600 font-mono mb-8">Référence: #{reference ? reference.slice(0, 8).toUpperCase() : 'AFAT-OPS'}</p>
           <button
             onClick={onClose}
             className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-2xl transition-all active:scale-95"
@@ -153,6 +180,12 @@ export function ConciergeHelp({ userId, userName, onClose }: Props) {
               <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-center gap-2">
                 <Clock className="w-4 h-4 text-amber-500" />
                 <span className="text-[10px] text-amber-400 font-bold">Délai moyen de réponse: 15 min</span>
+              </div>
+            )}
+
+            {errorText && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-[11px] font-bold text-red-300">
+                {errorText}
               </div>
             )}
 

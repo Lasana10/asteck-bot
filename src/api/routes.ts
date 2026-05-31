@@ -154,6 +154,21 @@ const LIVE_MAP_REGIONS: Record<string, { label: string; center: { lat: number; l
   cameroon: { label: 'Cameroon', center: { lat: 5.7, lng: 12.7 }, radiusKm: 950 },
 };
 
+const SERVICE_REQUEST_TYPES = [
+  'ride',
+  'taxi_hire',
+  'bike_pickup',
+  'delivery',
+  'agency_booking',
+  'charter',
+  'airport',
+  'special_needs',
+  'lost_found',
+  'complaint',
+] as const;
+
+const NON_DISPATCH_SERVICE_TYPES = new Set(['lost_found', 'complaint']);
+
 function normalizeRegion(region?: string) {
   const key = String(region || 'cameroon').trim().toLowerCase();
   return LIVE_MAP_REGIONS[key] ? key : 'cameroon';
@@ -168,6 +183,19 @@ function withinRegion(latitude: number | undefined, longitude: number | undefine
     Math.abs(Number(latitude) - region.center.lat) <= latRadius &&
     Math.abs(Number(longitude) - region.center.lng) <= lngRadius
   );
+}
+
+function normalizeServiceType(serviceType?: string) {
+  const normalized = String(serviceType || '').trim().toLowerCase();
+  return SERVICE_REQUEST_TYPES.includes(normalized as any) ? normalized : '';
+}
+
+function servicePriority(serviceType: string, requestedPriority?: string) {
+  if (requestedPriority && ['low', 'normal', 'high', 'emergency'].includes(requestedPriority)) {
+    return requestedPriority;
+  }
+  if (serviceType === 'special_needs' || serviceType === 'airport') return 'high';
+  return 'normal';
 }
 
 function publicError(error: any, fallback: string) {
@@ -1099,6 +1127,136 @@ router.post('/dispatch/assign', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Dispatch assignment error:', error);
     res.status(500).json({ error: error.message || 'Dispatch assignment failed' });
+  }
+});
+
+router.post('/service/request', async (req: Request, res: Response) => {
+  try {
+    const {
+      requester_id,
+      company_id,
+      operator_id,
+      vehicle_id,
+      service_type,
+      origin,
+      destination,
+      pickup_lat,
+      pickup_lng,
+      dropoff_lat,
+      dropoff_lng,
+      scheduled_at,
+      passenger_count,
+      package_count,
+      priority,
+      price_quote_xaf,
+      notes,
+      contact_name,
+      contact_phone,
+      metadata,
+    } = req.body;
+
+    const normalizedType = normalizeServiceType(service_type);
+    if (!normalizedType) {
+      return res.status(400).json({ error: 'Valid service_type is required' });
+    }
+
+    if (!requester_id && !company_id && !contact_phone) {
+      return res.status(400).json({ error: 'requester_id, company_id, or contact_phone is required' });
+    }
+
+    const pickupLat = pickup_lat === undefined || pickup_lat === null ? null : Number(pickup_lat);
+    const pickupLng = pickup_lng === undefined || pickup_lng === null ? null : Number(pickup_lng);
+    const dropoffLat = dropoff_lat === undefined || dropoff_lat === null ? null : Number(dropoff_lat);
+    const dropoffLng = dropoff_lng === undefined || dropoff_lng === null ? null : Number(dropoff_lng);
+
+    const requestPriority = servicePriority(normalizedType, priority);
+    const shouldDispatch = !NON_DISPATCH_SERVICE_TYPES.has(normalizedType);
+
+    const { data: request, error: requestError } = await supabase
+      .from('service_requests')
+      .insert({
+        requester_id: requester_id || null,
+        company_id: company_id || null,
+        operator_id: operator_id || null,
+        vehicle_id: vehicle_id || null,
+        service_type: normalizedType,
+        origin: origin || null,
+        destination: destination || null,
+        pickup_lat: Number.isFinite(pickupLat) ? pickupLat : null,
+        pickup_lng: Number.isFinite(pickupLng) ? pickupLng : null,
+        dropoff_lat: Number.isFinite(dropoffLat) ? dropoffLat : null,
+        dropoff_lng: Number.isFinite(dropoffLng) ? dropoffLng : null,
+        scheduled_at: scheduled_at || null,
+        passenger_count: Number(passenger_count || 1),
+        package_count: Number(package_count || 0),
+        priority: requestPriority,
+        status: shouldDispatch ? (operator_id || vehicle_id ? 'assigned' : 'queued') : 'needs_review',
+        price_quote_xaf: price_quote_xaf ? Number(price_quote_xaf) : null,
+        notes: notes || null,
+        contact_name: contact_name || null,
+        contact_phone: contact_phone || null,
+        metadata: metadata || {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (requestError) {
+      throw requestError;
+    }
+
+    let dispatch = null;
+    if (shouldDispatch) {
+      const dispatchPayload = {
+        service_request_id: request.id,
+        operator_id: operator_id || null,
+        vehicle_id: vehicle_id || null,
+        origin: origin || `${normalizedType} request`,
+        destination: destination || null,
+        priority: requestPriority,
+        status: operator_id || vehicle_id ? 'assigned' : 'queued',
+        notes: [notes, `service_request=${request.id}`, `service_type=${normalizedType}`].filter(Boolean).join(' | '),
+        pickup_lat: Number.isFinite(pickupLat) ? pickupLat : null,
+        pickup_lng: Number.isFinite(pickupLng) ? pickupLng : null,
+        dropoff_lat: Number.isFinite(dropoffLat) ? dropoffLat : null,
+        dropoff_lng: Number.isFinite(dropoffLng) ? dropoffLng : null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: dispatchData, error: dispatchError } = await supabase
+        .from('dispatch_assignments')
+        .insert(dispatchPayload)
+        .select()
+        .single();
+
+      if (dispatchError) {
+        console.warn('Service request created without dispatch assignment:', dispatchError.message);
+      } else {
+        dispatch = dispatchData;
+        await supabase
+          .from('service_requests')
+          .update({
+            dispatch_assignment_id: dispatchData.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', request.id);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      service_request: request,
+      dispatch,
+      status: request.status,
+      next_action: shouldDispatch
+        ? (dispatch ? 'dispatch_queued' : 'manual_dispatch_review')
+        : 'ops_review',
+    });
+  } catch (error: any) {
+    console.error('Service request error:', error);
+    res.status(500).json({ error: error.message || 'Service request failed' });
   }
 });
 
