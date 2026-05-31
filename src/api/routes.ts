@@ -146,6 +146,30 @@ function parsePointText(location?: string | null) {
   return { latitude, longitude };
 }
 
+const LIVE_MAP_REGIONS: Record<string, { label: string; center: { lat: number; lng: number }; radiusKm: number }> = {
+  yaounde: { label: 'Yaounde', center: { lat: 3.866, lng: 11.514 }, radiusKm: 35 },
+  douala: { label: 'Douala', center: { lat: 4.0511, lng: 9.7679 }, radiusKm: 38 },
+  bafoussam: { label: 'Bafoussam', center: { lat: 5.4778, lng: 10.4176 }, radiusKm: 28 },
+  garoua: { label: 'Garoua', center: { lat: 9.3014, lng: 13.3977 }, radiusKm: 40 },
+  cameroon: { label: 'Cameroon', center: { lat: 5.7, lng: 12.7 }, radiusKm: 950 },
+};
+
+function normalizeRegion(region?: string) {
+  const key = String(region || 'cameroon').trim().toLowerCase();
+  return LIVE_MAP_REGIONS[key] ? key : 'cameroon';
+}
+
+function withinRegion(latitude: number | undefined, longitude: number | undefined, regionKey: string) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  const region = LIVE_MAP_REGIONS[regionKey] || LIVE_MAP_REGIONS.cameroon;
+  const latRadius = region.radiusKm / 111;
+  const lngRadius = region.radiusKm / Math.max(Math.cos((region.center.lat * Math.PI) / 180) * 111, 1);
+  return (
+    Math.abs(Number(latitude) - region.center.lat) <= latRadius &&
+    Math.abs(Number(longitude) - region.center.lng) <= lngRadius
+  );
+}
+
 function publicError(error: any, fallback: string) {
   console.error(fallback, error);
   return process.env.NODE_ENV === 'production'
@@ -620,6 +644,100 @@ router.post('/ai/analyze', async (req: Request, res: Response) => {
 });
 
 // ── OPS COMMAND CENTER (Reports, Dispatch, Safety, Demand) ────────────────
+router.get('/ops/live-map', async (req: Request, res: Response) => {
+  try {
+    const regionKey = normalizeRegion(req.query.city as string | undefined);
+    const region = LIVE_MAP_REGIONS[regionKey];
+    const since = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+
+    const [{ data: vehicles }, { data: incidents }, { data: dispatches }] = await Promise.all([
+      supabase
+        .from('vehicles')
+        .select('id, operator_id, plate_number, vehicle_type, type, is_available, current_lat, current_lng, last_ping_at, rating')
+        .eq('is_available', true)
+        .limit(200),
+      supabase
+        .from('incidents')
+        .select('id, type, description, severity, status, verification_status, latitude, longitude, location, created_at, reporter_username')
+        .gte('created_at', since)
+        .neq('status', 'false')
+        .order('created_at', { ascending: false })
+        .limit(160),
+      supabase
+        .from('dispatch_assignments')
+        .select('id, booking_id, operator_id, vehicle_id, status, priority, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at')
+        .in('status', ['queued', 'assigned', 'en_route', 'arrived'])
+        .order('created_at', { ascending: false })
+        .limit(120),
+    ]);
+
+    const scopedVehicles = (vehicles || []).filter((vehicle: any) =>
+      withinRegion(Number(vehicle.current_lat), Number(vehicle.current_lng), regionKey)
+    );
+
+    const scopedIncidents = (incidents || []).filter((incident: any) => {
+      const point = {
+        latitude: Number(incident.latitude ?? parsePointText(incident.location)?.latitude),
+        longitude: Number(incident.longitude ?? parsePointText(incident.location)?.longitude),
+      };
+      return withinRegion(point.latitude, point.longitude, regionKey);
+    });
+
+    const scopedDispatches = (dispatches || []).filter((dispatch: any) => {
+      const pickupLat = Number(dispatch.pickup_lat);
+      const pickupLng = Number(dispatch.pickup_lng);
+      const dropoffLat = Number(dispatch.dropoff_lat);
+      const dropoffLng = Number(dispatch.dropoff_lng);
+      return (
+        withinRegion(pickupLat, pickupLng, regionKey) ||
+        withinRegion(dropoffLat, dropoffLng, regionKey) ||
+        (!Number.isFinite(pickupLat) && !Number.isFinite(dropoffLat))
+      );
+    });
+
+    const urgentAlerts = scopedIncidents
+      .filter((incident: any) => Number(incident.severity || 0) >= 4)
+      .slice(0, 6)
+      .map((incident: any) => ({
+        id: incident.id,
+        title: incident.type || 'incident',
+        severity: incident.severity || 3,
+        description: incident.description || 'Live terrain signal',
+        created_at: incident.created_at,
+        source: incident.reporter_username || 'AFAT field grid',
+      }));
+
+    const verifiedIncidents = scopedIncidents.filter((incident: any) =>
+      ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
+    );
+
+    res.status(200).json({
+      success: true,
+      city: regionKey,
+      label: region.label,
+      generated_at: new Date().toISOString(),
+      center: region.center,
+      summary: {
+        active_vehicles: scopedVehicles.length,
+        active_incidents: scopedIncidents.length,
+        urgent_alerts: urgentAlerts.length,
+        verified_incidents: verifiedIncidents.length,
+        active_dispatches: scopedDispatches.length,
+        recommended_mode:
+          urgentAlerts.length >= 3 ? 'alert' : scopedDispatches.length > scopedVehicles.length ? 'demand_pressure' : 'stable',
+        city_scale_ready: ['yaounde', 'douala', 'bafoussam', 'garoua', 'cameroon'],
+      },
+      alerts: urgentAlerts,
+      vehicles: scopedVehicles,
+      incidents: scopedIncidents,
+      dispatches: scopedDispatches,
+    });
+  } catch (error: any) {
+    console.error('Live map feed error:', error);
+    res.status(500).json({ error: error.message || 'Live map feed failed' });
+  }
+});
+
 router.get('/ops/report-center', async (_req: Request, res: Response) => {
   try {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

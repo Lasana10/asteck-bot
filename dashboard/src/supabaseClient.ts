@@ -492,6 +492,18 @@ export async function fetchDemandRadar() {
   }
 }
 
+export async function fetchLiveMapOps(city: string = 'cameroon') {
+  try {
+    const params = new URLSearchParams({ city });
+    const res = await fetch(`${apiBaseUrl}/api/ops/live-map?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Live map feed failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchActiveDispatches() {
   try {
     const res = await fetch(`${apiBaseUrl}/api/dispatch/active`);

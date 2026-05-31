@@ -5,7 +5,7 @@ import {
   MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio,
   Database, Download, CheckCircle, Activity, Layout, Layers, Box, Cloud, Wifi, RefreshCw, ArrowUpRight
 } from 'lucide-react';
-import { getOperatorWalletLedger, requestOperatorWithdrawal, supabase } from '../../supabaseClient';
+import { fetchLiveMapOps, getOperatorWalletLedger, requestOperatorWithdrawal, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { VoiceReporter } from '../shared/VoiceReporter';
 import { QRCodeGenerator } from '../shared/QRCodeGenerator';
@@ -67,6 +67,8 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const [latestDirective, setLatestDirective] = useState<any>(null);
   const [isDriveModeActive, setIsDriveModeActive] = useState(false);
   const [incidents, setIncidents] = useState<any[]>([]);
+  const [regionalSupply, setRegionalSupply] = useState<any[]>([]);
+  const [regionalLabel, setRegionalLabel] = useState('Cameroon');
   const [coPilotFeed, setCoPilotFeed] = useState<{ time: string, text: string, type: 'info' | 'warning' | 'success' }[]>([
     { time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), text: "Système Sentinel activé. Scan en cours...", type: 'info' }
   ]);
@@ -108,9 +110,13 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     }, 1500);
   };
 
-  const fetchIncidents = async () => {
-    const { data } = await supabase.from('incidents').select('*').neq('status', 'false').order('created_at', { ascending: false });
-    if (data) setIncidents(data);
+  const refreshRegionalOps = async () => {
+    const city = profile?.preferred_city || 'cameroon';
+    const { data } = await fetchLiveMapOps(city);
+    if (!data) return;
+    setIncidents(data.incidents || []);
+    setRegionalSupply(data.vehicles || []);
+    setRegionalLabel(data.label || 'Cameroon');
   };
 
   useEffect(() => {
@@ -118,7 +124,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     fetchRequests();
     fetchWallet();
     fetchWalletLedger();
-    fetchIncidents();
+    refreshRegionalOps();
 
     const channel = supabase
       .channel('operator-updates')
@@ -132,7 +138,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
         filter: `operator_id=eq.${profile?.id}`
       }, () => { fetchWallet(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, () => {
-        fetchIncidents();
+        refreshRegionalOps();
       })
       .subscribe();
 
@@ -156,7 +162,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
       supabase.removeChannel(channel); 
       supabase.removeChannel(directiveChannel);
     };
-  }, [profile?.id]);
+  }, [profile?.id, profile?.preferred_city]);
 
   useEffect(() => {
     if (!isDriveModeActive) return;
@@ -933,7 +939,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           <div className="bg-black/70 backdrop-blur-2xl border border-amber-500/20 px-5 py-4 rounded-2xl shadow-2xl pointer-events-auto text-right">
              <p className="text-[8px] text-amber-400/60 font-black uppercase tracking-[0.3em] mb-1">Route Intel</p>
              <p className="text-[14px] font-black text-amber-400 uppercase tracking-tight">{requests.length > 0 ? 'PASSENGER ACTIVE' : 'CRUISING'}</p>
-             <p className="text-[9px] text-white/30 font-bold mt-1">Grid Sector: Yaoundé Centre</p>
+             <p className="text-[9px] text-white/30 font-bold mt-1">Grid Sector: {regionalLabel} • {regionalSupply.length} nodes</p>
           </div>
        </div>
 

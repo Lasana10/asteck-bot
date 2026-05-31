@@ -15,7 +15,7 @@ import { DepartureBoard } from './DepartureBoard';
 import { SeatSelector } from './SeatSelector';
 import { PaymentSheet } from './PaymentSheet';
 import { TicketView } from './TicketView';
-import { createBookingFromHold, createSeatHold, releaseSeatHold, supabase } from '../../supabaseClient';
+import { createBookingFromHold, createSeatHold, fetchLiveMapOps, releaseSeatHold, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { CommuterWallet } from './CommuterWallet';
@@ -82,6 +82,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
   const [bookingResult, setBookingResult] = useState<any>(null);
   const [activeVehicles, setActiveVehicles] = useState<any[]>([]);
+  const [liveOpsLabel, setLiveOpsLabel] = useState('Cameroon');
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingInFlight, setBookingInFlight] = useState(false);
 
@@ -97,20 +98,19 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   }, [profile?.language]);
 
   useEffect(() => {
-    fetchIncidents();
-    fetchVehicles();
+    refreshLiveOps();
 
     const incidentChannel = supabase
       .channel('public:incidents')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, () => {
-        fetchIncidents();
+        refreshLiveOps();
       })
       .subscribe();
 
     const vehicleChannel = supabase
       .channel('public:vehicles')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => {
-        fetchVehicles();
+        refreshLiveOps();
       })
       .subscribe();
 
@@ -118,16 +118,15 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       supabase.removeChannel(incidentChannel); 
       supabase.removeChannel(vehicleChannel);
     };
-  }, []);
+  }, [profile?.preferred_city]);
 
-  const fetchIncidents = async () => {
-    const { data } = await supabase.from('incidents').select('*').neq('status', 'false').order('created_at', { ascending: false });
-    if (data) setIncidents(data);
-  };
-
-  const fetchVehicles = async () => {
-    const { data } = await supabase.from('vehicles').select('*').eq('is_available', true);
-    if (data) setActiveVehicles(data);
+  const refreshLiveOps = async () => {
+    const city = profile?.preferred_city || 'cameroon';
+    const { data } = await fetchLiveMapOps(city);
+    if (!data) return;
+    setIncidents(data.incidents || []);
+    setActiveVehicles(data.vehicles || []);
+    setLiveOpsLabel(data.label || 'Cameroon');
   };
 
   const handleDownloadMap = async (regionId: 'yaounde' | 'douala' | 'cameroon') => {
@@ -806,7 +805,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-xl font-black text-white">Alertes Trafic</h2>
-          <p className="text-[12px] text-white/40">Intelligence terrain — Yaoundé & Douala</p>
+          <p className="text-[12px] text-white/40">Intelligence terrain — {liveOpsLabel}</p>
         </div>
         <div className="flex items-center gap-1.5 bg-green-500/10 border border-green-500/30 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(34,197,94,0.2)]">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
