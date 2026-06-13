@@ -1,3 +1,5 @@
+import nodeCrypto from 'node:crypto';
+
 /**
  * ============================================================================
  * PAYMENT SERVICE — FinTech / Mobile Money Gateway
@@ -19,15 +21,37 @@ export interface PaymentResult {
   success: boolean;
   transactionId?: string;
   message: string;
+  provider?: string;
+  rawStatus?: string;
 }
 
 export class PaymentService {
   private apiKey: string;
   private provider: string;
+  private pawaPayBaseUrl: string;
 
   constructor() {
-    this.apiKey = process.env.PAYMENT_API_KEY || '';
+    this.apiKey = process.env.PAWAPAY_API_TOKEN || process.env.PAYMENT_API_KEY || '';
     this.provider = process.env.PAYMENT_PROVIDER || 'pawapay'; // pawapay | campay | africastalking
+    const pawaPayEnv = (process.env.PAWAPAY_ENV || process.env.NODE_ENV || 'sandbox').toLowerCase();
+    this.pawaPayBaseUrl =
+      process.env.PAWAPAY_BASE_URL ||
+      (pawaPayEnv === 'production' ? 'https://api.pawapay.io/v2' : 'https://api.sandbox.pawapay.io/v2');
+  }
+
+  private normalizeCameroonPhone(phone: string) {
+    const digits = String(phone || '').replace(/[^\d]/g, '');
+    if (digits.startsWith('237')) return digits;
+    return `237${digits.replace(/^0+/, '')}`;
+  }
+
+  private inferCameroonProvider(phone: string, requested?: string) {
+    const normalized = String(requested || '').toLowerCase();
+    if (normalized.includes('orange')) return 'ORANGE_CMR';
+    if (normalized.includes('mtn')) return 'MTN_MOMO_CMR';
+
+    const local = this.normalizeCameroonPhone(phone).slice(3);
+    return /^(67|650|651|652|653|654|68)/.test(local) ? 'MTN_MOMO_CMR' : 'ORANGE_CMR';
   }
 
   /**
@@ -66,19 +90,17 @@ export class PaymentService {
     amount: number,
     recipientDescription: string
   ): Promise<PaymentResult> {
-    const formattedPhone = payerPhone.startsWith('+') ? payerPhone : `+237${payerPhone}`;
-    const transactionId = `asteck_${Date.now()}`;
+    const formattedPhone = this.normalizeCameroonPhone(payerPhone);
+    const transactionId = nodeCrypto.randomUUID();
     
     console.log(`💰 [Payment] ${provider.toUpperCase()} Push: ${amount} XAF from ${formattedPhone}`);
 
     // ── PROVIDER: PawaPay (Elite/QR/Modern) ───────────────────────────────
     if (provider === 'pawapay' && this.apiKey) {
       try {
-        const correspondent = formattedPhone.includes('67') || formattedPhone.includes('650') || formattedPhone.includes('68') 
-          ? 'MTN_MOMO_CMR' 
-          : 'ORANGE_MONEY_CMR';
+        const mobileProvider = this.inferCameroonProvider(formattedPhone);
 
-        const response = await fetch('https://api.pawapay.cloud/deposits', {
+        const response = await fetch(`${this.pawaPayBaseUrl}/deposits`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${this.apiKey}`,
@@ -88,24 +110,37 @@ export class PaymentService {
             depositId: transactionId,
             amount: amount.toString(),
             currency: 'XAF',
-            country: 'CMR',
-            correspondent,
-            payer: { address: { value: formattedPhone } },
-            customerTimestamp: new Date().toISOString(),
-            statementDescription: `AsTeck: ${recipientDescription}`
+            payer: {
+              type: 'MMO',
+              accountDetails: {
+                phoneNumber: formattedPhone,
+                provider: mobileProvider
+              }
+            },
+            customerMessage: `AFAT ${recipientDescription}`.slice(0, 160)
           }),
         });
 
         const data = await response.json();
-        if (response.ok) {
+        if (response.ok && ['ACCEPTED', 'SUBMITTED', 'PENDING'].includes(String(data.status || '').toUpperCase())) {
           return {
             success: true,
             transactionId,
-            message: `PawaPay push initiated via ${correspondent}.`,
+            provider: 'pawapay',
+            rawStatus: data.status,
+            message: `PawaPay collection initiated via ${mobileProvider}.`,
           };
         }
+
+        return {
+          success: false,
+          provider: 'pawapay',
+          rawStatus: data.status,
+          message: data?.message || data?.errorMessage || `PawaPay deposit rejected with HTTP ${response.status}.`
+        };
       } catch (err: any) {
         console.error('❌ [Payment] PawaPay Error:', err.message);
+        return { success: false, provider: 'pawapay', message: err.message || 'PawaPay network error.' };
       }
     }
 
@@ -140,6 +175,8 @@ export class PaymentService {
     return {
       success: true,
       transactionId: `stub_${Date.now()}`,
+      provider: 'stub',
+      rawStatus: 'STUB_ACCEPTED',
       message: `[STUB] ${amount} XAF processed.`,
     };
   }
@@ -152,17 +189,15 @@ export class PaymentService {
     recipientPhone: string,
     amount: number
   ): Promise<PaymentResult> {
-    const formattedPhone = recipientPhone.startsWith('+') ? recipientPhone : `+237${recipientPhone}`;
-    const payoutId = `payout_${Date.now()}`;
-    const correspondent = formattedPhone.includes('67') || formattedPhone.includes('650') || formattedPhone.includes('68') 
-      ? 'MTN_MOMO_CMR' 
-      : 'ORANGE_MONEY_CMR';
+    const formattedPhone = this.normalizeCameroonPhone(recipientPhone);
+    const payoutId = nodeCrypto.randomUUID();
+    const mobileProvider = this.inferCameroonProvider(formattedPhone);
 
-    console.log(`🏦 [Cash-Out] PawaPay Payout: ${amount} XAF to ${formattedPhone} (${correspondent})`);
+    console.log(`🏦 [Cash-Out] PawaPay Payout: ${amount} XAF to ${formattedPhone} (${mobileProvider})`);
 
     if (this.provider === 'pawapay' && this.apiKey) {
       try {
-        const response = await fetch('https://api.pawapay.cloud/payouts', {
+        const response = await fetch(`${this.pawaPayBaseUrl}/payouts`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${this.apiKey}`,
@@ -172,13 +207,14 @@ export class PaymentService {
             payoutId,
             amount: amount.toString(),
             currency: 'XAF',
-            country: 'CMR',
-            correspondent,
             recipient: {
-              address: { value: formattedPhone }
+              type: 'MMO',
+              accountDetails: {
+                phoneNumber: formattedPhone,
+                provider: mobileProvider
+              }
             },
-            customerTimestamp: new Date().toISOString(),
-            statementDescription: 'AsTeck Earnings Withdrawal'
+            customerMessage: 'AFAT earnings withdrawal'
           }),
         });
 
@@ -188,6 +224,8 @@ export class PaymentService {
           return {
             success: true,
             transactionId: payoutId,
+            provider: 'pawapay',
+            rawStatus: data.status,
             message: `PawaPay payout initiated to ${formattedPhone}.`,
           };
         } else {
@@ -247,13 +285,15 @@ export class PaymentService {
 
     if (this.provider === 'pawapay' && this.apiKey) {
        try {
-         const response = await fetch(`https://api.pawapay.cloud/deposits/${transactionId}`, {
+         const response = await fetch(`${this.pawaPayBaseUrl}/deposits/${transactionId}`, {
            headers: { 'Authorization': `Bearer ${this.apiKey}` },
          });
          const data = await response.json();
          return {
            success: data.status === 'COMPLETED',
            transactionId,
+           provider: 'pawapay',
+           rawStatus: data.status,
            message: data.status || 'Unknown',
          };
        } catch (err: any) {

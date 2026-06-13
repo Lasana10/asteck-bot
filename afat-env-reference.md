@@ -5,6 +5,7 @@
 Required:
 
 - `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
 - `SUPABASE_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `SESSION_SECRET`
@@ -40,6 +41,7 @@ Optional / feature-specific:
 Required:
 
 - `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_API_URL=https://asteck-bot.onrender.com`
 

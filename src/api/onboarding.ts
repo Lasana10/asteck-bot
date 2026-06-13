@@ -10,6 +10,86 @@ import { aiRouter } from '../services/AIRouter';
 
 const router = express.Router();
 
+async function seedComplianceRecords(records: Array<Record<string, any>>) {
+  if (!records.length) return;
+  const { error } = await supabase.from('compliance_records').insert(records);
+  if (error) {
+    console.error('Compliance seeding error:', error);
+  }
+}
+
+function buildOperatorComplianceRecords(params: {
+  profileId: string;
+  vehicleType?: string | null;
+  baseCity?: string | null;
+  operatingZone?: string | null;
+  affiliationName?: string | null;
+  verificationStatus?: string;
+}) {
+  const notes = [
+    params.baseCity ? `base_city=${params.baseCity}` : null,
+    params.operatingZone ? `operating_zone=${params.operatingZone}` : null,
+    params.affiliationName ? `affiliation=${params.affiliationName}` : null,
+    params.vehicleType ? `vehicle_type=${params.vehicleType}` : null,
+  ].filter(Boolean).join(' | ');
+
+  const vehicleDocs = params.vehicleType === 'moto' || params.vehicleType === 'bike'
+    ? [
+        { document_type: 'helmet_compliance', document_label: 'Helmet and rider safety check' },
+        { document_type: 'bike_registration', document_label: 'Bike registration or ownership proof' },
+      ]
+    : [
+        { document_type: 'vehicle_registration', document_label: 'Vehicle registration card' },
+        { document_type: 'insurance', document_label: 'Insurance certificate' },
+      ];
+
+  const baseRecords = [
+    { document_type: 'national_id', document_label: 'National ID verification' },
+    { document_type: 'license', document_label: 'Driver license verification' },
+    ...vehicleDocs,
+  ];
+
+  return baseRecords.map((record) => ({
+    profile_id: params.profileId,
+    role: params.vehicleType === 'moto' ? 'bike_rider' : 'operator',
+    document_type: record.document_type,
+    document_label: record.document_label,
+    package_tier: params.vehicleType === 'delivery' ? 'delivery_plus' : 'core_operator',
+    status: params.verificationStatus === 'verified' ? 'submitted' : 'pending',
+    followup_channel: 'whatsapp',
+    notes: notes || null,
+  }));
+}
+
+function buildCompanyComplianceRecords(params: {
+  companyId: string;
+  serviceCoverage?: string | null;
+  companyType?: string | null;
+  companyNotes?: string | null;
+}) {
+  const notes = [
+    params.companyType ? `company_type=${params.companyType}` : null,
+    params.serviceCoverage ? `service_coverage=${params.serviceCoverage}` : null,
+    params.companyNotes ? `ops_notes=${params.companyNotes}` : null,
+  ].filter(Boolean).join(' | ');
+
+  return [
+    { document_type: 'business_registration', document_label: 'Business registration certificate' },
+    { document_type: 'operating_permit', document_label: 'Operating permit or route authorization' },
+    { document_type: 'fleet_insurance', document_label: 'Fleet insurance proof' },
+    { document_type: 'tax_compliance', document_label: 'Tax or municipal compliance proof' },
+  ].map((record) => ({
+    company_id: params.companyId,
+    role: 'company',
+    document_type: record.document_type,
+    document_label: record.document_label,
+    package_tier: 'fleet_launch',
+    status: 'pending',
+    followup_channel: 'manual',
+    notes: notes || null,
+  }));
+}
+
 // ── DRIVER ONBOARDING ────────────────────────────────────────────────────────
 router.post('/driver/register', async (req: Request, res: Response) => {
   try {
@@ -17,7 +97,10 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       full_name, phone, national_id, license_number,
       vehicle_type, vehicle_plate, vehicle_capacity,
       operator_id, // optional — if affiliated with an agence
-      selfie_base64 // for ID verification
+      selfie_base64, // for ID verification
+      base_city,
+      operating_zone,
+      affiliation_name
     } = req.body;
 
     if (!full_name || !phone || !national_id || !license_number) {
@@ -96,6 +179,17 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       vehicle = v;
     }
 
+    await seedComplianceRecords(
+      buildOperatorComplianceRecords({
+        profileId: profile.id,
+        vehicleType: vehicle_type,
+        baseCity: base_city,
+        operatingZone: operating_zone,
+        affiliationName: affiliation_name,
+        verificationStatus,
+      })
+    );
+
     res.status(201).json({
       success: true,
       driver: {
@@ -103,7 +197,13 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         contractor_code: contractorCode,
         verification_status: verificationStatus,
         commission_rate: '8%',
-        vehicle
+        vehicle,
+        onboarding_context: {
+          vehicle_type,
+          base_city: base_city || null,
+          operating_zone: operating_zone || null,
+          affiliation_name: affiliation_name || null,
+        }
       },
       message: `Bienvenue ${full_name}! Code contractant: ${contractorCode}. Commission AFAT: 8%.`
     });
@@ -149,7 +249,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
 // ── PASSENGER REGISTRATION ───────────────────────────────────────────────────
 router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
-    const { full_name, phone, emergency_contact } = req.body;
+    const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
 
     if (!full_name || !phone) {
       return res.status(400).json({ error: 'Missing: full_name, phone' });
@@ -180,7 +280,17 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
       .single();
 
     if (error) throw error;
-    res.status(201).json({ success: true, user: { id: data.id, full_name } });
+    res.status(201).json({
+      success: true,
+      user: {
+        id: data.id,
+        full_name,
+        onboarding_context: {
+          preferred_city: preferred_city || null,
+          preferred_zone: preferred_zone || null,
+        }
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Registration failed' });
   }
@@ -189,7 +299,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
 // ── COMPANY / FLEET REGISTRATION ────────────────────────────────────────────
 router.post('/company/register', async (req: Request, res: Response) => {
   try {
-    const { company_name, phone, contact_person, fleet_size, notes } = req.body;
+    const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
 
     if (!company_name || !phone) {
       return res.status(400).json({ error: 'Missing: company_name, phone' });
@@ -251,6 +361,15 @@ router.post('/company/register', async (req: Request, res: Response) => {
 
     if (membershipError) throw membershipError;
 
+    await seedComplianceRecords(
+      buildCompanyComplianceRecords({
+        companyId: company.id,
+        serviceCoverage: service_coverage,
+        companyType: company_type,
+        companyNotes: notes,
+      })
+    );
+
     res.status(201).json({
       success: true,
       company: {
@@ -259,6 +378,8 @@ router.post('/company/register', async (req: Request, res: Response) => {
         contact_person: coordinatorName,
         fleet_size: company.fleet_size,
         notes: company.notes,
+        company_type: company_type || null,
+        service_coverage: service_coverage || null,
       },
       profile: {
         id: data.id,

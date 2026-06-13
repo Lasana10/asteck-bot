@@ -30,6 +30,7 @@ Do this before testing the new flows.
 In Render, confirm these env vars exist:
 
 - `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
 - `SUPABASE_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `WEBHOOK_DOMAIN`
@@ -54,6 +55,7 @@ Recommended:
 In Cloudflare Pages, set:
 
 - `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_API_URL=https://asteck-bot.onrender.com`
 
@@ -67,7 +69,7 @@ Optional if still used elsewhere:
 From project root:
 
 ```powershell
-cd C:\Users\MEDION\OneDrive\Documents
+cd C:\Users\MEDION\Documents\Codex\2026-05-12\can-you-have-access-to-the\afat-src
 npm run dev
 ```
 
@@ -93,7 +95,7 @@ Smoke-test endpoints:
 From dashboard directory:
 
 ```powershell
-cd C:\Users\MEDION\OneDrive\Documents\dashboard
+cd C:\Users\MEDION\Documents\Codex\2026-05-12\can-you-have-access-to-the\afat-src\dashboard
 npm run dev
 ```
 

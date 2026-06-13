@@ -142,6 +142,7 @@ export default function App() {
 }
 
 function AppShell() {
+  const showDevOverride = new URLSearchParams(window.location.search).get('devOverride') === '1';
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -151,13 +152,20 @@ function AppShell() {
   const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
   const [isRegistrationHubOpen, setIsRegistrationHubOpen] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [localAuthUserId, setLocalAuthUserId] = useState<string | null>(() => localStorage.getItem('afat_local_user_id'));
 
   try {
     const forceRole = (role: string, vehicleType?: string, idData?: any) => {
       setUserRole(role);
-      setSessionUser({ id: 'dev-id', phone: '237000000' });
+      const resolvedId = idData?.id || `afat-local-${role}`;
+      const resolvedPhone = idData?.phone || localStorage.getItem('afat_local_phone') || '237000000';
+      localStorage.setItem('afat_local_user_id', resolvedId);
+      localStorage.setItem('afat_local_phone', resolvedPhone);
+      localStorage.setItem('afat_user_id', resolvedId);
+      setLocalAuthUserId(resolvedId);
+      setSessionUser({ id: resolvedId, phone: resolvedPhone });
       setUserProfile({
-        id: idData?.id || 'dev-id',
+        id: resolvedId,
         full_name: idData?.full_name || (idData?.ids_number ? `Sentinel ${idData.ids_number.split('-').pop()}` : `${vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) + ' ' : ''}Test ${role.charAt(0).toUpperCase() + role.slice(1)}`),
         role: role,
         trust_points: 500,
@@ -173,11 +181,16 @@ function AppShell() {
     };
 
     useEffect(() => {
+      const localProfileId = localStorage.getItem('afat_local_user_id');
       supabase.auth.getSession().then(({ data: { session } }) => {
         setSessionUser(session?.user ?? null);
         if (session?.user) {
           localStorage.setItem('afat_user_id', session.user.id);
           fetchRole(session.user.id);
+        } else if (localProfileId) {
+          setSessionUser({ id: localProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
+          localStorage.setItem('afat_user_id', localProfileId);
+          fetchRole(localProfileId);
         }
       }).catch((err) => {
         console.error('[AFAT] Supabase init error:', err);
@@ -191,9 +204,16 @@ function AppShell() {
           fetchRole(user.id);
           telemetry.start(user.id);
         } else {
-          localStorage.removeItem('afat_user_id');
-          setUserRole(null);
-          telemetry.stop();
+          const fallbackProfileId = localStorage.getItem('afat_local_user_id');
+          if (fallbackProfileId) {
+            setSessionUser({ id: fallbackProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
+            localStorage.setItem('afat_user_id', fallbackProfileId);
+            fetchRole(fallbackProfileId);
+          } else {
+            localStorage.removeItem('afat_user_id');
+            setUserRole(null);
+            telemetry.stop();
+          }
         }
       });
 
@@ -224,6 +244,12 @@ function AppShell() {
     };
 
     const handleSignOut = async () => {
+      localStorage.removeItem('afat_local_user_id');
+      localStorage.removeItem('afat_local_phone');
+      localStorage.removeItem('afat_user_id');
+      setLocalAuthUserId(null);
+      setUserProfile(null);
+      setUserRole(null);
       await signOut();
     };
 
@@ -273,37 +299,55 @@ function AppShell() {
 
     if (!sessionUser) {
       return (
-        <div className="min-h-screen flex flex-col sentinel-bg text-white">
+        <div className="min-h-screen sentinel-bg text-white">
           <div className="mesh-gradient" />
-          <div className="relative z-10 flex-1 flex flex-col">
-            <CommuterDashboard 
-              onSignOut={() => {}} 
-              profile={{ username: 'Guest', trust_points: 0 }} 
-              activeTab={activeTab}
-              isGuest={true}
-            />
-          </div>
-          <div className="fixed bottom-32 left-6 right-6 z-[2000] animate-fade-up">
-             <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between group overflow-hidden relative">
-                <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="relative z-10">
-                   <h4 className="font-black text-white text-lg leading-tight uppercase italic tracking-tighter">AFAT Safe Passage</h4>
-                   <p className="text-blue-400 text-[10px] font-black uppercase tracking-widest mt-1">Initialize Sentinel Protocol</p>
+          <div className="relative z-10 flex min-h-screen items-center justify-center p-6">
+            <div className="w-full max-w-xl rounded-[2.5rem] border border-white/10 bg-slate-950/70 p-8 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+              <div className="mb-8 flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+                  <AFATLogo className="h-8 w-8 text-white" />
                 </div>
-                <button 
-                  onClick={() => window.location.reload()} 
-                  className="bg-white text-slate-950 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-white/10 active:scale-95 transition-all relative z-10"
-                >
-                  Connect
-                </button>
-             </div>
+                <div>
+                  <h1 className="text-2xl font-black uppercase italic tracking-tight text-white">AFAT Access</h1>
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Real onboarding. Real route intelligence.</p>
+                </div>
+              </div>
+
+              <div className="mb-8 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/60">Why you’re here</p>
+                <p className="mt-2 text-sm font-medium leading-relaxed text-white/75">
+                  AFAT now opens through a real access flow instead of the old guest shell. Sign in with your phone or register your commuter, operator, or fleet identity to enter the live system.
+                </p>
+              </div>
+
+              <Login />
+
+              <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-tight text-white">No AFAT profile yet?</p>
+                    <p className="mt-1 text-xs text-white/45">Create commuter, operator, government-linked, or fleet onboarding before sign-in.</p>
+                  </div>
+                  <button
+                    onClick={() => setIsRegistrationHubOpen(true)}
+                    className="rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]"
+                  >
+                    Register
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-          <BottomNav role="commuter" activeTab={activeTab} onTabChange={setActiveTab} />
-          {renderRoleToggle()}
           <RegistrationHub 
             isVisible={isRegistrationHubOpen} 
             onClose={() => setIsRegistrationHubOpen(false)} 
-            onRegisterCustom={(data) => forceRole(data.role, data.vehicleType, data)} 
+            onRegisterCustom={(data) => {
+              if (data?.id) {
+                localStorage.setItem('afat_local_user_id', data.id);
+                setLocalAuthUserId(data.id);
+              }
+              forceRole(data.role, data.vehicleType, data);
+            }} 
           />
         </div>
       );
@@ -330,7 +374,7 @@ function AppShell() {
           {renderDashboard()}
         </div>
         <BottomNav role={userRole as any} activeTab={activeTab} onTabChange={setActiveTab} />
-        {renderRoleToggle()}
+        {showDevOverride && renderRoleToggle()}
         <RoleOnboarding 
           role={userRole as any} 
           profile={userProfile}

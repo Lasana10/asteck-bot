@@ -33,7 +33,7 @@ Render is the easiest way to run this bot for free.
    - Select your repository.
 3. **Set Secrets**:
    - Render will detect `render.yaml` and ask for your environment variables.
-   - Paste your `TELEGRAM_BOT_TOKEN`, `SUPABASE_URL`, and `SUPABASE_KEY`.
+   - Paste your `TELEGRAM_BOT_TOKEN`, `SUPABASE_URL`, and `SUPABASE_SECRET_KEY` or `SUPABASE_KEY`.
 4. **Isolated Static Frontend**: The dashboard is configured to deploy as a **Static Site**, ensuring zero interference with the bot's runtime.
 
 ## 🚀 3. High Capacity Cloud Deployment (GCP / AWS / Azure)
@@ -43,7 +43,7 @@ For "Full Capacity" scaling (millions of concurrent users):
    - Deploy the **Bot** as a Cloud Run Service using the root `Dockerfile`.
    - Deploy the **Dashboard** to **Firebase Hosting** or **Google Cloud Storage (Static Hosting)** for global CDN delivery.
 2. **Environment Synchronization**:
-   - Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are injected into the frontend build environment.
+   - Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are injected into the frontend build environment.
 3. **Database Scaling**:
    - For full capacity, upgrade your Supabase instance to a Pro plan to handle high connection counts from the Sentinel Brain.
 

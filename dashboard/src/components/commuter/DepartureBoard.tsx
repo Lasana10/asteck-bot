@@ -29,6 +29,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [feedHealthy, setFeedHealthy] = useState(true);
 
   useEffect(() => {
     fetchDepartures();
@@ -46,9 +47,10 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
 
   const fetchDepartures = async () => {
     setLoading(true);
+    setFeedHealthy(true);
     
     // Query routes with operator info
-    const { data: routes } = await supabase
+    const { data: routes, error: routesError } = await supabase
       .from('routes')
       .select(`
         id, name, origin, destination, price_per_seat, vehicle_type, departure_time,
@@ -57,6 +59,14 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
       `)
       .eq('is_active', true)
       .limit(20);
+
+    if (routesError) {
+      console.error('[AFAT] Failed to load departures', routesError);
+      setFeedHealthy(false);
+      setDepartures([]);
+      setLoading(false);
+      return;
+    }
 
     if (routes && routes.length > 0) {
       // Fetch booked seats for these routes to calculate availability
@@ -88,15 +98,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
       });
       setDepartures(mapped);
     } else {
-      // Demo fallback data
-      setDepartures([
-        { id: '1', vehicle_id: 'v1', route_name: 'Nlongkak → Mvog-Mbi', origin: 'Nlongkak', destination: 'Mvog-Mbi', departure_time: new Date(Date.now() + 5 * 60000).toISOString(), price_xaf: 250, total_seats: 4, booked_seats: 2, vehicle_type: 'taxi', operator_id: 'demo-op-1', operator_name: 'Jean-Pierre', plate_number: 'CE 1234 AB', rating: 4.8 },
-        { id: '2', vehicle_id: 'v2', route_name: 'Bastos → Melen', origin: 'Bastos', destination: 'Melen', departure_time: new Date(Date.now() + 12 * 60000).toISOString(), price_xaf: 200, total_seats: 2, booked_seats: 0, vehicle_type: 'moto', operator_id: 'demo-op-2', operator_name: 'Ibrahim', plate_number: 'CE 5678 CD', rating: 4.5 },
-        { id: '3', vehicle_id: 'v3', route_name: 'Essos → Biyem-Assi', origin: 'Essos', destination: 'Biyem-Assi', departure_time: new Date(Date.now() + 20 * 60000).toISOString(), price_xaf: 300, total_seats: 15, booked_seats: 8, vehicle_type: 'minibus', operator_id: 'demo-op-3', operator_name: 'Paul', plate_number: 'LT 9012 EF', rating: 4.9 },
-        { id: '4', vehicle_id: 'v4', route_name: 'Mokolo → Obili', origin: 'Mokolo', destination: 'Obili', departure_time: new Date(Date.now() + 8 * 60000).toISOString(), price_xaf: 200, total_seats: 4, booked_seats: 3, vehicle_type: 'taxi', operator_id: 'demo-op-4', operator_name: 'Amadou', plate_number: 'CE 3456 GH', rating: 4.2 },
-        { id: '5', vehicle_id: 'v5', route_name: 'Nkoldongo → Mimboman', origin: 'Nkoldongo', destination: 'Mimboman', departure_time: new Date(Date.now() + 30 * 60000).toISOString(), price_xaf: 150, total_seats: 2, booked_seats: 1, vehicle_type: 'moto', operator_id: 'demo-op-5', operator_name: 'Serge', plate_number: 'CE 7890 IJ', rating: 4.6 },
-        { id: '6', vehicle_id: 'v6', route_name: 'Tsinga → Ngousso', origin: 'Tsinga', destination: 'Ngousso', departure_time: new Date(Date.now() + 45 * 60000).toISOString(), price_xaf: 500, total_seats: 30, booked_seats: 12, vehicle_type: 'bus', operator_id: 'demo-op-6', operator_name: 'Transport Express', plate_number: 'LT 1122 KL', rating: 4.7 },
-      ]);
+      setDepartures([]);
     }
     setLoading(false);
   };
@@ -189,8 +191,12 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
         ) : filtered.length === 0 ? (
           <div className="text-center py-20 text-slate-500">
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p className="font-bold">Aucun départ trouvé</p>
-            <p className="text-sm mt-1">Essayez une autre destination</p>
+            <p className="font-bold">{feedHealthy ? 'Aucun départ vérifié pour le moment' : 'Flux de départ indisponible'}</p>
+            <p className="text-sm mt-1">
+              {feedHealthy
+                ? 'AFAT affichera ici les trajets dès que des opérateurs publient des départs actifs.'
+                : 'Le tableau ne fabrique pas de départs. Revenez après synchronisation du backend.'}
+            </p>
           </div>
         ) : (
           filtered.map(departure => {

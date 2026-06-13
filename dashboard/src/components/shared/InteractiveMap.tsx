@@ -36,6 +36,7 @@ interface InteractiveMapProps {
   showInformal?: boolean;
   role?: 'commuter' | 'operator' | 'admin';
   mapMode?: 'standard' | 'satellite' | 'hybrid' | 'intel';
+  realtimeOverlay?: boolean;
 }
 
 const DEFAULT_CENTER: LatLngExpression = [3.866, 11.514];
@@ -148,29 +149,18 @@ export function InteractiveMap({
   showInformal = false,
   role = 'commuter',
   mapMode = 'standard',
+  realtimeOverlay = false,
 }: InteractiveMapProps) {
   const [liveTracks, setLiveTracks] = useState<PointLike[]>([]);
   const [liveVehicles, setLiveVehicles] = useState<PointLike[]>([]);
-  const [cachedNodes, setCachedNodes] = useState<PointLike[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!realtimeOverlay) {
+      setLiveTracks([]);
+      setLiveVehicles([]);
+      return;
+    }
 
-    fetch('/data/cached_nodes.json')
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (!cancelled && Array.isArray(data)) setCachedNodes(data);
-      })
-      .catch(() => {
-        if (!cancelled) setCachedNodes([]);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     const vehiclesChannel = subscribeToVehicles((payload) => {
       const nextVehicle = payload?.new || payload?.old;
       if (!nextVehicle) return;
@@ -202,20 +192,10 @@ export function InteractiveMap({
       supabase.removeChannel(vehiclesChannel);
       supabase.removeChannel(movementChannel);
     };
-  }, []);
+  }, [realtimeOverlay]);
 
-  const realVehicleSignals = useMemo(() => [...tracks, ...liveTracks, ...liveVehicles], [tracks, liveTracks, liveVehicles]);
-  const fallbackNodes = realVehicleSignals.length === 0 && incidents.length === 0 ? cachedNodes : [];
-
-  const vehicleSignals = useMemo(
-    () => (realVehicleSignals.length ? realVehicleSignals : fallbackNodes.filter((node) => node.type !== 'hazard')),
-    [realVehicleSignals, fallbackNodes]
-  );
-
-  const hazardSignals = useMemo(
-    () => (incidents.length ? incidents : fallbackNodes.filter((node) => node.type === 'hazard' || Number(node.severity || 0) >= 4)),
-    [incidents, fallbackNodes]
-  );
+  const vehicleSignals = useMemo(() => [...tracks, ...liveTracks, ...liveVehicles], [tracks, liveTracks, liveVehicles]);
+  const hazardSignals = useMemo(() => incidents, [incidents]);
 
   const routeSignals = useMemo(() => routePath.map(pointToLatLng).filter(Boolean) as LatLngExpression[], [routePath]);
   const movementRoute = useMemo(
@@ -235,10 +215,9 @@ export function InteractiveMap({
   );
 
   const tileLayer = TILE_LAYERS[mapMode] || TILE_LAYERS.standard;
-  const primaryVehicle = trackedVehicle || liveVehicles[0] || tracks[0] || fallbackNodes[0] || null;
+  const primaryVehicle = trackedVehicle || liveVehicles[0] || tracks[0] || null;
   const primaryLatLng = pointToLatLng(primaryVehicle || {});
   const activeSignalCount = liveTracks.length + liveVehicles.length + incidents.length;
-  const usingCachedStream = activeSignalCount === 0 && cachedNodes.length > 0;
 
   return (
     <div className="sentinel-atlas-container relative h-full min-h-[260px] overflow-hidden rounded-[28px] border border-white/10 bg-[#05070b] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
@@ -350,10 +329,10 @@ export function InteractiveMap({
         <Radio className="h-4 w-4 animate-pulse text-blue-400" />
         <div className="text-right">
           <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/40">
-            {usingCachedStream ? 'Cached stream' : 'Live sync'}
+            {realtimeOverlay ? 'Live sync' : 'Feed sync'}
           </p>
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white">
-            {usingCachedStream ? cachedNodes.length : activeSignalCount} active signals
+            {activeSignalCount} active signals
           </p>
         </div>
       </div>
@@ -390,12 +369,6 @@ export function InteractiveMap({
           {mapMode}
         </div>
       </div>
-
-      {usingCachedStream && (
-        <div className="absolute bottom-16 right-4 z-20 rounded-2xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[8px] font-black uppercase tracking-[0.2em] text-blue-100 backdrop-blur-xl">
-          demo intelligence hydrated
-        </div>
-      )}
 
       {hazardSignals.length > 0 && (
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-red-400/20">

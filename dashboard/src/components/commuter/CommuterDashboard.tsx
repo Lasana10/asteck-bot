@@ -22,6 +22,8 @@ import { CommuterWallet } from './CommuterWallet';
 import { ConciergeHelp } from '../shared/ConciergeHelp';
 import { PointsSystem } from '../shared/PointsSystem';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
+import { OperationsMissionControl } from '../shared/OperationsMissionControl';
+import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 
 interface Props {
@@ -58,7 +60,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [isIDSOpen, setIsIDSOpen] = useState(false);
   const [storageStats, setStorageStats] = useState(mapOfflineService.getStorageUsage());
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-  const [hybridStream, setHybridStream] = useState(true);
+  const [hybridStream, setHybridStream] = useState(mapOfflineService.getHybridStreamMode());
   const [aiSentiment, setAiSentiment] = useState<string>('');
 
   const handleSOS = () => {
@@ -82,6 +84,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
   const [bookingResult, setBookingResult] = useState<any>(null);
   const [activeVehicles, setActiveVehicles] = useState<any[]>([]);
+  const [activeCheckpoints, setActiveCheckpoints] = useState<any[]>([]);
   const [liveOpsLabel, setLiveOpsLabel] = useState('Cameroon');
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingInFlight, setBookingInFlight] = useState(false);
@@ -126,6 +129,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     if (!data) return;
     setIncidents(data.incidents || []);
     setActiveVehicles(data.vehicles || []);
+    setActiveCheckpoints(data.checkpoints || []);
     setLiveOpsLabel(data.label || 'Cameroon');
   };
 
@@ -138,11 +142,13 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           setDownloadProgress(p => ({ ...p, [regionId]: progress }));
         });
       } else {
-        await mapOfflineService.downloadRegion(regionId);
-        setDownloadProgress(p => ({ ...p, [regionId]: 100 }));
+        await mapOfflineService.downloadRegion(regionId, (progress) => {
+          setDownloadProgress(p => ({ ...p, [regionId]: progress }));
+        });
       }
       setOfflineMaps(p => ({ ...p, [regionId]: true }));
       localStorage.setItem(`afat_offline_${regionId}`, 'true');
+      setStorageStats(mapOfflineService.getStorageUsage());
     } catch (err) {
       console.error("Map download failed:", err);
     } finally {
@@ -401,6 +407,35 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         </div>
       </div>
 
+      <div className="px-5 pb-4 z-[4000] relative">
+        <OperationsMissionControl
+          role="commuter"
+          profile={profile}
+          city={profile?.preferred_city || 'cameroon'}
+          onAction={(action) => {
+            if (action === 'book') setView('departures');
+            if (action === 'report') setIsReportModalOpen(true);
+            if (action === 'onboard') setIsIDSOpen(true);
+          }}
+        />
+      </div>
+
+      <div className="px-5 pb-4 z-[3900] relative">
+        <AFATStrategicLayer
+          role="commuter"
+          profile={profile}
+          liveVehicles={activeVehicles.length}
+          liveIncidents={incidents.length}
+          liveCheckpoints={activeCheckpoints.length}
+          onAction={(action) => {
+            if (action === 'book') setView('departures');
+            if (action === 'report') setIsReportModalOpen(true);
+            if (action === 'onboard' || action === 'compliance') setIsIDSOpen(true);
+            if (action === 'map') setIsIntelligenceOpen(true);
+          }}
+        />
+      </div>
+
       {/* ── From/To Search Bar ──────────────────────────── */}
       <div className="px-5 pb-6 z-[4000] relative">
         <div className="bg-slate-800 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl">
@@ -438,6 +473,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         <InteractiveMap 
           incidents={incidents} 
           tracks={activeVehicles} 
+          checkpoints={activeCheckpoints}
           showInformal={showInformalRoutes}
           mapMode={mapMode}
           role="commuter"
@@ -1074,10 +1110,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             </div>
           </div>
           <div className="space-y-3">
-            {[
-              { id: 'yaounde', label: 'Yaoundé Core Grid', size: '42MB', desc: 'Z10 - Z18 High Detail' },
-              { id: 'cameroon', label: 'Full Cameroon Net', size: '1.2GB', desc: 'Z5 - Z12 Country Scale' }
-            ].map(r => (
+            {mapOfflineService.getCatalog().filter((r) => r.id !== 'douala').map(r => (
               <div key={r.id} className="bg-white/3 border border-white/5 rounded-2xl p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${offlineMaps[r.id] ? 'bg-green-500/20' : 'bg-white/5'}`}>
@@ -1090,8 +1123,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
                     )}
                   </div>
                   <div className="text-left">
-                    <p className="font-black text-white text-[13px]">{r.label}</p>
-                    <p className="text-[10px] text-white/40 font-bold uppercase">{r.size} • {r.desc}</p>
+                    <p className="font-black text-white text-[13px]">{r.name}</p>
+                    <p className="text-[10px] text-white/40 font-bold uppercase">{r.sizeMb}MB • {r.detail}</p>
                   </div>
                 </div>
                 {downloadProgress[r.id] !== undefined ? (

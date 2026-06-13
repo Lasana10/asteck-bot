@@ -6,6 +6,8 @@ import { supabase } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
+import { OperationsMissionControl } from '../shared/OperationsMissionControl';
+import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 
 interface Props {
   onSignOut: () => void;
@@ -140,6 +142,27 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
 
     return (
     <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full animate-in fade-in duration-500 pt-24">
+        <OperationsMissionControl
+          role="admin"
+          city="cameroon"
+          onAction={(action) => {
+            if (action === 'dispatch') setUiMode('map');
+            if (action === 'compliance') setIsIntelligenceOpen(true);
+            if (action === 'onboard') launchCampaign();
+          }}
+        />
+
+        <AFATStrategicLayer
+          role="admin"
+          liveVehicles={networkStats.activeNodes}
+          liveIncidents={metrics.pendingIncidents}
+          onAction={(action) => {
+            if (action === 'dispatch' || action === 'map') setUiMode('map');
+            if (action === 'compliance') setIsIntelligenceOpen(true);
+            if (action === 'onboard') launchCampaign();
+          }}
+        />
+
         {/* Metric Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
            <div className="glass-panel ghost-border p-8 rounded-[32px] relative overflow-hidden group">

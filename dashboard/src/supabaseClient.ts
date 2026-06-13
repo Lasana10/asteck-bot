@@ -1,13 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  'placeholder-key';
 
 // ═══ AUTO-DETECTION: Render Backend URL ═══
 const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
 export const apiBaseUrl = import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
 
-if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY)) {
   console.warn('⚠️ Supabase env vars missing. Running in mock mode.');
 }
 
@@ -49,9 +52,14 @@ export async function verifyPhoneOtp(phone: string, token: string) {
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Verification failed.' } };
 
-    // The backend verified the OTP and returned { userId, phone }.
-    // Now sign into Supabase using a custom approach:
-    // For now, store the userId so the App router can fetch the profile.
+    if (data?.userId) {
+      localStorage.setItem('afat_local_user_id', data.userId);
+      localStorage.setItem('afat_local_phone', phone);
+    }
+    if (data?.accessToken) {
+      localStorage.setItem('afat_access_token', data.accessToken);
+    }
+
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -59,7 +67,13 @@ export async function verifyPhoneOtp(phone: string, token: string) {
 }
 
 export async function signOut() {
+  localStorage.removeItem('afat_access_token');
   return await supabase.auth.signOut();
+}
+
+export function afatAuthHeaders() {
+  const token = localStorage.getItem('afat_access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function getCurrentUser() {
@@ -425,7 +439,7 @@ export async function finalizeBookingPayment(bookingId: string, method: string, 
   try {
     const res = await fetch(`${apiBaseUrl}/api/payment/finalize`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify({
         booking_id: bookingId,
         transaction_id: transactionId,
@@ -486,6 +500,21 @@ export async function fetchDemandRadar() {
     const res = await fetch(`${apiBaseUrl}/api/ops/demand-radar`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Demand radar fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function publishMapSignal(signalData: any) {
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/ops/map-signal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(signalData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Map signal publish failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };

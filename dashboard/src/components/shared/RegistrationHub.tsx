@@ -10,6 +10,115 @@ interface Props {
 
 type RegistrationTrack = 'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company';
 
+const SERVICE_CATEGORIES = [
+  { id: 'moto', label: 'Moto / Bike' },
+  { id: 'taxi', label: 'Taxi' },
+  { id: 'delivery', label: 'Delivery' },
+  { id: 'minibus', label: 'Minibus' },
+  { id: 'bus', label: 'Bus / Coach' },
+  { id: 'agency', label: 'Agency Fleet' },
+];
+
+const COMPANY_TYPES = [
+  'Transport agency',
+  'Taxi union',
+  'Bike network',
+  'Delivery company',
+  'Corporate mobility',
+  'Public / municipal partner',
+];
+
+const SERVICE_PLAYBOOK: Record<string, {
+  title: string;
+  focus: string;
+  docs: string[];
+  zoneLabel: string;
+  affiliationLabel: string;
+  capacityHint: string;
+}> = {
+  moto: {
+    title: 'Bike rider onboarding',
+    focus: 'Fast urban movement with stronger rider safety and identity checks.',
+    docs: ['National ID', 'Bike ownership', 'Helmet compliance'],
+    zoneLabel: 'Pickup zone / corridor',
+    affiliationLabel: 'Bike network / stand',
+    capacityHint: 'Usually 1'
+  },
+  taxi: {
+    title: 'Taxi operator onboarding',
+    focus: 'Passenger trust, route coverage, and plate-level verification.',
+    docs: ['National ID', 'Driver license', 'Insurance', 'Vehicle registration'],
+    zoneLabel: 'Operating district / route',
+    affiliationLabel: 'Taxi union / agency',
+    capacityHint: 'Usually 4'
+  },
+  delivery: {
+    title: 'Delivery node onboarding',
+    focus: 'Dispatch readiness, cargo reliability, and route discipline.',
+    docs: ['National ID', 'Driver license', 'Insurance', 'Vehicle proof'],
+    zoneLabel: 'Delivery corridor / coverage zone',
+    affiliationLabel: 'Delivery company / network',
+    capacityHint: 'Driver + cargo mode'
+  },
+  minibus: {
+    title: 'Minibus onboarding',
+    focus: 'Shared-route operations with fleet and route compliance visibility.',
+    docs: ['National ID', 'Commercial license', 'Insurance', 'Vehicle registration'],
+    zoneLabel: 'Terminal / route corridor',
+    affiliationLabel: 'Union / route owner',
+    capacityHint: 'Usually 12-18'
+  },
+  bus: {
+    title: 'Bus / coach onboarding',
+    focus: 'Intercity or scheduled service with heavier compliance packaging.',
+    docs: ['National ID', 'Commercial license', 'Fleet insurance', 'Route permit'],
+    zoneLabel: 'Primary corridor / destination network',
+    affiliationLabel: 'Transport company / authority',
+    capacityHint: 'Usually 25+'
+  },
+  agency: {
+    title: 'Agency fleet onboarding',
+    focus: 'Multi-vehicle launch, coordinator control, and operator standardization.',
+    docs: ['Business registration', 'Fleet insurance', 'Operating permit', 'Coordinator ID'],
+    zoneLabel: 'Coverage area',
+    affiliationLabel: 'Agency / operator group',
+    capacityHint: 'Fleet-defined'
+  }
+};
+
+const COMPANY_PLAYBOOK: Record<string, { packageName: string; focus: string; docs: string[] }> = {
+  'Transport agency': {
+    packageName: 'Fleet Launch',
+    focus: 'Vehicle, route, coordinator, and permit readiness.',
+    docs: ['Business registration', 'Operating permit', 'Fleet insurance']
+  },
+  'Taxi union': {
+    packageName: 'Union Activation',
+    focus: 'Taxi member rollout, route governance, and payment readiness.',
+    docs: ['Union authorization', 'Member roster', 'Insurance proof']
+  },
+  'Bike network': {
+    packageName: 'Bike Safety Pack',
+    focus: 'Helmet safety, rider verification, and zone-based dispatch.',
+    docs: ['Network registration', 'Rider compliance plan', 'Safety policy']
+  },
+  'Delivery company': {
+    packageName: 'Delivery Ops Pack',
+    focus: 'Dispatch, service levels, and rider or van compliance.',
+    docs: ['Business registration', 'Fleet proof', 'Service coverage plan']
+  },
+  'Corporate mobility': {
+    packageName: 'Enterprise Mobility',
+    focus: 'Client movement, booking control, and assigned fleet visibility.',
+    docs: ['Business registration', 'Service agreement', 'Fleet or partner proof']
+  },
+  'Public / municipal partner': {
+    packageName: 'Public Operations',
+    focus: 'Authority coordination, controlled routes, and service governance.',
+    docs: ['Mandate letter', 'Operating framework', 'Insurance or public cover']
+  }
+};
+
 export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
   const [govId, setGovId] = useState('');
@@ -23,12 +132,26 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
   const [driverName, setDriverName] = useState('');
   const [phone, setPhone] = useState('');
   const [emergencyContact, setEmergencyContact] = useState('');
+  const [commuterCity, setCommuterCity] = useState('');
+  const [commuterZone, setCommuterZone] = useState('');
+  const [driverNationalId, setDriverNationalId] = useState('');
+  const [driverLicenseNumber, setDriverLicenseNumber] = useState('');
+  const [driverCapacity, setDriverCapacity] = useState('');
+  const [baseCity, setBaseCity] = useState('');
+  const [operatingZone, setOperatingZone] = useState('');
+  const [affiliationName, setAffiliationName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [contactPerson, setContactPerson] = useState('');
   const [fleetSize, setFleetSize] = useState('');
+  const [companyType, setCompanyType] = useState(COMPANY_TYPES[0]);
+  const [serviceCoverage, setServiceCoverage] = useState('');
+  const [companyNotes, setCompanyNotes] = useState('');
   const [errorText, setErrorText] = useState('');
 
   if (!isVisible) return null;
+
+  const serviceProfile = SERVICE_PLAYBOOK[vehicleType] || SERVICE_PLAYBOOK.taxi;
+  const companyProfile = COMPANY_PLAYBOOK[companyType] || COMPANY_PLAYBOOK['Transport agency'];
 
   const handleGovLinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,13 +159,16 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
     setLoading(true);
 
     registerDriver({
-      full_name: `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`,
+      full_name: driverName || `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`,
       phone,
       national_id: govId,
-      license_number: `SEC-${govId.split('-').pop() || Date.now().toString(36).toUpperCase()}`,
-      vehicle_type: 'taxi',
+      license_number: driverLicenseNumber || `SEC-${govId.split('-').pop() || Date.now().toString(36).toUpperCase()}`,
+      vehicle_type: vehicleType || 'taxi',
       vehicle_plate: plateNumber,
-      vehicle_capacity: 4,
+      vehicle_capacity: driverCapacity ? Number(driverCapacity) : 4,
+      base_city: baseCity || null,
+      operating_zone: operatingZone || null,
+      affiliation_name: affiliationName || null,
     }).then(({ data, error }) => {
       setLoading(false);
 
@@ -54,12 +180,13 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
       setSuccess(true);
       setTimeout(() => {
         onRegisterCustom({ 
+          id: data?.driver?.id,
           role: 'operator', 
-          vehicleType: 'custom_security',
+          vehicleType: vehicleType || 'custom_security',
           ids_number: data?.driver?.contractor_code || govId,
           cni_number: govId.split('-').pop(),
           plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
-          full_name: `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`
+          full_name: driverName || `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`
         });
         onClose();
       }, 1500);
@@ -83,11 +210,14 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
     registerDriver({
       full_name: driverName,
       phone,
-      national_id: govId || `AFAT-${Date.now().toString(36).toUpperCase()}`,
-      license_number: `LIC-${Date.now().toString(36).toUpperCase()}`,
+      national_id: driverNationalId || govId || `AFAT-${Date.now().toString(36).toUpperCase()}`,
+      license_number: driverLicenseNumber || `LIC-${Date.now().toString(36).toUpperCase()}`,
       vehicle_type: vehicleType,
       vehicle_plate: plateNumber || null,
-      vehicle_capacity: vehicleType === 'moto' ? 1 : vehicleType === 'bus' ? 30 : vehicleType === 'minibus' ? 14 : 4,
+      vehicle_capacity: driverCapacity ? Number(driverCapacity) : vehicleType === 'moto' ? 1 : vehicleType === 'bus' ? 30 : vehicleType === 'minibus' ? 14 : 4,
+      base_city: baseCity || null,
+      operating_zone: operatingZone || null,
+      affiliation_name: affiliationName || null,
     }).then(({ data, error }) => {
       setLoading(false);
 
@@ -99,6 +229,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
       setSuccess(true);
       setTimeout(() => {
         onRegisterCustom({
+          id: data?.driver?.id,
           role: 'operator',
           vehicleType,
           ids_number: data?.driver?.contractor_code,
@@ -118,6 +249,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
       full_name: driverName,
       phone,
       emergency_contact: emergencyContact || null,
+      preferred_city: commuterCity || null,
+      preferred_zone: commuterZone || null,
     });
 
     setLoading(false);
@@ -130,6 +263,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
     setSuccess(true);
     setTimeout(() => {
       onRegisterCustom({
+        id: data?.user?.id,
         role: 'commuter',
         full_name: data?.user?.full_name || driverName,
       });
@@ -147,6 +281,9 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
       phone,
       contact_person: contactPerson || null,
       fleet_size: fleetSize ? Number(fleetSize) : null,
+      company_type: companyType,
+      service_coverage: serviceCoverage || null,
+      notes: [companyType, serviceCoverage, companyNotes].filter(Boolean).join(' | '),
     });
 
     setLoading(false);
@@ -159,6 +296,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
     setSuccess(true);
     setTimeout(() => {
       onRegisterCustom({
+        id: data?.profile?.id,
         role: 'planner',
         full_name: data?.profile?.full_name || contactPerson || companyName,
         company_name: data?.company?.company_name || companyName,
@@ -260,6 +398,17 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 <input type="tel" value={emergencyContact} onChange={e=>setEmergencyContact(e.target.value)} placeholder="Optional guardian line" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono" />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Home City</label>
+                  <input type="text" value={commuterCity} onChange={e=>setCommuterCity(e.target.value)} placeholder="Yaounde" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-medium" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Usual Zone</label>
+                  <input type="text" value={commuterZone} onChange={e=>setCommuterZone(e.target.value)} placeholder="Bastos / Akwa" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-medium" />
+                </div>
+              </div>
+
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
 
               <div className="pt-4 flex gap-3">
@@ -278,6 +427,26 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
                   This portal connects directly to the Strategic Identity Database. Scan your physical jacket QR or enter your credentials to port your secure vehicle blueprint to the AFAT grid.
                 </p>
+              </div>
+
+              <div className="rounded-3xl border border-blue-500/20 bg-blue-950/20 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Service Package</p>
+                    <h3 className="mt-2 text-base font-black uppercase tracking-tight text-white">{serviceProfile.title}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-blue-100/70">{serviceProfile.focus}</p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-200">
+                    Cleared lane
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-2">
+                  {serviceProfile.docs.slice(0, 3).map((doc) => (
+                    <div key={doc} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[11px] font-bold text-white/75">
+                      {doc}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {isScanningQR ? (
@@ -311,13 +480,38 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                   </div>
 
                   <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Operator Name</label>
+                    <input type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Cleared operator name" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-medium" />
+                  </div>
+
+                  <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Gov Identity Number (CNI / QR ID)</label>
                     <input required type="text" value={govId} onChange={e=>setGovId(e.target.value)} placeholder="e.g., CM-2026-X891" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
                   </div>
 
                   <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">License / Accreditation Number</label>
+                    <input type="text" value={driverLicenseNumber} onChange={e=>setDriverLicenseNumber(e.target.value)} placeholder="Official license or clearance code" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
+                  </div>
+
+                  <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Secured Plate Number</label>
                     <input required type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono text-lg uppercase" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Service Type</label>
+                      <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-blue-500">
+                        {SERVICE_CATEGORIES.filter((item) => item.id !== 'agency').map((item) => (
+                          <option key={item.id} value={item.id}>{item.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Capacity</label>
+                      <input type="number" min="1" value={driverCapacity} onChange={e=>setDriverCapacity(e.target.value)} placeholder="4" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
+                    </div>
                   </div>
 
                   <div>
@@ -356,6 +550,17 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">National ID</label>
+                  <input type="text" value={driverNationalId} onChange={e=>setDriverNationalId(e.target.value)} placeholder="CNI / national ID" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">License Number</label>
+                  <input type="text" value={driverLicenseNumber} onChange={e=>setDriverLicenseNumber(e.target.value)} placeholder="Permit / license" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Plate Number</label>
                 <input type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono uppercase" />
@@ -373,10 +578,51 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
                 </div>
               </div>
 
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-white/35">Onboarding Package</p>
+                    <h3 className="mt-2 text-base font-black uppercase tracking-tight text-white">{serviceProfile.title}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-white/60">{serviceProfile.focus}</p>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-300">
+                    Core intake
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-2">
+                  {serviceProfile.docs.map((doc) => (
+                    <div key={doc} className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-[11px] font-bold text-white/75">
+                      {doc}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Vehicle Capacity</label>
+                  <input type="number" min="1" value={driverCapacity} onChange={e=>setDriverCapacity(e.target.value)} placeholder={serviceProfile.capacityHint} className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Base City</label>
+                  <input type="text" value={baseCity} onChange={e=>setBaseCity(e.target.value)} placeholder="Douala / Yaounde" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">{serviceProfile.zoneLabel}</label>
+                <input type="text" value={operatingZone} onChange={e=>setOperatingZone(e.target.value)} placeholder="Mokolo, Bonamoussadi, union, agency, delivery corridor" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">{serviceProfile.affiliationLabel}</label>
+                <input type="text" value={affiliationName} onChange={e=>setAffiliationName(e.target.value)} placeholder="Optional company, union, delivery network" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
+              </div>
+
               <div className="p-5 border border-dashed border-white/20 rounded-2xl bg-white/5 flex flex-col items-center justify-center gap-2 text-center mt-2 cursor-pointer hover:bg-white/10 transition-colors">
                 <UploadCloud className="w-8 h-8 text-slate-400 mb-1" />
                 <p className="text-sm font-bold text-white uppercase tracking-tight">Upload Documents</p>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">Permit • Insurance • Vehicle Photo</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">Permit • Insurance • Vehicle Photo • National ID</p>
               </div>
 
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
@@ -413,6 +659,45 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Estimated Fleet Size</label>
                 <input type="number" min="1" value={fleetSize} onChange={e=>setFleetSize(e.target.value)} placeholder="12" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Organization Type</label>
+                <select value={companyType} onChange={e=>setCompanyType(e.target.value)} className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-amber-500">
+                  {COMPANY_TYPES.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded-3xl border border-amber-500/20 bg-amber-950/20 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/60">Activation Package</p>
+                    <h3 className="mt-2 text-base font-black uppercase tracking-tight text-white">{companyProfile.packageName}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-100/70">{companyProfile.focus}</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-200">
+                    Fleet ops
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-2">
+                  {companyProfile.docs.map((doc) => (
+                    <div key={doc} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[11px] font-bold text-white/75">
+                      {doc}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Service Coverage</label>
+                <input type="text" value={serviceCoverage} onChange={e=>setServiceCoverage(e.target.value)} placeholder="Taxi, bike, delivery, school, airport, city-to-city" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Operational Notes</label>
+                <textarea value={companyNotes} onChange={e=>setCompanyNotes(e.target.value)} rows={3} placeholder="Cities, compliance needs, fleet mix, dispatch expectations" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium resize-none" />
               </div>
 
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}

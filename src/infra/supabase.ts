@@ -5,7 +5,7 @@ import { Incident, User, Coordinates, FuelStation } from '../types';
 dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_KEY || '';
+const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || '';
 
 if (!supabaseUrl || !supabaseKey) {
   console.warn('⚠️ Supabase credentials not found. DB features will likely fail.');

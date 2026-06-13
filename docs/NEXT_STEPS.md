@@ -1,0 +1,63 @@
+# AFAT Next Steps
+
+## Immediate Next Tasks
+1. Continue frontend redesign sprint from the Mission Control and Strategic Layer baseline: simplify home screens, reduce fake-static claims, and make the map/dispatch layer feel like the primary product.
+2. Build real document persistence for onboarding/compliance so the visible packages become stored files, review statuses, expiry tracking, and admin actions.
+3. Build the next geodata step after the local pack catalog: add curated city manifests, route graph loading, and a visible distinction between ready packs and planned packs across all roles.
+4. Design and implement deeper onboarding/compliance tracks for commuters, drivers, companies, agencies, deliveries, taxis, and bikes.
+5. Keep backend stable while redesigning: no broad new backend scope unless required by redesigned UX.
+6. After redesign pass, run live smoke tests for:
+   - onboarding
+   - booking + seat hold + payment finalize
+   - dispatch assignment + live map update
+   - reporting + broadcast + SOS
+7. Run Supabase migration parity check and apply any missing SQL in correct order.
+8. Add centralized JWT auth middleware and role guards on protected endpoints.
+9. Replace mock OTP flow with real provider-backed verification.
+10. Design AFAT geospatial foundation:
+   define downloaded OSM-derived data sources, preparation pipeline, storage format, tile strategy, and how live fleet/incident overlays attach to it.
+
+## June 13, 2026 Strategic Next Step
+1. Replace mock OTP with a real provider-backed verification path and signed backend session model.
+2. Add callback verification and persistence around PawaPay: payment events table, callback signature checks if supported, pending/retry monitoring, and admin payment audit view.
+3. Expand `/api/ops/map-signal` into a real ingestion pipeline with typed sources:
+   `telemetry`, `checkpoint`, `incident`, `operator_ping`, `agency_report`, `authority_signal`.
+4. Create a checkpoint/steward program model:
+   enrolled checkpoint actors, assigned zones, trust scores, escalation rights, legal acceptance, and reporting channels.
+5. Add map distribution intelligence:
+   ingestion -> validation -> trust scoring -> prioritization -> broadcast -> route guidance -> admin review loop.
+6. Build rollout replication kits per region:
+   city pack, onboarding pack, compliance pack, operator pack, checkpoint pack, and reporting pack.
+7. Apply the updated SQL to Supabase so the new `payment_events`, `checkpoints`, `checkpoint_memberships`, `operator_wallets`, and booking-status fields exist in the live database rather than only in workspace files.
+8. Add planner/admin checkpoint surfaces:
+   checkpoint readiness, steward enrollment review, trust-score monitoring, and corridor coverage gaps.
+9. Build the first real checkpoint enrollment UX:
+   capture location, area, legal acknowledgement, actor role, and trust pathway from the app.
+
+## Concise Project Handoff Summary
+- AFAT is no longer only thinking about a pretty live map. The real winning system is becoming clearer: receive data well, validate it well, publish it well, and use it to make transport faster, safer, and more reliable.
+- Current implemented progress: stronger frontend visibility, map ingest endpoint, richer live map contract, early signed local auth bridge, and better PawaPay direction.
+- Current missing core: real auth, verified callback-first payments, serious map intelligence pipeline, document/legal support flows, and repeatable multi-region operating model.
+
+## Highest Priority Tasks
+- Frontend redesign quality uplift to match AFAT product ambition.
+- Convert the new cross-role readiness/control layer into a more polished operational shell.
+- Frontend/backend deployment parity to eliminate disconnected user experience.
+- Replace the current map-demo posture with a true AFAT-controlled geospatial base layer.
+- Data hydration strategy (seed + realtime) so dashboards never appear empty.
+
+## Technical Debt
+- Mixed frontend direct-Supabase and backend-proxied mutations without uniform policy.
+- Duplicate/overlapping SQL migration files needing consolidation.
+- Inconsistent runtime assumptions between local/dev/prod environments.
+
+## Product Priorities
+- Reliable onboarding for commuters, drivers, companies.
+- Trustworthy dispatch and map intelligence experience.
+- Stable payment UX (even if provider rollout is phased).
+- Compliance workflow foundations for operator/company retention.
+
+## Concise Handoff Summary
+- We now have a formal AFAT memory system under `docs/` as source of truth.
+- Core architecture and major APIs are in place.
+- Active decision: redesign frontend first, hold payment live-mode and some deeper backend hardening until redesign baseline is accepted.

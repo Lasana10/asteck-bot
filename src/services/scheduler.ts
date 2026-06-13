@@ -146,7 +146,7 @@ export class AsTeckScheduler {
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(
         process.env.SUPABASE_URL || '',
-        process.env.SUPABASE_KEY || ''
+        process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || ''
       );
       
       const { data } = await supabase.rpc('expire_old_incidents');

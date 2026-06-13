@@ -1,36 +1,17 @@
 import { supabase } from '../supabaseClient';
 
-interface Region {
-  id: string;
-  name: string;
-  bounds: [[number, number], [number, number]]; // [lat, lng]
-  mbtilesUrl: string;
-  sizeMb: number;
-}
+type Bounds = [[number, number], [number, number]];
 
-const CAMEROON_REGIONS: Region[] = [
-  {
-    id: 'yaounde',
-    name: 'Yaoundé (Center)',
-    bounds: [[3.7, 11.4], [4.0, 11.7]],
-    mbtilesUrl: 'https://storage.afat-sentinel.cm/maps/yaounde_local.mbtiles',
-    sizeMb: 35
-  },
-  {
-    id: 'douala',
-    name: 'Douala (Littoral)',
-    bounds: [[3.9, 9.5], [4.2, 9.9]],
-    mbtilesUrl: 'https://storage.afat-sentinel.cm/maps/douala_local.mbtiles',
-    sizeMb: 42
-  },
-  {
-    id: 'garoua',
-    name: 'Garoua (North)',
-    bounds: [[9.1, 13.2], [9.5, 13.6]],
-    mbtilesUrl: 'https://storage.afat-sentinel.cm/maps/garoua_local.mbtiles',
-    sizeMb: 28
-  }
-];
+export interface MapPackDefinition {
+  id: 'yaounde' | 'douala' | 'cameroon';
+  name: string;
+  bounds: Bounds;
+  assetUrls: string[];
+  sizeMb: number;
+  status: 'ready' | 'planned';
+  detail: string;
+  coverage: string;
+}
 
 interface DownloadedRegion {
   id: string;
@@ -44,145 +25,242 @@ interface IntelligenceData {
   isSynced: boolean;
 }
 
+const STORAGE_KEY = 'afat_offline_maps_v2';
+const HYBRID_MODE_KEY = 'afat_hybrid_stream_mode';
+const REGION_FLAG_PREFIX = 'afat_offline_';
+
+const MAP_PACKS: MapPackDefinition[] = [
+  {
+    id: 'yaounde',
+    name: 'Yaounde Core Grid',
+    bounds: [[3.7, 11.4], [4.0, 11.7]],
+    assetUrls: ['/data/yaounde_roads.geojson', '/data/yaounde_pois.geojson'],
+    sizeMb: 20,
+    status: 'ready',
+    detail: 'Street graph and POI seed pack',
+    coverage: 'Yaounde urban core',
+  },
+  {
+    id: 'douala',
+    name: 'Douala Grid',
+    bounds: [[3.9, 9.5], [4.2, 9.9]],
+    assetUrls: [],
+    sizeMb: 0,
+    status: 'planned',
+    detail: 'Awaiting first AFAT-curated offline extract',
+    coverage: 'Douala launch pack',
+  },
+  {
+    id: 'cameroon',
+    name: 'Cameroon Corridor Seed',
+    bounds: [[1.6, 8.3], [13.1, 16.2]],
+    assetUrls: ['/data/cmr_roads_mock.geojson'],
+    sizeMb: 4,
+    status: 'ready',
+    detail: 'National corridor starter graph',
+    coverage: 'Intercity seed network',
+  },
+];
+
 class MapOfflineService {
   private downloadedRegions: DownloadedRegion[] = [];
   private localIntelligence: IntelligenceData[] = [];
-  private isFirstTime: boolean = true;
-  private storageLimitMb: number = 200; 
-  private hybridStreamMode: boolean = true; // Default: Stream from cloud, cache locally
+  private isFirstTime = true;
+  private storageLimitMb = 512;
+  private hybridStreamMode = true;
 
   constructor() {
     this.loadState();
   }
 
   private loadState() {
-    const saved = localStorage.getItem('afat_offline_maps');
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      const { downloaded, notFirstTime } = JSON.parse(saved);
-      // Support legacy array format or new object format
-      this.downloadedRegions = Array.isArray(downloaded) 
-        ? downloaded.map((id: any) => typeof id === 'string' ? { id, lastAccessed: Date.now() } : id)
-        : [];
-      this.isFirstTime = !notFirstTime;
+      try {
+        const parsed = JSON.parse(saved);
+        const downloaded = Array.isArray(parsed?.downloaded) ? parsed.downloaded : [];
+        this.downloadedRegions = downloaded
+          .map((entry: any) =>
+            typeof entry === 'string'
+              ? { id: entry, lastAccessed: Date.now() }
+              : entry?.id
+                ? { id: entry.id, lastAccessed: entry.lastAccessed || Date.now() }
+                : null
+          )
+          .filter(Boolean) as DownloadedRegion[];
+        this.isFirstTime = !parsed?.notFirstTime;
+      } catch (error) {
+        console.warn('[OfflineMap] Failed to load offline state', error);
+      }
     }
+
+    const hybridMode = localStorage.getItem(HYBRID_MODE_KEY);
+    if (hybridMode !== null) {
+      this.hybridStreamMode = hybridMode === 'true';
+    }
+
+    this.downloadedRegions.forEach((region) => {
+      localStorage.setItem(`${REGION_FLAG_PREFIX}${region.id}`, 'true');
+    });
   }
 
   private saveState() {
-    localStorage.setItem('afat_offline_maps', JSON.stringify({
-      downloaded: this.downloadedRegions,
-      notFirstTime: !this.isFirstTime
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        downloaded: this.downloadedRegions,
+        notFirstTime: !this.isFirstTime,
+      })
+    );
+  }
+
+  private markRegionInstalled(regionId: string) {
+    const existing = this.downloadedRegions.find((region) => region.id === regionId);
+    if (existing) {
+      existing.lastAccessed = Date.now();
+    } else {
+      this.downloadedRegions.push({ id: regionId, lastAccessed: Date.now() });
+    }
+    localStorage.setItem(`${REGION_FLAG_PREFIX}${regionId}`, 'true');
+    this.saveState();
+  }
+
+  private getPack(regionId: string) {
+    return MAP_PACKS.find((pack) => pack.id === regionId);
+  }
+
+  public getCatalog() {
+    return MAP_PACKS.map((pack) => ({
+      ...pack,
+      installed: this.downloadedRegions.some((region) => region.id === pack.id),
     }));
+  }
+
+  public getHybridStreamMode() {
+    return this.hybridStreamMode;
   }
 
   public getStorageUsage() {
     const used = this.downloadedRegions.reduce((acc, curr) => {
-      const region = CAMEROON_REGIONS.find(r => r.id === curr.id);
+      const region = this.getPack(curr.id);
       return acc + (region?.sizeMb || 0);
     }, 0);
-    return { used, limit: this.storageLimitMb, percent: Math.round((used / this.storageLimitMb) * 100) };
+    return {
+      used,
+      limit: this.storageLimitMb,
+      percent: this.storageLimitMb ? Math.round((used / this.storageLimitMb) * 100) : 0,
+    };
   }
 
   private async enforceStorageLimit() {
     const { used } = this.getStorageUsage();
-    if (used > this.storageLimitMb) {
-      // Sort by last accessed (oldest first)
-      this.downloadedRegions.sort((a, b) => a.lastAccessed - b.lastAccessed);
-      const purged = this.downloadedRegions.shift();
-      console.log(`[OfflineMap] Smart Purge: Removed ${purged?.id} to save space.`);
-      this.saveState();
-      // Recurse if still over limit
-      await this.enforceStorageLimit();
+    if (used <= this.storageLimitMb) return;
+
+    this.downloadedRegions.sort((a, b) => a.lastAccessed - b.lastAccessed);
+    const purged = this.downloadedRegions.shift();
+    if (purged?.id) {
+      localStorage.removeItem(`${REGION_FLAG_PREFIX}${purged.id}`);
+    }
+    this.saveState();
+    await this.enforceStorageLimit();
+  }
+
+  private async verifyPackAssets(assetUrls: string[]) {
+    for (const assetUrl of assetUrls) {
+      const response = await fetch(assetUrl, { method: 'GET', cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Offline asset missing: ${assetUrl}`);
+      }
     }
   }
 
   public async checkPosition(lat: number, lng: number, onMessage: (msg: string) => void) {
     if (this.isFirstTime) {
-      onMessage("Smart Local Map for Yaoundé is being prepared for better offline performance. This helps improve the map for everyone in Cameroon.");
+      onMessage('AFAT is preparing the first offline pack so your city guidance remains available even with weak connectivity.');
       this.isFirstTime = false;
       this.saveState();
       await this.downloadRegion('yaounde');
     }
 
-    const region = CAMEROON_REGIONS.find(r => 
-      lat >= r.bounds[0][0] && lat <= r.bounds[1][0] &&
-      lng >= r.bounds[0][1] && lng <= r.bounds[1][1]
+    const region = MAP_PACKS.find((pack) =>
+      lat >= pack.bounds[0][0] &&
+      lat <= pack.bounds[1][0] &&
+      lng >= pack.bounds[0][1] &&
+      lng <= pack.bounds[1][1]
     );
 
-    if (region) {
-      const existing = this.downloadedRegions.find(d => d.id === region.id);
-      if (!existing) {
-        onMessage(`Smart Local Map for this region is being added. Your trips help connect Cameroon better.`);
-        await this.downloadRegion(region.id);
-      } else {
-        existing.lastAccessed = Date.now();
-        this.saveState();
-      }
+    if (!region || region.status !== 'ready') return;
+
+    const existing = this.downloadedRegions.find((entry) => entry.id === region.id);
+    if (!existing) {
+      onMessage(`AFAT is caching the ${region.name} pack for stronger local routing coverage.`);
+      await this.downloadRegion(region.id);
+      return;
     }
+
+    existing.lastAccessed = Date.now();
+    this.saveState();
   }
 
-  public async downloadRegion(regionId: string) {
-    if (this.downloadedRegions.some(d => d.id === regionId)) return;
-    
-    console.log(`[OfflineMap] Syncing ${regionId} using Vector-Stream v2...`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    this.downloadedRegions.push({ id: regionId, lastAccessed: Date.now() });
+  public async downloadRegion(regionId: 'yaounde' | 'douala' | 'cameroon', onProgress?: (progress: number) => void) {
+    const region = this.getPack(regionId);
+    if (!region) {
+      throw new Error(`Unknown region: ${regionId}`);
+    }
+    if (region.status !== 'ready' || region.assetUrls.length === 0) {
+      throw new Error(`${region.name} is not yet packaged for offline AFAT use.`);
+    }
+    if (this.downloadedRegions.some((entry) => entry.id === regionId)) {
+      onProgress?.(100);
+      return;
+    }
+
+    onProgress?.(15);
+    await this.verifyPackAssets(region.assetUrls);
+    onProgress?.(65);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    this.markRegionInstalled(regionId);
     await this.enforceStorageLimit();
-    this.saveState();
+    onProgress?.(100);
   }
 
-  public isRegionAvailable(lat: number, lng: number): boolean {
-    const region = CAMEROON_REGIONS.find(r => 
-      lat >= r.bounds[0][0] && lat <= r.bounds[1][0] &&
-      lng >= r.bounds[0][1] && lng <= r.bounds[1][1]
+  public isRegionAvailable(lat: number, lng: number) {
+    const region = MAP_PACKS.find((pack) =>
+      lat >= pack.bounds[0][0] &&
+      lat <= pack.bounds[1][0] &&
+      lng >= pack.bounds[0][1] &&
+      lng <= pack.bounds[1][1]
     );
-    return region ? this.downloadedRegions.some(d => d.id === region.id) : false;
+    return region ? this.downloadedRegions.some((entry) => entry.id === region.id) : false;
   }
 
-  public async downloadFullCameroon(onProgress?: (p: number) => void) {
-    // For full country, we increase the temporary limit to allow 1.2GB if the user explicitly asks
-    this.storageLimitMb = 2000; 
-    for (let i = 0; i <= 100; i += 5) {
-      if (onProgress) onProgress(i);
-      await new Promise(r => setTimeout(r, 200));
-    }
-    this.downloadedRegions.push({ id: 'cameroon', lastAccessed: Date.now() });
-    this.saveState();
+  public async downloadFullCameroon(onProgress?: (progress: number) => void) {
+    await this.downloadRegion('cameroon', onProgress);
   }
 
   public async clearStorage() {
-    console.log("[OfflineMap] Network Intelligence Safe Purge initiated.");
-    // Attempt cloud offload before purging to ensure no data loss
     await this.offloadIntelligenceToDatabase();
     this.downloadedRegions = [];
+    MAP_PACKS.forEach((pack) => localStorage.removeItem(`${REGION_FLAG_PREFIX}${pack.id}`));
     this.saveState();
-    console.log("[OfflineMap] Cache Purged successfully.");
   }
 
-  /**
-   * World Class Feature: Offload Intelligence to Database
-   * Keeps the device light while preserving all personalized data.
-   */
   public async offloadIntelligenceToDatabase() {
-    console.log("[OfflineMap] Offloading local intelligence to Sentinel Cloud...");
-    const unSynced = this.localIntelligence.filter(i => !i.isSynced);
-    
-    if (unSynced.length > 0) {
-      const { error } = await supabase.from('intelligence_logs').insert(
-        unSynced.map(i => ({ ...i.payload, synced_at: new Date().toISOString() }))
-      );
-      
-      if (!error) {
-        // Clear local storage after successful cloud sync
-        this.localIntelligence = [];
-        console.log("[OfflineMap] Offload complete. 0MB consumed for logs.");
-      }
+    const unSynced = this.localIntelligence.filter((item) => !item.isSynced);
+    if (unSynced.length === 0) return;
+
+    const { error } = await supabase
+      .from('intelligence_logs')
+      .insert(unSynced.map((item) => ({ ...item.payload, synced_at: new Date().toISOString() })));
+
+    if (!error) {
+      this.localIntelligence = [];
     }
   }
 
   public setHybridStreamMode(enabled: boolean) {
     this.hybridStreamMode = enabled;
-    console.log(`[OfflineMap] Hybrid Stream: ${enabled ? 'ENABLED (Space Saving)' : 'DISABLED (Full Offline)'}`);
+    localStorage.setItem(HYBRID_MODE_KEY, String(enabled));
   }
 }
 

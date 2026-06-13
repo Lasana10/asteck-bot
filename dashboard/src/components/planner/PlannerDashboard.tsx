@@ -14,6 +14,8 @@ import {
 } from '../../supabaseClient';
 import { INFRA_CONFIG } from '../../infra/config';
 import { ExternalLink, Terminal, Database, Cpu } from 'lucide-react';
+import { OperationsMissionControl } from '../shared/OperationsMissionControl';
+import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 
 interface Props {
   onSignOut: () => void;
@@ -154,6 +156,28 @@ export function PlannerDashboard({ onSignOut }: Props) {
               </span>
            </div>
         </div>
+
+        <OperationsMissionControl
+          role="planner"
+          city="yaounde"
+          onAction={(action) => {
+            if (action === 'dispatch') handleQuickDispatch();
+            if (action === 'compliance') setOpsMessage('Compliance radar is already synced below.');
+            if (action === 'onboard') setOpsMessage('Onboarding readiness: review company context and compliance radar.');
+          }}
+        />
+
+        <AFATStrategicLayer
+          role="planner"
+          liveVehicles={stats.activeOperators}
+          liveIncidents={stats.totalIncidents}
+          onAction={(action) => {
+            if (action === 'dispatch') handleQuickDispatch();
+            if (action === 'compliance') setOpsMessage('Compliance radar is active below.');
+            if (action === 'onboard') setOpsMessage('Company and agency onboarding package is visible in compliance radar.');
+            if (action === 'map') setOpsMessage('Owned geodata packs are tracked as AFAT map foundation.');
+          }}
+        />
 
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

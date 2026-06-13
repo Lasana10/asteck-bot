@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { publishMapSignal } from '../supabaseClient';
 import { offlineSync } from './offlineSync';
 
 /**
@@ -75,7 +75,18 @@ export class TelemetryService {
     this.lastUploadTime = now;
 
     if (navigator.onLine) {
-      const { error } = await supabase.from('movement_logs').insert([payload]);
+      const { error } = await publishMapSignal({
+        signal_type: 'movement',
+        profile_id: payload.user_id,
+        latitude,
+        longitude,
+        speed_kph: payload.speed,
+        heading,
+        accuracy,
+        device_os: payload.device_os,
+        network_type: payload.network_type,
+        source: 'telemetry_service',
+      });
       if (error) {
         console.error('Telemetry Upload Error:', error.message);
         await offlineSync.enqueue('INSERT_TELEMETRY', payload);

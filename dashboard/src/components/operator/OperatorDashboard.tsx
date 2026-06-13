@@ -17,6 +17,8 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 import { NegotiationPanel } from '../shared/NegotiationPanel';
 import { AFATLogo } from '../shared/AFATLogo';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
+import { OperationsMissionControl } from '../shared/OperationsMissionControl';
+import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 import { telemetry } from '../../services/telemetry';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 
@@ -63,11 +65,12 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     cameroon: localStorage.getItem('afat_offline_cameroon') === 'true'
   });
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-  const [hybridStream, setHybridStream] = useState(true);
+  const [hybridStream, setHybridStream] = useState(mapOfflineService.getHybridStreamMode());
   const [latestDirective, setLatestDirective] = useState<any>(null);
   const [isDriveModeActive, setIsDriveModeActive] = useState(false);
   const [incidents, setIncidents] = useState<any[]>([]);
   const [regionalSupply, setRegionalSupply] = useState<any[]>([]);
+  const [regionalCheckpoints, setRegionalCheckpoints] = useState<any[]>([]);
   const [regionalLabel, setRegionalLabel] = useState('Cameroon');
   const [coPilotFeed, setCoPilotFeed] = useState<{ time: string, text: string, type: 'info' | 'warning' | 'success' }[]>([
     { time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), text: "Système Sentinel activé. Scan en cours...", type: 'info' }
@@ -83,11 +86,13 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           setDownloadProgress(p => ({ ...p, [regionId]: progress }));
         });
       } else {
-        await mapOfflineService.downloadRegion(regionId);
-        setDownloadProgress(p => ({ ...p, [regionId]: 100 }));
+        await mapOfflineService.downloadRegion(regionId, (progress) => {
+          setDownloadProgress(p => ({ ...p, [regionId]: progress }));
+        });
       }
       setOfflineMaps(p => ({ ...p, [regionId]: true }));
       localStorage.setItem(`afat_offline_${regionId}`, 'true');
+      setStorageStats(mapOfflineService.getStorageUsage());
     } catch (err) {
       console.error("Map download failed:", err);
     } finally {
@@ -116,6 +121,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     if (!data) return;
     setIncidents(data.incidents || []);
     setRegionalSupply(data.vehicles || []);
+    setRegionalCheckpoints(data.checkpoints || []);
     setRegionalLabel(data.label || 'Cameroon');
   };
 
@@ -345,6 +351,31 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           </button>
         </div>
       )}
+
+      <OperationsMissionControl
+        role="operator"
+        profile={profile}
+        city={profile?.preferred_city || 'cameroon'}
+        onAction={(action) => {
+          if (action === 'drive') setIsDriveModeActive(true);
+          if (action === 'report') setIsVoiceReporterOpen(true);
+          if (action === 'compliance') setIsIDSOpen(true);
+        }}
+      />
+
+      <AFATStrategicLayer
+        role="operator"
+        profile={profile}
+        liveVehicles={regionalSupply.length}
+        liveIncidents={incidents.length}
+        liveCheckpoints={regionalCheckpoints.length}
+        onAction={(action) => {
+          if (action === 'drive') setIsDriveModeActive(true);
+          if (action === 'report') setIsVoiceReporterOpen(true);
+          if (action === 'compliance' || action === 'onboard') setIsIDSOpen(true);
+          if (action === 'map') setIsIntelligenceOpen(true);
+        }}
+      />
 
       {/* ── Hero Earnings + Status ──────────────────────────── */}
       <div className={`rounded-[2.5rem] overflow-hidden relative hud-border backdrop-blur-3xl bg-black/40 shadow-2xl ${theme.glowClass} animate-in fade-in zoom-in-95 duration-700`} style={{minHeight: '180px'}}>
@@ -759,11 +790,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
             </div>
           </div>
           <div className="space-y-3">
-            {[
-              { id: 'yaounde', label: 'Yaoundé Grid', size: '32MB', desc: 'Center Region Focus' },
-              { id: 'douala', label: 'Douala Grid', size: '42MB', desc: 'Littoral Region Focus' },
-              { id: 'cameroon', label: 'Full Cameroon Net', size: '1.2GB', desc: 'Z5 - Z12 Country Scale' }
-            ].map(r => (
+            {mapOfflineService.getCatalog().map(r => (
               <div key={r.id} className="bg-white/3 border border-white/5 rounded-2xl p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${offlineMaps[r.id] ? 'bg-green-500/20' : 'bg-white/5'}`}>
@@ -776,8 +803,10 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                     )}
                   </div>
                   <div className="text-left">
-                    <p className="font-black text-white text-[13px]">{r.label}</p>
-                    <p className="text-[10px] text-white/40 font-bold uppercase">{r.size} • {r.desc}</p>
+                    <p className="font-black text-white text-[13px]">{r.name}</p>
+                    <p className="text-[10px] text-white/40 font-bold uppercase">
+                      {r.status === 'ready' ? `${r.sizeMb}MB` : 'planned'} • {r.detail}
+                    </p>
                   </div>
                 </div>
                 {downloadProgress[r.id] !== undefined ? (
@@ -786,6 +815,8 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                   </div>
                 ) : offlineMaps[r.id] ? (
                   <button className="text-[10px] font-black text-green-400 uppercase tracking-widest bg-green-500/10 px-3 py-1.5 rounded-lg border border-green-500/20">Installed</button>
+                ) : r.status !== 'ready' ? (
+                  <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">Planned</span>
                 ) : (
                   <button
                     onClick={() => { handleDownloadMap(r.id as any); setStorageStats(mapOfflineService.getStorageUsage()); }}
@@ -898,11 +929,8 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
          driveMode={true} 
          trackedVehicle={vehicle} 
          role="operator"
-         checkpoints={[
-           { id: 'cp1', name: 'Poste Centrale', lat: 3.866, lng: 11.514, type: 'police' },
-           { id: 'cp2', name: 'Total Mvan', lat: 3.850, lng: 11.505, type: 'fuel' },
-           { id: 'cp3', name: 'Péage Nsimalen', lat: 3.838, lng: 11.498, type: 'toll' },
-         ]}
+         realtimeOverlay={true}
+         checkpoints={regionalCheckpoints}
        />
        
        {/* ── Sentinel Navigation HUD ────────────────────────── */}

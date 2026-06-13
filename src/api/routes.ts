@@ -9,16 +9,56 @@ import { brainService } from '../services/brain';
 import { PaymentService } from '../services/payment';
 
 const router = express.Router();
-const ticketSecret = process.env.TICKET_SIGNING_SECRET || process.env.SUPABASE_KEY || 'afat-dev-ticket-secret';
+const ticketSecret = process.env.TICKET_SIGNING_SECRET || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || 'afat-dev-ticket-secret';
+const authSecret = process.env.AFAT_AUTH_SECRET || ticketSecret;
 const paymentService = new PaymentService();
 
 function signTicketPayload(payload: string) {
   return crypto.createHmac('sha256', ticketSecret).update(payload).digest('hex');
 }
 
+function base64Url(input: string) {
+  return Buffer.from(input).toString('base64url');
+}
+
+function signLocalAuth(payload: Record<string, any>) {
+  const body = base64Url(JSON.stringify(payload));
+  const signature = crypto.createHmac('sha256', authSecret).update(body).digest('base64url');
+  return `${body}.${signature}`;
+}
+
+function verifyLocalAuth(token?: string) {
+  if (!token || !token.includes('.')) return null;
+  const [body, signature] = token.split('.');
+  const expected = crypto.createHmac('sha256', authSecret).update(body).digest('base64url');
+  if (signature.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  if (payload.exp && Number(payload.exp) < Date.now()) return null;
+  return payload;
+}
+
+function authPayloadFromRequest(req: Request) {
+  const header = req.headers.authorization || '';
+  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7) : undefined;
+  return verifyLocalAuth(token);
+}
+
 async function appendWalletLedgerEntry(entry: any) {
   const { error } = await supabase
     .from('wallet_ledger')
+    .insert({
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...entry,
+    });
+
+  if (error) throw error;
+}
+
+async function appendPaymentEvent(entry: any) {
+  const { error } = await supabase
+    .from('payment_events')
     .insert({
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -227,7 +267,47 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
     console.log(`🔐 Verifying OTP for ${phone}: ${code} (Mock Mode)`);
     // In mock mode, 123456 is always valid
     if (code === '123456') {
-      res.status(200).json({ success: true, userId: 'mock-user-id', phone });
+      const normalizedPhone = String(phone).trim();
+      const { data: existingProfile, error: lookupError } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, phone')
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
+
+      if (lookupError) throw lookupError;
+
+      let profile = existingProfile;
+
+      if (!profile) {
+        const { data: createdProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            full_name: `AFAT User ${normalizedPhone.slice(-4)}`,
+            phone: normalizedPhone,
+            role: 'commuter',
+            trust_points: 25,
+            is_active: true,
+            created_at: new Date().toISOString()
+          })
+          .select('id, full_name, role, phone')
+          .single();
+
+        if (createError) throw createError;
+        profile = createdProfile;
+      }
+
+      res.status(200).json({
+        success: true,
+        userId: profile.id,
+        phone: normalizedPhone,
+        profile,
+        accessToken: signLocalAuth({
+          sub: profile.id,
+          phone: normalizedPhone,
+          role: profile.role || 'commuter',
+          exp: Date.now() + 1000 * 60 * 60 * 24 * 30,
+        })
+      });
     } else {
       res.status(400).json({ error: 'Invalid OTP code' });
     }
@@ -431,7 +511,7 @@ router.post('/intelligence/voice-report', async (req: Request, res: Response) =>
 // ── PAYMENT CHECKOUT (PawaPay / MoMo / Orange Money) ──────────────────────
 router.post('/payment/checkout', async (req: Request, res: Response) => {
   try {
-    const { amount, phone, booking_id, provider } = req.body;
+    const { amount, phone, booking_id, provider, mobile_network } = req.body;
 
     if (!amount || !phone) {
       return res.status(400).json({ error: 'Amount and phone required' });
@@ -442,8 +522,8 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    const normalizedProvider = provider === 'africastalking' || provider === 'pawapay'
-      ? provider
+    const normalizedProvider = provider === 'africastalking' || provider === 'pawapay' || provider === 'mtn_momo' || provider === 'orange_money'
+      ? (provider === 'africastalking' ? 'africastalking' : 'pawapay')
       : undefined;
 
     console.log(`💳 Payment checkout: ${parsedAmount} XAF from ${phone} via ${normalizedProvider || 'auto-fallback'}`);
@@ -476,10 +556,27 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       if (bookingError) throw bookingError;
     }
 
+    await appendPaymentEvent({
+      booking_id: booking_id || null,
+      provider: payment.provider || normalizedProvider || 'unknown',
+      external_id: transactionId,
+      event_type: 'checkout_initiated',
+      event_status: 'pending',
+      amount_xaf: parsedAmount,
+      phone_number: String(phone || ''),
+      metadata: {
+        requested_provider: provider || null,
+        mobile_network: mobile_network || null,
+        raw_status: payment.rawStatus || null,
+      },
+    });
+
     res.status(200).json({
       success: true,
       transactionId,
       status: 'pending',
+      provider: payment.provider,
+      rawStatus: payment.rawStatus,
       message: payment.message || `Payment of ${parsedAmount} XAF initiated. Check your phone for PIN prompt.`
     });
   } catch (error) {
@@ -490,12 +587,15 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
 
 router.get('/payment/provider-readiness', (_req: Request, res: Response) => {
   const provider = process.env.PAYMENT_PROVIDER || 'pawapay';
-  const hasPawaPay = Boolean(process.env.PAYMENT_API_KEY);
+  const hasPawaPay = Boolean(process.env.PAWAPAY_API_TOKEN || process.env.PAYMENT_API_KEY);
   const hasAT = Boolean(process.env.AT_API_KEY && process.env.AT_USERNAME);
+  const pawaPayEnv = process.env.PAWAPAY_ENV || (process.env.NODE_ENV === 'production' ? 'production' : 'sandbox');
 
   res.status(200).json({
     success: true,
     provider,
+    callback_url: `${(process.env.RENDER_EXTERNAL_URL || process.env.WEBHOOK_DOMAIN || 'https://asteck-bot.onrender.com').replace(/\/$/, '')}/api/webhook/pawapay`,
+    pawapay_environment: pawaPayEnv,
     ready: {
       pawapay: hasPawaPay,
       africastalking: hasAT
@@ -510,18 +610,30 @@ router.get('/payment/provider-readiness', (_req: Request, res: Response) => {
 // ── PAYMENT WEBHOOK (PawaPay callback) ────────────────────────────────────
 router.post('/webhook/pawapay', async (req: Request, res: Response) => {
   try {
-    const { transactionId, status, externalId } = req.body;
+    const transactionId = req.body.transactionId || req.body.depositId || req.body.payoutId;
+    const status = String(req.body.status || '').toUpperCase();
+    const externalId = req.body.externalId || req.body.booking_id;
     
-    console.log(`💰 PawaPay webhook: ${transactionId} (Ext: ${externalId}) → ${status}`);
+    console.log(`💰 PawaPay webhook: ${transactionId} (Ext: ${externalId || 'lookup-by-transaction'}) → ${status}`);
+
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('id, operator_id, price_paid, payment_status')
+      .eq(externalId ? 'id' : 'transaction_id', externalId || transactionId)
+      .maybeSingle();
+
+    await appendPaymentEvent({
+      booking_id: booking?.id || externalId || null,
+      provider: 'pawapay',
+      external_id: transactionId || null,
+      event_type: 'callback_received',
+      event_status: status || 'UNKNOWN',
+      amount_xaf: Number(booking?.price_paid || 0) || null,
+      metadata: req.body,
+    });
 
     // Update booking status in Supabase if transaction is completed
-    if (status === 'COMPLETED' && externalId) {
-      const { data: booking } = await supabase
-        .from('bookings')
-        .select('id, operator_id, price_paid, payment_status')
-        .eq('id', externalId)
-        .maybeSingle();
-
+    if (status === 'COMPLETED' && transactionId) {
       const { error } = await supabase
         .from('bookings')
         .update({
@@ -530,16 +642,21 @@ router.post('/webhook/pawapay', async (req: Request, res: Response) => {
           transaction_id: transactionId,
           updated_at: new Date().toISOString()
         })
-        .eq('id', externalId);
+        .eq(externalId ? 'id' : 'transaction_id', externalId || transactionId);
 
       if (error) console.error('Error updating booking:', error);
 
       if (booking?.operator_id) {
         await applyRideCredit(booking, transactionId);
       }
-      
-      // TODO: Emit Socket.io event here if socket server is initialized
-      // io.to(externalId).emit('payment_confirmed', { transactionId });
+    } else if (['FAILED', 'REJECTED', 'CANCELLED'].includes(status) && transactionId) {
+      await supabase
+        .from('bookings')
+        .update({
+          payment_status: 'failed',
+          updated_at: new Date().toISOString()
+        })
+        .eq(externalId ? 'id' : 'transaction_id', externalId || transactionId);
     }
 
     res.status(200).json({ received: true });
@@ -593,6 +710,216 @@ router.post('/guardian/token', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/ops/map-signal', async (req: Request, res: Response) => {
+  try {
+    const auth = authPayloadFromRequest(req);
+    const {
+      profile_id,
+      vehicle_id,
+      checkpoint_id,
+      signal_type = 'movement',
+      latitude,
+      longitude,
+      speed,
+      speed_kph,
+      heading,
+      accuracy,
+      source = 'app',
+      description,
+      severity,
+      incident_type,
+      network_type,
+      device_os,
+      actor_type = 'app_user',
+      verification_hint,
+    } = req.body;
+
+    const userId = auth?.sub || profile_id;
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'Valid latitude and longitude required' });
+    }
+
+    const createdAt = new Date().toISOString();
+    const movementPayload = {
+      user_id: userId || null,
+      latitude: lat,
+      longitude: lng,
+      speed: Number(speed_kph ?? speed ?? 0) || 0,
+      heading: Number(heading || 0),
+      accuracy: Number(accuracy || 0),
+      device_os: device_os || 'web',
+      network_type: network_type || 'unknown',
+      timestamp: createdAt,
+    };
+
+    const { data: movement, error: movementError } = await supabase
+      .from('movement_logs')
+      .insert(movementPayload)
+      .select('id, timestamp')
+      .single();
+    if (movementError) throw movementError;
+
+    if (vehicle_id) {
+      await supabase
+        .from('vehicles')
+        .update({
+          current_lat: lat,
+          current_lng: lng,
+          current_location: `POINT(${lng} ${lat})`,
+          last_ping_at: createdAt,
+          is_available: true,
+        })
+        .eq('id', vehicle_id);
+    }
+
+    let incident = null;
+    if (signal_type === 'incident' || incident_type) {
+      const { data: createdIncident, error: incidentError } = await supabase
+        .from('incidents')
+        .insert({
+          reporter_id: userId || null,
+          reporter_username: auth?.phone || source,
+          type: incident_type || 'hazard',
+          description: description || 'AFAT field signal',
+          latitude: lat,
+          longitude: lng,
+          location: `POINT(${lng} ${lat})`,
+          severity: Math.max(1, Math.min(5, Number(severity || 3))),
+          source: checkpoint_id ? 'checkpoint' : source,
+          status: checkpoint_id || verification_hint === 'trusted' ? 'verified' : Number(severity || 3) >= 4 ? 'pending' : 'verified',
+          verification_status: checkpoint_id || verification_hint === 'trusted' ? 'verified' : 'pending',
+          created_at: createdAt,
+          expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+        })
+        .select('id, type, severity, status')
+        .single();
+
+      if (incidentError) throw incidentError;
+      incident = createdIncident;
+    }
+
+    res.status(201).json({
+      success: true,
+      accepted: true,
+      movement,
+      incident,
+      actor_type,
+      checkpoint_id: checkpoint_id || null,
+      publish_channels: ['movement_logs', ...(incident ? ['incidents'] : []), ...(vehicle_id ? ['vehicles'] : [])],
+      map_effect: {
+        contributes_to_live_feed: true,
+        contributes_to_safety_score: Boolean(incident),
+        contributes_to_demand_radar: signal_type === 'movement',
+      },
+    });
+  } catch (error: any) {
+    console.error('Map signal ingest error:', error);
+    res.status(500).json({ error: error.message || 'Map signal ingest failed' });
+  }
+});
+
+router.get('/ops/checkpoints', async (req: Request, res: Response) => {
+  try {
+    const regionKey = normalizeRegion(req.query.city as string | undefined);
+    const { data: checkpoints, error } = await supabase
+      .from('checkpoints')
+      .select('id, name, city, zone_label, latitude, longitude, status, checkpoint_type, trust_score, coverage_radius_meters')
+      .eq('status', 'active')
+      .limit(200);
+
+    if (error) throw error;
+
+    const scoped = (checkpoints || []).filter((checkpoint: any) =>
+      withinRegion(Number(checkpoint.latitude), Number(checkpoint.longitude), regionKey)
+    );
+
+    res.status(200).json({
+      success: true,
+      city: regionKey,
+      count: scoped.length,
+      checkpoints: scoped,
+    });
+  } catch (error: any) {
+    console.error('Checkpoint feed error:', error);
+    res.status(500).json({ error: error.message || 'Checkpoint feed failed' });
+  }
+});
+
+router.post('/ops/checkpoints/enroll', async (req: Request, res: Response) => {
+  try {
+    const auth = authPayloadFromRequest(req);
+    const {
+      profile_id,
+      checkpoint_name,
+      city,
+      zone_label,
+      latitude,
+      longitude,
+      checkpoint_type = 'community',
+      notes,
+    } = req.body;
+
+    const actorId = auth?.sub || profile_id;
+    if (!actorId) {
+      return res.status(401).json({ error: 'Authenticated actor required' });
+    }
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!checkpoint_name || !city || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'checkpoint_name, city, latitude and longitude are required' });
+    }
+
+    const { data: checkpoint, error: checkpointError } = await supabase
+      .from('checkpoints')
+      .insert({
+        name: checkpoint_name,
+        city: String(city).trim().toLowerCase(),
+        zone_label: zone_label || null,
+        latitude: lat,
+        longitude: lng,
+        checkpoint_type,
+        status: 'active',
+        trust_score: 50,
+        coverage_radius_meters: 350,
+        notes: notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+
+    if (checkpointError) throw checkpointError;
+
+    const { data: membership, error: membershipError } = await supabase
+      .from('checkpoint_memberships')
+      .insert({
+        checkpoint_id: checkpoint.id,
+        profile_id: actorId,
+        role: 'captain',
+        status: 'active',
+        legal_acknowledged: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+
+    if (membershipError) throw membershipError;
+
+    res.status(201).json({
+      success: true,
+      checkpoint,
+      membership,
+    });
+  } catch (error: any) {
+    console.error('Checkpoint enroll error:', error);
+    res.status(500).json({ error: error.message || 'Checkpoint enrollment failed' });
   }
 });
 
@@ -678,7 +1005,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
     const region = LIVE_MAP_REGIONS[regionKey];
     const since = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
 
-    const [{ data: vehicles }, { data: incidents }, { data: dispatches }] = await Promise.all([
+    const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }] = await Promise.all([
       supabase
         .from('vehicles')
         .select('id, operator_id, plate_number, vehicle_type, type, is_available, current_lat, current_lng, last_ping_at, rating')
@@ -696,6 +1023,11 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         .select('id, booking_id, operator_id, vehicle_id, status, priority, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at')
         .in('status', ['queued', 'assigned', 'en_route', 'arrived'])
         .order('created_at', { ascending: false })
+        .limit(120),
+      supabase
+        .from('checkpoints')
+        .select('id, name, city, zone_label, latitude, longitude, status, checkpoint_type, trust_score, coverage_radius_meters')
+        .eq('status', 'active')
         .limit(120),
     ]);
 
@@ -723,6 +1055,10 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       );
     });
 
+    const scopedCheckpoints = (checkpoints || []).filter((checkpoint: any) =>
+      withinRegion(Number(checkpoint.latitude), Number(checkpoint.longitude), regionKey)
+    );
+
     const urgentAlerts = scopedIncidents
       .filter((incident: any) => Number(incident.severity || 0) >= 4)
       .slice(0, 6)
@@ -734,6 +1070,37 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         created_at: incident.created_at,
         source: incident.reporter_username || 'AFAT field grid',
       }));
+
+    const signalFreshness = scopedVehicles.map((vehicle: any) => {
+      const lastPing = vehicle.last_ping_at ? new Date(vehicle.last_ping_at).getTime() : 0;
+      return lastPing ? Math.max(0, Math.round((Date.now() - lastPing) / 1000)) : null;
+    }).filter((age: number | null) => age !== null) as number[];
+
+    const averageSignalAgeSeconds = signalFreshness.length
+      ? Math.round(signalFreshness.reduce((sum, age) => sum + age, 0) / signalFreshness.length)
+      : null;
+
+    const enrichedVehicles = scopedVehicles.map((vehicle: any) => {
+      const ageSeconds = vehicle.last_ping_at
+        ? Math.max(0, Math.round((Date.now() - new Date(vehicle.last_ping_at).getTime()) / 1000))
+        : null;
+      return {
+        ...vehicle,
+        signal_age_seconds: ageSeconds,
+        signal_quality: ageSeconds === null ? 'unknown' : ageSeconds <= 60 ? 'fresh' : ageSeconds <= 300 ? 'aging' : 'stale',
+        publish_channel: 'vehicles',
+      };
+    });
+
+    const enrichedIncidents = scopedIncidents.map((incident: any) => ({
+      ...incident,
+      publish_channel: 'incidents',
+      trust_state: ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
+        ? 'verified'
+        : Number(incident.severity || 0) >= 4
+          ? 'needs_human_review'
+          : 'field_signal',
+    }));
 
     const verifiedIncidents = scopedIncidents.filter((incident: any) =>
       ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
@@ -751,14 +1118,32 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         urgent_alerts: urgentAlerts.length,
         verified_incidents: verifiedIncidents.length,
         active_dispatches: scopedDispatches.length,
+        average_signal_age_seconds: averageSignalAgeSeconds,
+        publish_channels: ['vehicles', 'movement_logs', 'incidents', 'dispatch_assignments', 'checkpoints'],
+        data_contract: 'AFAT live-map v2',
         recommended_mode:
           urgentAlerts.length >= 3 ? 'alert' : scopedDispatches.length > scopedVehicles.length ? 'demand_pressure' : 'stable',
         city_scale_ready: ['yaounde', 'douala', 'bafoussam', 'garoua', 'cameroon'],
       },
+      geodata: {
+        foundation: 'local_open_data_packs',
+        live_overlay: true,
+        region_radius_km: region.radiusKm,
+        center: region.center,
+      },
+      transmission: {
+        receives: ['app telemetry', 'operator vehicle pings', 'citizen reports', 'dispatch assignments', 'checkpoint stewards'],
+        publishes: ['live map feed', 'safety score', 'demand radar', 'operator guidance', 'admin review queue', 'checkpoint network'],
+        ingest_endpoint: '/api/ops/map-signal',
+      },
       alerts: urgentAlerts,
-      vehicles: scopedVehicles,
-      incidents: scopedIncidents,
+      vehicles: enrichedVehicles,
+      incidents: enrichedIncidents,
       dispatches: scopedDispatches,
+      checkpoints: scopedCheckpoints.map((checkpoint: any) => ({
+        ...checkpoint,
+        publish_channel: 'checkpoints',
+      })),
     });
   } catch (error: any) {
     console.error('Live map feed error:', error);
@@ -1322,7 +1707,8 @@ router.post('/payment/finalize', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'booking_id and method are required' });
     }
 
-    const paymentStatus = method === 'cash' ? 'cash_due' : 'paid';
+    const paymentStatus = method === 'cash' ? 'cash_due' : 'collection_pending';
+    const bookingStatus = method === 'cash' ? 'confirmed' : 'pending';
     const txRef = transaction_id || `AFAT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const { data: booking, error: bookingFetchError } = await supabase
@@ -1338,7 +1724,7 @@ router.post('/payment/finalize', async (req: Request, res: Response) => {
     const { error: bookingUpdateError } = await supabase
       .from('bookings')
       .update({
-        status: 'confirmed',
+        status: bookingStatus,
         payment_status: paymentStatus,
         transaction_id: txRef,
         updated_at: new Date().toISOString()
@@ -1347,16 +1733,13 @@ router.post('/payment/finalize', async (req: Request, res: Response) => {
 
     if (bookingUpdateError) throw bookingUpdateError;
 
-    if (paymentStatus === 'paid') {
-      await applyRideCredit(booking, txRef);
-    }
-
     res.status(200).json({
       success: true,
       booking_id,
       transaction_id: txRef,
       payment_status: paymentStatus,
-      status: 'confirmed'
+      status: bookingStatus,
+      awaiting_callback: method !== 'cash'
     });
   } catch (error: any) {
     console.error('Payment finalize error:', error);

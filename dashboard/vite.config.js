@@ -1,9 +1,22 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export default defineConfig({
+  root: __dirname,
   base: './',
+  build: {
+    outDir: path.resolve(__dirname, 'dist'),
+    emptyOutDir: true,
+    rollupOptions: {
+      input: path.resolve(__dirname, 'index.html'),
+    },
+  },
   plugins: [
     react(),
     VitePWA({
@@ -52,17 +65,17 @@ export default defineConfig({
         orientation: 'portrait-primary',
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: 'hero-map.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'operator-hero.png',
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'operator-hero.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'

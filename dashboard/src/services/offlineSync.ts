@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { apiBaseUrl, afatAuthHeaders, supabase } from '../supabaseClient';
 
 /**
  * World-Class Zero-Dependency Offline Queue
@@ -95,8 +95,28 @@ export const offlineSync = {
         }
         else if (mutation.type === 'INSERT_TELEMETRY') {
           const payload = Array.isArray(mutation.payload) ? mutation.payload : [mutation.payload];
-          const { error } = await supabase.from('movement_logs').insert(payload);
-          if (error) throw error;
+          for (const signal of payload) {
+            const response = await fetch(`${apiBaseUrl}/api/ops/map-signal`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+              body: JSON.stringify({
+                signal_type: 'movement',
+                profile_id: signal.user_id,
+                latitude: signal.latitude,
+                longitude: signal.longitude,
+                speed_kph: signal.speed_kph ?? signal.speed,
+                heading: signal.heading,
+                accuracy: signal.accuracy,
+                device_os: signal.device_os,
+                network_type: signal.network_type,
+                source: 'offline_sync',
+              }),
+            });
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}));
+              throw new Error(data.error || 'Map signal sync failed');
+            }
+          }
         }
         console.log(`[OfflineSync] Synced ${mutation.type} successfully.`);
       } catch (err) {

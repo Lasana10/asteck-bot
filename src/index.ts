@@ -146,8 +146,10 @@ async function startBot() {
 
 async function main() {
   // Validate required environment variables
-  const requiredEnv = ['TELEGRAM_BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_KEY'];
-  const missing = requiredEnv.filter(key => !process.env[key]);
+  const missing: string[] = [];
+  if (!process.env.TELEGRAM_BOT_TOKEN) missing.push('TELEGRAM_BOT_TOKEN');
+  if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
+  if (!process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_KEY) missing.push('SUPABASE_SECRET_KEY or SUPABASE_KEY');
   
   if (missing.length > 0) {
     console.error('❌ Missing environment variables:', missing.join(', '));

@@ -57,6 +57,8 @@ class TelemetryService {
 
     this.buffer.push({
       user_id: this.userId,
+      latitude,
+      longitude,
       location: `POINT(${longitude} ${latitude})`,
       speed_kph: speedKph,
       heading: heading || 0,
@@ -99,6 +101,8 @@ class TelemetryService {
       
       this.buffer.push({
         user_id: this.userId,
+        latitude: this.startLat,
+        longitude: this.startLng,
         location: `POINT(${this.startLng} ${this.startLat})`,
         speed_kph: 20 + Math.random() * 20,
         heading: Math.random() * 360,

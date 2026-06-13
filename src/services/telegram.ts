@@ -225,6 +225,7 @@ export class TelegramService {
         { name: 'GROQ_API_KEY', ok: !!process.env.GROQ_API_KEY },
         { name: 'OPENROUTER_API_KEY', ok: !!process.env.OPENROUTER_API_KEY },
         { name: 'SUPABASE_URL', ok: !!process.env.SUPABASE_URL },
+        { name: 'SUPABASE_SECRET_KEY', ok: !!process.env.SUPABASE_SECRET_KEY },
         { name: 'SUPABASE_KEY', ok: !!process.env.SUPABASE_KEY },
         { name: 'TWILIO_ACCOUNT_SID', ok: !!process.env.TWILIO_ACCOUNT_SID },
         { name: 'WEBHOOK_DOMAIN', ok: !!process.env.WEBHOOK_DOMAIN },

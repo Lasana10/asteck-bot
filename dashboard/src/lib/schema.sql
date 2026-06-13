@@ -11,6 +11,17 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 -- ============================================
 DROP TABLE IF EXISTS public.trust_ledger CASCADE;
 DROP TABLE IF EXISTS public.collection_campaigns CASCADE;
+DROP TABLE IF EXISTS public.checkpoint_memberships CASCADE;
+DROP TABLE IF EXISTS public.checkpoints CASCADE;
+DROP TABLE IF EXISTS public.payment_events CASCADE;
+DROP TABLE IF EXISTS public.operator_wallets CASCADE;
+DROP TABLE IF EXISTS public.wallet_ledger CASCADE;
+DROP TABLE IF EXISTS public.seat_holds CASCADE;
+DROP TABLE IF EXISTS public.guardian_tokens CASCADE;
+DROP TABLE IF EXISTS public.dispatch_assignments CASCADE;
+DROP TABLE IF EXISTS public.compliance_records CASCADE;
+DROP TABLE IF EXISTS public.company_memberships CASCADE;
+DROP TABLE IF EXISTS public.companies CASCADE;
 DROP TABLE IF EXISTS public.movement_logs CASCADE;
 DROP TABLE IF EXISTS public.fuel_stations CASCADE;
 DROP TABLE IF EXISTS public.notifications CASCADE;
@@ -86,19 +97,25 @@ CREATE TABLE IF NOT EXISTS public.incidents (
   longitude DOUBLE PRECISION NOT NULL,
   address TEXT,
   severity INT DEFAULT 3 CHECK (severity BETWEEN 1 AND 5),
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'expired', 'false')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('new', 'pending', 'verified', 'resolved', 'dismissed', 'expired', 'false')),
   confirmations INT DEFAULT 0,
-  source TEXT DEFAULT 'app' CHECK (source IN ('app', 'telegram', 'whatsapp')),
+  source TEXT DEFAULT 'app' CHECK (source IN ('app', 'telegram', 'whatsapp', 'checkpoint', 'ops', 'ai')),
   photo_url TEXT,
   voice_url TEXT,
   voice_file_id TEXT,
   photo_file_id TEXT,
   weather_context TEXT,
+  verification_status TEXT DEFAULT 'new',
+  resolved_at TIMESTAMPTZ,
+  resolver_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  confidence_score INTEGER DEFAULT 50,
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_incidents_location ON public.incidents USING GIST (location);
+CREATE INDEX idx_incidents_verification_status ON public.incidents(verification_status);
+CREATE INDEX idx_incidents_type_created ON public.incidents(type, created_at DESC);
 
 -- ============================================
 -- 3. CONFIRMATIONS (Prevent Double-Voting)
@@ -120,8 +137,14 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   operator_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   plate_number TEXT NOT NULL,
   type TEXT NOT NULL CHECK (type IN ('moto', 'taxi', 'minibus', 'bus', 'private')),
+  vehicle_type TEXT,
   capacity INT NOT NULL DEFAULT 4,
   description TEXT,
+  brand TEXT,
+  model TEXT,
+  year INTEGER,
+  color TEXT,
+  status TEXT NOT NULL DEFAULT 'inactive' CHECK (status IN ('inactive', 'active', 'suspended', 'maintenance')),
   is_available BOOLEAN DEFAULT false,
   current_location GEOGRAPHY(POINT, 4326),
   current_lat DOUBLE PRECISION,
@@ -167,11 +190,15 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   pickup_lng DOUBLE PRECISION NOT NULL,
   dropoff_lat DOUBLE PRECISION NOT NULL,
   dropoff_lng DOUBLE PRECISION NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'in_progress', 'completed', 'cancelled')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'confirmed', 'in_progress', 'boarded', 'completed', 'cancelled')),
   price_xaf INT,
-  payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid_momo', 'paid_cash')),
+  price_paid INT,
+  seat_label TEXT,
+  transaction_id TEXT,
+  payment_status TEXT DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'pending', 'collection_pending', 'paid', 'cash_due', 'failed', 'refunded')),
   safety_score INT,
   estimated_eta_mins INT,
+  completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -222,6 +249,7 @@ CREATE TABLE IF NOT EXISTS public.movement_logs (
   accel_x DOUBLE PRECISION, -- For pothole detection
   accel_y DOUBLE PRECISION,
   accel_z DOUBLE PRECISION,
+  accuracy DOUBLE PRECISION,
   device_os TEXT,
   network_type TEXT,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -254,6 +282,187 @@ CREATE TABLE IF NOT EXISTS public.trust_ledger (
   reference_id TEXT, -- e.g., incident ID or campaign ID
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- ============================================
+-- 12. COMPANIES & MEMBERSHIPS
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.companies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  phone TEXT UNIQUE NOT NULL,
+  contact_person TEXT,
+  fleet_size INTEGER,
+  notes TEXT,
+  compliance_status TEXT DEFAULT 'unknown',
+  compliance_score INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.company_memberships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'manager', 'member')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'suspended')),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(company_id, profile_id)
+);
+
+-- ============================================
+-- 13. COMPLIANCE RECORDS
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.compliance_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id UUID NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  company_id UUID NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'commuter' CHECK (role IN ('commuter', 'operator', 'company', 'bike_rider')),
+  document_type TEXT NOT NULL,
+  document_label TEXT NOT NULL,
+  package_tier TEXT,
+  status TEXT NOT NULL DEFAULT 'missing' CHECK (status IN ('missing', 'pending', 'submitted', 'verified', 'expired', 'rejected', 'needs_followup')),
+  followup_channel TEXT NOT NULL DEFAULT 'sms' CHECK (followup_channel IN ('sms', 'whatsapp', 'email', 'manual', 'none')),
+  file_url TEXT,
+  notes TEXT,
+  issued_at TIMESTAMPTZ,
+  due_at TIMESTAMPTZ,
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT compliance_target_required CHECK (profile_id IS NOT NULL OR company_id IS NOT NULL)
+);
+
+-- ============================================
+-- 14. DISPATCH & GUARDIAN
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.dispatch_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id UUID REFERENCES public.bookings(id) ON DELETE SET NULL,
+  route_id UUID REFERENCES public.routes(id) ON DELETE SET NULL,
+  operator_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  vehicle_id UUID REFERENCES public.vehicles(id) ON DELETE SET NULL,
+  dispatcher_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  origin TEXT,
+  destination TEXT,
+  priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'emergency')),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'assigned', 'en_route', 'arrived', 'completed', 'cancelled')),
+  notes TEXT,
+  pickup_lat DOUBLE PRECISION,
+  pickup_lng DOUBLE PRECISION,
+  dropoff_lat DOUBLE PRECISION,
+  dropoff_lng DOUBLE PRECISION,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.guardian_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token TEXT NOT NULL UNIQUE,
+  booking_id UUID NOT NULL REFERENCES public.bookings(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ============================================
+-- 15. SEAT HOLDS & WALLET
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.seat_holds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  passenger_id UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  operator_id UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  route_id UUID NOT NULL REFERENCES public.routes(id) ON DELETE CASCADE,
+  seat_label TEXT NOT NULL,
+  booking_id UUID NULL REFERENCES public.bookings(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'released', 'expired', 'converted')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.operator_wallets (
+  operator_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  balance_xaf INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.wallet_ledger (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  operator_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  booking_id UUID NULL REFERENCES public.bookings(id) ON DELETE SET NULL,
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('ride_credit', 'withdrawal', 'adjustment', 'refund')),
+  direction TEXT NOT NULL CHECK (direction IN ('credit', 'debit')),
+  gross_amount INTEGER NOT NULL DEFAULT 0,
+  commission_amount INTEGER NOT NULL DEFAULT 0,
+  net_amount INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted', 'requested', 'failed', 'reversed')),
+  reference TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.payment_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id UUID NULL REFERENCES public.bookings(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL,
+  external_id TEXT,
+  event_type TEXT NOT NULL CHECK (event_type IN ('checkout_initiated', 'callback_received', 'manual_finalized', 'status_sync')),
+  event_status TEXT NOT NULL,
+  amount_xaf INTEGER,
+  phone_number TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ============================================
+-- 16. CHECKPOINT NETWORK
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.checkpoints (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  city TEXT NOT NULL,
+  zone_label TEXT,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  checkpoint_type TEXT NOT NULL DEFAULT 'community' CHECK (checkpoint_type IN ('community', 'terminal', 'market', 'agency', 'safety', 'school', 'authority')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'inactive')),
+  trust_score INTEGER NOT NULL DEFAULT 50 CHECK (trust_score BETWEEN 0 AND 100),
+  coverage_radius_meters INTEGER NOT NULL DEFAULT 350,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.checkpoint_memberships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  checkpoint_id UUID NOT NULL REFERENCES public.checkpoints(id) ON DELETE CASCADE,
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('captain', 'member', 'reviewer')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'suspended')),
+  legal_acknowledged BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(checkpoint_id, profile_id)
+);
+
+CREATE INDEX idx_compliance_records_profile ON public.compliance_records(profile_id);
+CREATE INDEX idx_compliance_records_company ON public.compliance_records(company_id);
+CREATE INDEX idx_compliance_records_status ON public.compliance_records(status);
+CREATE INDEX idx_dispatch_assignments_status ON public.dispatch_assignments(status);
+CREATE INDEX idx_dispatch_assignments_operator ON public.dispatch_assignments(operator_id);
+CREATE INDEX idx_dispatch_assignments_vehicle ON public.dispatch_assignments(vehicle_id);
+CREATE INDEX idx_guardian_tokens_token ON public.guardian_tokens(token);
+CREATE INDEX idx_guardian_tokens_booking ON public.guardian_tokens(booking_id);
+CREATE INDEX idx_seat_holds_route_seat ON public.seat_holds(route_id, seat_label);
+CREATE INDEX idx_seat_holds_passenger ON public.seat_holds(passenger_id);
+CREATE INDEX idx_wallet_ledger_operator ON public.wallet_ledger(operator_id, created_at DESC);
+CREATE INDEX idx_wallet_ledger_booking ON public.wallet_ledger(booking_id);
+CREATE INDEX idx_payment_events_booking ON public.payment_events(booking_id);
+CREATE INDEX idx_payment_events_external ON public.payment_events(external_id);
+CREATE INDEX idx_checkpoints_city_status ON public.checkpoints(city, status);
+CREATE INDEX idx_checkpoint_memberships_profile ON public.checkpoint_memberships(profile_id);
 
 -- ============================================
 -- UTILITY FUNCTIONS
@@ -314,6 +523,17 @@ ALTER TABLE public.fuel_stations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.movement_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.collection_campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trust_ledger ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.company_memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.compliance_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dispatch_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.guardian_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.seat_holds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.operator_wallets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wallet_ledger ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.checkpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.checkpoint_memberships ENABLE ROW LEVEL SECURITY;
 
 -- 1. PROFILES
 CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
@@ -375,6 +595,55 @@ CREATE POLICY "Only admins manage campaigns" ON public.collection_campaigns FOR 
 -- 11. TRUST LEDGER
 CREATE POLICY "Users view own ledger" ON public.trust_ledger FOR SELECT USING (user_id = auth.uid());
 
+-- 12. COMPANIES
+CREATE POLICY "Companies readable by everyone" ON public.companies FOR SELECT USING (true);
+CREATE POLICY "Company members manage company links" ON public.company_memberships FOR SELECT USING (profile_id = auth.uid());
+
+-- 13. COMPLIANCE
+CREATE POLICY "Users view own compliance records" ON public.compliance_records FOR SELECT USING (
+  profile_id = auth.uid() OR
+  EXISTS (
+    SELECT 1
+    FROM public.company_memberships cm
+    WHERE cm.company_id = compliance_records.company_id
+      AND cm.profile_id = auth.uid()
+      AND cm.status = 'active'
+  ) OR
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
+);
+
+-- 14. DISPATCH / GUARDIAN
+CREATE POLICY "Dispatch assignments visible to actors" ON public.dispatch_assignments FOR SELECT USING (
+  operator_id = auth.uid() OR dispatcher_id = auth.uid() OR
+  EXISTS (
+    SELECT 1
+    FROM public.bookings b
+    WHERE b.id = dispatch_assignments.booking_id
+      AND b.passenger_id = auth.uid()
+  ) OR
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
+);
+CREATE POLICY "Guardian tokens readable by everyone" ON public.guardian_tokens FOR SELECT USING (true);
+CREATE POLICY "Guardian tokens insertable by authenticated users" ON public.guardian_tokens FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+-- 15. SEAT HOLDS / WALLET / PAYMENTS
+CREATE POLICY "Seat holds visible to route actors" ON public.seat_holds FOR SELECT USING (
+  passenger_id = auth.uid() OR operator_id = auth.uid() OR
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
+);
+CREATE POLICY "Operators view own wallet" ON public.operator_wallets FOR SELECT USING (operator_id = auth.uid());
+CREATE POLICY "Operators view own wallet ledger" ON public.wallet_ledger FOR SELECT USING (operator_id = auth.uid());
+CREATE POLICY "Admins view payment events" ON public.payment_events FOR SELECT USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
+);
+
+-- 16. CHECKPOINT NETWORK
+CREATE POLICY "Checkpoints readable by everyone" ON public.checkpoints FOR SELECT USING (true);
+CREATE POLICY "Checkpoint memberships visible to participant or admin" ON public.checkpoint_memberships FOR SELECT USING (
+  profile_id = auth.uid() OR
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
+);
+
 -- ============================================
 -- REALTIME SUBSCRIPTIONS
 -- ============================================
@@ -383,3 +652,5 @@ ALTER PUBLICATION supabase_realtime ADD TABLE incidents;
 ALTER PUBLICATION supabase_realtime ADD TABLE vehicles;
 ALTER PUBLICATION supabase_realtime ADD TABLE bookings;
 ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+ALTER PUBLICATION supabase_realtime ADD TABLE dispatch_assignments;
+ALTER PUBLICATION supabase_realtime ADD TABLE checkpoints;

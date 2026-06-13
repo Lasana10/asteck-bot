@@ -63,7 +63,8 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
             amount,
             phone,
             booking_id: bookingId,
-            provider: selectedMethod,
+            provider: 'pawapay',
+            mobile_network: selectedMethod,
           })
         });
 
@@ -72,6 +73,19 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         if (!response.ok || !result.success) {
           throw new Error(result.error || result.message || 'Le paiement mobile money a echoue.');
         }
+
+        const { error } = await finalizeBookingPayment(bookingId, selectedMethod, result.transactionId);
+        if (error) {
+          throw new Error(error?.message || 'Impossible de lier le paiement a la reservation.');
+        }
+
+        setProcessing(false);
+        setCompleted(true);
+
+        setTimeout(() => {
+          onPaymentComplete(selectedMethod, result.transactionId);
+        }, 1500);
+        return;
       }
 
       const { data: finalizeData, error } = await finalizeBookingPayment(bookingId, selectedMethod, txId);
