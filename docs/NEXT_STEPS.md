@@ -2,20 +2,35 @@
 
 ## Immediate Next Tasks
 1. Continue frontend redesign sprint from the Mission Control and Strategic Layer baseline: simplify home screens, reduce fake-static claims, and make the map/dispatch layer feel like the primary product.
-2. Build real document persistence for onboarding/compliance so the visible packages become stored files, review statuses, expiry tracking, and admin actions.
-3. Build the next geodata step after the local pack catalog: add curated city manifests, route graph loading, and a visible distinction between ready packs and planned packs across all roles.
-4. Design and implement deeper onboarding/compliance tracks for commuters, drivers, companies, agencies, deliveries, taxis, and bikes.
-5. Keep backend stable while redesigning: no broad new backend scope unless required by redesigned UX.
-6. After redesign pass, run live smoke tests for:
+2. Run a full click-through QA pass in the browser for commuter, operator, planner, and admin roles: every visible button should be classified as live backend action, local workflow, external link, or planned/staged.
+3. Confirm the dashboard is opened on the frontend preview URL, not the backend API URL (`localhost:3000`), before judging frontend role behavior.
+4. Deepen the new negotiation system:
+   - decide whether commuter negotiation should stay post-seat-hold or move earlier in the flow
+   - add accepted/rejected history rendering and final-state UI
+   - verify RLS/session behavior for Supabase negotiation inserts in production auth
+5. Build real document persistence for onboarding/compliance so the visible packages become stored files, review statuses, expiry tracking, and admin actions.
+6. Convert the next highest-risk staged workflows into backend-backed actions: tontine contribution posting, academy/certification queue, emergency logistics directives, admin profile review, and payment audit.
+7. Build the next geodata step after the local pack catalog: add curated city manifests, route graph loading, and a visible distinction between ready packs and planned packs across all roles.
+8. Design and implement deeper onboarding/compliance tracks for commuters, drivers, companies, agencies, deliveries, taxis, and bikes.
+9. Keep backend stable while redesigning: no broad new backend scope unless required by redesigned UX.
+10. After redesign pass, run live smoke tests for:
    - onboarding
    - booking + seat hold + payment finalize
    - dispatch assignment + live map update
    - reporting + broadcast + SOS
-7. Run Supabase migration parity check and apply any missing SQL in correct order.
-8. Add centralized JWT auth middleware and role guards on protected endpoints.
-9. Replace mock OTP flow with real provider-backed verification.
-10. Design AFAT geospatial foundation:
+11. Run Supabase migration parity check and apply any missing SQL in correct order.
+12. Add centralized JWT auth middleware and role guards on protected endpoints.
+13. Replace mock OTP flow with real provider-backed verification.
+14. Design AFAT geospatial foundation:
    define downloaded OSM-derived data sources, preparation pipeline, storage format, tile strategy, and how live fleet/incident overlays attach to it.
+15. Browser-QA the simplified operator workspaces:
+   confirm Home, Requests, Intel, Profile, negotiation modal, QR generator, ticket scanner, history, withdrawal, and tontine overlays all open from the right contexts.
+16. Convert commuter geo missions from visible intent into a real pipeline:
+   submission capture, steward/admin review, trust scoring, route-pack update eligibility, and contributor rewards.
+17. Add planner/admin review for published commuter mission signals:
+   recent signal queue, trust-state labeling, and a fast review action to validate or dismiss collected route-truth data.
+18. Add a real Cloudflare deployment path in-repo:
+   install/configure `wrangler`, add deployment config, verify build output target, and connect the dashboard workspace to the intended Cloudflare Pages or Workers project.
 
 ## June 13, 2026 Strategic Next Step
 1. Replace mock OTP with a real provider-backed verification path and signed backend session model.
@@ -38,6 +53,7 @@
 - AFAT is no longer only thinking about a pretty live map. The real winning system is becoming clearer: receive data well, validate it well, publish it well, and use it to make transport faster, safer, and more reliable.
 - Current implemented progress: stronger frontend visibility, map ingest endpoint, richer live map contract, early signed local auth bridge, and better PawaPay direction.
 - Current missing core: real auth, verified callback-first payments, serious map intelligence pipeline, document/legal support flows, and repeatable multi-region operating model.
+- Current frontend quality gap: local navigation is improving, but every role still needs end-to-end browser QA with screenshots and backend request verification before investor demo.
 
 ## Highest Priority Tasks
 - Frontend redesign quality uplift to match AFAT product ambition.

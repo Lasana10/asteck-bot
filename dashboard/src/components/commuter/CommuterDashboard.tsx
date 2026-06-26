@@ -15,7 +15,7 @@ import { DepartureBoard } from './DepartureBoard';
 import { SeatSelector } from './SeatSelector';
 import { PaymentSheet } from './PaymentSheet';
 import { TicketView } from './TicketView';
-import { createBookingFromHold, createSeatHold, fetchLiveMapOps, getActiveCampaigns, releaseSeatHold, supabase } from '../../supabaseClient';
+import { createBookingFromHold, createSeatHold, fetchLiveMapOps, getActiveCampaigns, publishMapSignal, releaseSeatHold, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { CommuterWallet } from './CommuterWallet';
@@ -94,6 +94,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [liveOpsLabel, setLiveOpsLabel] = useState('Cameroon');
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingInFlight, setBookingInFlight] = useState(false);
+  const [missionInFlight, setMissionInFlight] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSentiment = async () => {
@@ -143,6 +144,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         reward_points: pack.readyForOffline ? 40 : 70,
         prepStage: pack.prepStage,
         collectorRoles: pack.collectorRoles,
+        latitude: pack.latitude,
+        longitude: pack.longitude,
       }));
 
     const { data } = await getActiveCampaigns();
@@ -157,6 +160,9 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           reward_points: mission.reward_points || 50,
           prepStage: 'surveying',
           collectorRoles: ['commuters'],
+          campaign_id: mission.id,
+          latitude: mission.latitude || mission.lat || undefined,
+          longitude: mission.longitude || mission.lng || undefined,
         })),
       ]);
       return;
@@ -294,6 +300,50 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setSelectedDeparture(departureWithNegotiatedPrice);
     setCurrentBookingId(data.booking.id);
     setView('payment');
+  };
+
+  const resolveCitySignalPoint = (mission: any) => {
+    const cityKey = String(mission.city || mission.coverage || '').toLowerCase();
+    if (Number.isFinite(mission.latitude) && Number.isFinite(mission.longitude)) {
+      return { latitude: Number(mission.latitude), longitude: Number(mission.longitude) };
+    }
+    if (cityKey.includes('yaound')) return { latitude: 3.848, longitude: 11.502 };
+    if (cityKey.includes('douala')) return { latitude: 4.0511, longitude: 9.7679 };
+    if (cityKey.includes('cameroon')) return { latitude: 5.9631, longitude: 10.1591 };
+    return { latitude: 3.848, longitude: 11.502 };
+  };
+
+  const publishMissionSignal = async (mission: any) => {
+    if (!profile?.id) {
+      setProductNotice('Mission publishing needs a signed AFAT session so the signal can be attributed correctly.');
+      return;
+    }
+
+    setMissionInFlight(mission.id);
+    const point = resolveCitySignalPoint(mission);
+    const { data, error } = await publishMapSignal({
+      profile_id: profile.id,
+      campaign_id: mission.campaign_id || (typeof mission.id === 'string' && mission.id.startsWith('geo-') ? null : mission.id),
+      signal_type: 'movement',
+      source: 'app',
+      actor_type: 'commuter_mission',
+      latitude: point.latitude,
+      longitude: point.longitude,
+      accuracy: 40,
+      description: `${mission.title}: ${mission.description}`,
+      verification_hint: 'trusted',
+      network_type: navigator.onLine ? 'online' : 'offline',
+      device_os: 'web',
+    });
+    setMissionInFlight(null);
+
+    if (error) {
+      setProductNotice(`Mission publish failed: ${error.message}`);
+      return;
+    }
+
+    const signalId = data?.movement?.id || data?.movement_id || data?.id || 'AFAT signal';
+    setProductNotice(`Mission published: ${mission.title}. Signal ${signalId} is now feeding AFAT map intelligence.`);
   };
 
   // Sub-views
@@ -828,8 +878,9 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             {dataMissions.slice(0, 3).map((mission) => (
               <button
                 key={mission.id}
-                onClick={() => setProductNotice(`Mission armed: ${mission.title}. AFAT should collect ${mission.description.toLowerCase()} with ${mission.collectorRoles?.join(', ') || 'commuters'} across ${mission.city}.`)}
-                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-left transition-all hover:bg-black/30 active:scale-[0.99]"
+                onClick={() => publishMissionSignal(mission)}
+                disabled={missionInFlight === mission.id}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-left transition-all hover:bg-black/30 active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
@@ -839,10 +890,15 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
                       <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-200/80">
                         {mission.prepStage || 'surveying'}
                       </span>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white/50">
-                        {mission.reward_points || 50} pts
-                      </span>
-                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white/50">
+                      {mission.reward_points || 50} pts
+                    </span>
+                  </div>
+                  {missionInFlight === mission.id ? (
+                    <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-blue-200">
+                      Publishing
+                    </span>
+                  ) : null}
                   </div>
                   <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
                 </div>

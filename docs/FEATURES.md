@@ -1,6 +1,17 @@
 # AFAT Features Memory
 
 ## Completed Features
+- Local review access now appears on localhost so the AFAT dashboard can be inspected as commuter, operator, planner, or admin without being blocked by production OTP/Supabase state.
+- Backend OTP flow now uses Arkesel when `ARKESEL_API_KEY` exists and only falls back to development code behavior when no SMS provider is configured.
+- Shared AFAT Strategic Layer now includes an ecosystem readiness board that clearly separates active, in-progress, and planned platform layers.
+- Admin dashboard now includes a command matrix for licensing/permits, payment callbacks, map quality, regional rollout, academy/certification, and emergency logistics.
+- AI Copilot is now surfaced more clearly as an AFAT orchestrator with visible strategy/guidance stages and dashboard-triggered launch hooks.
+- Admin compliance/intelligence actions now open a real follow-through desk instead of only toggling dead local state.
+- Admin now has a map-construction field desk for checkpoint registration, chosen-driver/steward targeting, notification preparation, and orchestrator-assisted data-growth planning.
+- User action feedback pass: commuter scan/pay, SOS, wallet, admin broadcast/export, planner report actions, and operator tontine contribution now provide visible in-app outcomes instead of raw browser alerts or console-only behavior.
+- Planner operational navigation: mission and strategy actions now jump to Report Center, Compliance Radar, Dispatch Workbench, or Jurisdiction Heatmap.
+- Static dashboard preview helper added for serving built AFAT assets from `dashboard/dist` when Vite preview is unreliable.
+- Planner/admin bottom navigation now maps to real operational destinations instead of feeling like inactive tabs.
 - Shared frontend Mission Control layer now mounted across commuter, operator, planner, and admin screens.
 - Role-aware frontend action routing now connects visible planned features to existing flows (book, report, drive, dispatch, compliance/onboarding).
 - Onboarding API now seeds compliance work items for operator and company registrations through `compliance_records`.
@@ -14,6 +25,14 @@
 - Broadcast endpoint exists and persists directives when possible.
 - Voice report endpoint exists (mock/live branch).
 - Seat hold flow (hold, release, create booking).
+- Operator request negotiation now writes real booking-linked negotiation rows to Supabase and can lock the accepted fare onto `bookings.price_paid`.
+- Local QA shell cleanup: role strip is now review-only, bottom navigation labels are clearer, and commuter booking now surfaces negotiation/special-service intent more honestly.
+- Operator tabs now open real task surfaces for Requests and Intel instead of behaving like one long screen with anchor-like tab reactions.
+- Operator Home has been trimmed toward a real shift console: directives, request handling, and ecosystem strategy no longer compete for the first screen.
+- Operator Home now regains some energy through compact Grid Pulse and Fast Launch sections instead of flattening the experience into a dull utilitarian shell.
+- Geodata preparation now has a first visible commuter loop: offline packs expose prep stage / collector roles / target signals, and commuter Home surfaces route-truth missions for field collection.
+- Route-truth missions can now publish a real map signal to the backend ingest route, and planners can see recent mission signals in the planner signal stream.
+- Planner surface now uses AFAT-aligned operational language instead of exposing vendor/tool names directly, and the planner map now renders with the `planner` role rather than piggybacking on `admin`.
 - Payment checkout/finalize flow with provider-readiness endpoint.
 - Wallet ledger crediting on paid bookings.
 - Secure ticket issue + boarding verification flow.
@@ -22,11 +41,20 @@
 - SOS panic endpoint writes emergency payload and attempts persistence.
 
 ## In-Progress Features
+- Admin/special-access usefulness: admin now has a command matrix, but still needs backend-backed workflows for licensing decisions, compliance adjudication, map quality review, payment audit, and regional rollout.
+- Some admin actions now provide visible feedback or open a real desk, but deeper persistence and task execution still need backend-backed workflows.
+- Compliance gateway: onboarding and compliance records exist, but full digital licensing, permit renewal, document storage, expiry reminders, and regulator package flows are not complete.
+- Map moat: AFAT has a live-map feed, checkpoints, local pack catalog, and signal ingest direction, but the proprietary African transport map needs a stronger data pipeline, area steward verification, offline pack distribution, quality scoring, and routing intelligence.
+- Payment operations: PawaPay callback URL and backend callback route are wired, but live readiness depends on deployed env parity and callback validation/polling verification.
 - Frontend redesign sprint (layout coherence, flow clarity, map/dispatch interaction quality, investor-grade polish). First pass completed: live readiness/control layer plus strategic visibility layer added.
+- Operator role structure is improved, but the next pass should refine the shift console hierarchy and make the dominant action even clearer on small screens.
+- Commuter negotiation is partially real: seat-hold-to-booking works, but pre-booking counter flow is still simplified until a deeper negotiation lifecycle is designed.
 - End-to-end onboarding reliability across passenger/driver/company. Frontend registration fields expanded and backend now persists onboarding context plus compliance queues for operator/company flows.
 - Compliance lifecycle dashboard and action workflows.
 - Production-grade realtime dispatch/map data quality across cities.
 - AFAT geodata foundation beyond the first local asset-backed packs.
+- Commuter-led route truth collection is only at the mission-surface stage; it still needs real submission, validation, and steward review workflows.
+- Route-truth mission publish now works, but validation, steward review, rewards, and pack update eligibility are still pending.
 - AI operational copilot behavior quality and model routing.
 - Callback-first mobile money collection with PawaPay sandbox/prod env support and proper booking status transitions.
 - Backend-authenticated map-signal ingest for telemetry, checkpoints, incident reports, and operator pings.
@@ -38,6 +66,13 @@
 - Strategic layer and Mission Control now expose checkpoint counts as part of visible map readiness.
 
 ## Planned Features
+- Driver Academy, operator management training, and AFAT certification badge lifecycle.
+- Digital licensing and permitting gateway for operators, fleets, agencies, bikes, taxis, and buses.
+- Cross-border booking with immigration/customs pre-clearance and currency-aware settlement.
+- Embedded insurance, operator financing, fuel/service partnerships, and eventually carbon-credit style reporting where legally viable.
+- Social trust layer: group travel coordination, travel feed, ratings, verified recommendations, and lost-and-found network.
+- Humanitarian logistics mode: disaster response, NGO transport, medical supply movement, and emergency evacuation coordination.
+- Loyalty economy: passenger points, driver/operator incentives, and future settlement rails only after legal/payment foundations are solid.
 - Strong role-based operations layer (commuter/driver/operator/company/admin).
 - Compliance packages and document lifecycle automation.
 - City-scale map intelligence: hazard/risk overlays and routing intelligence.
@@ -48,8 +83,9 @@
 - Regional replication pack for each city: onboarding, dispatch, compliance, reporting, and local map packs as repeatable rollout modules.
 
 ## Blocked Features
-- Live payment collection is intentionally paused pending redesign acceptance and provider credential finalization.
-- Frontend can now display payment readiness truthfully, but true payment collection remains provider-credential blocked.
+- Live payment collection is blocked until the latest backend code is deployed/restarted with correct Render env and PawaPay readiness returns live instead of stub.
+- Frontend can now display payment readiness truthfully, but true payment collection remains provider/deployment-readiness blocked.
+- Dedicated backend transaction endpoint for tontine contributions before the contribution button can be called live.
 - Any feature requiring missing production env keys (Supabase/public keys, payment keys, etc.).
 - Features depending on un-applied Supabase migrations/RLS policies.
 - Fully trusted investor demo state until frontend/backend env parity is verified in deployment.

@@ -7,6 +7,7 @@ import { dnaQueue } from '../services/QueueService';
 import { aiRouter } from '../services/AIRouter';
 import { brainService } from '../services/brain';
 import { PaymentService } from '../services/payment';
+import { ArkeselClient } from '../infra/arkesel';
 
 const router = express.Router();
 const ticketSecret = process.env.TICKET_SIGNING_SECRET || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || 'afat-dev-ticket-secret';
@@ -250,10 +251,16 @@ router.post('/auth/send-otp', async (req: Request, res: Response) => {
   try {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
-    
-    console.log(`📡 Sending OTP to ${phone} (Mock Mode)`);
-    // In a real scenario, call Africa's Talking or WhatsApp Bridge here
-    res.status(200).json({ success: true, message: 'OTP sent successfully' });
+
+    const hasSmsProvider = Boolean(process.env.ARKESEL_API_KEY);
+    const code = await ArkeselClient.sendOTP(phone);
+
+    res.status(200).json({
+      success: true,
+      message: hasSmsProvider ? 'OTP sent successfully' : 'Development OTP generated',
+      mode: hasSmsProvider ? 'sms' : 'development',
+      ...(hasSmsProvider ? {} : { dev_code: code })
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to send OTP' });
   }
@@ -264,9 +271,11 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
     const { phone, code } = req.body;
     if (!phone || !code) return res.status(400).json({ error: 'Phone and code required' });
 
-    console.log(`🔐 Verifying OTP for ${phone}: ${code} (Mock Mode)`);
-    // In mock mode, 123456 is always valid
-    if (code === '123456') {
+    const hasSmsProvider = Boolean(process.env.ARKESEL_API_KEY);
+    const isDevCode = !hasSmsProvider && code === '123456';
+    const isVerified = ArkeselClient.verifyOTP(phone, code) || isDevCode;
+
+    if (isVerified) {
       const normalizedPhone = String(phone).trim();
       const { data: existingProfile, error: lookupError } = await supabase
         .from('profiles')
@@ -718,6 +727,7 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
     const auth = authPayloadFromRequest(req);
     const {
       profile_id,
+      campaign_id,
       vehicle_id,
       checkpoint_id,
       signal_type = 'movement',
@@ -747,6 +757,7 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
     const createdAt = new Date().toISOString();
     const movementPayload = {
       user_id: userId || null,
+      campaign_id: campaign_id || null,
       latitude: lat,
       longitude: lng,
       speed: Number(speed_kph ?? speed ?? 0) || 0,
@@ -1005,7 +1016,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
     const region = LIVE_MAP_REGIONS[regionKey];
     const since = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
 
-    const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }] = await Promise.all([
+    const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }, { data: missionSignals }] = await Promise.all([
       supabase
         .from('vehicles')
         .select('id, operator_id, plate_number, vehicle_type, type, is_available, current_lat, current_lng, last_ping_at, rating')
@@ -1029,6 +1040,12 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         .select('id, name, city, zone_label, latitude, longitude, status, checkpoint_type, trust_score, coverage_radius_meters')
         .eq('status', 'active')
         .limit(120),
+      supabase
+        .from('movement_logs')
+        .select('id, user_id, campaign_id, latitude, longitude, speed, heading, accuracy, timestamp')
+        .gte('timestamp', since)
+        .order('timestamp', { ascending: false })
+        .limit(180),
     ]);
 
     const scopedVehicles = (vehicles || []).filter((vehicle: any) =>
@@ -1057,6 +1074,10 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
 
     const scopedCheckpoints = (checkpoints || []).filter((checkpoint: any) =>
       withinRegion(Number(checkpoint.latitude), Number(checkpoint.longitude), regionKey)
+    );
+
+    const scopedMissionSignals = (missionSignals || []).filter((signal: any) =>
+      withinRegion(Number(signal.latitude), Number(signal.longitude), regionKey)
     );
 
     const urgentAlerts = scopedIncidents
@@ -1143,6 +1164,11 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       checkpoints: scopedCheckpoints.map((checkpoint: any) => ({
         ...checkpoint,
         publish_channel: 'checkpoints',
+      })),
+      campaign_signals: scopedMissionSignals.map((signal: any) => ({
+        ...signal,
+        publish_channel: 'movement_logs',
+        signal_age_seconds: signal.timestamp ? Math.max(0, Math.round((Date.now() - new Date(signal.timestamp).getTime()) / 1000)) : null,
       })),
     });
   } catch (error: any) {

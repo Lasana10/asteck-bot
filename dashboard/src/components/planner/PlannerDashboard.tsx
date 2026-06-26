@@ -7,6 +7,7 @@ import {
   fetchActiveDispatches,
   fetchDemandRadar,
   fetchOpsReportCenter,
+  fetchLiveMapOps,
   fetchSafetyScore,
   getCompanyMembership,
   supabase,
@@ -38,6 +39,7 @@ export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
   const [demandRadar, setDemandRadar] = useState<any>(null);
   const [complianceRadar, setComplianceRadar] = useState<any>(null);
   const [dispatches, setDispatches] = useState<any[]>([]);
+  const [campaignSignals, setCampaignSignals] = useState<any[]>([]);
   const [opsMessage, setOpsMessage] = useState('');
   const [dispatchForm, setDispatchForm] = useState({
     operator_id: '',
@@ -89,7 +91,8 @@ export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
       companies: companyCount || 0
     }));
 
-    const [reportRes, safetyRes, demandRes, dispatchRes, complianceRes] = await Promise.all([
+    const [liveMapRes, reportRes, safetyRes, demandRes, dispatchRes, complianceRes] = await Promise.all([
+      fetchLiveMapOps('yaounde'),
       fetchOpsReportCenter(),
       fetchSafetyScore(3.866, 11.514, 8),
       fetchDemandRadar(),
@@ -97,6 +100,7 @@ export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
       fetchComplianceRadar(),
     ]);
 
+    if (liveMapRes.data?.campaign_signals) setCampaignSignals(liveMapRes.data.campaign_signals);
     if (reportRes.data) setReportCenter(reportRes.data);
     if (safetyRes.data) setSafetyScore(safetyRes.data);
     if (demandRes.data) setDemandRadar(demandRes.data);
@@ -288,6 +292,22 @@ export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
                  Signal Stream
               </h3>
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[440px] overflow-y-auto space-y-4">
+                 {campaignSignals.slice(0, 6).map((signal, i) => (
+                   <div key={`mission-${i}`} className="bg-cyan-500/5 border border-cyan-500/20 p-4 rounded-2xl">
+                      <div className="flex items-center justify-between mb-2">
+                         <span className="text-[10px] font-mono text-cyan-300">
+                           {signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : 'Signal'}
+                         </span>
+                         <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded border text-cyan-300 border-cyan-500/20 bg-cyan-500/5">
+                            Mission
+                         </span>
+                      </div>
+                      <p className="text-xs font-bold">Campaign signal</p>
+                      <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">
+                        {signal.campaign_id || 'Local route truth signal'} · {signal.speed ? `${signal.speed} km/h` : 'stationary'} · {signal.accuracy ? `${signal.accuracy}m accuracy` : 'accuracy pending'}
+                      </p>
+                   </div>
+                 ))}
                  {incidents.slice(0, 10).map((inc, i) => (
                    <div key={i} className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl animate-fade-up">
                       <div className="flex items-center justify-between mb-2">

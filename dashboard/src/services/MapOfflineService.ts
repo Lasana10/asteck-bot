@@ -156,6 +156,8 @@ class MapOfflineService {
       coverage: pack.coverage,
       collectorRoles: pack.collectorRoles,
       targetSignals: pack.targetSignals,
+      latitude: (pack.bounds[0][0] + pack.bounds[1][0]) / 2,
+      longitude: (pack.bounds[0][1] + pack.bounds[1][1]) / 2,
       readyForOffline: pack.status === 'ready',
     }));
   }
