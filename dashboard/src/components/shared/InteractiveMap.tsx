@@ -34,7 +34,7 @@ interface InteractiveMapProps {
   trackedVehicle?: PointLike | null;
   driveMode?: boolean;
   showInformal?: boolean;
-  role?: 'commuter' | 'operator' | 'admin';
+  role?: 'commuter' | 'operator' | 'planner' | 'admin';
   mapMode?: 'standard' | 'satellite' | 'hybrid' | 'intel';
   realtimeOverlay?: boolean;
 }
@@ -320,7 +320,7 @@ export function InteractiveMap({
         <div>
           <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/40">Dispatch Map</p>
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white">
-            {driveMode ? 'Live drive feed' : role === 'admin' ? 'Fleet intelligence' : 'Passenger view'}
+            {driveMode ? 'Live drive feed' : role === 'admin' ? 'Fleet intelligence' : role === 'planner' ? 'Planning intelligence' : 'Passenger view'}
           </p>
         </div>
       </div>

@@ -13,28 +13,28 @@ interface Props {
 // ── Per-role tab definitions ────────────────────────────────────
 const TAB_CONFIG: Record<string, { id: string; label: string; icon: React.ElementType }[]> = {
   commuter: [
-    { id: 'home',          label: 'HQ / Home',   icon: Home },
-    { id: 'bookings',      label: 'Safe Passage',icon: Ticket },
-    { id: 'notifications', label: 'Grid Intel',  icon: Radio },
-    { id: 'profile',       label: 'Citizen',     icon: User },
+    { id: 'home',          label: 'Home',        icon: Home },
+    { id: 'bookings',      label: 'Book',        icon: Ticket },
+    { id: 'notifications', label: 'Intel',       icon: Radio },
+    { id: 'profile',       label: 'Profile',     icon: User },
   ],
   operator: [
     { id: 'home',          label: 'Terminal',    icon: Home },
-    { id: 'bookings',      label: 'Marketplace', icon: QrCode },
-    { id: 'notifications', label: 'Grid Intel',  icon: Radio },
-    { id: 'profile',       label: 'Sentinel',    icon: User },
+    { id: 'bookings',      label: 'Requests',    icon: QrCode },
+    { id: 'notifications', label: 'Intel',       icon: Radio },
+    { id: 'profile',       label: 'Profile',     icon: User },
   ],
   planner: [
-    { id: 'home',          label: 'Carte',       icon: Map },
-    { id: 'bookings',      label: 'Rapports',    icon: BarChart3 },
-    { id: 'notifications', label: 'Alertes',     icon: Bell },
-    { id: 'profile',       label: 'Profil',      icon: User },
+    { id: 'home',          label: 'Map',         icon: Map },
+    { id: 'bookings',      label: 'Reports',     icon: BarChart3 },
+    { id: 'notifications', label: 'Alerts',      icon: Bell },
+    { id: 'profile',       label: 'Profile',     icon: User },
   ],
   admin: [
-    { id: 'home',          label: 'Commande',    icon: ShieldAlert },
+    { id: 'home',          label: 'Command',     icon: ShieldAlert },
     { id: 'bookings',      label: 'Analytics',   icon: BarChart3 },
-    { id: 'notifications', label: 'Alertes',     icon: Bell },
-    { id: 'profile',       label: 'Profil',      icon: User },
+    { id: 'notifications', label: 'Alerts',      icon: Bell },
+    { id: 'profile',       label: 'Profile',     icon: User },
   ],
 };
 
@@ -88,7 +88,7 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
                 <div className={`absolute -bottom-1 w-1 h-1 rounded-full ${ROLE_DOT[role] || 'bg-blue-400'} shadow-[0_0_10px_currentColor] animate-pulse`} />
               )}
               
-              <span className={`text-[8px] font-black uppercase tracking-[0.2em] leading-none transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-90 h-0 overflow-hidden'}`}>
+              <span className={`text-[8px] font-black uppercase tracking-[0.16em] leading-none transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-60 scale-100'}`}>
                 {tab.label}
               </span>
             </button>

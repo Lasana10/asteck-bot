@@ -1,4 +1,4 @@
-import { apiBaseUrl, afatAuthHeaders, supabase } from '../supabaseClient';
+import { afatAuthHeaders, getApiBaseUrl, supabase } from '../supabaseClient';
 
 /**
  * World-Class Zero-Dependency Offline Queue
@@ -96,7 +96,7 @@ export const offlineSync = {
         else if (mutation.type === 'INSERT_TELEMETRY') {
           const payload = Array.isArray(mutation.payload) ? mutation.payload : [mutation.payload];
           for (const signal of payload) {
-            const response = await fetch(`${apiBaseUrl}/api/ops/map-signal`, {
+            const response = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
               body: JSON.stringify({

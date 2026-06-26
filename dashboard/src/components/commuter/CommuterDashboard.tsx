@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Navigation2, Wallet, AlertTriangle, Headphones, Radio, QrCode,
   Mic, Trophy, Bell, Ticket, X, Send, Clock, ChevronRight,
-  Shield, Zap, MessageCircle, Star, TrendingUp, MapPin,
+  Shield, ShieldCheck, Zap, MessageCircle, Star, TrendingUp, MapPin,
   Settings, Download, Database, Info, Layers, Activity, CheckCircle, Fingerprint,
   MoreVertical, Briefcase, Layout, Box, Navigation, User, Map as MapIcon, Phone,
   Cloud, RefreshCw, ArrowUpRight, Wifi
@@ -15,7 +15,7 @@ import { DepartureBoard } from './DepartureBoard';
 import { SeatSelector } from './SeatSelector';
 import { PaymentSheet } from './PaymentSheet';
 import { TicketView } from './TicketView';
-import { createBookingFromHold, createSeatHold, fetchLiveMapOps, releaseSeatHold, supabase } from '../../supabaseClient';
+import { createBookingFromHold, createSeatHold, fetchLiveMapOps, getActiveCampaigns, releaseSeatHold, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { CommuterWallet } from './CommuterWallet';
@@ -33,7 +33,7 @@ interface Props {
   isGuest?: boolean;
 }
 
-type ViewState = 'home' | 'departures' | 'seats' | 'waiting' | 'payment' | 'ticket' | 'alerts';
+type ViewState = 'home' | 'departures' | 'seats' | 'waiting' | 'negotiate' | 'payment' | 'ticket' | 'alerts';
 
 export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGuest = false }: Props) {
   const [view, setView] = useState<ViewState>('home');
@@ -62,9 +62,15 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [hybridStream, setHybridStream] = useState(mapOfflineService.getHybridStreamMode());
   const [aiSentiment, setAiSentiment] = useState<string>('');
+  const [productNotice, setProductNotice] = useState('');
+  const [dataMissions, setDataMissions] = useState<any[]>([]);
 
   const handleSOS = () => {
-    if (isGuest) { alert('Please sign in to use SOS.'); return; }
+    if (isGuest) {
+      setProductNotice('SOS is protected. Sign in first so AFAT can identify you, share your position, and route help to the right channel.');
+      return;
+    }
+    setProductNotice('SOS protocol opened. AFAT will keep the incident tied to your verified identity and journey context.');
     setIsSOSActive(true);
   };
 
@@ -102,6 +108,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   useEffect(() => {
     refreshLiveOps();
+    hydrateDataMissions();
 
     const incidentChannel = supabase
       .channel('public:incidents')
@@ -122,6 +129,41 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       supabase.removeChannel(vehicleChannel);
     };
   }, [profile?.preferred_city]);
+
+  const hydrateDataMissions = async () => {
+    const prepBoard = mapOfflineService.getPreparationBoard();
+    const cityHint = (profile?.preferred_city || 'cameroon').toLowerCase();
+    const localMissions = prepBoard
+      .filter((pack) => pack.id === 'cameroon' || pack.id.includes(cityHint) || pack.name.toLowerCase().includes(cityHint))
+      .map((pack) => ({
+        id: `geo-${pack.id}`,
+        title: `${pack.name} field prep`,
+        description: `${pack.targetSignals.slice(0, 2).join(' + ')}`,
+        city: pack.coverage,
+        reward_points: pack.readyForOffline ? 40 : 70,
+        prepStage: pack.prepStage,
+        collectorRoles: pack.collectorRoles,
+      }));
+
+    const { data } = await getActiveCampaigns();
+    if (data && data.length > 0) {
+      setDataMissions([
+        ...localMissions,
+        ...data.slice(0, 3).map((mission: any) => ({
+          id: mission.id,
+          title: mission.title || mission.name || 'AFAT field mission',
+          description: mission.description || 'Help AFAT validate route truth in your area.',
+          city: mission.city || mission.zone_label || 'Regional mission',
+          reward_points: mission.reward_points || 50,
+          prepStage: 'surveying',
+          collectorRoles: ['commuters'],
+        })),
+      ]);
+      return;
+    }
+
+    setDataMissions(localMissions);
+  };
 
   const refreshLiveOps = async () => {
     const city = profile?.preferred_city || 'cameroon';
@@ -361,7 +403,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             <Mic className="w-5 h-5 relative z-10 text-blue-400" />
           </button>
 
-          <button onClick={() => {}} className="w-11 h-11 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-white/60 hover:text-white transition-all active:scale-90 relative group">
+          <button onClick={() => setView('alerts')} className="w-11 h-11 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-white/60 hover:text-white transition-all active:scale-90 relative group">
             <div className="absolute inset-0 bg-blue-500/20 rounded-2xl opacity-0 group-hover:opacity-100 blur-xl transition-opacity animate-pulse" />
             <Bell className="w-5 h-5 relative z-10" />
             {incidents.length > 0 && <span className="absolute top-3 right-3 w-2.5 h-2.5 bg-red-500 rounded-full shadow-[0_0_12px_#ef4444] border-2 border-slate-900 z-20"></span>}
@@ -671,6 +713,14 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         </div>
       </div>
 
+      {productNotice && (
+        <div className="px-5 pt-2">
+          <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-[11px] font-semibold leading-relaxed text-blue-100">
+            {productNotice}
+          </div>
+        </div>
+      )}
+
       {/* ── Hero Booking Tile ────────────────────────────── */}
       <div className="px-5 pt-2">
         <button
@@ -697,7 +747,14 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       <div className="px-5 pt-4 grid grid-cols-2 gap-3">
         {/* Wallet */}
         <button
-          onClick={() => isGuest ? alert('Sign in for wallet access') : setIsWalletOpen(true)}
+          onClick={() => {
+            if (isGuest) {
+              setProductNotice('Wallet access needs sign-in so payments, refunds, and loyalty points attach to the right AFAT identity.');
+              return;
+            }
+            setProductNotice('MobilityWallet opened. This is where AFAT ties MoMo, Orange, rewards, refunds, and booking receipts together.');
+            setIsWalletOpen(true);
+          }}
           className="bg-slate-800/80 backdrop-blur-md border border-white/10 rounded-[1.5rem] p-4 flex items-center gap-3 active:scale-[0.97] transition-all hover:border-green-500/40 hover:bg-slate-800 shadow-lg"
         >
           <div className="w-10 h-10 bg-green-500/15 rounded-xl flex items-center justify-center shrink-0">
@@ -750,6 +807,54 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             <p className="text-[10px] text-white/40 font-medium">QR Boarding</p>
           </div>
         </button>
+      </div>
+
+      <div className="px-5 pt-4">
+        <div className="rounded-[1.75rem] border border-emerald-500/20 bg-emerald-500/10 p-5 shadow-lg">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-200/70">AFAT Geo Preparation</p>
+              <h3 className="mt-2 text-[16px] font-black uppercase tracking-tight text-white">Commuter route truth missions</h3>
+              <p className="mt-2 text-[11px] leading-relaxed text-emerald-100/70">
+                Different commuters help AFAT prepare route packs by validating stops, shortcut paths, boarding zones, and hazard friction in the places they actually move.
+              </p>
+            </div>
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
+              <MapIcon className="w-5 h-5 text-emerald-300" />
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {dataMissions.slice(0, 3).map((mission) => (
+              <button
+                key={mission.id}
+                onClick={() => setProductNotice(`Mission armed: ${mission.title}. AFAT should collect ${mission.description.toLowerCase()} with ${mission.collectorRoles?.join(', ') || 'commuters'} across ${mission.city}.`)}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-left transition-all hover:bg-black/30 active:scale-[0.99]"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-white">{mission.title}</p>
+                    <p className="mt-1 text-[10px] text-white/45">{mission.description}</p>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-200/80">
+                        {mission.prepStage || 'surveying'}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white/50">
+                        {mission.reward_points || 50} pts
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
+                </div>
+              </button>
+            ))}
+            {dataMissions.length === 0 && (
+              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-[11px] font-semibold text-white/45">
+                No live field missions yet. AFAT still needs commuter-led stop validation, corridor timing, and pickup zone capture in this city.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Services Row ─────────────────────────────────── */}
@@ -975,6 +1080,33 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           </button>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 gap-3 mb-6">
+        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4">
+          <div className="flex items-center gap-3">
+            <TrendingUp className="w-4 h-4 text-blue-400" />
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-blue-200">Live Fare Negotiation</p>
+              <p className="text-[11px] leading-relaxed text-blue-100/70">On supported rides, AFAT can lock a seat first, then let you negotiate directly with the operator before payment.</p>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => setProductNotice('Special service reservations are the next booking layer: group travel, priority pickups, company movement, and checkpoint-assisted boarding.')}
+          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left transition-all hover:bg-white/[0.07] active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Briefcase className="w-4 h-4 text-amber-400" />
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-white">Special Services</p>
+                <p className="text-[11px] text-white/50">Company trips, reserve assignments, family or group coordination.</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-white/25" />
+          </div>
+        </button>
+      </div>
       
       <h3 className="font-black text-white mb-3 text-[14px]">Destinations Fréquentes</h3>
       <div className="space-y-3">
@@ -1163,7 +1295,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   );
 
   const currentContent = () => {
-    if (activeTab === 'book') return renderBookTab();
+    if (activeTab === 'book' || activeTab === 'bookings') return renderBookTab();
     if (activeTab === 'notifications') return renderAlerts();
     if (activeTab === 'profile') return renderProfile();
     return renderHome();
@@ -1266,7 +1398,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       {isScanHubOpen && (
         <ScanAndPayHub 
           onClose={() => setIsScanHubOpen(false)} 
-          onPaymentSuccess={(amt, op) => console.log(`Paid ${amt} to ${op}`)}
+          onPaymentSuccess={(amt, op) => setProductNotice(`Payment confirmed: ${amt.toLocaleString()} XAF to ${op}. AFAT can now connect the receipt to boarding and operator settlement.`)}
         />
       )}
       

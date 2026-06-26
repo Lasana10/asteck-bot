@@ -569,9 +569,9 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Vehicle Chassis Type</label>
                 <div className="grid grid-cols-2 gap-3">
-                  {['moto', 'taxi', 'minibus', 'bus'].map(vt => (
+                  {['moto', 'taxi', 'delivery', 'minibus', 'bus'].map(vt => (
                     <button key={vt} type="button" onClick={() => setVehicleType(vt)} className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 ${vehicleType === vt ? 'bg-white text-slate-900 border-white' : 'bg-slate-950 border-white/10 text-slate-400 hover:bg-slate-900'}`}>
-                      <span className="text-2xl">{vt === 'moto' ? '🏍️' : vt === 'taxi' ? '🚕' : vt === 'minibus' ? '🚐' : '🚌'}</span>
+                      <span className="text-2xl">{vt === 'moto' ? '🏍️' : vt === 'taxi' ? '🚕' : vt === 'delivery' ? '📦' : vt === 'minibus' ? '🚐' : '🚌'}</span>
                       <span className="text-xs font-black uppercase tracking-wider">{vt}</span>
                     </button>
                   ))}

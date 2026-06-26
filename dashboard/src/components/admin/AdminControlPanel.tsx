@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ViewToggle } from '../shared/ViewToggle';
 import { InteractiveMap } from '../shared/InteractiveMap';
-import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle, CreditCard, FileCheck, Globe2, GraduationCap, HandHeart, Landmark, X, Sparkles } from 'lucide-react';
+import { enrollCheckpoint, fetchComplianceRadar, fetchPaymentProviderReadiness, getApiBaseUrl, setApiBaseOverride, supabase } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
@@ -23,6 +23,22 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   const [pendingDirectives, setPendingDirectives] = useState<any[]>([]);
   const [overrideMessage, setOverrideMessage] = useState('');
   const [isIntelligenceOpen, setIsIntelligenceOpen] = useState(false);
+  const [paymentReadiness, setPaymentReadiness] = useState<any>(null);
+  const [complianceRadar, setComplianceRadar] = useState<any>(null);
+  const [commandFeedback, setCommandFeedback] = useState<string>('');
+  const [fieldDesk, setFieldDesk] = useState({
+    checkpoint_name: '',
+    city: 'yaounde',
+    zone_label: '',
+    latitude: '3.8480',
+    longitude: '11.5021',
+    checkpoint_type: 'community',
+    notes: '',
+    targetRole: 'operator',
+    targetSpecialization: 'taxi',
+  });
+  const [isSavingFieldDesk, setIsSavingFieldDesk] = useState(false);
+  const [backendTarget, setBackendTarget] = useState(getApiBaseUrl());
   const [networkStats, setNetworkStats] = useState({
     totalPacks: 1240,
     activeNodes: 856,
@@ -47,6 +63,20 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
+  useEffect(() => {
+    const tabTargets: Record<string, { view?: 'map' | 'grid'; openDesk?: boolean; message: string }> = {
+      home: { view: 'grid', message: 'Admin Command Center opened.' },
+      bookings: { view: 'grid', message: 'Revenue analytics opened from admin navigation.' },
+      notifications: { view: 'map', message: 'Admin alert map opened from navigation.' },
+      profile: { view: 'grid', openDesk: true, message: 'Admin Intelligence Desk opened for profile, compliance, payment, and rollout follow-through.' },
+    };
+    const target = tabTargets[activeTab];
+    if (!target) return;
+    if (target.view) setUiMode(target.view);
+    if (target.openDesk) setIsIntelligenceOpen(true);
+    setCommandFeedback(target.message);
+  }, [activeTab]);
+
   const fetchAdminData = async () => {
     // 1. Fetch Users
     const { data: userData } = await supabase.from('profiles').select('*').limit(5);
@@ -59,6 +89,13 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     // Fetch Directives
     const { data: dirData } = await supabase.from('sentinel_directives').select('*').eq('status', 'pending_admin').order('created_at', { ascending: false });
     if (dirData) setPendingDirectives(dirData);
+
+    const [paymentRes, complianceRes] = await Promise.allSettled([
+      fetchPaymentProviderReadiness(),
+      fetchComplianceRadar()
+    ]);
+    if (paymentRes.status === 'fulfilled' && paymentRes.value.data) setPaymentReadiness(paymentRes.value.data);
+    if (complianceRes.status === 'fulfilled' && complianceRes.value.data) setComplianceRadar(complianceRes.value.data);
 
     // 3. Fetch Metrics
     const { count: userCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
@@ -96,7 +133,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       target_role: 'all'
     }]);
     setOverrideMessage('');
-    alert('Universal Broadcast Sent!');
+    setCommandFeedback('Universal broadcast saved to Sentinel directives and marked broadcasted.');
   };
 
   const launchCampaign = async () => {
@@ -107,6 +144,98 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       is_active: true
     }]);
     fetchAdminData();
+  };
+
+  const launchOrchestrator = (prompt: string, intro: string) => {
+    window.dispatchEvent(new CustomEvent('afat:open-copilot', { detail: { prompt, intro } }));
+  };
+
+  const openComplianceDesk = () => {
+    setIsIntelligenceOpen(true);
+    setCommandFeedback('Compliance desk opened with permit, payment, and rollout follow-up.');
+  };
+
+  const copyPaymentCallback = async () => {
+    const callbackUrl = paymentReadiness?.callback_url;
+    if (!callbackUrl) {
+      setCommandFeedback('Payment callback URL is not available yet.');
+      return;
+    }
+    await navigator.clipboard?.writeText(callbackUrl);
+    setCommandFeedback(`Callback copied: ${callbackUrl}`);
+  };
+
+  const exportNetworkSnapshot = async () => {
+    const snapshot = JSON.stringify({
+      generated_at: new Date().toISOString(),
+      metrics,
+      compliance: complianceRadar?.summary || null,
+      payments: paymentReadiness || null,
+      regions: networkStats.regions
+    }, null, 2);
+    await navigator.clipboard?.writeText(snapshot);
+    setCommandFeedback('Network snapshot copied to clipboard for investor or ops review.');
+  };
+
+  const stageOverride = (message: string, feedback: string) => {
+    setOverrideMessage(message);
+    setCommandFeedback(feedback);
+  };
+
+  const handleFieldDeskChange = (key: string, value: string) => {
+    setFieldDesk((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const submitFieldDesk = async () => {
+    if (!fieldDesk.checkpoint_name.trim() || !fieldDesk.city.trim()) {
+      setCommandFeedback('Checkpoint name and city are required for map construction.');
+      return;
+    }
+
+    setIsSavingFieldDesk(true);
+    const profileId = localStorage.getItem('afat_local_user_id') || localStorage.getItem('afat_user_id') || undefined;
+    const { data, error } = await enrollCheckpoint({
+      profile_id: profileId,
+      checkpoint_name: fieldDesk.checkpoint_name.trim(),
+      city: fieldDesk.city.trim(),
+      zone_label: fieldDesk.zone_label.trim() || undefined,
+      latitude: Number(fieldDesk.latitude),
+      longitude: Number(fieldDesk.longitude),
+      checkpoint_type: fieldDesk.checkpoint_type,
+      notes: fieldDesk.notes.trim() || undefined,
+    });
+
+    setIsSavingFieldDesk(false);
+
+    if (error) {
+      setCommandFeedback(`Checkpoint registration failed: ${error.message}`);
+      return;
+    }
+
+    setCommandFeedback(`Checkpoint ${data?.checkpoint?.name || fieldDesk.checkpoint_name} registered and captain enrollment created.`);
+    setFieldDesk((prev) => ({
+      ...prev,
+      checkpoint_name: '',
+      zone_label: '',
+      notes: '',
+    }));
+    fetchAdminData();
+  };
+
+  const notifyFieldCrew = () => {
+    const targetCount = profiles.filter((profile) => profile.role === fieldDesk.targetRole).length;
+    const cityLabel = fieldDesk.city.charAt(0).toUpperCase() + fieldDesk.city.slice(1);
+    stageOverride(
+      `AFAT map construction notice: ${fieldDesk.targetRole} ${fieldDesk.targetSpecialization} partners in ${cityLabel} should report route changes, hazards, pickup pressure, and checkpoint conditions around ${fieldDesk.zone_label || fieldDesk.checkpoint_name || 'the assigned zone'}.`,
+      `Field notification prepared for ${targetCount} visible ${fieldDesk.targetRole} records in the current admin snapshot.`
+    );
+  };
+
+  const switchBackendTarget = (target: 'render' | 'local') => {
+    const nextUrl = target === 'render' ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000';
+    setApiBaseOverride(nextUrl);
+    setBackendTarget(nextUrl);
+    setCommandFeedback(`Backend target set to ${nextUrl}. Refresh the page to make every API call use this target.`);
   };
 
   const renderMapView = () => (
@@ -140,6 +269,72 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     // Revenue tab for admin
     if (activeTab === 'bookings') return <RevenueDashboard />;
 
+    const adminCommands = [
+      {
+        label: 'Licensing and permits',
+        status: 'in progress',
+        icon: Landmark,
+        signal: `${complianceRadar?.summary?.total || 0} compliance records`,
+        note: 'Move operator documents toward renewal packages, expiry checks, and regulator-ready queues.',
+        action: 'Open compliance',
+        onClick: openComplianceDesk
+      },
+      {
+        label: 'Payment callbacks',
+        status: paymentReadiness?.mode === 'live' ? 'live' : 'needs deploy',
+        icon: CreditCard,
+        signal: paymentReadiness?.callback_url || 'callback URL not loaded',
+        note: 'PawaPay deposits, payouts, and refunds should point to the same webhook until provider-specific routing is needed.',
+        action: 'Copy callback',
+        onClick: copyPaymentCallback
+      },
+      {
+        label: 'Map quality desk',
+        status: 'in progress',
+        icon: MapPin,
+        signal: `${networkStats.activeNodes} nodes / ${networkStats.regions.length} regions`,
+        note: 'Review checkpoints, downloaded packs, field reports, and weak coverage zones before city rollout.',
+        action: 'Open field desk',
+        onClick: openComplianceDesk
+      },
+      {
+        label: 'Regional rollout',
+        status: 'planned',
+        icon: Globe2,
+        signal: 'city replication pack',
+        note: 'Repeatable bundle for onboarding, dispatch, compliance, reporting, and local geodata by region.',
+        action: 'Launch campaign',
+        onClick: async () => {
+          await launchCampaign();
+          setCommandFeedback('Regional rollout campaign created for fresh field intelligence collection.');
+        }
+      },
+      {
+        label: 'Academy and badge',
+        status: 'planned',
+        icon: GraduationCap,
+        signal: 'driver/operator certification',
+        note: 'Training, AFAT certification badges, and priority placement for high-trust operators.',
+        action: 'Queue academy',
+        onClick: () => stageOverride(
+          'AFAT Academy planning: define certified driver, operator, and fleet readiness requirements.',
+          'Academy planning message prepared in the broadcast composer.'
+        )
+      },
+      {
+        label: 'Emergency logistics',
+        status: 'planned',
+        icon: HandHeart,
+        signal: 'humanitarian mode',
+        note: 'Disaster response, NGO transport, evacuation coordination, and medical supply routing.',
+        action: 'Prepare alert',
+        onClick: () => stageOverride(
+          'Emergency logistics mode: verify incident, identify safe corridors, and coordinate approved transport partners.',
+          'Emergency logistics directive prepared in the broadcast composer.'
+        )
+      }
+    ];
+
     return (
     <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full animate-in fade-in duration-500 pt-24">
         <OperationsMissionControl
@@ -162,6 +357,60 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
             if (action === 'onboard') launchCampaign();
           }}
         />
+
+        <div className="rounded-[2rem] border border-white/10 bg-slate-950/75 p-5 shadow-2xl">
+          <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/35">Admin command matrix</p>
+              <h2 className="mt-1 text-xl font-black uppercase italic tracking-tight text-white">Special access must control the ecosystem, not just observe it</h2>
+            </div>
+            <button
+              onClick={fetchAdminData}
+              className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/60 transition hover:text-white"
+            >
+              Refresh command data
+            </button>
+          </div>
+
+          {commandFeedback && (
+            <div className="mb-4 rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-[11px] font-semibold text-blue-100">
+              {commandFeedback}
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {adminCommands.map((command) => {
+              const Icon = command.icon;
+              const live = command.status === 'live';
+              const active = command.status === 'in progress';
+              return (
+                <div key={command.label} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <Icon className="h-5 w-5 text-blue-300" />
+                    <span className={`rounded-full border px-2.5 py-1 text-[8px] font-black uppercase tracking-widest ${
+                      live
+                        ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200'
+                        : active
+                          ? 'border-amber-400/20 bg-amber-500/10 text-amber-200'
+                          : 'border-white/10 bg-white/[0.03] text-white/45'
+                    }`}>
+                      {command.status}
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-black uppercase tracking-tight text-white">{command.label}</p>
+                  <p className="mt-1 break-words text-[10px] font-bold leading-relaxed text-blue-100/65">{command.signal}</p>
+                  <p className="mt-2 text-[10px] font-semibold leading-relaxed text-white/40">{command.note}</p>
+                  <button
+                    onClick={command.onClick}
+                    className="mt-4 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-[9px] font-black uppercase tracking-widest text-white/60 transition hover:border-blue-300/40 hover:text-white"
+                  >
+                    {command.action}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Metric Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -210,7 +459,10 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                     <Database className="w-5 h-5 text-red-500" />
                     Network Profiles
                  </h3>
-                 <button className="text-xs bg-slate-800 hover:bg-slate-700 font-bold px-4 py-2 rounded-xl transition-all border border-slate-700">
+                 <button
+                    onClick={exportNetworkSnapshot}
+                    className="text-xs bg-slate-800 hover:bg-slate-700 font-bold px-4 py-2 rounded-xl transition-all border border-slate-700"
+                 >
                     Export DB
                  </button>
               </div>
@@ -226,7 +478,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                             <p className="text-[10px] font-mono text-slate-600 uppercase">{p.role}</p>
                          </div>
                       </div>
-                      <button className="text-slate-500 hover:text-white p-2">
+                      <button onClick={() => setCommandFeedback(`Profile review staged for ${p.username || 'this node'}.`)} className="text-slate-500 hover:text-white p-2">
                          <ArrowUpRight className="w-4 h-4" />
                       </button>
                    </div>
@@ -346,11 +598,17 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                            </div>
                         </div>
                      ))}
-                     <div className="bg-blue-600/10 border border-blue-500/30 p-5 rounded-2xl flex flex-col justify-center items-center text-center">
+                    <button
+                        onClick={() => {
+                          setIsIntelligenceOpen(true);
+                          setCommandFeedback('Global patch review opened in Intelligence Desk. Confirm offline packs and city rollout before pushing to nodes.');
+                        }}
+                        className="bg-blue-600/10 border border-blue-500/30 p-5 rounded-2xl flex flex-col justify-center items-center text-center transition hover:bg-blue-600/15"
+                     >
                         <Download className="w-6 h-6 text-blue-400 mb-2" />
                         <p className="text-[10px] font-black text-white uppercase tracking-widest">Global Patch</p>
                         <p className="text-[8px] text-blue-300/60 font-bold">Push MBTiles v2.1 to all nodes</p>
-                     </div>
+                     </button>
                   </div>
                </div>
             </div>
@@ -385,6 +643,208 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       <main className="flex-1 flex flex-col">
          {uiMode === 'map' ? renderMapView() : renderGridUI()}
       </main>
+
+      {isIntelligenceOpen && (
+        <div className="fixed inset-0 z-[3500] bg-slate-950/80 backdrop-blur-xl p-4 sm:p-6">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-white/10 bg-slate-950 shadow-2xl">
+            <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-300/60">Intelligence desk</p>
+                <h2 className="mt-1 text-2xl font-black uppercase italic tracking-tight text-white">Compliance, payments, rollout, and orchestrator</h2>
+                <p className="mt-2 max-w-2xl text-sm text-white/45">This is the admin follow-through layer for the buttons that should not feel decorative.</p>
+              </div>
+              <button onClick={() => setIsIntelligenceOpen(false)} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/60 transition hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid flex-1 gap-4 overflow-y-auto p-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Compliance pressure</h3>
+                    <FileCheck className="h-5 w-5 text-emerald-300" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Tracked</p>
+                      <p className="mt-1 text-2xl font-black text-white">{complianceRadar?.summary?.total || 0}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Verified</p>
+                      <p className="mt-1 text-2xl font-black text-emerald-300">{complianceRadar?.summary?.verified || 0}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Due soon</p>
+                      <p className="mt-1 text-2xl font-black text-amber-300">{complianceRadar?.summary?.due_soon || 0}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Overdue</p>
+                      <p className="mt-1 text-2xl font-black text-red-300">{complianceRadar?.summary?.overdue || 0}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Payment control</h3>
+                    <CreditCard className="h-5 w-5 text-cyan-300" />
+                  </div>
+                  <p className="text-xs font-semibold text-white/55">Mode: {paymentReadiness?.mode || 'unknown'}</p>
+                  <p className="mt-2 break-words text-[11px] font-mono text-cyan-100/70">{paymentReadiness?.callback_url || 'Callback not loaded'}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={copyPaymentCallback} className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white">Copy callback</button>
+                    <button onClick={() => launchOrchestrator('Review payment readiness, callback truth, and the next deployment action.', 'AFAT orchestrator opened from the payment control desk.')} className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white">Open orchestrator</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Backend target</h3>
+                    <Database className="h-5 w-5 text-blue-300" />
+                  </div>
+                  <p className="break-words text-[11px] font-mono text-blue-100/70">{backendTarget}</p>
+                  <p className="mt-2 text-xs text-white/45">Local frontend on `127.0.0.1` defaults to local API unless you explicitly force Render here.</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={() => switchBackendTarget('render')} className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white">Use Render</button>
+                    <button onClick={() => switchBackendTarget('local')} className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white">Use local backend</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-white">Map construction field</h3>
+                      <p className="mt-1 text-xs text-white/45">Admin-only registration for chosen drivers, checkpoint stewards, and data-growth zones.</p>
+                    </div>
+                    <MapPin className="h-5 w-5 text-cyan-300" />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      value={fieldDesk.checkpoint_name}
+                      onChange={(e) => handleFieldDeskChange('checkpoint_name', e.target.value)}
+                      placeholder="Checkpoint or zone name"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <input
+                      value={fieldDesk.zone_label}
+                      onChange={(e) => handleFieldDeskChange('zone_label', e.target.value)}
+                      placeholder="Zone label"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <select
+                      value={fieldDesk.city}
+                      onChange={(e) => handleFieldDeskChange('city', e.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white focus:outline-none"
+                    >
+                      <option value="yaounde">Yaounde</option>
+                      <option value="douala">Douala</option>
+                      <option value="garoua">Garoua</option>
+                      <option value="cameroon">Cameroon</option>
+                    </select>
+                    <select
+                      value={fieldDesk.checkpoint_type}
+                      onChange={(e) => handleFieldDeskChange('checkpoint_type', e.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white focus:outline-none"
+                    >
+                      <option value="community">Community</option>
+                      <option value="terminal">Terminal</option>
+                      <option value="market">Market</option>
+                      <option value="agency">Agency</option>
+                      <option value="safety">Safety</option>
+                      <option value="authority">Authority</option>
+                    </select>
+                    <input
+                      value={fieldDesk.latitude}
+                      onChange={(e) => handleFieldDeskChange('latitude', e.target.value)}
+                      placeholder="Latitude"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <input
+                      value={fieldDesk.longitude}
+                      onChange={(e) => handleFieldDeskChange('longitude', e.target.value)}
+                      placeholder="Longitude"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                  </div>
+
+                  <textarea
+                    value={fieldDesk.notes}
+                    onChange={(e) => handleFieldDeskChange('notes', e.target.value)}
+                    placeholder="What should this zone collect: hazards, route gaps, fare pressure, pickup heat, checkpoint behavior..."
+                    className="mt-3 min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                  />
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <select
+                      value={fieldDesk.targetRole}
+                      onChange={(e) => handleFieldDeskChange('targetRole', e.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white focus:outline-none"
+                    >
+                      <option value="operator">Operators</option>
+                      <option value="planner">Planners</option>
+                      <option value="commuter">Commuters</option>
+                      <option value="admin">Admins</option>
+                    </select>
+                    <input
+                      value={fieldDesk.targetSpecialization}
+                      onChange={(e) => handleFieldDeskChange('targetSpecialization', e.target.value)}
+                      placeholder="Taxi, bike, minibus, dispatch steward..."
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      onClick={submitFieldDesk}
+                      disabled={isSavingFieldDesk}
+                      className="rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98] disabled:opacity-50"
+                    >
+                      {isSavingFieldDesk ? 'Registering...' : 'Register field zone'}
+                    </button>
+                    <button
+                      onClick={notifyFieldCrew}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
+                    >
+                      Prepare field notice
+                    </button>
+                    <button
+                      onClick={() => launchOrchestrator('Design the best data registration play for this new map construction zone and the chosen driver audience.', 'AFAT orchestrator opened from the map construction field desk.')}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
+                    >
+                      Ask orchestrator
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-white/10 bg-blue-500/10 p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">AI orchestrator</h3>
+                    <Sparkles className="h-5 w-5 text-blue-200" />
+                  </div>
+                  <p className="text-sm font-semibold text-white/75">Strategy, guidance, and field analysis can now be opened directly from admin instead of hiding as a floating chat.</p>
+                  <div className="mt-4 space-y-2">
+                    <button onClick={() => launchOrchestrator('Summarize the platform state and tell me the next admin action to take.', 'AFAT orchestrator is now attached to the admin command center.')} className="w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]">Platform summary</button>
+                    <button onClick={() => launchOrchestrator('Which incidents, compliance issues, and payment risks need action first?', 'AFAT orchestrator is now reviewing incidents, compliance, and payment risks together.')} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white">Risk priorities</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-white">Rollout actions</h3>
+                  <div className="mt-4 space-y-3 text-[11px] text-white/55">
+                    <p>Move permit renewal from passive records to action queues with expiry reminders.</p>
+                    <p>Deploy live payment readiness only after callback truth and Render env parity are confirmed together.</p>
+                    <p>Use campaigns and checkpoint stewards to deepen city data before selling the map as the moat.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

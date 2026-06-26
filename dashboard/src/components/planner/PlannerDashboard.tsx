@@ -19,9 +19,10 @@ import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 
 interface Props {
   onSignOut: () => void;
+  activeTab?: string;
 }
 
-export function PlannerDashboard({ onSignOut }: Props) {
+export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
   const [stats, setStats] = useState({
     totalIncidents: 0,
     activeOperators: 0,
@@ -38,6 +39,15 @@ export function PlannerDashboard({ onSignOut }: Props) {
   const [complianceRadar, setComplianceRadar] = useState<any>(null);
   const [dispatches, setDispatches] = useState<any[]>([]);
   const [opsMessage, setOpsMessage] = useState('');
+  const [dispatchForm, setDispatchForm] = useState({
+    operator_id: '',
+    vehicle_id: '',
+    origin: 'Yaounde Grid',
+    destination: 'Priority sector',
+    priority: 'high',
+    notes: 'Planner manual dispatch coordination.',
+  });
+  const [isDispatching, setIsDispatching] = useState(false);
 
   useEffect(() => {
     fetchIntelligence();
@@ -118,11 +128,66 @@ export function PlannerDashboard({ onSignOut }: Props) {
     fetchIntelligence();
   };
 
+  const handleDispatchField = (key: string, value: string) => {
+    setDispatchForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const openPlannerOrchestrator = (prompt: string, intro: string) => {
+    window.dispatchEvent(new CustomEvent('afat:open-copilot', { detail: { prompt, intro } }));
+  };
+
+  const jumpToSection = (sectionId: string, message: string) => {
+    setOpsMessage(message);
+    window.requestAnimationFrame(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const createManualDispatch = async () => {
+    if (!dispatchForm.operator_id.trim() && !dispatchForm.vehicle_id.trim()) {
+      setOpsMessage('Add an operator or vehicle id for manual dispatch.');
+      return;
+    }
+
+    setIsDispatching(true);
+    const dispatcherId = localStorage.getItem('afat_user_id') || undefined;
+    const { error } = await createDispatchAssignment({
+      operator_id: dispatchForm.operator_id.trim() || undefined,
+      vehicle_id: dispatchForm.vehicle_id.trim() || undefined,
+      dispatcher_id: dispatcherId,
+      origin: dispatchForm.origin.trim(),
+      destination: dispatchForm.destination.trim(),
+      priority: dispatchForm.priority,
+      notes: dispatchForm.notes.trim(),
+    });
+    setIsDispatching(false);
+    setOpsMessage(error ? error.message : 'Manual dispatch queued from planner workbench.');
+    if (!error) {
+      setDispatchForm((prev) => ({ ...prev, operator_id: '', vehicle_id: '' }));
+      fetchIntelligence();
+    }
+  };
+
   useEffect(() => {
     const profileId = localStorage.getItem('afat_user_id');
     if (!profileId) return;
     getCompanyMembership(profileId).then(({ data }) => setCompanyContext(data || null));
   }, []);
+
+  useEffect(() => {
+    const tabTargets: Record<string, { id: string; message: string }> = {
+      home: { id: 'planner-live-map', message: 'Planner map opened. This is the operating view for heat, reports, and GPS tracks.' },
+      bookings: { id: 'planner-report-center', message: 'Report Center opened from planner navigation.' },
+      notifications: { id: 'planner-report-center', message: 'Alert signals opened from planner navigation.' },
+      profile: { id: 'planner-compliance-radar', message: 'Planner profile context is tied to company and compliance readiness.' },
+    };
+    const target = tabTargets[activeTab];
+    if (!target) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(target.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setOpsMessage(target.message);
+    });
+  }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -133,7 +198,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
           </div>
           <div>
             <h1 className="font-bold text-slate-100 leading-none">AFAT</h1>
-            <p className="text-[10px] font-mono text-purple-400 uppercase tracking-widest mt-1">City Planner Terminal</p>
+            <p className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest mt-1">Planning Grid</p>
           </div>
         </div>
         <button onClick={onSignOut} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm bg-slate-800 px-4 py-2 rounded-full transition-colors border border-slate-700">
@@ -146,8 +211,8 @@ export function PlannerDashboard({ onSignOut }: Props) {
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
            <div>
-              <h2 className="text-3xl font-bold tracking-tight">Mobility Intelligence</h2>
-              <p className="text-slate-500 mt-1">Real-time infrastructure health and movement analytics for Yaoundé.</p>
+              <h2 className="text-3xl font-bold tracking-tight">AFAT Planning Grid</h2>
+              <p className="text-slate-500 mt-1">Live movement, safety, dispatch pressure, and infrastructure readiness for your jurisdiction.</p>
            </div>
            <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-tighter">
               <span className="bg-emerald-500/10 text-emerald-500 px-3 py-1 rounded-full border border-emerald-500/20 flex items-center gap-2">
@@ -162,8 +227,9 @@ export function PlannerDashboard({ onSignOut }: Props) {
           city="yaounde"
           onAction={(action) => {
             if (action === 'dispatch') handleQuickDispatch();
-            if (action === 'compliance') setOpsMessage('Compliance radar is already synced below.');
-            if (action === 'onboard') setOpsMessage('Onboarding readiness: review company context and compliance radar.');
+            if (action === 'report') jumpToSection('planner-report-center', 'Report Center opened. Verify, resolve, or dismiss field signals from here.');
+            if (action === 'compliance') jumpToSection('planner-compliance-radar', 'Compliance Radar opened. Review permits, expiry pressure, and onboarding readiness.');
+            if (action === 'onboard') jumpToSection('planner-compliance-radar', 'Onboarding readiness is tied to company context and compliance records here.');
           }}
         />
 
@@ -173,9 +239,10 @@ export function PlannerDashboard({ onSignOut }: Props) {
           liveIncidents={stats.totalIncidents}
           onAction={(action) => {
             if (action === 'dispatch') handleQuickDispatch();
-            if (action === 'compliance') setOpsMessage('Compliance radar is active below.');
-            if (action === 'onboard') setOpsMessage('Company and agency onboarding package is visible in compliance radar.');
-            if (action === 'map') setOpsMessage('Owned geodata packs are tracked as AFAT map foundation.');
+            if (action === 'report') jumpToSection('planner-report-center', 'Report Center opened from the strategy layer.');
+            if (action === 'compliance') jumpToSection('planner-compliance-radar', 'Compliance radar is active here.');
+            if (action === 'onboard') jumpToSection('planner-compliance-radar', 'Company and agency onboarding package is visible in compliance radar.');
+            if (action === 'map') jumpToSection('planner-live-map', 'Jurisdiction heatmap opened. Live reports and GPS tracks feed this map.');
           }}
         />
 
@@ -207,18 +274,18 @@ export function PlannerDashboard({ onSignOut }: Props) {
 
         {/* Intelligence Map Section */}
         <div className="grid lg:grid-cols-3 gap-8">
-           <div className="lg:col-span-2 h-[500px]">
+           <div id="planner-live-map" className="lg:col-span-2 h-[500px] scroll-mt-24">
               <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
                  <Activity className="w-5 h-5 text-purple-500" />
-                 Jurisdiction Heatmap
+                 AFAT Territory Map
               </h3>
-              <InteractiveMap incidents={incidents} tracks={tracks} role="admin" />
+              <InteractiveMap incidents={incidents} tracks={tracks} role="planner" />
            </div>
 
            <div className="space-y-6">
               <h3 className="font-bold text-lg flex items-center gap-2">
                  <BarChart3 className="w-5 h-5 text-purple-500" />
-                 Analytics Stream
+                 Signal Stream
               </h3>
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[440px] overflow-y-auto space-y-4">
                  {incidents.slice(0, 10).map((inc, i) => (
@@ -241,6 +308,74 @@ export function PlannerDashboard({ onSignOut }: Props) {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">
+          <div id="planner-dispatch-workbench" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 lg:col-span-2 scroll-mt-24">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Route className="w-5 h-5 text-cyan-400" />
+                Planner Workbench
+              </h3>
+              <button
+                onClick={() => openPlannerOrchestrator(
+                  'Summarize the highest-value dispatch, safety, and compliance actions for Yaounde right now.',
+                  'AFAT orchestrator opened from the planner workbench.'
+                )}
+                className="text-[10px] font-black uppercase tracking-widest bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 px-3 py-2 rounded-xl"
+              >
+                Open orchestrator
+              </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                value={dispatchForm.operator_id}
+                onChange={(e) => handleDispatchField('operator_id', e.target.value)}
+                placeholder="Operator ID"
+                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none"
+              />
+              <input
+                value={dispatchForm.vehicle_id}
+                onChange={(e) => handleDispatchField('vehicle_id', e.target.value)}
+                placeholder="Vehicle ID"
+                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none"
+              />
+              <input
+                value={dispatchForm.origin}
+                onChange={(e) => handleDispatchField('origin', e.target.value)}
+                placeholder="Origin"
+                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none"
+              />
+              <input
+                value={dispatchForm.destination}
+                onChange={(e) => handleDispatchField('destination', e.target.value)}
+                placeholder="Destination"
+                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none"
+              />
+              <select
+                value={dispatchForm.priority}
+                onChange={(e) => handleDispatchField('priority', e.target.value)}
+                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white focus:outline-none"
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+              <button
+                onClick={createManualDispatch}
+                disabled={isDispatching}
+                className="rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98] disabled:opacity-50"
+              >
+                {isDispatching ? 'Dispatching...' : 'Create manual dispatch'}
+              </button>
+            </div>
+            <textarea
+              value={dispatchForm.notes}
+              onChange={(e) => handleDispatchField('notes', e.target.value)}
+              placeholder="Planner notes"
+              className="mt-3 min-h-24 w-full rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none"
+            />
+            {opsMessage && <p className="mt-4 text-[11px] text-cyan-300">{opsMessage}</p>}
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-bold text-lg flex items-center gap-2">
@@ -282,11 +417,10 @@ export function PlannerDashboard({ onSignOut }: Props) {
             </h3>
             <p className="text-3xl font-black">{dispatches.length}</p>
             <p className="text-xs text-slate-500 mt-2">Queued, assigned, en-route and arrival jobs.</p>
-            {opsMessage && <p className="text-[11px] text-blue-300 mt-4">{opsMessage}</p>}
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+        <div id="planner-compliance-radar" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 scroll-mt-24">
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Database className="w-5 h-5 text-cyan-400" />
@@ -321,7 +455,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+        <div id="planner-report-center" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 scroll-mt-24">
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Siren className="w-5 h-5 text-red-400" />
@@ -344,14 +478,17 @@ export function PlannerDashboard({ onSignOut }: Props) {
                   </span>
                 </div>
                 <div className="flex items-center gap-2 mt-4">
-                  <button onClick={() => handleReportAction(report.id, 'verified')} className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <button title="Verify report" onClick={() => handleReportAction(report.id, 'verified')} className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-400 border border-emerald-500/20">
                     <CheckCircle className="w-4 h-4" />
+                    Verify
                   </button>
-                  <button onClick={() => handleReportAction(report.id, 'resolved')} className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <button title="Resolve report" onClick={() => handleReportAction(report.id, 'resolved')} className="flex items-center gap-2 rounded-xl bg-blue-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-400 border border-blue-500/20">
                     <Activity className="w-4 h-4" />
+                    Resolve
                   </button>
-                  <button onClick={() => handleReportAction(report.id, 'dismissed')} className="p-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20">
+                  <button title="Dismiss report" onClick={() => handleReportAction(report.id, 'dismissed')} className="flex items-center gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 border border-red-500/20">
                     <XCircle className="w-4 h-4" />
+                    Dismiss
                   </button>
                 </div>
               </div>
@@ -359,54 +496,54 @@ export function PlannerDashboard({ onSignOut }: Props) {
           </div>
         </div>
 
-        {/* Infrastructure Control - Supporting Tools */}
+        {/* AFAT Operations Bridges */}
         <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 mt-12">
             <div className="flex items-center justify-between mb-8">
                 <div>
                    <h3 className="text-xl font-bold flex items-center gap-2">
                        <Terminal className="w-5 h-5 text-blue-500" />
-                       Infrastructure Control
+                       AFAT Operations Bridges
                    </h3>
-                   <p className="text-sm text-slate-500 mt-1">Direct access to scaling and monitoring engines.</p>
+                   <p className="text-sm text-slate-500 mt-1">Operator telemetry, infrastructure insight, and automation relays that support the AFAT control layer.</p>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Traccar */}
+                {/* Fleet telemetry bridge */}
                 <a href={INFRA_CONFIG.traccar.dashboard} target="_blank" rel="noreferrer" className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group">
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-blue-500/10 rounded-2xl text-blue-500"><Activity className="w-6 h-6" /></div>
                         <ExternalLink className="w-4 h-4 text-slate-700 group-hover:text-blue-500 transition-colors" />
                     </div>
-                    <h4 className="font-bold mb-1">Traccar GPS</h4>
-                    <p className="text-[10px] text-slate-500 font-mono">Real-time Fleet Telemetry</p>
+                    <h4 className="font-bold mb-1">Fleet Telemetry Bridge</h4>
+                    <p className="text-[10px] text-slate-500 font-mono">Live vehicle movement and dispatch feed</p>
                 </a>
 
-                {/* Grafana */}
+                {/* Planning observatory */}
                 <a href={INFRA_CONFIG.grafana.url} target="_blank" rel="noreferrer" className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group">
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-orange-500/10 rounded-2xl text-orange-500"><BarChart3 className="w-6 h-6" /></div>
                         <ExternalLink className="w-4 h-4 text-slate-700 group-hover:text-orange-500 transition-colors" />
                     </div>
-                    <h4 className="font-bold mb-1">Grafana Analytics</h4>
-                    <p className="text-[10px] text-slate-500 font-mono">Heatmaps & Safety Trends</p>
+                    <h4 className="font-bold mb-1">Planning Observatory</h4>
+                    <p className="text-[10px] text-slate-500 font-mono">Heatmaps, pressure trends, and system health</p>
                 </a>
 
-                {/* n8n */}
+                {/* Automation relay */}
                 <a href={INFRA_CONFIG.n8n.url} target="_blank" rel="noreferrer" className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group">
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-purple-500/10 rounded-2xl text-purple-500"><Cpu className="w-6 h-6" /></div>
                         <ExternalLink className="w-4 h-4 text-slate-700 group-hover:text-purple-500 transition-colors" />
                     </div>
-                    <h4 className="font-bold mb-1">n8n Automator</h4>
-                    <p className="text-[10px] text-slate-500 font-mono">Webhook Orchestration</p>
+                    <h4 className="font-bold mb-1">Automation Relay</h4>
+                    <p className="text-[10px] text-slate-500 font-mono">Workflows, alerts, and response automation</p>
                 </a>
             </div>
             
             <div className="mt-8 pt-8 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-600">
                 <div className="flex items-center gap-4">
                     <span className="flex items-center gap-2"><Database className="w-3 h-3" /> Supabase: {INFRA_CONFIG.supabase.dashboard.split('/').pop()}</span>
-                    <span className="flex items-center gap-2"><Activity className="w-3 h-3" /> GPS Bridge: ACTIVE</span>
+                    <span className="flex items-center gap-2"><Activity className="w-3 h-3" /> Movement Relay: ACTIVE</span>
                 </div>
                 <span>v2.4.0-STABLE</span>
             </div>

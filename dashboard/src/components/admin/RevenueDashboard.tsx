@@ -22,6 +22,9 @@ export function RevenueDashboard({ onBack }: Props) {
   });
   const [period, setPeriod] = useState<'7d' | '30d' | 'all'>('7d');
   const [loading, setLoading] = useState(true);
+  const [operators, setOperators] = useState<any[]>([]);
+  const [actionPanel, setActionPanel] = useState<'operators' | 'anomalies' | null>(null);
+  const [actionMessage, setActionMessage] = useState('');
 
   useEffect(() => {
     fetchStats();
@@ -70,6 +73,35 @@ export function RevenueDashboard({ onBack }: Props) {
       revenueTrend
     });
     setLoading(false);
+  };
+
+  const viewOperators = async () => {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('id, type, plate_number, is_available, operator_id, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(8);
+
+    if (error) {
+      setActionMessage(error.message);
+      setActionPanel('operators');
+      return;
+    }
+
+    setOperators(data || []);
+    setActionMessage(`${data?.length || 0} operator vehicles loaded from the live fleet table.`);
+    setActionPanel('operators');
+  };
+
+  const viewAnomalyReport = () => {
+    const anomalies = [];
+    if (stats.totalRides === 0 && stats.totalRevenue > 0) anomalies.push('Revenue exists without matching rides.');
+    if (stats.activeOperators === 0 && stats.totalRides > 0) anomalies.push('Rides exist while no operators are currently online.');
+    if (stats.commissionEarned === 0 && stats.totalRevenue > 0) anomalies.push('Commission is zero despite gross revenue.');
+    if (stats.revenueTrend.some((value) => value > Math.max(stats.totalRevenue, 1))) anomalies.push('Daily trend exceeds total period revenue.');
+
+    setActionMessage(anomalies.length ? anomalies.join(' ') : 'No immediate revenue anomalies detected in the current period.');
+    setActionPanel('anomalies');
   };
 
   return (
@@ -147,10 +179,33 @@ export function RevenueDashboard({ onBack }: Props) {
           <Activity className="w-4 h-4 text-blue-500" /> Quick Actions
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <ActionButton label="Export CSV" onClick={() => exportData(stats)} />
-          <ActionButton label="View Operators" onClick={() => {}} />
-          <ActionButton label="Anomaly Report" onClick={() => {}} />
+          <ActionButton label="Export CSV" onClick={() => setActionMessage(exportData(stats))} />
+          <ActionButton label="View Operators" onClick={viewOperators} />
+          <ActionButton label="Anomaly Report" onClick={viewAnomalyReport} />
         </div>
+        {actionPanel && (
+          <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-blue-300/70">
+              {actionPanel === 'operators' ? 'Operator snapshot' : 'Anomaly report'}
+            </p>
+            <p className="mt-2 text-xs font-semibold text-slate-300">{actionMessage}</p>
+            {actionPanel === 'operators' && (
+              <div className="mt-4 space-y-2">
+                {operators.map((operator) => (
+                  <div key={operator.id} className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
+                    <div>
+                      <p className="text-xs font-black text-white">{operator.plate_number || 'Unplated vehicle'}</p>
+                      <p className="text-[10px] text-slate-500 uppercase">{operator.type || 'vehicle'} | {operator.operator_id || 'no operator id'}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase tracking-widest ${operator.is_available ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                      {operator.is_available ? 'online' : 'offline'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -221,5 +276,5 @@ function ActionButton({ label, onClick }: { label: string; onClick: () => void }
 function exportData(stats: Stats) {
   const csv = `Metric,Value\nTotal Rides,${stats.totalRides}\nGross Revenue (XAF),${stats.totalRevenue}\nActive Operators,${stats.activeOperators}\nCommission (XAF),${stats.commissionEarned}`;
   navigator.clipboard.writeText(csv);
-  alert('📋 Revenue data copied to clipboard as CSV!');
+  return 'Revenue CSV copied to clipboard for finance or investor review.';
 }

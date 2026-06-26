@@ -13,6 +13,8 @@ export function TontineHub({ userId, onClose }: Props) {
   const [selectedTontine, setSelectedTontine] = useState<any | null>(null);
   const [members, setMembers] = useState<TontineMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [discoveryMessage, setDiscoveryMessage] = useState('');
+  const [contributionMessage, setContributionMessage] = useState('');
 
   useEffect(() => {
     fetchTontines();
@@ -43,6 +45,7 @@ export function TontineHub({ userId, onClose }: Props) {
 
   const handleSelect = (t: any) => {
     setSelectedTontine(t);
+    setContributionMessage('');
     fetchMembers(t.id);
   };
 
@@ -108,7 +111,16 @@ export function TontineHub({ userId, onClose }: Props) {
                 </div>
              </div>
 
-             <button className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-blue-500/20 uppercase tracking-widest text-sm mt-4">
+             {contributionMessage && (
+               <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-xs font-semibold text-blue-100">
+                 {contributionMessage}
+               </div>
+             )}
+
+             <button
+                onClick={() => setContributionMessage('Contribution workflow is attached to the AFAT wallet and payment provider layer. This group is live-read from Supabase; contribution posting still needs a dedicated transaction endpoint before we mark it live.')}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-blue-500/20 uppercase tracking-widest text-sm mt-4"
+             >
                 Contribute Now
              </button>
           </div>
@@ -148,8 +160,13 @@ export function TontineHub({ userId, onClose }: Props) {
               <div className="text-center py-20 bg-slate-950/30 border border-dashed border-white/5 rounded-[40px]">
                  <Users className="w-12 h-12 text-slate-800 mx-auto mb-4" />
                  <p className="text-slate-600 font-mono text-sm uppercase">Aucun groupe actif détecté pour votre Node.</p>
+                 {discoveryMessage && (
+                   <p className="mx-auto mt-4 max-w-sm rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-xs font-semibold text-blue-200">
+                     {discoveryMessage}
+                   </p>
+                 )}
                  <button 
-                   onClick={() => alert('AFAT Cooperatives: Recherche de groupes à proximité... (Alpha)')}
+                   onClick={() => setDiscoveryMessage('Cooperative discovery is planned for this operator profile. Today this panel reads your active groups from Supabase; matching nearby groups still needs a backend workflow.')}
                    className="mt-6 text-blue-500 font-bold text-xs uppercase tracking-widest border border-blue-500/20 px-6 py-3 rounded-xl hover:bg-blue-500/5 transition-all outline-none"
                  >
                    Explorer les Coopératives

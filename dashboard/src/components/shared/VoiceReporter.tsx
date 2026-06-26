@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Mic, Square, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
-import { apiBaseUrl, supabase } from '../../supabaseClient';
+import { getApiBaseUrl, supabase } from '../../supabaseClient';
 
 export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: () => void }) {
   const [isRecording, setIsRecording] = useState(false);
@@ -72,7 +72,7 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
       formData.append('audio', audioBlob, 'report.webm');
       formData.append('reporter_id', profile.id);
 
-      const response = await fetch(`${apiBaseUrl}/api/intelligence/voice-report`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/intelligence/voice-report`, {
         method: 'POST',
         body: formData,
       });

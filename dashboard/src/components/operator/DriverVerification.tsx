@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Camera, ShieldCheck, CheckCircle2, Loader2, AlertTriangle, Upload } from 'lucide-react';
-import { apiBaseUrl, supabase } from '../../supabaseClient';
+import { getApiBaseUrl, supabase } from '../../supabaseClient';
 
 export function DriverVerification() {
   const [step, setStep] = useState(1);
@@ -19,7 +19,7 @@ export function DriverVerification() {
       // 1. Convert to Base64
       const base64 = await fileToBase64(file);
 
-      const response = await fetch(`${apiBaseUrl}/api/ai/vision`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/ai/vision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

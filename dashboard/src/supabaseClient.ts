@@ -8,7 +8,25 @@ const supabaseAnonKey =
 
 // ═══ AUTO-DETECTION: Render Backend URL ═══
 const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
-export const apiBaseUrl = import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
+
+function resolveApiBaseUrl() {
+  const runtimeApiOverride = localStorage.getItem('afat_api_base_override');
+  return runtimeApiOverride || import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
+}
+
+export const apiBaseUrl = resolveApiBaseUrl();
+
+export function getApiBaseUrl() {
+  return resolveApiBaseUrl();
+}
+
+export function setApiBaseOverride(url: string | null) {
+  if (!url) {
+    localStorage.removeItem('afat_api_base_override');
+    return;
+  }
+  localStorage.setItem('afat_api_base_override', url);
+}
 
 if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY)) {
   console.warn('⚠️ Supabase env vars missing. Running in mock mode.');
@@ -25,7 +43,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  */
 export async function sendPhoneOtp(phone: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/auth/send-otp`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/auth/send-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone }),
@@ -44,7 +62,7 @@ export async function sendPhoneOtp(phone: string) {
  */
 export async function verifyPhoneOtp(phone: string, token: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/auth/verify-otp`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/auth/verify-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, code: token }),
@@ -137,7 +155,7 @@ export async function submitIncident(incidentData: any) {
 
 export async function sendPanicAlert(alertData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/sos/panic`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/sos/panic`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(alertData),
@@ -194,7 +212,7 @@ export async function registerVehicle(vehicleData: any) {
 
 export async function registerPassenger(passengerData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/onboard/passenger/register`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/onboard/passenger/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(passengerData),
@@ -209,7 +227,7 @@ export async function registerPassenger(passengerData: any) {
 
 export async function registerDriver(driverData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/onboard/driver/register`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/onboard/driver/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(driverData),
@@ -224,7 +242,7 @@ export async function registerDriver(driverData: any) {
 
 export async function registerCompany(companyData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/onboard/company/register`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/onboard/company/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(companyData),
@@ -313,7 +331,7 @@ export async function createBooking(bookingData: any) {
 
 export async function createSeatHold(holdData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/booking/seat-hold`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/booking/seat-hold`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(holdData),
@@ -328,7 +346,7 @@ export async function createSeatHold(holdData: any) {
 
 export async function releaseSeatHold(holdId: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/booking/seat-hold/release`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/booking/seat-hold/release`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hold_id: holdId }),
@@ -343,7 +361,7 @@ export async function releaseSeatHold(holdId: string) {
 
 export async function createBookingFromHold(bookingData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/booking/create-from-hold`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/booking/create-from-hold`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bookingData),
@@ -354,6 +372,31 @@ export async function createBookingFromHold(bookingData: any) {
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
   }
+}
+
+export type NegotiationRole = 'commuter' | 'operator';
+export type NegotiationStatus = 'pending' | 'accepted' | 'rejected' | 'countered';
+
+export async function submitNegotiationOffer(payload: {
+  booking_id: string;
+  role: NegotiationRole;
+  price: number;
+  status?: NegotiationStatus;
+}) {
+  const { data, error } = await supabase
+    .from('negotiations')
+    .insert([
+      {
+        booking_id: payload.booking_id,
+        role: payload.role,
+        price: payload.price,
+        status: payload.status || 'countered',
+      },
+    ])
+    .select()
+    .single();
+
+  return { data, error };
 }
 
 export async function getOperatorWalletLedger(operatorId: string) {
@@ -368,7 +411,7 @@ export async function getOperatorWalletLedger(operatorId: string) {
 
 export async function requestOperatorWithdrawal(operatorId: string, amount: number) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/wallet/withdraw`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/wallet/withdraw`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ operator_id: operatorId, amount }),
@@ -393,7 +436,7 @@ export async function getCompanyMembership(profileId: string) {
 
 export async function issueSecureTicket(bookingId: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ticket/issue`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/ticket/issue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ booking_id: bookingId }),
@@ -408,7 +451,7 @@ export async function issueSecureTicket(bookingId: string) {
 
 export async function createGuardianToken(bookingId: string, expiresInMinutes: number = 180) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/guardian/token`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/guardian/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -426,7 +469,7 @@ export async function createGuardianToken(bookingId: string, expiresInMinutes: n
 
 export async function fetchGuardianWatch(token: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/guardian/watch/${token}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/guardian/watch/${token}`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Guardian watch lookup failed.' } };
     return { data, error: null };
@@ -437,7 +480,7 @@ export async function fetchGuardianWatch(token: string) {
 
 export async function finalizeBookingPayment(bookingId: string, method: string, transactionId?: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/payment/finalize`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/payment/finalize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify({
@@ -456,7 +499,7 @@ export async function finalizeBookingPayment(bookingId: string, method: string, 
 
 export async function fetchOpsReportCenter() {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ops/report-center`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/report-center`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Report center fetch failed.' } };
     return { data, error: null };
@@ -467,7 +510,7 @@ export async function fetchOpsReportCenter() {
 
 export async function updateOpsReportStatus(reportId: string, status: string, resolverId?: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ops/reports/${reportId}/status`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/reports/${reportId}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, resolver_id: resolverId }),
@@ -486,7 +529,7 @@ export async function fetchSafetyScore(lat?: number, lng?: number, radiusKm: num
     if (lat !== undefined) params.set('lat', String(lat));
     if (lng !== undefined) params.set('lng', String(lng));
     params.set('radius_km', String(radiusKm));
-    const res = await fetch(`${apiBaseUrl}/api/ops/safety-score?${params.toString()}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/safety-score?${params.toString()}`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Safety score fetch failed.' } };
     return { data, error: null };
@@ -497,7 +540,7 @@ export async function fetchSafetyScore(lat?: number, lng?: number, radiusKm: num
 
 export async function fetchDemandRadar() {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ops/demand-radar`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/demand-radar`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Demand radar fetch failed.' } };
     return { data, error: null };
@@ -508,7 +551,7 @@ export async function fetchDemandRadar() {
 
 export async function publishMapSignal(signalData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ops/map-signal`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify(signalData),
@@ -524,7 +567,7 @@ export async function publishMapSignal(signalData: any) {
 export async function fetchLiveMapOps(city: string = 'cameroon') {
   try {
     const params = new URLSearchParams({ city });
-    const res = await fetch(`${apiBaseUrl}/api/ops/live-map?${params.toString()}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/live-map?${params.toString()}`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Live map feed failed.' } };
     return { data, error: null };
@@ -535,7 +578,7 @@ export async function fetchLiveMapOps(city: string = 'cameroon') {
 
 export async function fetchActiveDispatches() {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/dispatch/active`);
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/active`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch fetch failed.' } };
     return { data, error: null };
@@ -546,7 +589,7 @@ export async function fetchActiveDispatches() {
 
 export async function createDispatchAssignment(dispatchData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/dispatch/assign`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/assign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dispatchData),
@@ -561,7 +604,7 @@ export async function createDispatchAssignment(dispatchData: any) {
 
 export async function createServiceRequest(serviceData: any) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/service/request`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/service/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serviceData),
@@ -576,7 +619,7 @@ export async function createServiceRequest(serviceData: any) {
 
 export async function fetchPaymentProviderReadiness() {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/payment/provider-readiness`);
+    const res = await fetch(`${getApiBaseUrl()}/api/payment/provider-readiness`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Payment readiness fetch failed.' } };
     return { data, error: null };
@@ -587,7 +630,7 @@ export async function fetchPaymentProviderReadiness() {
 
 export async function fetchComplianceRadar() {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ops/compliance-radar`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/compliance-radar`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance radar fetch failed.' } };
     return { data, error: null };
@@ -598,7 +641,7 @@ export async function fetchComplianceRadar() {
 
 export async function fetchComplianceSummary(profileId: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/compliance/summary/${profileId}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/compliance/summary/${profileId}`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance summary fetch failed.' } };
     return { data, error: null };
@@ -607,9 +650,36 @@ export async function fetchComplianceSummary(profileId: string) {
   }
 }
 
+export async function enrollCheckpoint(payload: {
+  profile_id?: string;
+  checkpoint_name: string;
+  city: string;
+  zone_label?: string;
+  latitude: number;
+  longitude: number;
+  checkpoint_type?: string;
+  notes?: string;
+}) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/checkpoints/enroll`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...afatAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Checkpoint enrollment failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function updateComplianceStatus(recordId: string, status: string, notes?: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/compliance/${recordId}/status`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/compliance/${recordId}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, notes }),
@@ -831,7 +901,7 @@ export async function verifyBoarding(bookingId: string, operatorId: string) {
 
 export async function verifyBoardingToken(ticket: any, operatorId: string) {
   try {
-    const res = await fetch(`${apiBaseUrl}/api/ticket/verify-boarding`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/ticket/verify-boarding`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

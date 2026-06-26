@@ -8,6 +8,9 @@ import {
   Cloud,
   Database,
   FileCheck,
+  GraduationCap,
+  HandHeart,
+  Landmark,
   Map,
   PackageCheck,
   Radio,
@@ -16,6 +19,7 @@ import {
   Sparkles,
   Truck,
   Users,
+  WalletCards,
   WifiOff,
 } from 'lucide-react';
 import { mapOfflineService } from '../../services/MapOfflineService';
@@ -65,6 +69,67 @@ const SYSTEM_PILLARS = [
   { label: 'Human verification', icon: ClipboardCheck, note: 'cross-checking where trust matters' },
   { label: 'Offline resilience', icon: WifiOff, note: 'weak internet should not break the mission' },
 ];
+
+const ECOSYSTEM_READINESS = [
+  {
+    label: 'Operational core',
+    status: 'active',
+    icon: Route,
+    note: 'booking, dispatch, reports, guardian safety, service requests',
+  },
+  {
+    label: 'Compliance gateway',
+    status: 'in progress',
+    icon: Landmark,
+    note: 'operator documents, permits, licensing packages, admin follow-up',
+  },
+  {
+    label: 'Map moat',
+    status: 'in progress',
+    icon: Map,
+    note: 'downloaded/open geodata packs plus live checkpoints and field reports',
+  },
+  {
+    label: 'Payments',
+    status: 'in progress',
+    icon: WalletCards,
+    note: 'PawaPay callback path wired; live readiness depends on deployed env',
+  },
+  {
+    label: 'Academy and badges',
+    status: 'planned',
+    icon: GraduationCap,
+    note: 'driver academy, operator training, AFAT certification badge',
+  },
+  {
+    label: 'Cross-border layer',
+    status: 'planned',
+    icon: Truck,
+    note: 'multi-country booking, pre-clearance, FX-aware settlement',
+  },
+  {
+    label: 'Social trust',
+    status: 'planned',
+    icon: Users,
+    note: 'group travel, lost and found network, ratings, community feed',
+  },
+  {
+    label: 'Humanitarian mode',
+    status: 'planned',
+    icon: HandHeart,
+    note: 'disaster response, NGO movement, medical supply logistics',
+  },
+];
+
+function readinessClass(status: string) {
+  if (status === 'active') {
+    return 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200';
+  }
+  if (status === 'in progress') {
+    return 'border-amber-400/20 bg-amber-500/10 text-amber-200';
+  }
+  return 'border-white/10 bg-white/[0.03] text-white/45';
+}
 
 export function AFATStrategicLayer({ role, profile, liveVehicles = 0, liveIncidents = 0, liveCheckpoints = 0, onAction }: Props) {
   const headline = ROLE_HEADLINES[role] || ROLE_HEADLINES.commuter;
@@ -192,6 +257,38 @@ export function AFATStrategicLayer({ role, profile, liveVehicles = 0, liveIncide
               );
             })}
           </div>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-white/10 pt-5">
+        <div className="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/35">Ecosystem readiness</p>
+            <h3 className="mt-1 text-base font-black uppercase italic tracking-tight text-white">What is live, what is being built, what becomes the moat</h3>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[9px] font-black uppercase tracking-widest">
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">active</span>
+            <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-amber-200">in progress</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-white/45">planned</span>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {ECOSYSTEM_READINESS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <Icon className="h-4 w-4 text-white/60" />
+                  <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${readinessClass(item.status)}`}>
+                    {item.status}
+                  </span>
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-tight text-white">{item.label}</p>
+                <p className="mt-1 text-[9px] font-semibold leading-relaxed text-white/40">{item.note}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

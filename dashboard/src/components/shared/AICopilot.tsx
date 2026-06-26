@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Loader2, Bot, Sparkles, Camera, Cpu, Mic } from 'lucide-react';
-import { apiBaseUrl } from '../../supabaseClient';
+import { getApiBaseUrl } from '../../supabaseClient';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -29,6 +29,30 @@ export function AICopilot({ userName, userRole, context }: Props) {
     }
   }, [messages]);
 
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      const custom = event as CustomEvent<{ prompt?: string; intro?: string }>;
+      setIsOpen(true);
+      if (custom.detail?.prompt) {
+        setInput(custom.detail.prompt);
+      }
+      if (custom.detail?.intro) {
+        setMessages(prev => {
+          if (prev.some((message) => message.content === custom.detail?.intro)) {
+            return prev;
+          }
+          return [
+            ...prev,
+            { role: 'assistant', content: custom.detail.intro || '', timestamp: new Date() }
+          ];
+        });
+      }
+    };
+
+    window.addEventListener('afat:open-copilot', handleOpen as EventListener);
+    return () => window.removeEventListener('afat:open-copilot', handleOpen as EventListener);
+  }, []);
+
   const systemPrompt = `You are AFAT Guidance, the invisible traffic intelligence for MobilityOS — a mobility platform in Cameroon.
 Current user: ${userName} (Role: ${userRole}).
 ${context || ''}
@@ -42,7 +66,7 @@ Reply in the same language the user writes in (French or English).
 Use phrases like "heads-up", "usually at this hour", "from what we see" instead of technical terms.`;
 
   const callBackendAI = async (payload: Record<string, any>): Promise<string> => {
-    const response = await fetch(`${apiBaseUrl}/api/ai/chat`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -85,7 +109,7 @@ User input: "${userText}"`;
   };
 
   const callLlamaVision = async (base64Image: string): Promise<string> => {
-    const response = await fetch(`${apiBaseUrl}/api/ai/vision`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/ai/vision`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -176,7 +200,15 @@ User input: "${userText}"`;
 
   const quickPrompts = userRole === 'operator'
     ? ['Mon score DNA?', 'Combien j\'ai gagné?', 'Routes populaires']
-    : ['Trajet le moins cher?', 'Mon portefeuille', 'Signaler un problème'];
+    : userRole === 'admin'
+      ? ['Résumé opérationnel', 'Incidents à surveiller', 'État paiements et conformité']
+      : ['Trajet le moins cher?', 'Mon portefeuille', 'Signaler un problème'];
+
+  const orchestrationLabel = isThinking
+    ? activeModel === 'llama'
+      ? 'Strategy layer thinking'
+      : 'Guidance layer responding'
+    : 'Orchestrator live';
 
   return (
     <>
@@ -184,9 +216,13 @@ User input: "${userText}"`;
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-24 right-6 z-[1500] w-14 h-14 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-full flex items-center justify-center shadow-2xl shadow-blue-500/30 active:scale-90 transition-all ring-4 ring-white/10 hover:ring-blue-500/30"
+          className="fixed bottom-24 right-4 z-[1500] flex items-center gap-3 rounded-full border border-white/10 bg-gradient-to-r from-blue-600 to-indigo-700 px-4 py-3 shadow-2xl shadow-blue-500/30 active:scale-95 transition-all ring-4 ring-white/10 hover:ring-blue-500/30"
         >
           <Sparkles className="w-6 h-6 text-white" />
+          <div className="text-left">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white">AI Orchestrator</p>
+            <p className="text-[9px] font-semibold text-blue-100/80">Guidance, strategy, vision</p>
+          </div>
         </button>
       )}
 
@@ -203,9 +239,14 @@ User input: "${userText}"`;
                 <div>
                   <h4 className="font-black text-sm">AFAT Guidance</h4>
                   <p className="text-[9px] text-blue-400 font-mono uppercase tracking-widest">
-                    {isThinking ? '💭 Réflexion...' : 'En ligne'}
+                    {orchestrationLabel}
                   </p>
                 </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-1">
+                <span className={`rounded-full border px-2 py-1 text-[8px] font-black uppercase tracking-widest ${activeModel === 'llama' && isThinking ? 'border-amber-400/30 bg-amber-500/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/45'}`}>strategy</span>
+                <span className={`rounded-full border px-2 py-1 text-[8px] font-black uppercase tracking-widest ${activeModel === 'gemini' && isThinking ? 'border-blue-400/30 bg-blue-500/10 text-blue-200' : 'border-white/10 bg-white/5 text-white/45'}`}>guidance</span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-white/45">vision</span>
               </div>
               <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-white p-1 transition-colors">
                 <X className="w-5 h-5" />

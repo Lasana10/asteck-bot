@@ -11,6 +11,9 @@ export interface MapPackDefinition {
   status: 'ready' | 'planned';
   detail: string;
   coverage: string;
+  prepStage: 'seeded' | 'surveying' | 'curating' | 'planned';
+  collectorRoles: string[];
+  targetSignals: string[];
 }
 
 interface DownloadedRegion {
@@ -39,6 +42,9 @@ const MAP_PACKS: MapPackDefinition[] = [
     status: 'ready',
     detail: 'Street graph and POI seed pack',
     coverage: 'Yaounde urban core',
+    prepStage: 'seeded',
+    collectorRoles: ['commuters', 'drivers', 'checkpoint stewards'],
+    targetSignals: ['road shape validation', 'pickup zones', 'high-demand stops'],
   },
   {
     id: 'douala',
@@ -49,6 +55,9 @@ const MAP_PACKS: MapPackDefinition[] = [
     status: 'planned',
     detail: 'Awaiting first AFAT-curated offline extract',
     coverage: 'Douala launch pack',
+    prepStage: 'surveying',
+    collectorRoles: ['commuters', 'taxi operators', 'fleet coordinators'],
+    targetSignals: ['boarding clusters', 'shortcut corridors', 'hazard hotspots'],
   },
   {
     id: 'cameroon',
@@ -59,6 +68,9 @@ const MAP_PACKS: MapPackDefinition[] = [
     status: 'ready',
     detail: 'National corridor starter graph',
     coverage: 'Intercity seed network',
+    prepStage: 'curating',
+    collectorRoles: ['intercity commuters', 'bus operators', 'agency planners'],
+    targetSignals: ['corridor timing', 'rest stops', 'border and checkpoint friction'],
   },
 ];
 
@@ -133,6 +145,18 @@ class MapOfflineService {
     return MAP_PACKS.map((pack) => ({
       ...pack,
       installed: this.downloadedRegions.some((region) => region.id === pack.id),
+    }));
+  }
+
+  public getPreparationBoard() {
+    return MAP_PACKS.map((pack) => ({
+      id: pack.id,
+      name: pack.name,
+      prepStage: pack.prepStage,
+      coverage: pack.coverage,
+      collectorRoles: pack.collectorRoles,
+      targetSignals: pack.targetSignals,
+      readyForOffline: pack.status === 'ready',
     }));
   }
 

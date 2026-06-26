@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CreditCard, Check, Loader2, Shield } from 'lucide-react';
-import { fetchPaymentProviderReadiness, finalizeBookingPayment } from '../../supabaseClient';
+import { fetchPaymentProviderReadiness, finalizeBookingPayment, getApiBaseUrl } from '../../supabaseClient';
 
 interface Props {
   amount: number;
@@ -51,12 +51,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
     try {
       if (selectedMethod !== 'cash') {
-        const apiBaseUrl = import.meta.env.VITE_API_URL ||
-          (window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1')
-            ? 'https://asteck-bot.onrender.com'
-            : 'http://localhost:3000');
-
-        const response = await fetch(`${apiBaseUrl}/api/payment/checkout`, {
+        const response = await fetch(`${getApiBaseUrl()}/api/payment/checkout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

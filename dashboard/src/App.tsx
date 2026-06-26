@@ -143,6 +143,7 @@ export default function App() {
 
 function AppShell() {
   const showDevOverride = new URLSearchParams(window.location.search).get('devOverride') === '1';
+  const isLocalReview = ['localhost', '127.0.0.1'].includes(window.location.hostname) || new URLSearchParams(window.location.search).get('review') === '1';
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -153,10 +154,38 @@ function AppShell() {
   const [isRegistrationHubOpen, setIsRegistrationHubOpen] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [localAuthUserId, setLocalAuthUserId] = useState<string | null>(() => localStorage.getItem('afat_local_user_id'));
+  const roleAccessConfig: Record<string, { label: string; icon: React.ElementType; iconWrapClass: string; iconClass: string }> = {
+    commuter: {
+      label: 'Commuter / passenger',
+      icon: MapIcon,
+      iconWrapClass: 'bg-blue-500/10 border-blue-400/20',
+      iconClass: 'text-blue-300',
+    },
+    operator: {
+      label: 'Driver / operator node',
+      icon: Car,
+      iconWrapClass: 'bg-emerald-500/10 border-emerald-400/20',
+      iconClass: 'text-emerald-300',
+    },
+    planner: {
+      label: 'Company / agency / city planner',
+      icon: BarChart3,
+      iconWrapClass: 'bg-purple-500/10 border-purple-400/20',
+      iconClass: 'text-purple-300',
+    },
+    admin: {
+      label: 'AFAT admin command',
+      icon: ShieldAlert,
+      iconWrapClass: 'bg-red-500/10 border-red-400/20',
+      iconClass: 'text-red-300',
+    }
+  };
 
   try {
     const forceRole = (role: string, vehicleType?: string, idData?: any) => {
       setUserRole(role);
+      setActiveTab('home');
+      setShowOnboarding(false);
       const resolvedId = idData?.id || `afat-local-${role}`;
       const resolvedPhone = idData?.phone || localStorage.getItem('afat_local_phone') || '237000000';
       localStorage.setItem('afat_local_user_id', resolvedId);
@@ -171,6 +200,8 @@ function AppShell() {
         trust_points: 500,
         subscription_tier: role === 'commuter' ? 'free' : 'guardian',
         vehicle_type: vehicleType || null,
+        preferred_city: idData?.preferred_city || idData?.base_city || null,
+        preferred_zone: idData?.preferred_zone || idData?.operating_zone || null,
         ids_number: idData?.ids_number || null,
         cni_number: idData?.cni_number || null,
         plate_number: idData?.plate_number || null,
@@ -286,6 +317,12 @@ function AppShell() {
                 🚕 Taxi Node
               </button>
               <button
+                onClick={() => { forceRole('planner'); setIsProtocolHubOpen(false); }}
+                className="w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-cyan-500 text-white"
+              >
+                Planner
+              </button>
+              <button
                 onClick={() => { forceRole('admin'); setIsProtocolHubOpen(false); }}
                 className="w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-purple-500 text-white"
               >
@@ -319,6 +356,39 @@ function AppShell() {
                   AFAT now opens through a real access flow instead of the old guest shell. Sign in with your phone or register your commuter, operator, or fleet identity to enter the live system.
                 </p>
               </div>
+
+              {isLocalReview && (
+                <div className="mb-8 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-200/70">Local review mode</p>
+                      <p className="mt-1 text-xs font-semibold text-white/55">Browse AFAT surfaces without waiting on SMS or production sessions.</p>
+                    </div>
+                    <button
+                      onClick={() => setIsRegistrationHubOpen(true)}
+                      className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-white/15"
+                    >
+                      Onboard
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      { role: 'commuter', label: 'Commuter', vehicle: undefined },
+                      { role: 'operator', label: 'Operator', vehicle: 'taxi' },
+                      { role: 'planner', label: 'Planner', vehicle: undefined },
+                      { role: 'admin', label: 'Admin', vehicle: undefined },
+                    ].map((item) => (
+                      <button
+                        key={item.role}
+                        onClick={() => forceRole(item.role, item.vehicle)}
+                        className="min-h-12 rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:border-emerald-300/50 hover:text-white"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Login />
 
@@ -358,7 +428,7 @@ function AppShell() {
         case 'admin':
           return <AdminControlPanel onSignOut={handleSignOut} activeTab={activeTab} />;
         case 'planner':
-          return <PlannerDashboard onSignOut={handleSignOut} />;
+          return <PlannerDashboard onSignOut={handleSignOut} activeTab={activeTab} />;
         case 'operator':
           return <OperatorDashboard onSignOut={handleSignOut} activeTab={activeTab} profile={userProfile} />;
         case 'commuter':
@@ -367,10 +437,69 @@ function AppShell() {
       }
     };
 
+    const renderRoleFrame = () => {
+      if (!isLocalReview) {
+        return null;
+      }
+
+      const config = roleAccessConfig[userRole || 'commuter'] || roleAccessConfig.commuter;
+      const Icon = config.icon;
+      const isCompanyCoordinator = userRole === 'planner' && userProfile?.company_name;
+      const reviewRoles = [
+        { role: 'commuter', label: 'Commuter', vehicle: undefined },
+        { role: 'operator', label: 'Operator', vehicle: userProfile?.vehicle_type || 'taxi' },
+        { role: 'planner', label: 'Planner', vehicle: undefined },
+        { role: 'admin', label: 'Admin', vehicle: undefined },
+      ];
+      return (
+        <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 px-4 py-3 shadow-xl backdrop-blur-2xl">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${config.iconWrapClass}`}>
+                  <Icon className={`h-4 w-4 ${config.iconClass}`} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">QA workspace</p>
+                  <p className="truncate text-sm font-black uppercase tracking-tight text-white">
+                    {isCompanyCoordinator ? 'Company / fleet coordinator' : config.label}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-[9px] font-black uppercase tracking-[0.22em] text-cyan-200/70">Role switch</span>
+                {reviewRoles.map((item) => (
+                  <button
+                    key={item.role}
+                    onClick={() => forceRole(item.role, item.vehicle)}
+                    className={`min-h-10 rounded-2xl border px-3 py-2 text-[9px] font-black uppercase tracking-widest transition ${
+                      userRole === item.role
+                        ? 'border-cyan-300/50 bg-cyan-500/15 text-cyan-100'
+                        : 'border-white/10 bg-white/[0.03] text-white/45 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setIsRegistrationHubOpen(true)}
+                  className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
+                >
+                  Register
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div className="min-h-screen flex flex-col sentinel-bg text-white selection:bg-blue-500/30">
         <div className="mesh-gradient" />
         <div className="relative z-10 flex-1 flex flex-col">
+          {renderRoleFrame()}
           {renderDashboard()}
         </div>
         <BottomNav role={userRole as any} activeTab={activeTab} onTabChange={setActiveTab} />
@@ -380,6 +509,17 @@ function AppShell() {
           profile={userProfile}
           isVisible={showOnboarding} 
           onClose={handleOnboardingComplete} 
+        />
+        <RegistrationHub
+          isVisible={isRegistrationHubOpen}
+          onClose={() => setIsRegistrationHubOpen(false)}
+          onRegisterCustom={(data) => {
+            if (data?.id) {
+              localStorage.setItem('afat_local_user_id', data.id);
+              setLocalAuthUserId(data.id);
+            }
+            forceRole(data.role, data.vehicleType, data);
+          }}
         />
         <AICopilot userName={userProfile?.full_name || 'User'} userRole={userRole || 'commuter'} />
       </div>

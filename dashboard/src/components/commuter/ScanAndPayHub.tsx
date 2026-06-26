@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { X, CreditCard, ShieldCheck, Zap } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { getApiBaseUrl, supabase } from '../../supabaseClient';
 
 interface ScanAndPayHubProps {
   onClose: () => void;
@@ -14,6 +14,7 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
   const [amount, setAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<'scanning' | 'paying'>('scanning');
+  const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
     if (step === 'scanning') {
@@ -45,6 +46,7 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
       const presetAmount = urlObj.searchParams.get('amount');
       
       if (opId) {
+        setStatusMessage('');
         const { data } = await supabase
           .from('profiles')
           .select('id, full_name, role')
@@ -56,13 +58,13 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
           if (presetAmount) setAmount(presetAmount);
           setStep('paying');
         } else {
-          alert('Opérateur non reconnu dans le système AFAT.');
+          setStatusMessage('Opérateur non reconnu dans le réseau AFAT. Vérifiez le QR ou demandez au chauffeur de régénérer son code.');
           setStep('scanning');
         }
       }
     } catch (err) {
       console.error('QR Parse Error:', err);
-      alert('Code QR invalide.');
+      setStatusMessage('Code QR invalide. AFAT attend un lien de paiement signé avec un opérateur vérifié.');
       setStep('scanning');
     }
   };
@@ -70,18 +72,19 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
   const handlePayment = async () => {
     if (!amount || isProcessing || !operator) return;
     setIsProcessing(true);
+    setStatusMessage('');
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const phone = user?.phone || user?.user_metadata?.phone;
 
       if (!phone) {
-        alert("Numéro de téléphone introuvable. Veuillez vous reconnecter.");
+        setStatusMessage('Numéro de téléphone introuvable. Reconnectez-vous pour sécuriser le paiement Mobile Money.');
         setIsProcessing(false);
         return;
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/payment/checkout`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/payment/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,11 +101,11 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
         onPaymentSuccess(Number(amount), operator.full_name || 'Chauffeur');
         onClose();
       } else {
-        alert(`Échec du paiement: ${result.message || 'Erreur inconnue'}`);
+        setStatusMessage(`Paiement non confirmé: ${result.message || 'erreur inconnue'}. Aucun trajet ne sera validé sans confirmation.`);
       }
     } catch (err: any) {
       console.error('Payment Error:', err);
-      alert('Erreur réseau lors du paiement.');
+      setStatusMessage('Erreur réseau pendant le paiement. Réessayez ou passez par le guichet AFAT si la connexion est instable.');
     } finally {
       setIsProcessing(false);
     }
@@ -132,6 +135,11 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
           <p className="mt-8 text-slate-300 text-center font-medium px-8">
             Scannez le code QR sur le tableau de bord du véhicule (Moto, Taxi ou Bus)
           </p>
+          {statusMessage && (
+            <div className="mt-5 max-w-sm rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-center text-xs font-semibold text-amber-100">
+              {statusMessage}
+            </div>
+          )}
           
           <div className="mt-12 flex gap-4 w-full max-w-xs">
             <div className="flex-1 p-4 bg-slate-900/50 rounded-2xl border border-slate-800 flex flex-col items-center">
@@ -181,6 +189,11 @@ export const ScanAndPayHub: React.FC<ScanAndPayHubProps> = ({ onClose, onPayment
             <p className="text-slate-400 text-xs px-4">
               Le paiement sera effectué de votre compte Mobile Money vers le portefeuille AFAT du chauffeur.
             </p>
+            {statusMessage && (
+              <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-100">
+                {statusMessage}
+              </div>
+            )}
           </div>
 
           <button 

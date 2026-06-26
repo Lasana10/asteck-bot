@@ -13,7 +13,7 @@ import {
   Zap
 } from 'lucide-react';
 import {
-  apiBaseUrl,
+  getApiBaseUrl,
   fetchComplianceRadar,
   fetchLiveMapOps,
   fetchPaymentProviderReadiness
@@ -105,7 +105,7 @@ export function OperationsMissionControl({ role, profile, city, compact = false,
     setApiStatus('checking');
 
     const [healthRes, mapRes, paymentRes, complianceRes] = await Promise.allSettled([
-      fetch(`${apiBaseUrl}/health`).then((res) => res.ok),
+      fetch(`${getApiBaseUrl()}/health`).then((res) => res.ok),
       fetchLiveMapOps(selectedCity),
       fetchPaymentProviderReadiness(),
       role === 'planner' || role === 'admin' ? fetchComplianceRadar() : Promise.resolve({ data: null, error: null })
@@ -177,6 +177,29 @@ export function OperationsMissionControl({ role, profile, city, compact = false,
           { id: 'compliance', label: 'Compliance', icon: FileCheck },
           { id: 'onboard', label: 'Onboarding', icon: Users }
         ];
+
+  const launchOrchestrator = () => {
+    const rolePrompt: Record<Role, { prompt: string; intro: string }> = {
+      commuter: {
+        prompt: 'Help me choose the safest and fastest route right now.',
+        intro: 'AFAT orchestrator is ready to combine route guidance, payment readiness, and safety signals for this commuter view.'
+      },
+      operator: {
+        prompt: 'Summarize demand, risk, and the best operating move for this shift.',
+        intro: 'AFAT orchestrator is ready to combine driver demand, map signals, and earnings context for this operator lane.'
+      },
+      planner: {
+        prompt: 'Give me the highest-priority dispatch and compliance actions now.',
+        intro: 'AFAT orchestrator is ready to combine incidents, dispatch flow, and compliance radar for this city desk.'
+      },
+      admin: {
+        prompt: 'Summarize platform risk, compliance pressure, payments, and the next rollout action.',
+        intro: 'AFAT orchestrator is ready to combine platform signals, payment readiness, compliance state, and rollout pressure.'
+      }
+    };
+
+    window.dispatchEvent(new CustomEvent('afat:open-copilot', { detail: rolePrompt[role] }));
+  };
 
   return (
     <section className={`relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/70 shadow-2xl ${compact ? 'p-4' : 'p-5 sm:p-6'}`}>
@@ -270,6 +293,13 @@ export function OperationsMissionControl({ role, profile, city, compact = false,
             className="w-full rounded-2xl bg-white px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]"
           >
             {roleIntent.actionLabel}
+          </button>
+
+          <button
+            onClick={launchOrchestrator}
+            className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:border-blue-400/40 hover:text-white"
+          >
+            Open AI Orchestrator
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { apiBaseUrl } from '../supabaseClient';
+import { getApiBaseUrl } from '../supabaseClient';
 
 /**
  * AFAT Sentinel AI Gateway
@@ -14,7 +14,7 @@ class SentinelGateway {
    */
   async getStrategicDirective(context: string): Promise<string> {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/ai/chat`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -43,7 +43,7 @@ class SentinelGateway {
    */
   async getFlashResponse(prompt: string): Promise<string> {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/ai/chat`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

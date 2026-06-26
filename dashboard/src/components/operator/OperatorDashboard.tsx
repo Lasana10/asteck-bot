@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert, Car, LogOut, Power, Navigation, Clock, Check, X,
   Mic, History, CreditCard, QrCode, Users, Zap, TrendingUp,
-  MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio,
+  MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio, Megaphone,
   Database, Download, CheckCircle, Activity, Layout, Layers, Box, Cloud, Wifi, RefreshCw, ArrowUpRight
 } from 'lucide-react';
-import { fetchLiveMapOps, getOperatorWalletLedger, requestOperatorWithdrawal, supabase } from '../../supabaseClient';
+import { fetchLiveMapOps, getOperatorWalletLedger, requestOperatorWithdrawal, submitNegotiationOffer, supabase } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { VoiceReporter } from '../shared/VoiceReporter';
 import { QRCodeGenerator } from '../shared/QRCodeGenerator';
@@ -17,8 +17,6 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 import { NegotiationPanel } from '../shared/NegotiationPanel';
 import { AFATLogo } from '../shared/AFATLogo';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
-import { OperationsMissionControl } from '../shared/OperationsMissionControl';
-import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 import { telemetry } from '../../services/telemetry';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 
@@ -76,6 +74,8 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     { time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), text: "Système Sentinel activé. Scan en cours...", type: 'info' }
   ]);
   const [negotiatingRequest, setNegotiatingRequest] = useState<any | null>(null);
+  const [operatorNotice, setOperatorNotice] = useState('');
+  const [isNegotiationSaving, setIsNegotiationSaving] = useState(false);
 
   const handleDownloadMap = async (regionId: 'yaounde' | 'douala' | 'cameroon') => {
     if (offlineMaps[regionId]) return;
@@ -259,15 +259,61 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     }
   };
 
-  const acceptRequest = async (bookingId: string) => {
-    await supabase.from('bookings').update({ status: 'confirmed' }).eq('id', bookingId);
+  const acceptRequest = async (bookingId: string, finalPrice?: number) => {
+    const updates: Record<string, any> = { status: 'confirmed' };
+    if (typeof finalPrice === 'number') {
+      updates.price_paid = finalPrice;
+    }
+    await supabase.from('bookings').update(updates).eq('id', bookingId);
     fetchRequests();
   };
 
   const cancelRequest = async (bookingId: string) => {
     await supabase.from('bookings').update({ status
       : 'cancelled' }).eq('id', bookingId);
+    setOperatorNotice('Signal declined. AFAT released that seat request back to the marketplace.');
     fetchRequests();
+  };
+
+  const handleCounterOffer = async (price: number) => {
+    if (!negotiatingRequest) return;
+    setIsNegotiationSaving(true);
+    const { error } = await submitNegotiationOffer({
+      booking_id: negotiatingRequest.id,
+      role: 'operator',
+      price,
+      status: 'countered',
+    });
+    setIsNegotiationSaving(false);
+
+    if (error) {
+      setOperatorNotice(`Counter offer could not be sent yet: ${error.message}`);
+      return;
+    }
+
+    setOperatorNotice(`Counter offer sent at ${price.toLocaleString()} XAF. The commuter now sees the updated fare thread.`);
+  };
+
+  const handleAcceptNegotiation = async (price: number) => {
+    if (!negotiatingRequest) return;
+    setIsNegotiationSaving(true);
+    const { error } = await submitNegotiationOffer({
+      booking_id: negotiatingRequest.id,
+      role: 'operator',
+      price,
+      status: 'accepted',
+    });
+
+    if (error) {
+      setIsNegotiationSaving(false);
+      setOperatorNotice(`Final fare could not be locked yet: ${error.message}`);
+      return;
+    }
+
+    await acceptRequest(negotiatingRequest.id, price);
+    setIsNegotiationSaving(false);
+    setOperatorNotice(`Fare locked at ${price.toLocaleString()} XAF. Passenger signal is now confirmed for boarding and payment.`);
+    setNegotiatingRequest(null);
   };
 
   const handleWithdraw = async () => {
@@ -289,26 +335,17 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const theme = TYPE_CONFIG[vTypeStr] || TYPE_CONFIG.default;
   const TypeIcon = theme.icon;
 
-  const renderHomeContent = () => (
-    <div className="p-5 pb-32 space-y-5">
-      {/* ── Fatigue Alert ──────────────────────────────── */}
-      {showFatigueAlert && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center gap-3 animate-pulse">
-          <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
-            <ShieldAlert className="w-5 h-5 text-amber-400" />
-          </div>
-          <div className="flex-1">
-            <p className="font-black text-amber-400 text-[13px]">AFAT Sentinel Monitor: Repos Suggéré</p>
-            <p className="text-[11px] text-white/40 mt-0.5">Vous conduisez depuis +4h. Pensez à faire une pause.</p>
-          </div>
-          <button onClick={() => setShowFatigueAlert(false)} className="text-white/20 hover:text-white/60 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+  const renderOperatorNotice = () => (
+    operatorNotice ? (
+      <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-[11px] font-semibold leading-relaxed text-blue-100">
+        {operatorNotice}
+      </div>
+    ) : null
+  );
 
-      {/* ── Sentinel Directive Banner ───────────────────── */}
-      {latestDirective && (
+  const renderDirectiveSurface = () => (
+    <div id="operator-directives">
+      {latestDirective ? (
         <div className={`border rounded-2xl p-4 flex items-start gap-3 animate-in slide-in-from-top duration-300 relative overflow-hidden ${
           latestDirective.tier === 2 || latestDirective.source === 'ADMIN_OVERRIDE'
             ? 'bg-amber-500/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
@@ -334,6 +371,133 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
             <X className="w-4 h-4" />
           </button>
         </div>
+      ) : (
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[11px] font-semibold text-white/45">
+          Grid Intel is quiet right now. New directives and operator-wide broadcasts will appear here.
+        </div>
+      )}
+    </div>
+  );
+
+  const renderRequestsPanel = () => (
+    <div id="operator-marketplace">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-black text-white text-[16px] flex items-center gap-2">
+          <Navigation className="w-4 h-4 text-blue-400" />
+          Demandes en Direct
+        </h3>
+        {requests.length > 0 && (
+          <div className="bg-blue-500/15 border border-blue-500/25 px-2.5 py-1 rounded-full">
+            <span className="text-[10px] font-black text-blue-400">{requests.length} nouveau{requests.length > 1 ? 'x' : ''}</span>
+          </div>
+        )}
+      </div>
+
+      {renderOperatorNotice()}
+
+      {isOnline && requests.length > 0 && (
+        <div className="space-y-4">
+          {requests.map(req => (
+            <div key={req.id} className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2rem] p-5 shadow-xl relative overflow-hidden group animate-in slide-in-from-right duration-500">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-blue-500/10 transition-colors" />
+              
+              <div className="flex items-center gap-4 mb-4 relative z-10">
+                <div className="w-14 h-14 bg-gradient-to-br from-blue-600 to-blue-900 rounded-2xl flex items-center justify-center text-white font-black text-[20px] shadow-lg border border-white/10 italic">
+                  {req.passenger_id.substring(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-white text-[16px] truncate italic uppercase tracking-tighter">{req.routes?.name || 'Inbound Signal'}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                     <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Seat: {req.seat_label}</p>
+                     <span className="w-1 h-1 rounded-full bg-white/20"></span>
+                     <p className="text-[10px] text-white/30 font-mono">#{req.id.substring(0, 8)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white/45">
+                      {req.payment_status || 'payment pending'}
+                    </span>
+                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-300">
+                      negotiation ready
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-black text-white text-[18px] tracking-tight">{(req.routes?.price_per_seat || 0).toLocaleString()}</p>
+                  <p className="text-[8px] text-white/40 font-black uppercase tracking-widest leading-none">XAF</p>
+                </div>
+              </div>
+              
+              <div className="flex gap-3 relative z-10 mb-3">
+                <button
+                  onClick={() => {
+                    setNegotiatingRequest(req);
+                    setOperatorNotice('Negotiation channel opened. Counter offers here are tied to the live booking thread.');
+                  }}
+                  className="flex-1 bg-white/5 border border-blue-500/30 text-blue-400 font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em]"
+                >
+                  <TrendingUp className="w-4 h-4" /> Negocier
+                </button>
+              </div>
+
+              <div className="flex gap-3 relative z-10">
+                <button
+                  onClick={() => {
+                    acceptRequest(req.id, req.routes?.price_per_seat || 0);
+                    setOperatorNotice(`Passenger request confirmed at ${(req.routes?.price_per_seat || 0).toLocaleString()} XAF.`);
+                  }}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                >
+                  <Check className="w-4 h-4" /> Confirm Node
+                </button>
+                <button
+                  onClick={() => cancelRequest(req.id)}
+                  className="bg-white/5 border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 px-5 rounded-2xl flex items-center justify-center transition-all active:scale-[0.98] group/cancel"
+                >
+                  <X className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isOnline && requests.length === 0 && (
+        <div className="bg-black/40 backdrop-blur-md border border-white/5 rounded-[2rem] p-12 text-center shadow-inner">
+          <div className="relative inline-block mb-4">
+            <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl animate-pulse"></div>
+            <div className="w-3 h-3 rounded-full bg-emerald-400 relative z-10 shadow-[0_0_15px_#10b981]"></div>
+          </div>
+          <p className="text-white font-black text-[15px] uppercase tracking-tighter italic">Grid Scanning Active</p>
+          <p className="text-white/30 text-[11px] font-bold uppercase tracking-widest mt-1">Listening for passenger signals...</p>
+        </div>
+      )}
+
+      {!isOnline && (
+        <div className="bg-white/2 backdrop-blur-sm border border-dashed border-white/10 rounded-[2rem] p-12 text-center">
+          <Power className="w-10 h-10 text-white/5 mx-auto mb-4" />
+          <p className="text-white/20 font-black text-[13px] uppercase tracking-[0.3em] italic">Terminal Standby</p>
+          <p className="text-white/10 text-[10px] font-bold uppercase tracking-widest mt-2">Activate link to start receiving</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderHomeContent = () => (
+    <div id="operator-home-top" className="p-5 pb-32 space-y-5">
+      {/* ── Fatigue Alert ──────────────────────────────── */}
+      {showFatigueAlert && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center gap-3 animate-pulse">
+          <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
+            <ShieldAlert className="w-5 h-5 text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <p className="font-black text-amber-400 text-[13px]">AFAT Sentinel Monitor: Repos Suggéré</p>
+            <p className="text-[11px] text-white/40 mt-0.5">Vous conduisez depuis +4h. Pensez à faire une pause.</p>
+          </div>
+          <button onClick={() => setShowFatigueAlert(false)} className="text-white/20 hover:text-white/60 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       )}
 
       {/* ── Boarding Confirmed Banner ──────────────────── */}
@@ -351,31 +515,6 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           </button>
         </div>
       )}
-
-      <OperationsMissionControl
-        role="operator"
-        profile={profile}
-        city={profile?.preferred_city || 'cameroon'}
-        onAction={(action) => {
-          if (action === 'drive') setIsDriveModeActive(true);
-          if (action === 'report') setIsVoiceReporterOpen(true);
-          if (action === 'compliance') setIsIDSOpen(true);
-        }}
-      />
-
-      <AFATStrategicLayer
-        role="operator"
-        profile={profile}
-        liveVehicles={regionalSupply.length}
-        liveIncidents={incidents.length}
-        liveCheckpoints={regionalCheckpoints.length}
-        onAction={(action) => {
-          if (action === 'drive') setIsDriveModeActive(true);
-          if (action === 'report') setIsVoiceReporterOpen(true);
-          if (action === 'compliance' || action === 'onboard') setIsIDSOpen(true);
-          if (action === 'map') setIsIntelligenceOpen(true);
-        }}
-      />
 
       {/* ── Hero Earnings + Status ──────────────────────────── */}
       <div className={`rounded-[2.5rem] overflow-hidden relative hud-border backdrop-blur-3xl bg-black/40 shadow-2xl ${theme.glowClass} animate-in fade-in zoom-in-95 duration-700`} style={{minHeight: '180px'}}>
@@ -422,6 +561,90 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           </div>
         </div>
       </div>
+
+      <section className="grid grid-cols-2 gap-4">
+        <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/35">Grid Pulse</p>
+              <p className="text-[14px] font-black uppercase tracking-tight text-white">Today's operating picture</p>
+            </div>
+            <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Activity className="w-4 h-4 text-blue-400" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-red-500/15 bg-red-500/8 px-3 py-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-red-200/60">Alerts</p>
+              <p className="mt-2 text-2xl font-black text-white">{incidents.length}</p>
+            </div>
+            <div className="rounded-2xl border border-blue-500/15 bg-blue-500/8 px-3 py-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-blue-200/60">Nodes</p>
+              <p className="mt-2 text-2xl font-black text-white">{regionalSupply.length}</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/8 px-3 py-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-200/60">Demand</p>
+              <p className="mt-2 text-2xl font-black text-white">{requests.length}</p>
+            </div>
+          </div>
+          {latestDirective && (
+            <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-amber-200/70">Latest directive</p>
+              <p className="mt-1 text-[12px] font-semibold leading-relaxed text-white/85">{latestDirective.directive}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/35">Fast Launch</p>
+              <p className="text-[14px] font-black uppercase tracking-tight text-white">Move without friction</p>
+            </div>
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+            </div>
+          </div>
+          <div className="space-y-3">
+            <button onClick={() => setIsDriveModeActive(true)} className="w-full rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 flex items-center justify-between text-left transition-all hover:bg-blue-500/15 active:scale-[0.98]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center">
+                  <Navigation className="w-4 h-4 text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-white">Enter Drive HUD</p>
+                  <p className="text-[10px] text-blue-200/60">Navigation, co-pilot, live route view</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-white/25" />
+            </button>
+            <button onClick={() => setIsVoiceReporterOpen(true)} className="w-full rounded-2xl border border-purple-500/20 bg-purple-500/10 px-4 py-4 flex items-center justify-between text-left transition-all hover:bg-purple-500/15 active:scale-[0.98]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/25 flex items-center justify-center">
+                  <Mic className="w-4 h-4 text-purple-400" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-white">Send Voice Intel</p>
+                  <p className="text-[10px] text-purple-200/60">Push new field signal to the grid</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-white/25" />
+            </button>
+            <button onClick={() => setIsIntelligenceOpen(true)} className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 flex items-center justify-between text-left transition-all hover:bg-white/[0.06] active:scale-[0.98]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                  <Database className="w-4 h-4 text-white/70" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-white">Map Control</p>
+                  <p className="text-[10px] text-white/45">Offline regions and hybrid cloud sync</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-white/25" />
+            </button>
+          </div>
+        </div>
+      </section>
 
       {walletLedger.length > 0 && (
         <div className="mt-4 rounded-[2rem] border border-white/10 bg-white/5 p-4">
@@ -509,9 +732,6 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
         </div>
       </div>
 
-      {/* ── Driver DNA ─────────────────────────────────── */}
-      <DriverDNA operatorId={profile?.id} />
-
       {/* ── TACTICAL DRIVE MODE LAUNCH ───────────────── */}
       <button onClick={() => setIsDriveModeActive(true)} className="w-full mt-5 mb-5 bg-[#0f172a] border border-blue-500/30 hover:border-blue-400 p-6 rounded-[2.5rem] relative overflow-hidden group shadow-[0_0_30px_rgba(59,130,246,0.15)] transition-all active:scale-95">
          <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-transparent group-hover:from-blue-600/20 transition-colors"></div>
@@ -531,192 +751,6 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
          </div>
       </button>
 
-      {/* ── QR Generator ──────────────────────────────── */}
-      {isQRGeneratorOpen && (
-        <QRCodeGenerator
-          operatorId={profile?.id}
-          vehiclePlate={vehicle?.plate_number || 'NA-000'}
-          onClose={() => setIsQRGeneratorOpen(false)}
-        />
-      )}
-
-      {/* ── Live Requests ──────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-black text-white text-[16px] flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-blue-400" />
-            Demandes en Direct
-          </h3>
-          {requests.length > 0 && (
-            <div className="bg-blue-500/15 border border-blue-500/25 px-2.5 py-1 rounded-full">
-              <span className="text-[10px] font-black text-blue-400">{requests.length} nouveau{requests.length > 1 ? 'x' : ''}</span>
-            </div>
-          )}
-        </div>
-
-        {isOnline && requests.length > 0 && (
-          <div className="space-y-4">
-            {requests.map(req => (
-              <div key={req.id} className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2rem] p-5 shadow-xl relative overflow-hidden group animate-in slide-in-from-right duration-500">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-blue-500/10 transition-colors" />
-                
-                <div className="flex items-center gap-4 mb-4 relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-blue-600 to-blue-900 rounded-2xl flex items-center justify-center text-white font-black text-[20px] shadow-lg border border-white/10 italic">
-                    {req.passenger_id.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-white text-[16px] truncate italic uppercase tracking-tighter">{req.routes?.name || 'Inbound Signal'}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                       <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Seat: {req.seat_label}</p>
-                       <span className="w-1 h-1 rounded-full bg-white/20"></span>
-                       <p className="text-[10px] text-white/30 font-mono">#{req.id.substring(0, 8)}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-black text-white text-[18px] tracking-tight">{(req.routes?.price_per_seat || 0).toLocaleString()}</p>
-                    <p className="text-[8px] text-white/40 font-black uppercase tracking-widest leading-none">XAF</p>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3 relative z-10 mb-3">
-                  <button
-                    onClick={() => setNegotiatingRequest(req)}
-                    className="flex-1 bg-white/5 border border-blue-500/30 text-blue-400 font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em]"
-                  >
-                    <TrendingUp className="w-4 h-4" /> Negocier
-                  </button>
-                </div>
-
-                <div className="flex gap-3 relative z-10">
-                  <button
-                    onClick={() => acceptRequest(req.id)}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-                  >
-                    <Check className="w-4 h-4" /> Confirm Node
-                  </button>
-                  <button
-                    onClick={() => cancelRequest(req.id)}
-                    className="bg-white/5 border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 px-5 rounded-2xl flex items-center justify-center transition-all active:scale-[0.98] group/cancel"
-                  >
-                    <X className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Negotiation Modal */}
-        {negotiatingRequest && (
-          <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-6 animate-in fade-in duration-300">
-            <div className="w-full max-w-sm">
-              <NegotiationPanel
-                initialPrice={negotiatingRequest.routes?.price_per_seat || 0}
-                role="operator"
-                otherPartyName="Commuter"
-                onAccept={(price) => {
-                  // In a real app, update DB. For now, simulate acceptance.
-                  acceptRequest(negotiatingRequest.id);
-                  setNegotiatingRequest(null);
-                }}
-                onReject={() => setNegotiatingRequest(null)}
-                onCounter={(price) => {
-                  // Simulate fast acceptance of counter offer
-                  acceptRequest(negotiatingRequest.id);
-                  setNegotiatingRequest(null);
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {isOnline && requests.length === 0 && (
-          <div className="bg-black/40 backdrop-blur-md border border-white/5 rounded-[2rem] p-12 text-center shadow-inner">
-            <div className="relative inline-block mb-4">
-              <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl animate-pulse"></div>
-              <div className="w-3 h-3 rounded-full bg-emerald-400 relative z-10 shadow-[0_0_15px_#10b981]"></div>
-            </div>
-            <p className="text-white font-black text-[15px] uppercase tracking-tighter italic">Grid Scanning Active</p>
-            <p className="text-white/30 text-[11px] font-bold uppercase tracking-widest mt-1">Listening for passenger signals...</p>
-          </div>
-        )}
-
-        {!isOnline && (
-          <div className="bg-white/2 backdrop-blur-sm border border-dashed border-white/10 rounded-[2rem] p-12 text-center">
-            <Power className="w-10 h-10 text-white/5 mx-auto mb-4" />
-            <p className="text-white/20 font-black text-[13px] uppercase tracking-[0.3em] italic">Terminal Standby</p>
-            <p className="text-white/10 text-[10px] font-bold uppercase tracking-widest mt-2">Activate link to start receiving</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Modals ─────────────────────────────────────── */}
-      {showHistory && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200">
-          <div className="bg-[#0f1520] border border-white/10 w-full max-w-lg rounded-3xl p-6 relative max-h-[80vh] flex flex-col">
-            <button onClick={() => setShowHistory(false)} className="absolute top-5 right-5 text-white/30 hover:text-white">
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="text-[18px] font-black text-white mb-1 flex items-center gap-2"><History className="w-5 h-5 text-blue-400" /> Historique</h3>
-            <p className="text-[11px] text-white/30 mb-5">Vos derniers trajets effectués</p>
-            <div className="overflow-y-auto space-y-3 flex-1">
-              {rideHistory.map(h => (
-                <div key={h.id} className="bg-black/30 border border-white/6 rounded-xl p-4 flex items-center justify-between">
-                  <div>
-                    <p className="font-black text-white text-[13px]">{h.routes?.name || 'Trajet'}</p>
-                    <p className="text-[10px] text-white/25 font-mono">{new Date(h.created_at).toLocaleDateString('fr-FR')}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-black text-[14px] ${h.status === 'cancelled' ? 'text-red-400' : 'text-green-400'}`}>
-                      {h.status === 'cancelled' ? '0' : (h.routes?.price_per_seat || 0).toLocaleString()} F
-                    </p>
-                    <p className="text-[9px] text-white/25 uppercase font-mono">{h.status}</p>
-                  </div>
-                </div>
-              ))}
-              {rideHistory.length === 0 && (
-                <div className="text-center py-8">
-                  <p className="text-white/25 text-[13px]">Aucun historique.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showWithdraw && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200">
-          <div className="bg-[#0f1520] border border-white/10 w-full max-w-sm rounded-3xl p-6 relative text-center">
-            <button onClick={() => setShowWithdraw(false)} className="absolute top-5 right-5 text-white/30 hover:text-white">
-              <X className="w-5 h-5" />
-            </button>
-            <div className="w-16 h-16 bg-green-500/15 border border-green-500/25 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <CreditCard className="w-8 h-8 text-green-400" />
-            </div>
-            <h3 className="text-[18px] font-black text-white mb-1">Cash Out</h3>
-            <p className="text-[10px] text-white/25 uppercase font-mono tracking-widest mb-5">Mobile Money Terminal · MoMo / Orange</p>
-            <div className="bg-black/40 border border-white/6 rounded-xl p-4 mb-4 text-left">
-              <p className="text-[10px] text-white/25 uppercase font-mono mb-1">Solde Disponible</p>
-              <p className="text-2xl font-black text-green-400">{wallet?.balance_xaf?.toLocaleString() || 0} XAF</p>
-            </div>
-            <input
-              type="number"
-              value={withdrawAmount}
-              onChange={e => setWithdrawAmount(e.target.value)}
-              placeholder="Montant à retirer"
-              className="w-full bg-black/40 border border-white/8 text-white text-[18px] font-black p-4 rounded-xl outline-none focus:border-green-500/50 transition-colors placeholder:text-white/15 text-center mb-4"
-            />
-            <button
-              onClick={handleWithdraw}
-              className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[12px] transition-all shadow-lg shadow-green-900/40 active:scale-[0.98]"
-            >
-              Confirmer le retrait
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showTontineHub && <TontineHub userId={profile?.id} onClose={() => setShowTontineHub(false)} />}
     </div>
   );
 
@@ -922,6 +956,103 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     </div>
   );
 
+  const renderRequestsWorkspace = () => (
+    <div className="p-5 pb-32 space-y-5 bg-[#080c14] min-h-screen">
+      <div className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-5">
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/60">Requests Workspace</p>
+        <h2 className="mt-2 text-xl font-black uppercase italic tracking-tight text-white">Live marketplace and fare decisions</h2>
+        <p className="mt-2 text-[12px] leading-relaxed text-white/45">
+          This is where an operator should spend decision time: confirm demand, counter on price, and keep booking truth aligned with payment and boarding.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <button onClick={() => setIsQRScannerOpen(true)} className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-left transition-all hover:bg-emerald-500/15 active:scale-[0.98]">
+          <QrCode className="w-5 h-5 text-emerald-400 mb-3" />
+          <p className="text-[11px] font-black uppercase tracking-widest text-white">Scan boarding</p>
+          <p className="text-[10px] text-emerald-200/60">Verify ticket at the door</p>
+        </button>
+        <button onClick={() => setIsQRGeneratorOpen(true)} className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-left transition-all hover:bg-blue-500/15 active:scale-[0.98]">
+          <QrCode className="w-5 h-5 text-blue-400 mb-3" />
+          <p className="text-[11px] font-black uppercase tracking-widest text-white">Publish QR</p>
+          <p className="text-[10px] text-blue-200/60">Share your current access code</p>
+        </button>
+        <button onClick={() => setShowHistory(true)} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition-all hover:bg-white/[0.06] active:scale-[0.98]">
+          <History className="w-5 h-5 text-white/60 mb-3" />
+          <p className="text-[11px] font-black uppercase tracking-widest text-white">Archives</p>
+          <p className="text-[10px] text-white/35">Review completed movements</p>
+        </button>
+      </div>
+
+      {renderRequestsPanel()}
+    </div>
+  );
+
+  const renderIntelWorkspace = () => (
+    <div className="p-5 pb-32 space-y-5 bg-[#080c14] min-h-screen">
+      <div className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-5">
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/60">Intel Workspace</p>
+        <h2 className="mt-2 text-xl font-black uppercase italic tracking-tight text-white">Directives, hazards, and regional operating picture</h2>
+        <p className="mt-2 text-[12px] leading-relaxed text-white/45">
+          This tab should help an operator understand where to move next, not just show decorative alerts.
+        </p>
+      </div>
+
+      {renderDirectiveSurface()}
+      {renderOperatorNotice()}
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-red-200/70">Incidents</p>
+          <p className="mt-2 text-2xl font-black text-white">{incidents.length}</p>
+          <p className="text-[10px] text-white/35">live field reports</p>
+        </div>
+        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
+          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-blue-200/70">Checkpoints</p>
+          <p className="mt-2 text-2xl font-black text-white">{regionalCheckpoints.length}</p>
+          <p className="text-[10px] text-white/35">{regionalLabel} network</p>
+        </div>
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-200/70">Supply</p>
+          <p className="mt-2 text-2xl font-black text-white">{regionalSupply.length}</p>
+          <p className="text-[10px] text-white/35">vehicles on grid</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button onClick={() => setIsVoiceReporterOpen(true)} className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 text-left transition-all hover:bg-purple-500/15 active:scale-[0.98]">
+          <Mic className="w-5 h-5 text-purple-400 mb-3" />
+          <p className="text-[11px] font-black uppercase tracking-widest text-white">Voice report</p>
+          <p className="text-[10px] text-purple-200/60">Push field intel hands-free</p>
+        </button>
+        <button onClick={() => setIsIntelligenceOpen(true)} className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-left transition-all hover:bg-blue-500/15 active:scale-[0.98]">
+          <Database className="w-5 h-5 text-blue-400 mb-3" />
+          <p className="text-[11px] font-black uppercase tracking-widest text-white">Map settings</p>
+          <p className="text-[10px] text-blue-200/60">Offline packs and cloud sync</p>
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {incidents.slice(0, 5).map((incident) => (
+          <div key={incident.id} className="rounded-2xl border border-white/8 bg-black/30 px-4 py-4 flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-4 h-4 text-red-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-black uppercase tracking-tight text-white">{incident.type?.replace('_', ' ') || 'Incident'}</p>
+              <p className="text-[11px] leading-relaxed text-white/45">{incident.description || 'Signal received from the AFAT field network.'}</p>
+            </div>
+          </div>
+        ))}
+        {incidents.length === 0 && (
+          <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-[11px] font-semibold text-white/40">
+            No active incidents on this grid right now.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   const renderDriveHUD = () => (
     <div className="fixed inset-0 z-[9999] bg-black animate-in fade-in duration-500 overflow-hidden">
        <InteractiveMap 
@@ -1047,7 +1178,15 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
       )}
 
       <main className="flex-1 overflow-y-auto relative z-10">
-        {isDriveModeActive ? renderDriveHUD() : (activeTab === 'profile' ? renderProfile() : renderHomeContent())}
+        {isDriveModeActive ? renderDriveHUD() : (
+          activeTab === 'profile'
+            ? renderProfile()
+            : activeTab === 'bookings'
+              ? renderRequestsWorkspace()
+              : activeTab === 'notifications'
+                ? renderIntelWorkspace()
+                : renderHomeContent()
+        )}
       </main>
 
       {isVoiceReporterOpen && <VoiceReporter profile={profile} onClose={() => setIsVoiceReporterOpen(false)} />}
@@ -1062,6 +1201,97 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
             fetchRequests();
           }}
         />
+      )}
+      {isQRGeneratorOpen && (
+        <QRCodeGenerator
+          operatorId={profile?.id}
+          vehiclePlate={vehicle?.plate_number || 'NA-000'}
+          onClose={() => setIsQRGeneratorOpen(false)}
+        />
+      )}
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200">
+          <div className="bg-[#0f1520] border border-white/10 w-full max-w-lg rounded-3xl p-6 relative max-h-[80vh] flex flex-col">
+            <button onClick={() => setShowHistory(false)} className="absolute top-5 right-5 text-white/30 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-[18px] font-black text-white mb-1 flex items-center gap-2"><History className="w-5 h-5 text-blue-400" /> Historique</h3>
+            <p className="text-[11px] text-white/30 mb-5">Vos derniers trajets effectues</p>
+            <div className="overflow-y-auto space-y-3 flex-1">
+              {rideHistory.map(h => (
+                <div key={h.id} className="bg-black/30 border border-white/6 rounded-xl p-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-black text-white text-[13px]">{h.routes?.name || 'Trajet'}</p>
+                    <p className="text-[10px] text-white/25 font-mono">{new Date(h.created_at).toLocaleDateString('fr-FR')}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-black text-[14px] ${h.status === 'cancelled' ? 'text-red-400' : 'text-green-400'}`}>
+                      {h.status === 'cancelled' ? '0' : (h.routes?.price_per_seat || 0).toLocaleString()} F
+                    </p>
+                    <p className="text-[9px] text-white/25 uppercase font-mono">{h.status}</p>
+                  </div>
+                </div>
+              ))}
+              {rideHistory.length === 0 && (
+                <div className="text-center py-8">
+                  <p className="text-white/25 text-[13px]">Aucun historique.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showWithdraw && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200">
+          <div className="bg-[#0f1520] border border-white/10 w-full max-w-sm rounded-3xl p-6 relative text-center">
+            <button onClick={() => setShowWithdraw(false)} className="absolute top-5 right-5 text-white/30 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-green-500/15 border border-green-500/25 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CreditCard className="w-8 h-8 text-green-400" />
+            </div>
+            <h3 className="text-[18px] font-black text-white mb-1">Cash Out</h3>
+            <p className="text-[10px] text-white/25 uppercase font-mono tracking-widest mb-5">Mobile Money Terminal - MoMo / Orange</p>
+            <div className="bg-black/40 border border-white/6 rounded-xl p-4 mb-4 text-left">
+              <p className="text-[10px] text-white/25 uppercase font-mono mb-1">Solde Disponible</p>
+              <p className="text-2xl font-black text-green-400">{wallet?.balance_xaf?.toLocaleString() || 0} XAF</p>
+            </div>
+            <input
+              type="number"
+              value={withdrawAmount}
+              onChange={e => setWithdrawAmount(e.target.value)}
+              placeholder="Montant a retirer"
+              className="w-full bg-black/40 border border-white/8 text-white text-[18px] font-black p-4 rounded-xl outline-none focus:border-green-500/50 transition-colors placeholder:text-white/15 text-center mb-4"
+            />
+            <button
+              onClick={handleWithdraw}
+              className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[12px] transition-all shadow-lg shadow-green-900/40 active:scale-[0.98]"
+            >
+              Confirmer le retrait
+            </button>
+          </div>
+        </div>
+      )}
+      {showTontineHub && <TontineHub userId={profile?.id} onClose={() => setShowTontineHub(false)} />}
+      {negotiatingRequest && (
+        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="w-full max-w-sm">
+            <NegotiationPanel
+              initialPrice={negotiatingRequest.routes?.price_per_seat || 0}
+              role="operator"
+              bookingId={negotiatingRequest.id}
+              otherPartyName={`Passenger ${negotiatingRequest.passenger_id?.substring(0, 4)?.toUpperCase() || ''}`}
+              onAccept={handleAcceptNegotiation}
+              onReject={() => setNegotiatingRequest(null)}
+              onCounter={handleCounterOffer}
+            />
+            {isNegotiationSaving && (
+              <div className="mt-4 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-center text-[11px] font-bold uppercase tracking-widest text-blue-200">
+                Syncing negotiation to the AFAT grid...
+              </div>
+            )}
+          </div>
+        </div>
       )}
       
       {/* Identity Sentinel Modal */}
