@@ -49,22 +49,32 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 );
 
+const isLocalPreview =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+
 // PWA registration — wrapped in try/catch so it NEVER blocks rendering
 try {
-  import('virtual:pwa-register').then(({ registerSW }) => {
-    const updateSW = registerSW({
-      onNeedRefresh() {
-        if (confirm('New content available. Reload?')) {
-          updateSW(true);
-        }
-      },
-      onOfflineReady() {
-        console.log('AFAT is ready to work offline.');
-      },
+  if (isLocalPreview) {
+    navigator.serviceWorker?.getRegistrations?.().then((registrations) => {
+      registrations.forEach((registration) => registration.unregister());
     });
-  }).catch(err => {
-    console.warn('[AFAT] PWA registration skipped:', err);
-  });
+  } else {
+    import('virtual:pwa-register').then(({ registerSW }) => {
+      const updateSW = registerSW({
+        onNeedRefresh() {
+          if (confirm('New content available. Reload?')) {
+            updateSW(true);
+          }
+        },
+        onOfflineReady() {
+          console.log('AFAT is ready to work offline.');
+        },
+      });
+    }).catch(err => {
+      console.warn('[AFAT] PWA registration skipped:', err);
+    });
+  }
 } catch (e) {
   console.warn('[AFAT] PWA not available:', e);
 }

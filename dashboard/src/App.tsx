@@ -17,7 +17,7 @@ import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 // 🔐 OTP LOGIN COMPONENT
 // ==============================================================================
 function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => void }) {
-  const [authChannel, setAuthChannel] = useState<'phone' | 'email'>('phone');
+  const [authChannel, setAuthChannel] = useState<'phone' | 'email'>('email');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');

@@ -271,6 +271,42 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .animate-live        { animation: livePulse 2s ease-in-out infinite; }
 .animate-neon        { animation: neonFlicker 4s infinite; }
 
+/* ── Operational Stability Pass ──────────────────────────────
+   AFAT should feel alive, not unstable. Keep spinners for explicit loading,
+   but stop decorative infinite movement that makes the operating surfaces shake.
+*/
+.mesh-gradient,
+.animate-marquee,
+.animate-radar,
+.animate-float,
+.animate-hero-pan,
+.animate-live,
+.animate-neon,
+.pulse-ring,
+.particle,
+.hero-map-bg,
+.operator-hero-bg {
+  animation: none !important;
+}
+
+.animate-pulse,
+.animate-ping,
+.animate-bounce {
+  animation-duration: 3s !important;
+  animation-iteration-count: 2 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 /* Staggered animation delays */
 .delay-100 { animation-delay: 0.1s; }
 .delay-200 { animation-delay: 0.2s; }

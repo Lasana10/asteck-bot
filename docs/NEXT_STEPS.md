@@ -12,6 +12,7 @@
      - complete sign-in by code or link
      - confirm AFAT lands on the correct profile/role state
    - use `http://127.0.0.1:4192/` for the current local static preview; `4191` may still be an older process
+   - hard refresh `4192` after every rebuild because the app now unregisters local service workers, but old browser tabs may still need one reload to detach from cached assets
    - deploy the onboarding-resume backend changes to Render so registration stops failing on already-known phone numbers in production
    - set live envs for `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_PERMANENT_ACCESS_TOKEN`, `WHATSAPP_API_VERSION`, `EMAIL_SMTP_SERVER`, `EMAIL_SMTP_PORT`, `EMAIL_SENDER_ADDRESS`, and `EMAIL_APP_PASSWORD`
    - smoke-test `/api/ops/notifications/send` against one allowlisted admin/operator profile and verify in-app + channel fan-out

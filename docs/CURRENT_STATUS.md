@@ -21,6 +21,18 @@
   - planner infrastructure controls were changed to AFAT-native operational buttons instead of exposing third-party backend/tool names to users
   - onboarding backend now normalizes Cameroon phone numbers and resumes/updates existing passenger, driver, and company profiles instead of failing hard on duplicate phone numbers
 
+## July 10, 2026 Stability Follow-up
+- Local preview instability was traced to two practical causes:
+  - `http://127.0.0.1:4191/` could remain an older static process
+  - PWA service-worker caching could keep serving stale frontend assets even after a rebuild
+- The current local preview should use `http://127.0.0.1:4192/`, which now serves the rebuilt production bundle with `assets/index-BhZqwuoa.js` and `assets/index-ezEeUyCF.css`.
+- Login now defaults to `Email OTP` because SMS provider activation is still blocked, while phone/bootstrap remains available as a secondary lane.
+- Local previews now unregister service workers on `localhost` and `127.0.0.1` so the browser stops showing stale login code.
+- Global decorative motion was reduced so AFAT feels operational and stable rather than shaky:
+  - infinite mesh, marquee, radar, float, hero pan, live/neon, particle, and pulse-ring animations are disabled by default
+  - pulse/ping/bounce effects are shortened and capped
+  - reduced-motion users get near-static transitions and animations
+
 ## July 7, 2026 Supabase Email Access Addendum
 - AFAT login now has a real Supabase email access lane in the frontend alongside the existing phone lane.
 - The login surface now lets the user choose:
