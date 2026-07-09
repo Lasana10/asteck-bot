@@ -10,6 +10,14 @@ import { aiRouter } from '../services/AIRouter';
 
 const router = express.Router();
 
+function normalizeCameroonPhone(phone: string) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('237')) return `+${digits}`;
+  if (digits.length === 9 && digits.startsWith('6')) return `+237${digits}`;
+  return String(phone || '').trim();
+}
+
 async function seedComplianceRecords(records: Array<Record<string, any>>) {
   if (!records.length) return;
   const { error } = await supabase.from('compliance_records').insert(records);
@@ -103,19 +111,94 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       affiliation_name
     } = req.body;
 
-    if (!full_name || !phone || !national_id || !license_number) {
+    const normalizedPhone = normalizeCameroonPhone(phone);
+
+    if (!full_name || !normalizedPhone || !national_id || !license_number) {
       return res.status(400).json({ error: 'Missing required fields: full_name, phone, national_id, license_number' });
     }
 
-    // Check if already registered
     const { data: existing } = await supabase
       .from('profiles')
-      .select('id')
-      .eq('phone', phone)
+      .select('*')
+      .eq('phone', normalizedPhone)
       .maybeSingle();
 
     if (existing) {
-      return res.status(409).json({ error: 'Driver already registered with this phone number' });
+      const contractorCode = existing.contractor_code || `AFAT-D-${Date.now().toString(36).toUpperCase()}`;
+      const { data: profile, error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          full_name,
+          role: 'operator',
+          national_id_number: national_id,
+          license_number,
+          contractor_code: contractorCode,
+          is_active: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      let vehicle = null;
+      if (vehicle_plate && vehicle_type) {
+        const { data: existingVehicle } = await supabase
+          .from('vehicles')
+          .select('*')
+          .eq('operator_id', existing.id)
+          .eq('plate_number', vehicle_plate)
+          .maybeSingle();
+
+        if (existingVehicle) {
+          vehicle = existingVehicle;
+        } else {
+          const { data: v } = await supabase
+            .from('vehicles')
+            .insert({
+              operator_id: existing.id,
+              plate_number: vehicle_plate,
+              vehicle_type,
+              capacity: vehicle_capacity || 4,
+              status: 'inactive',
+              created_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+          vehicle = v;
+        }
+      }
+
+      await seedComplianceRecords(
+        buildOperatorComplianceRecords({
+          profileId: existing.id,
+          vehicleType: vehicle_type,
+          baseCity: base_city,
+          operatingZone: operating_zone,
+          affiliationName: affiliation_name,
+          verificationStatus: profile.verification_status || 'pending',
+        })
+      );
+
+      return res.status(200).json({
+        success: true,
+        resumed: true,
+        driver: {
+          id: profile.id,
+          contractor_code: contractorCode,
+          verification_status: profile.verification_status || 'pending',
+          commission_rate: '8%',
+          vehicle,
+          onboarding_context: {
+            vehicle_type,
+            base_city: base_city || null,
+            operating_zone: operating_zone || null,
+            affiliation_name: affiliation_name || null,
+          }
+        },
+        message: `${full_name} profile updated and queued for AFAT operator verification.`
+      });
     }
 
     // AI verification of documents if selfie provided
@@ -141,7 +224,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       .from('profiles')
       .insert({
         full_name,
-        phone,
+        phone: normalizedPhone,
         role: 'operator',
         national_id_number: national_id,
         license_number,
@@ -250,26 +333,53 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
 router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
     const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
+    const normalizedPhone = normalizeCameroonPhone(phone);
 
-    if (!full_name || !phone) {
+    if (!full_name || !normalizedPhone) {
       return res.status(400).json({ error: 'Missing: full_name, phone' });
     }
 
     const { data: existing } = await supabase
       .from('profiles')
-      .select('id')
-      .eq('phone', phone)
+      .select('*')
+      .eq('phone', normalizedPhone)
       .maybeSingle();
 
     if (existing) {
-      return res.status(409).json({ error: 'User already registered' });
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          full_name,
+          role: existing.role || 'commuter',
+          emergency_contact: emergency_contact || existing.emergency_contact || null,
+          is_active: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return res.status(200).json({
+        success: true,
+        resumed: true,
+        user: {
+          id: data.id,
+          full_name: data.full_name,
+          onboarding_context: {
+            preferred_city: preferred_city || null,
+            preferred_zone: preferred_zone || null,
+          }
+        },
+        message: 'Existing AFAT profile resumed.'
+      });
     }
 
     const { data, error } = await supabase
       .from('profiles')
       .insert({
         full_name,
-        phone,
+        phone: normalizedPhone,
         role: 'commuter',
         emergency_contact: emergency_contact || null,
         trust_points: 50,
@@ -300,57 +410,88 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
 router.post('/company/register', async (req: Request, res: Response) => {
   try {
     const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
+    const normalizedPhone = normalizeCameroonPhone(phone);
 
-    if (!company_name || !phone) {
+    if (!company_name || !normalizedPhone) {
       return res.status(400).json({ error: 'Missing: company_name, phone' });
     }
 
     const { data: existing } = await supabase
       .from('profiles')
-      .select('id')
-      .eq('phone', phone)
+      .select('*')
+      .eq('phone', normalizedPhone)
       .maybeSingle();
-
-    if (existing) {
-      return res.status(409).json({ error: 'A company or coordinator already exists with this phone number' });
-    }
 
     const coordinatorName = contact_person || `${company_name} Coordinator`;
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .insert({
-        full_name: coordinatorName,
-        phone,
-        role: 'planner',
-        trust_points: 100,
-        is_active: true,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const profilePayload = existing
+      ? supabase
+          .from('profiles')
+          .update({
+            full_name: coordinatorName,
+            role: 'planner',
+            is_active: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id)
+      : supabase
+          .from('profiles')
+          .insert({
+            full_name: coordinatorName,
+            phone: normalizedPhone,
+            role: 'planner',
+            trust_points: 100,
+            is_active: true,
+            created_at: new Date().toISOString()
+          });
+
+    const { data, error } = await profilePayload.select().single();
 
     if (error) throw error;
 
-    const { data: company, error: companyError } = await supabase
+    const { data: existingCompany } = await supabase
       .from('companies')
-      .insert({
-        name: company_name,
-        phone,
-        contact_person: coordinatorName,
-        fleet_size: fleet_size || null,
-        notes: notes || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+      .select('*')
+      .eq('phone', normalizedPhone)
+      .maybeSingle();
+
+    const companyPayload = existingCompany
+      ? supabase
+          .from('companies')
+          .update({
+            name: company_name,
+            contact_person: coordinatorName,
+            fleet_size: fleet_size || existingCompany.fleet_size || null,
+            notes: notes || existingCompany.notes || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingCompany.id)
+      : supabase
+          .from('companies')
+          .insert({
+            name: company_name,
+            phone: normalizedPhone,
+            contact_person: coordinatorName,
+            fleet_size: fleet_size || null,
+            notes: notes || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+    const { data: company, error: companyError } = await companyPayload.select().single();
 
     if (companyError) throw companyError;
 
-    const { error: membershipError } = await supabase
+    const { data: membership } = await supabase
       .from('company_memberships')
-      .insert({
+      .select('id')
+      .eq('company_id', company.id)
+      .eq('profile_id', data.id)
+      .maybeSingle();
+
+    const { error: membershipError } = membership
+      ? { error: null }
+      : await supabase.from('company_memberships').insert({
         company_id: company.id,
         profile_id: data.id,
         role: 'owner',

@@ -13,8 +13,7 @@ import {
   supabase,
   updateOpsReportStatus
 } from '../../supabaseClient';
-import { INFRA_CONFIG } from '../../infra/config';
-import { ExternalLink, Terminal, Database, Cpu } from 'lucide-react';
+import { Terminal, Database, Cpu } from 'lucide-react';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
 import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 
@@ -529,40 +528,52 @@ export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Fleet telemetry bridge */}
-                <a href={INFRA_CONFIG.traccar.dashboard} target="_blank" rel="noreferrer" className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group">
+                <button
+                  type="button"
+                  onClick={() => jumpToSection('planner-live-map', 'Fleet telemetry opened inside AFAT. Live vehicle pulses, route heat, and field signals stay in this workspace.')}
+                  className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group text-left"
+                >
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-blue-500/10 rounded-2xl text-blue-500"><Activity className="w-6 h-6" /></div>
-                        <ExternalLink className="w-4 h-4 text-slate-700 group-hover:text-blue-500 transition-colors" />
+                        <Route className="w-4 h-4 text-slate-700 group-hover:text-blue-500 transition-colors" />
                     </div>
                     <h4 className="font-bold mb-1">Fleet Telemetry Bridge</h4>
                     <p className="text-[10px] text-slate-500 font-mono">Live vehicle movement and dispatch feed</p>
-                </a>
+                </button>
 
-                {/* Planning observatory */}
-                <a href={INFRA_CONFIG.grafana.url} target="_blank" rel="noreferrer" className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group">
+                <button
+                  type="button"
+                  onClick={() => jumpToSection('planner-report-center', 'Planning observatory opened inside AFAT. Review reports, hot corridors, and safety pressure here.')}
+                  className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group text-left"
+                >
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-orange-500/10 rounded-2xl text-orange-500"><BarChart3 className="w-6 h-6" /></div>
-                        <ExternalLink className="w-4 h-4 text-slate-700 group-hover:text-orange-500 transition-colors" />
+                        <TrendingUp className="w-4 h-4 text-slate-700 group-hover:text-orange-500 transition-colors" />
                     </div>
                     <h4 className="font-bold mb-1">Planning Observatory</h4>
                     <p className="text-[10px] text-slate-500 font-mono">Heatmaps, pressure trends, and system health</p>
-                </a>
+                </button>
 
-                {/* Automation relay */}
-                <a href={INFRA_CONFIG.n8n.url} target="_blank" rel="noreferrer" className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group">
+                <button
+                  type="button"
+                  onClick={() => openPlannerOrchestrator(
+                    'Prepare the next automated AFAT response package from current dispatch, report, and compliance state.',
+                    'Automation relay opened inside AFAT.'
+                  )}
+                  className="bg-slate-950 border border-white/5 p-6 rounded-3xl hover:border-slate-700 transition-all group text-left"
+                >
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-purple-500/10 rounded-2xl text-purple-500"><Cpu className="w-6 h-6" /></div>
-                        <ExternalLink className="w-4 h-4 text-slate-700 group-hover:text-purple-500 transition-colors" />
+                        <Radio className="w-4 h-4 text-slate-700 group-hover:text-purple-500 transition-colors" />
                     </div>
                     <h4 className="font-bold mb-1">Automation Relay</h4>
                     <p className="text-[10px] text-slate-500 font-mono">Workflows, alerts, and response automation</p>
-                </a>
+                </button>
             </div>
             
             <div className="mt-8 pt-8 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-600">
                 <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-2"><Database className="w-3 h-3" /> Supabase: {INFRA_CONFIG.supabase.dashboard.split('/').pop()}</span>
+                    <span className="flex items-center gap-2"><Database className="w-3 h-3" /> AFAT Data Plane: ACTIVE</span>
                     <span className="flex items-center gap-2"><Activity className="w-3 h-3" /> Movement Relay: ACTIVE</span>
                 </div>
                 <span>v2.4.0-STABLE</span>

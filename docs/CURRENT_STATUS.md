@@ -14,6 +14,12 @@
   - changing Cloudflare production from `master` to `sprint0-audit-fixes` only solves part of that problem if the local auth changes have not yet been committed and pushed to `origin/sprint0-audit-fixes`
   - current local git state confirms the branch is `sprint0-audit-fixes`, but the email-auth/frontend work remains in modified local files rather than a new pushed branch commit
   - next live move is no longer only “switch branch”; it is “commit/push the current auth frontend changes, then redeploy Cloudflare from that updated branch”
+- Later July 9 operational follow-up:
+  - dashboard production build passed with elevated filesystem access after the local OneDrive/sandbox output cleanup issue was isolated
+  - the built bundle contains `Email OTP`, `Phone OTP`, and `Request Email Access Link`, confirming the source and generated frontend now expose the email lane
+  - a fresh static preview is running at `http://127.0.0.1:4192/`; the previous `http://127.0.0.1:4191/` view should be treated as stale until restarted
+  - planner infrastructure controls were changed to AFAT-native operational buttons instead of exposing third-party backend/tool names to users
+  - onboarding backend now normalizes Cameroon phone numbers and resumes/updates existing passenger, driver, and company profiles instead of failing hard on duplicate phone numbers
 
 ## July 7, 2026 Supabase Email Access Addendum
 - AFAT login now has a real Supabase email access lane in the frontend alongside the existing phone lane.
