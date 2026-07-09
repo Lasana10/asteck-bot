@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, getProfile, signOut } from './supabaseClient';
-import { LogOut, ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession } from './supabaseClient';
+import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
-
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
 import { OperatorDashboard } from './components/operator/OperatorDashboard';
 import { PlannerDashboard } from './components/planner/PlannerDashboard';
@@ -17,22 +16,46 @@ import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
 // ==============================================================================
-function Login() {
+function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => void }) {
+  const [authChannel, setAuthChannel] = useState<'phone' | 'email'>('phone');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
-  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [adminCode, setAdminCode] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [step, setStep] = useState<'identity' | 'verify'>('identity');
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
+  const [showBypass, setShowBypass] = useState(false);
+  const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
+
+  const normalizedPhone = phone.replace(/\s+/g, '');
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const persistAccessIntent = () => {
+    localStorage.setItem('afat_access_intent_role', roleIntent);
+    localStorage.setItem('afat_access_channel', authChannel);
+    if (normalizedPhone) {
+      localStorage.setItem('afat_access_phone', normalizedPhone);
+    }
+    if (normalizedEmail) {
+      localStorage.setItem('afat_access_email', normalizedEmail);
+    }
+  };
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorText('');
-    const { error } = await sendPhoneOtp(phone);
+    persistAccessIntent();
+    const result = authChannel === 'email'
+      ? await sendEmailOtp(normalizedEmail, { roleIntent })
+      : await sendPhoneOtp(normalizedPhone);
+    const { error } = result;
     if (error) {
       setErrorText(error.message);
     } else {
-      setStep('otp');
+      setStep('verify');
     }
     setLoading(false);
   };
@@ -41,86 +64,287 @@ function Login() {
     e.preventDefault();
     setLoading(true);
     setErrorText('');
-    const { error } = await verifyPhoneOtp(phone, otp);
+    persistAccessIntent();
+    const { error } = authChannel === 'email'
+      ? await verifyEmailOtp(normalizedEmail, otp)
+      : await verifyPhoneOtp(normalizedPhone, otp, {
+          roleIntent,
+          adminCode: roleIntent === 'admin' ? adminCode.trim() : undefined,
+          accessCode: accessCode.trim() || undefined,
+        });
     if (error) {
       setErrorText(error.message);
+    } else {
+      window.location.reload();
     }
-    // App router will handle the redirect once session updates
     setLoading(false);
   };
 
+  const handleBypassLogin = async (role: string) => {
+    setLoading(true);
+    setErrorText('');
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, phone, role')
+        .eq('role', role)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        localStorage.setItem('afat_local_user_id', data.id);
+        localStorage.setItem('afat_local_phone', data.phone || '237699999001');
+        localStorage.setItem('afat_user_id', data.id);
+        localStorage.setItem('afat_access_intent_role', role);
+        window.location.reload();
+      } else {
+        const testPhone = `23769999900${role === 'commuter' ? '1' : role === 'operator' ? '2' : role === 'planner' ? '3' : '4'}`;
+        const testName = `Test ${role.toUpperCase()}`;
+        
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            full_name: testName,
+            phone: testPhone,
+            role: role,
+            trust_points: 100,
+            is_active: true,
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (createError) throw createError;
+
+        localStorage.setItem('afat_local_user_id', newProfile.id);
+        localStorage.setItem('afat_local_phone', testPhone);
+        localStorage.setItem('afat_user_id', newProfile.id);
+        localStorage.setItem('afat_access_intent_role', role);
+        window.location.reload();
+      }
+    } catch (err: any) {
+      setErrorText(`Bypass failed: ${err.message || 'database connection issue'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 font-sans text-on-surface">
-      <div className="w-full max-w-sm glass-panel ghost-border p-8 rounded-[32px] shadow-ambient-float relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center font-sans text-on-surface">
+      <div className="w-full max-w-sm glass-panel p-8 rounded-[32px] shadow-ambient-float relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-signature-gradient opacity-50"></div>
-        <div className="flex items-center justify-center w-28 h-28 bg-white/5 rounded-full mb-10 mx-auto border border-white/10 shadow-2xl relative group">
-          <div className="absolute inset-0 bg-white/5 animate-pulse rounded-full group-hover:bg-white/10 transition-colors"></div>
-          <AFATLogo className="w-16 h-16 text-white relative z-10" />
-        </div>
-        <h1 className="text-4xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">AFAT</h1>
-        <p className="text-slate-500 text-center mb-12 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligent Safe Passage</p>
+        
+        <h1 className="text-3xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">AFAT</h1>
+        <p className="text-slate-500 text-center mb-6 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligent Safe Passage</p>
 
         {errorText && (
-          <div className="bg-error/10 border border-error/20 text-error p-4 rounded-2xl text-xs mb-8 font-bold animate-shake">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl text-xs mb-6 font-bold">
             {errorText}
           </div>
         )}
 
-        {step === 'phone' ? (
+        {step === 'identity' ? (
           <form onSubmit={handleSendOtp} className="space-y-6">
             <div>
-              <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-3 ml-1">Secure Phone Line</label>
-              <div className="flex bg-surface-container rounded-2xl overflow-hidden focus-within:ring-2 ring-primary/50 transition-all ghost-border">
-                <span className="flex items-center justify-center px-5 bg-surface-container-high text-on-surface-variant border-r border-outline-variant font-mono font-bold">+237</span>
-                <input
-                  type="tel"
-                  placeholder="6XX XXX XXX"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  className="w-full bg-transparent px-5 py-4 text-on-surface placeholder:text-on-surface-variant/30 focus:outline-none font-mono font-bold text-lg"
-                  required
-                />
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access lane</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { role: 'commuter', label: 'Commuter' },
+                  { role: 'operator', label: 'Operator' },
+                  { role: 'planner', label: 'Planner' },
+                  { role: 'admin', label: 'Admin' },
+                ].map((item) => (
+                  <button
+                    key={item.role}
+                    type="button"
+                    onClick={() => setRoleIntent(item.role as typeof roleIntent)}
+                    className={`rounded-2xl border px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                      roleIntent === item.role
+                        ? 'border-blue-400/50 bg-blue-500/15 text-blue-100'
+                        : 'border-white/10 bg-slate-950 text-white/55 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </div>
-            <button
-              type="submit"
-              disabled={loading || phone.length < 8}
-              className="w-full signature-btn text-white font-bold py-4 rounded-2xl transition-all shadow-neon-primary disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { channel: 'phone', label: 'Phone OTP' },
+                  { channel: 'email', label: 'Email OTP' },
+                ].map((item) => (
+                  <button
+                    key={item.channel}
+                    type="button"
+                    onClick={() => setAuthChannel(item.channel as typeof authChannel)}
+                    className={`rounded-2xl border px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                      authChannel === item.channel
+                        ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100'
+                        : 'border-white/10 bg-slate-950 text-white/55 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
+                {authChannel === 'email' ? 'Secure email identity' : 'Secure phone line'}
+              </label>
+              {authChannel === 'email' ? (
+                <input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-semibold"
+                  required
+                />
+              ) : (
+                <div className="flex bg-slate-900 rounded-2xl overflow-hidden focus-within:ring-2 ring-blue-500/50 transition-all border border-white/10">
+                  <span className="flex items-center justify-center px-5 bg-slate-950 text-slate-400 border-r border-white/10 font-mono font-bold">+237</span>
+                  <input
+                    type="tel"
+                    placeholder="6XX XXX XXX"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    className="w-full bg-transparent px-5 py-4 text-white placeholder:text-white/20 focus:outline-none font-mono font-bold text-lg"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+              <button
+                type="submit"
+              disabled={loading || (authChannel === 'email' ? !normalizedEmail.includes('@') : normalizedPhone.length < 8)}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Transmitting...' : 'Request Access Code'}
+              {loading ? 'Transmitting...' : authChannel === 'email' ? 'Request Email Access Link' : 'Request Access Code'}
               {!loading && <ChevronRight className="w-4 h-4" />}
             </button>
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-6">
             <div>
-              <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-3 ml-1">Verification Identity</label>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Verification Identity</label>
               <input
                 type="text"
                 placeholder="000000"
                 value={otp}
                 onChange={e => setOtp(e.target.value)}
-                className="w-full bg-surface-container px-5 py-5 rounded-2xl text-on-surface placeholder:text-on-surface-variant/30 focus:outline-none focus:ring-2 ring-primary/50 ghost-border font-mono tracking-[0.5em] text-center text-3xl font-bold"
+                className="w-full bg-slate-900 px-5 py-5 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono tracking-[0.5em] text-center text-3xl font-bold"
                 maxLength={6}
-                required
+                required={authChannel === 'email' || roleIntent !== 'admin' || (!adminCode.trim() && !accessCode.trim())}
               />
+              <p className="mt-2 text-[10px] font-semibold text-white/40">
+                {authChannel === 'email'
+                  ? 'AFAT can complete this step from an email code or from the secure email link if Supabase is configured for magic links.'
+                  : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
+              </p>
             </div>
+            {authChannel === 'phone' && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Temporary Access Code</label>
+                <input
+                  type="password"
+                  placeholder="Temporary access code"
+                  value={accessCode}
+                  onChange={e => setAccessCode(e.target.value)}
+                  className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                />
+                <p className="mt-2 text-[10px] font-semibold text-white/40">
+                  Optional temporary lane access for allowlisted phones while full provider auth is being finalized.
+                </p>
+              </div>
+            )}
+            {authChannel === 'phone' && roleIntent === 'admin' && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Admin Bootstrap Code</label>
+                <input
+                  type="password"
+                  placeholder="Temporary admin code"
+                  value={adminCode}
+                  onChange={e => setAdminCode(e.target.value)}
+                  className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                />
+                <p className="mt-2 text-[10px] font-semibold text-white/40">
+                  This only works when your phone is allowlisted in backend env and a bootstrap code is configured.
+                </p>
+              </div>
+            )}
             <button
               type="submit"
-              disabled={loading || otp.length < 6}
-              className="w-full signature-btn text-white font-bold py-4 rounded-2xl transition-all shadow-neon-primary disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+              disabled={loading || (otp.length < 6 && authChannel === 'email') || (authChannel === 'phone' && otp.length < 6 && !adminCode.trim() && !accessCode.trim())}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Verifying Intel...' : 'Verify & Establish Link'}
+              {loading ? 'Verifying Intel...' : authChannel === 'email' ? 'Verify Email Access' : accessCode.trim() ? 'Use Temporary Access Code' : roleIntent === 'admin' && adminCode.trim() ? 'Use Admin Access Code' : 'Verify & Establish Link'}
             </button>
             <button
               type="button"
-              onClick={() => { setStep('phone'); setOtp(''); }}
-              className="w-full text-on-surface-variant hover:text-on-surface text-[10px] font-bold py-2 uppercase tracking-widest transition-colors"
+              onClick={() => { setStep('identity'); setOtp(''); setAdminCode(''); setAccessCode(''); }}
+              className="w-full text-slate-400 hover:text-white text-[10px] font-bold py-2 uppercase tracking-widest transition-colors"
             >
-              Change connection line
+              Change access method
             </button>
           </form>
         )}
+
+        <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center">
+          <button
+            type="button"
+            onClick={() => setShowBypass(!showBypass)}
+            className="text-[10px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors"
+          >
+            {showBypass ? 'Hide QA Bypass' : 'Use QA Bypass'}
+          </button>
+
+          {showBypass && (
+            <div className="mt-4 grid grid-cols-2 gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('commuter')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-all"
+              >
+                👤 Commuter
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('operator')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 transition-all"
+              >
+                🚕 Operator
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('planner')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20 transition-all"
+              >
+                📊 Planner
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('admin')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 transition-all"
+              >
+                🕵️ Admin
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => onRegisterRequest(roleIntent)}
+            className="mt-4 text-[10px] text-white/60 hover:text-white font-bold uppercase tracking-widest transition-colors"
+          >
+            Register this lane instead
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -152,6 +376,7 @@ function AppShell() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
   const [isRegistrationHubOpen, setIsRegistrationHubOpen] = useState(false);
+  const [registrationTrack, setRegistrationTrack] = useState<'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company'>('select');
   const [bootError, setBootError] = useState<string | null>(null);
   const [localAuthUserId, setLocalAuthUserId] = useState<string | null>(() => localStorage.getItem('afat_local_user_id'));
   const roleAccessConfig: Record<string, { label: string; icon: React.ElementType; iconWrapClass: string; iconClass: string }> = {
@@ -182,6 +407,14 @@ function AppShell() {
   };
 
   try {
+    const getRegistrationTrackForRole = (role?: string) => {
+      if (role === 'commuter') return 'commuter';
+      if (role === 'operator') return 'citizen_reg';
+      if (role === 'planner') return 'company';
+      if (role === 'admin') return 'gov_link';
+      return 'select';
+    };
+
     const forceRole = (role: string, vehicleType?: string, idData?: any) => {
       setUserRole(role);
       setActiveTab('home');
@@ -191,6 +424,7 @@ function AppShell() {
       localStorage.setItem('afat_local_user_id', resolvedId);
       localStorage.setItem('afat_local_phone', resolvedPhone);
       localStorage.setItem('afat_user_id', resolvedId);
+      localStorage.setItem('afat_access_intent_role', role);
       setLocalAuthUserId(resolvedId);
       setSessionUser({ id: resolvedId, phone: resolvedPhone });
       setUserProfile({
@@ -213,43 +447,84 @@ function AppShell() {
 
     useEffect(() => {
       const localProfileId = localStorage.getItem('afat_local_user_id');
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setSessionUser(session?.user ?? null);
-        if (session?.user) {
-          localStorage.setItem('afat_user_id', session.user.id);
-          fetchRole(session.user.id);
-        } else if (localProfileId) {
+      const bootAuth = async () => {
+        const me = await fetchAfatSessionProfile();
+        const authProfile = me.data?.profile;
+
+        if (authProfile?.id) {
+          setSessionUser({ id: authProfile.id, phone: authProfile.phone || localStorage.getItem('afat_local_phone') || '' });
+          localStorage.setItem('afat_local_user_id', authProfile.id);
+          localStorage.setItem('afat_user_id', authProfile.id);
+          if (authProfile.phone) localStorage.setItem('afat_local_phone', authProfile.phone);
+          telemetry.start(authProfile.id);
+          await fetchRole(authProfile.id);
+          return;
+        }
+
+        const refreshed = await refreshAfatSession();
+        const refreshedProfile = refreshed.data?.profile;
+        if (refreshedProfile?.id) {
+          setSessionUser({ id: refreshedProfile.id, phone: refreshedProfile.phone || localStorage.getItem('afat_local_phone') || '' });
+          localStorage.setItem('afat_local_user_id', refreshedProfile.id);
+          localStorage.setItem('afat_user_id', refreshedProfile.id);
+          if (refreshedProfile.phone) localStorage.setItem('afat_local_phone', refreshedProfile.phone);
+          telemetry.start(refreshedProfile.id);
+          await fetchRole(refreshedProfile.id);
+          return;
+        }
+
+        const supabaseSession = await getCurrentUser();
+        if (supabaseSession.user?.id) {
+          setSessionUser({
+            id: supabaseSession.user.id,
+            phone: supabaseSession.user.phone || localStorage.getItem('afat_local_phone') || '',
+          });
+          localStorage.setItem('afat_local_user_id', supabaseSession.user.id);
+          localStorage.setItem('afat_user_id', supabaseSession.user.id);
+          telemetry.start(supabaseSession.user.id);
+          await fetchRole(supabaseSession.user.id);
+          return;
+        }
+
+        if (localProfileId) {
           setSessionUser({ id: localProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
           localStorage.setItem('afat_user_id', localProfileId);
-          fetchRole(localProfileId);
+          await fetchRole(localProfileId);
+          return;
         }
-      }).catch((err) => {
-        console.error('[AFAT] Supabase init error:', err);
+
+        setSessionUser(null);
+        setUserRole(null);
+        telemetry.stop();
+      };
+
+      bootAuth().catch((err) => {
+        console.error('[AFAT] Auth boot error:', err);
       });
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        const user = session?.user ?? null;
-        setSessionUser(user);
-        if (user) {
-          localStorage.setItem('afat_user_id', user.id);
-          fetchRole(user.id);
-          telemetry.start(user.id);
-        } else {
-          const fallbackProfileId = localStorage.getItem('afat_local_user_id');
-          if (fallbackProfileId) {
-            setSessionUser({ id: fallbackProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
-            localStorage.setItem('afat_user_id', fallbackProfileId);
-            fetchRole(fallbackProfileId);
-          } else {
-            localStorage.removeItem('afat_user_id');
-            setUserRole(null);
-            telemetry.stop();
-          }
+      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' && session?.user?.id) {
+          localStorage.setItem('afat_local_user_id', session.user.id);
+          localStorage.setItem('afat_user_id', session.user.id);
+          if (session.user.phone) localStorage.setItem('afat_local_phone', session.user.phone);
+          setSessionUser({
+            id: session.user.id,
+            phone: session.user.phone || localStorage.getItem('afat_local_phone') || '',
+          });
+          telemetry.start(session.user.id);
+          fetchRole(session.user.id);
+        }
+
+        if (event === 'SIGNED_OUT') {
+          setSessionUser(null);
+          setUserProfile(null);
+          setUserRole(null);
+          telemetry.stop();
         }
       });
 
       return () => {
-        subscription.unsubscribe();
+        authListener.subscription.unsubscribe();
       };
     }, []);
 
@@ -259,18 +534,22 @@ function AppShell() {
         if (!error && data) {
           setUserProfile(data);
           setUserRole(data.role || 'commuter');
+          setBootError(null);
           
           const hasOnboarded = localStorage.getItem(`onboarded_${userId}`);
           if (!hasOnboarded) {
             setShowOnboarding(true);
           }
         } else {
-          setUserRole('commuter'); 
-          setUserProfile({ full_name: 'Voyageur AFAT', trust_points: 0 });
+          const intendedRole = localStorage.getItem('afat_access_intent_role') || 'commuter';
+          setUserRole(null);
+          setUserProfile(null);
+          setRegistrationTrack(getRegistrationTrackForRole(intendedRole));
+          setIsRegistrationHubOpen(true);
+          setBootError('AFAT recognized the phone session, but no mobility profile is attached yet.');
         }
       } catch (err) {
-        setUserRole('commuter'); 
-        setUserProfile({ full_name: 'Voyageur AFAT', trust_points: 0 });
+        setBootError('AFAT could not load the role profile. Reconnect or finish registration.');
       }
     };
 
@@ -365,7 +644,10 @@ function AppShell() {
                       <p className="mt-1 text-xs font-semibold text-white/55">Browse AFAT surfaces without waiting on SMS or production sessions.</p>
                     </div>
                     <button
-                      onClick={() => setIsRegistrationHubOpen(true)}
+                      onClick={() => {
+                        setRegistrationTrack('select');
+                        setIsRegistrationHubOpen(true);
+                      }}
                       className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-white/15"
                     >
                       Onboard
@@ -390,7 +672,18 @@ function AppShell() {
                 </div>
               )}
 
-              <Login />
+              <Login
+                onRegisterRequest={(role) => {
+                  setRegistrationTrack(getRegistrationTrackForRole(role));
+                  setIsRegistrationHubOpen(true);
+                }}
+              />
+
+              {bootError && (
+                <div className="mt-6 rounded-3xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100/80">
+                  {bootError}
+                </div>
+              )}
 
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
                 <div className="flex items-center justify-between gap-4">
@@ -399,7 +692,10 @@ function AppShell() {
                     <p className="mt-1 text-xs text-white/45">Create commuter, operator, government-linked, or fleet onboarding before sign-in.</p>
                   </div>
                   <button
-                    onClick={() => setIsRegistrationHubOpen(true)}
+                    onClick={() => {
+                      setRegistrationTrack('select');
+                      setIsRegistrationHubOpen(true);
+                    }}
                     className="rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]"
                   >
                     Register
@@ -411,6 +707,8 @@ function AppShell() {
           <RegistrationHub 
             isVisible={isRegistrationHubOpen} 
             onClose={() => setIsRegistrationHubOpen(false)} 
+            initialTrack={registrationTrack}
+            prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
             onRegisterCustom={(data) => {
               if (data?.id) {
                 localStorage.setItem('afat_local_user_id', data.id);
@@ -483,7 +781,10 @@ function AppShell() {
                   </button>
                 ))}
                 <button
-                  onClick={() => setIsRegistrationHubOpen(true)}
+                  onClick={() => {
+                    setRegistrationTrack('select');
+                    setIsRegistrationHubOpen(true);
+                  }}
                   className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
                 >
                   Register
@@ -513,6 +814,8 @@ function AppShell() {
         <RegistrationHub
           isVisible={isRegistrationHubOpen}
           onClose={() => setIsRegistrationHubOpen(false)}
+          initialTrack={registrationTrack}
+          prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
           onRegisterCustom={(data) => {
             if (data?.id) {
               localStorage.setItem('afat_local_user_id', data.id);

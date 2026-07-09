@@ -1,4 +1,103 @@
-# AFAT Current Status (as of June 26, 2026)
+# AFAT Current Status (as of July 9, 2026)
+
+## July 9, 2026 Deployment Truth Addendum
+- The frontend code in the local `sprint0-audit-fixes` worktree does include the `Email OTP` lane:
+  - `dashboard/src/App.tsx` renders both `Phone OTP` and `Email OTP`
+  - `dashboard/src/supabaseClient.ts` includes `sendEmailOtp(...)` and `verifyEmailOtp(...)`
+- Supabase/Auth infrastructure appears aligned for that path:
+  - Email provider is enabled
+  - Site URL is `https://asteck-bot.pages.dev`
+  - Redirect URLs include `https://asteck-bot.pages.dev` and `http://127.0.0.1:4191`
+  - Cloudflare build-time envs for `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_ANON_KEY`, and `VITE_API_URL` are now present
+- Important truth:
+  - the live site still not showing `Email OTP` means production is serving code older than the current local auth work
+  - changing Cloudflare production from `master` to `sprint0-audit-fixes` only solves part of that problem if the local auth changes have not yet been committed and pushed to `origin/sprint0-audit-fixes`
+  - current local git state confirms the branch is `sprint0-audit-fixes`, but the email-auth/frontend work remains in modified local files rather than a new pushed branch commit
+  - next live move is no longer only “switch branch”; it is “commit/push the current auth frontend changes, then redeploy Cloudflare from that updated branch”
+
+## July 7, 2026 Supabase Email Access Addendum
+- AFAT login now has a real Supabase email access lane in the frontend alongside the existing phone lane.
+- The login surface now lets the user choose:
+  - access lane (`commuter`, `operator`, `planner`, `admin`)
+  - access channel (`phone OTP` or `email OTP`)
+- Email access is implemented through Supabase Auth:
+  - `signInWithOtp` sends the access email
+  - `verifyOtp` supports entered email OTP codes
+  - app boot now also recognizes Supabase-authenticated sessions, not only AFAT backend-issued sessions
+  - a Supabase auth-state listener now hydrates AFAT role/profile state when an email sign-in completes by code or secure link
+- Important truth:
+  - this is a real email-auth path, but it still depends on live Supabase Auth email configuration and redirect URL correctness
+  - the custom AFAT phone/bootstrap path still exists for blocked-SMS periods
+  - Supabase dashboard now appears correctly configured for this path:
+    - Email provider enabled
+    - Site URL set to `https://asteck-bot.pages.dev`
+    - Redirect URLs include `https://asteck-bot.pages.dev` and `http://127.0.0.1:4191`
+  - Cloudflare build-time frontend variables now appear configured in the static-assets Worker build section:
+    - `VITE_SUPABASE_URL`
+    - `VITE_SUPABASE_PUBLISHABLE_KEY`
+    - `VITE_SUPABASE_ANON_KEY`
+    - `VITE_API_URL`
+  - Remaining live blocker: Cloudflare production is still pointed at `master`, while the newer AFAT auth/frontend work is currently on `sprint0-audit-fixes`.
+
+## July 6, 2026 Notifications + Auth Continuation
+- Backend/frontend verification is green again:
+  - backend `npx tsc --noEmit` passed
+  - dashboard `npm run build` passed
+- AFAT now has a real notification spine instead of only scattered UI feedback:
+  - new backend services exist for `EmailService`, `MetaWhatsAppService`, and centralized `NotificationService`
+  - system notifications can now fan out through `in_app`, `whatsapp`, `telegram`, and env-driven `email`
+  - admin field notices are no longer just staged text; the admin desk can now send role/city-targeted operational notices through `/api/ops/notifications/send`
+- Sensitive workflow integration improved:
+  - dispatch assignments now trigger real operator notifications
+  - compliance status changes now trigger real target-profile notifications
+  - frontend backend calls for dispatch/compliance/service requests now carry AFAT auth headers instead of silently missing the new RBAC layer
+- Important truth:
+  - WhatsApp and email are now positioned as system channels first, not fake “done” auth replacements
+  - email OTP fallback is still not a finished user-facing auth path because the current login surface remains phone-first
+  - the new email/WhatsApp providers are env-driven so credentials can be rotated later without code changes
+
+## July 3, 2026 Handoff Addendum
+- Frontend build is currently green: `npm run build` passed in `dashboard/` and generated new PWA assets.
+- Unified auth/role entry has advanced: users now choose an access lane before OTP, the intended lane is persisted, and missing-profile phone sessions open the matching registration track instead of silently falling into a generic commuter fallback.
+- `RegistrationHub` now supports direct track entry and phone prefill, so commuter/operator/company/admin-linked onboarding can be opened intentionally from access flow or QA review.
+- Admin Intelligence Desk is more operational:
+  - compliance records can be marked `verified`, `needs_followup`, or `rejected` through the backend compliance-status helper
+  - recent route-truth/campaign signals from `/api/ops/live-map` are displayed in admin and can be queued for review as broadcast/directive work
+  - payment readiness, backend target, checkpoint enrollment, map-construction notices, and AI orchestrator launch points remain centralized in the same desk
+- Route-truth review is now backend-backed locally:
+  - new `map_signal_reviews` schema and incremental migration entries exist
+  - `/api/ops/map-signal-reviews` can queue, validate, dismiss, or publish movement-log signals
+  - validated/published signals can award trust points through the existing `award_points` RPC
+  - `/api/ops/live-map` now returns `review_status`/`review` metadata for campaign signals
+  - admin route-truth buttons now call the backend instead of only staging text
+- PawaPay webhook hardening was started in backend routes: callback secret validation and payment-event deduplication logic were added locally, but backend deploy/build verification still needs to be completed before calling it production-ready.
+- Current honest state: AFAT is now much less decorative, but not every ecosystem feature is fully operational. The highest remaining work is still finishing backend-backed workflows behind staged ecosystem areas: document/file storage, academy/certification, emergency logistics, payment audit, full map validation/reward loop, and stronger RBAC.
+
+## July 4, 2026 Authentication Addendum
+- AFAT auth is now more real and backend-owned:
+  - OTP challenges are no longer only in memory; schema and incremental SQL now include `auth_otp_challenges`
+  - refresh-token sessions now have a dedicated table: `auth_refresh_sessions`
+  - backend now exposes `/api/auth/send-otp`, `/api/auth/verify-otp`, `/api/auth/refresh`, `/api/auth/me`, and `/api/auth/logout` as a coherent AFAT auth contract
+  - access tokens are short-lived AFAT-signed tokens, while refresh sessions persist separately
+  - frontend boot now prefers AFAT auth session lookup and refresh before falling back to local QA identity
+- OTP provider routing is now configurable:
+  - `OTP_PROVIDER=termii` uses Termii
+  - `OTP_PROVIDER=arkesel` uses Arkesel
+  - if no provider is configured, development fallback is allowed only outside production
+- Termii support was added locally with provider send/verify integration and provider reference storage on auth challenges.
+- A temporary broad bootstrap-access path now exists locally for blocked provider periods:
+  - allowlisted phones can use a general access code for `commuter`, `operator`, `planner`, or `admin`
+  - a separate admin-only bootstrap code can still exist for tighter admin recovery
+  - this is env-driven and not hardcoded in source
+- RBAC hardening has started on top of AFAT auth:
+  - map-signal review writes now require `admin` or `planner`
+  - report status updates now require `admin` or `planner`
+  - compliance status updates now require `admin` or `planner`
+  - dispatch assignment now requires `admin`, `planner`, or `operator`
+- Admin now has direct dispatch capacity in the Intelligence Desk:
+  - admin can create manual dispatch assignments by operator id or vehicle id
+  - this no longer lives only under planner flows
+  - admin can now direct field registration, route-truth review, compliance action, and dispatch from one surface
 
 ## What Currently Works
 - Backend boots with security middleware, CORS allow-list, and `/health`.
@@ -58,6 +157,10 @@
 - Onboarding depth improved on the frontend, and operator/company registration now seeds compliance review items, but uploaded documents are still presentational and not yet stored as files.
 - Current map rendering still relies on public tile services and app-level signals; the dedicated multi-city downloaded geodata foundation is only partially started through local asset-backed packs.
 - Admin access is stronger visually and operationally, but licensing decisions, compliance adjudication, payment audit trails, map quality review queues, academy/certification, and regional rollout controls still need full backend-backed workflows.
+- Email delivery is now wired without an external package, but it still needs live SMTP credential verification in deployment before being treated as production-ready.
+- WhatsApp notification delivery now targets Meta Cloud API envs, but live delivery depends on correct phone-number-id/token setup and recipient-linked numbers.
+- Supabase email access is now implemented locally, but browser/live verification depends on Supabase Auth email settings and the existing known local build-path sandbox issue.
+- Live frontend parity still depends on deploying the branch that contains the current auth work; env alignment alone is not enough if Cloudflare serves an older branch.
 
 ## Latest Deployment Status
 - Code status in this workspace:
@@ -66,6 +169,15 @@
 - Live deployment status must be re-verified directly in Render/Cloudflare dashboards after each push.
 
 ## Latest Test Results
+- July 7, 2026:
+  - backend `npx tsc --noEmit --pretty false` passed after Supabase email-access frontend integration
+  - dashboard production build remains blocked by the pre-existing sandbox/path-resolution issue (`Cannot read directory "../../.."` / `Could not resolve ... vite.config.js`), so this change still needs in-browser/live verification rather than relying on this shell's build result
+- July 6, 2026:
+  - backend `npx tsc --noEmit` passed after notification-system and auth-header propagation changes
+  - dashboard `npm run build` passed after admin field notifications and secured backend-call updates
+- July 3, 2026:
+  - dashboard `npm run build` passed after route-truth review UI/API helper changes
+  - backend `npx tsc --noEmit` passed after map-signal review route changes
 - Latest successful local checks:
   - backend `npx tsc --noEmit` passed on June 18, 2026 after Arkesel/auth and PawaPay readiness changes.
   - dashboard `npx tsc --noEmit` passed on June 18, 2026 after the latest ecosystem-readiness UI patch.

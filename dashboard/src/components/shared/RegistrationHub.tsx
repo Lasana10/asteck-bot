@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Camera, Shield, FileText, UploadCloud, ChevronRight, X, Compass, AlertTriangle, Zap, CheckCircle, Users, Phone } from 'lucide-react';
 import { registerCompany, registerDriver, registerPassenger } from '../../supabaseClient';
 
@@ -6,6 +6,8 @@ interface Props {
   isVisible: boolean;
   onClose: () => void;
   onRegisterCustom: (data: any) => void;
+  initialTrack?: RegistrationTrack;
+  prefillPhone?: string;
 }
 
 type RegistrationTrack = 'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company';
@@ -119,7 +121,7 @@ const COMPANY_PLAYBOOK: Record<string, { packageName: string; focus: string; doc
   }
 };
 
-export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props) {
+export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '' }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
   const [govId, setGovId] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
@@ -147,6 +149,16 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom }: Props)
   const [serviceCoverage, setServiceCoverage] = useState('');
   const [companyNotes, setCompanyNotes] = useState('');
   const [errorText, setErrorText] = useState('');
+
+  useEffect(() => {
+    if (!isVisible) return;
+    setTrack(initialTrack);
+    setSuccess(false);
+    setErrorText('');
+    if (prefillPhone) {
+      setPhone(prefillPhone.replace(/^\+?237/, '').trim());
+    }
+  }, [initialTrack, isVisible, prefillPhone]);
 
   if (!isVisible) return null;
 

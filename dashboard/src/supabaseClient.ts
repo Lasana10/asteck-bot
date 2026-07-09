@@ -38,6 +38,52 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // 🔐 AUTH & ROLES (Phone OTP Focus)
 // ==============================================================================
 
+export async function sendEmailOtp(email: string, options?: { roleIntent?: string }) {
+  try {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const { data, error } = await supabase.auth.signInWithOtp({
+      email: normalizedEmail,
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: redirectTo,
+        data: {
+          role: options?.roleIntent || 'commuter',
+          username: normalizedEmail.split('@')[0],
+          utm_source: 'afat_email_access',
+        },
+      },
+    });
+
+    if (error) return { data: null, error: { message: error.message || 'Failed to send email access code.' } };
+    localStorage.setItem('afat_access_email', normalizedEmail);
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function verifyEmailOtp(email: string, token: string) {
+  try {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: normalizedEmail,
+      token: String(token || '').trim(),
+      type: 'email',
+    });
+
+    if (error) return { data: null, error: { message: error.message || 'Email verification failed.' } };
+    if (data?.user?.id) {
+      localStorage.setItem('afat_local_user_id', data.user.id);
+      localStorage.setItem('afat_user_id', data.user.id);
+    }
+    localStorage.setItem('afat_access_email', normalizedEmail);
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 /**
  * Step 1: Send SMS OTP via Africa's Talking (through our Express backend)
  */
@@ -60,12 +106,18 @@ export async function sendPhoneOtp(phone: string) {
  * Step 2: Verify OTP code via our Express backend
  * On success, sign the user into Supabase with the returned userId.
  */
-export async function verifyPhoneOtp(phone: string, token: string) {
+export async function verifyPhoneOtp(phone: string, token: string, options?: { roleIntent?: string; adminCode?: string; accessCode?: string }) {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/auth/verify-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, code: token }),
+      body: JSON.stringify({
+        phone,
+        code: token,
+        roleIntent: options?.roleIntent,
+        adminCode: options?.adminCode,
+        accessCode: options?.accessCode,
+      }),
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Verification failed.' } };
@@ -77,7 +129,47 @@ export async function verifyPhoneOtp(phone: string, token: string) {
     if (data?.accessToken) {
       localStorage.setItem('afat_access_token', data.accessToken);
     }
+    if (data?.refreshToken) {
+      localStorage.setItem('afat_refresh_token', data.refreshToken);
+    }
 
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function refreshAfatSession() {
+  try {
+    const refreshToken = localStorage.getItem('afat_refresh_token');
+    if (!refreshToken) return { data: null, error: { message: 'No refresh token available.' } };
+
+    const res = await fetch(`${getApiBaseUrl()}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Session refresh failed.' } };
+
+    if (data?.accessToken) localStorage.setItem('afat_access_token', data.accessToken);
+    if (data?.refreshToken) localStorage.setItem('afat_refresh_token', data.refreshToken);
+    if (data?.profile?.id) localStorage.setItem('afat_local_user_id', data.profile.id);
+    if (data?.profile?.phone) localStorage.setItem('afat_local_phone', data.profile.phone);
+
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchAfatSessionProfile() {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
+      headers: { ...afatAuthHeaders() },
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Auth session lookup failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -86,6 +178,17 @@ export async function verifyPhoneOtp(phone: string, token: string) {
 
 export async function signOut() {
   localStorage.removeItem('afat_access_token');
+  const refreshToken = localStorage.getItem('afat_refresh_token');
+  localStorage.removeItem('afat_refresh_token');
+  if (refreshToken) {
+    try {
+      await fetch(`${getApiBaseUrl()}/api/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {}
+  }
   return await supabase.auth.signOut();
 }
 
@@ -576,6 +679,28 @@ export async function fetchLiveMapOps(city: string = 'cameroon') {
   }
 }
 
+export async function reviewMapSignal(reviewData: {
+  movement_log_id: string;
+  status: 'queued' | 'validated' | 'dismissed' | 'published';
+  confidence_score?: number;
+  decision_notes?: string;
+  reward_points?: number;
+  reviewer_id?: string;
+}) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/map-signal-reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(reviewData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Map signal review failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchActiveDispatches() {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/dispatch/active`);
@@ -591,7 +716,7 @@ export async function createDispatchAssignment(dispatchData: any) {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/dispatch/assign`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify(dispatchData),
     });
     const data = await res.json();
@@ -606,7 +731,7 @@ export async function createServiceRequest(serviceData: any) {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/service/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify(serviceData),
     });
     const data = await res.json();
@@ -681,11 +806,35 @@ export async function updateComplianceStatus(recordId: string, status: string, n
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/compliance/${recordId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify({ status, notes }),
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function sendOpsNotification(payload: {
+  user_ids?: string[];
+  role?: string;
+  city?: string;
+  channels?: Array<'in_app' | 'whatsapp' | 'email' | 'telegram'>;
+  title: string;
+  body: string;
+  type?: string;
+  reference_id?: string;
+}) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/notifications/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Notification send failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };

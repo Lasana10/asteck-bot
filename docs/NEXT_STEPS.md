@@ -1,6 +1,53 @@
 # AFAT Next Steps
 
 ## Immediate Next Tasks
+1. Continue the functionality-completion pass behind the now-green frontend build:
+   - align live frontend deployment branch with the code that contains the new auth flow:
+     - Cloudflare production must not build `master` if the auth work remains on `sprint0-audit-fixes`
+     - but branch switching alone is not enough if the current `Email OTP` UI changes are still only local modifications
+     - first reconcile the current dirty `sprint0-audit-fixes` worktree enough to commit and push the auth/frontend changes
+     - then redeploy Cloudflare from the updated `sprint0-audit-fixes` branch
+   - browser-test the new email access flow for one real address:
+     - request email access
+     - complete sign-in by code or link
+     - confirm AFAT lands on the correct profile/role state
+   - set live envs for `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_PERMANENT_ACCESS_TOKEN`, `WHATSAPP_API_VERSION`, `EMAIL_SMTP_SERVER`, `EMAIL_SMTP_PORT`, `EMAIL_SENDER_ADDRESS`, and `EMAIL_APP_PASSWORD`
+   - smoke-test `/api/ops/notifications/send` against one allowlisted admin/operator profile and verify in-app + channel fan-out
+   - apply the new `map_signal_reviews` migration to live Supabase and QA admin route-truth review actions
+   - apply the new auth tables (`auth_otp_challenges`, `auth_refresh_sessions`) to live Supabase
+   - set production OTP provider envs and smoke-test `/auth/send-otp`, `/auth/verify-otp`, `/auth/refresh`, and `/auth/me`
+   - if provider registration remains blocked, use the new env-driven bootstrap access path temporarily and remove it once OTP is fully live
+   - keep the temporary bootstrap path short-lived once Supabase email access is verified live
+   - only extend the custom SMTP layer into a backend-owned email OTP flow if Supabase email auth proves operationally insufficient
+   - keep Redis optional for later portability/performance; do not introduce it yet unless refresh/session scale or queue durability actually requires it
+   - finish document/file storage for compliance packages
+   - deepen payment audit and PawaPay callback verification
+   - add backend-backed workflows for academy/certification and emergency logistics
+   - enforce role guards on sensitive admin/operator/planner actions
+2. Browser QA every role from the unified access flow:
+   - sign in/register as commuter, operator, planner/company, and admin
+   - confirm each bottom-nav tab opens the right workspace
+   - classify any remaining button as live action, staged action, planned feature, or bug
+3. Backend verification after the local PawaPay webhook-hardening edits:
+   - run backend typecheck/build
+   - deploy/restart Render only after green checks
+   - test `https://asteck-bot.onrender.com/api/webhook/pawapay` with sandbox callback payloads and secret configuration
+4. Add real review tables/workflows for map intelligence:
+   - `map_signal_reviews`
+   - validation status
+   - steward/admin reviewer
+   - confidence score update
+   - contributor reward eligibility
+   - publish/dismiss history
+5. Keep memory files updated before every context compression or major handoff.
+6. Keep infrastructure portable while building:
+   - backend-owned auth/session contract
+   - migration-first Postgres discipline
+   - storage abstraction for files/assets
+   - queue/cache abstraction
+   - no production reliance on QA-only frontend shortcuts
+
+## Previous Immediate Tasks
 1. Continue frontend redesign sprint from the Mission Control and Strategic Layer baseline: simplify home screens, reduce fake-static claims, and make the map/dispatch layer feel like the primary product.
 2. Run a full click-through QA pass in the browser for commuter, operator, planner, and admin roles: every visible button should be classified as live backend action, local workflow, external link, or planned/staged.
 3. Confirm the dashboard is opened on the frontend preview URL, not the backend API URL (`localhost:3000`), before judging frontend role behavior.
