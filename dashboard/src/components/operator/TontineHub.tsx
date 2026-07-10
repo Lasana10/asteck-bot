@@ -10,11 +10,13 @@ interface Props {
 
 export function TontineHub({ userId, onClose }: Props) {
   const [tontines, setTontines] = useState<any[]>([]);
+  const [discoverableTontines, setDiscoverableTontines] = useState<any[]>([]);
   const [selectedTontine, setSelectedTontine] = useState<any | null>(null);
   const [members, setMembers] = useState<TontineMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [discoveryMessage, setDiscoveryMessage] = useState('');
   const [contributionMessage, setContributionMessage] = useState('');
+  const [joiningTontineId, setJoiningTontineId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTontines();
@@ -30,6 +32,25 @@ export function TontineHub({ userId, onClose }: Props) {
     if (!error && data) {
       setTontines(data.map(d => d.tontines));
     }
+
+    const joinedIds = !error && data ? data.map((entry) => entry.tontine_id) : [];
+    const discoverQuery = supabase
+      .from('tontines')
+      .select('*')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(6);
+
+    const { data: available, error: discoverError } = joinedIds.length
+      ? await discoverQuery.not('id', 'in', `(${joinedIds.join(',')})`)
+      : await discoverQuery;
+
+    if (!discoverError && available) {
+      setDiscoverableTontines(available);
+    } else {
+      setDiscoverableTontines([]);
+    }
+
     setLoading(false);
   };
 
@@ -47,6 +68,42 @@ export function TontineHub({ userId, onClose }: Props) {
     setSelectedTontine(t);
     setContributionMessage('');
     fetchMembers(t.id);
+  };
+
+  const joinTontine = async (tontine: any) => {
+    setDiscoveryMessage('');
+    setJoiningTontineId(tontine.id);
+
+    const { count, error: countError } = await supabase
+      .from('tontine_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('tontine_id', tontine.id);
+
+    if (countError) {
+      setJoiningTontineId(null);
+      setDiscoveryMessage(`Unable to prepare membership for ${tontine.name}: ${countError.message}`);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('tontine_members')
+      .insert({
+        tontine_id: tontine.id,
+        user_id: userId,
+        payout_order: (count || 0) + 1,
+        has_received_payout: false,
+        total_contributed: 0,
+      });
+
+    setJoiningTontineId(null);
+
+    if (error) {
+      setDiscoveryMessage(`Join request failed for ${tontine.name}: ${error.message}`);
+      return;
+    }
+
+    setDiscoveryMessage(`${tontine.name} joined successfully. Your payout slot has been added to the rotation queue.`);
+    fetchTontines();
   };
 
   return (
@@ -165,12 +222,37 @@ export function TontineHub({ userId, onClose }: Props) {
                      {discoveryMessage}
                    </p>
                  )}
-                 <button 
-                   onClick={() => setDiscoveryMessage('Cooperative discovery is planned for this operator profile. Today this panel reads your active groups from Supabase; matching nearby groups still needs a backend workflow.')}
-                   className="mt-6 text-blue-500 font-bold text-xs uppercase tracking-widest border border-blue-500/20 px-6 py-3 rounded-xl hover:bg-blue-500/5 transition-all outline-none"
-                 >
-                   Explorer les Coopératives
-                 </button>
+                 {!discoverableTontines.length ? (
+                   <button 
+                     onClick={() => setDiscoveryMessage('No open tontines are available right now. Create or seed one from AFAT operations to begin cooperative participation.')}
+                     className="mt-6 text-blue-500 font-bold text-xs uppercase tracking-widest border border-blue-500/20 px-6 py-3 rounded-xl hover:bg-blue-500/5 transition-all outline-none"
+                   >
+                     Check Open Tontines
+                   </button>
+                 ) : (
+                   <div className="mt-6 space-y-3 text-left">
+                     <p className="text-[10px] font-black uppercase tracking-widest text-blue-300/70 text-center">Open tontines</p>
+                     {discoverableTontines.map((t) => (
+                       <div key={t.id} className="rounded-2xl border border-white/8 bg-slate-900/70 p-4">
+                         <div className="flex items-start justify-between gap-4">
+                           <div>
+                             <p className="text-sm font-black text-white">{t.name}</p>
+                             <p className="mt-1 text-[10px] font-mono uppercase text-slate-500">
+                               {t.frequency} · {Number(t.contribution_amount || 0).toLocaleString()}F
+                             </p>
+                           </div>
+                           <button
+                             onClick={() => joinTontine(t)}
+                             disabled={joiningTontineId === t.id}
+                             className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-200 disabled:opacity-50"
+                           >
+                             {joiningTontineId === t.id ? 'Joining...' : 'Join'}
+                           </button>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
               </div>
             )}
           </div>
