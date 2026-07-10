@@ -121,6 +121,53 @@ const COMPANY_PLAYBOOK: Record<string, { packageName: string; focus: string; doc
   }
 };
 
+function explainRegistrationError(message?: string) {
+  const raw = message || 'Registration failed.';
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
+    return 'AFAT backend is not reachable from this browser. Check the Render service, VITE_API_URL, and whether the local preview is pointing to the correct API target.';
+  }
+
+  if (lower.includes('duplicate') || lower.includes('already') || lower.includes('unique')) {
+    return 'This identity already exists. AFAT will try to resume the existing profile when the updated backend is deployed; if this persists, sign in with the same phone/email or ask admin to merge the profile.';
+  }
+
+  if (lower.includes('row-level security') || lower.includes('permission') || lower.includes('unauthorized')) {
+    return 'The request reached AFAT, but database permissions blocked it. Check Supabase RLS/API grants for this registration table before retrying.';
+  }
+
+  return raw;
+}
+
+function getCompletionCopy(track: RegistrationTrack) {
+  if (track === 'commuter') {
+    return {
+      title: 'Commuter Profile Active',
+      body: 'Your passenger access is ready for booking, guardian safety, reports, and route-truth missions.'
+    };
+  }
+
+  if (track === 'company') {
+    return {
+      title: 'Fleet Workspace Created',
+      body: 'Your company profile is ready for planner access. Compliance, fleet documents, and dispatch setup continue from the operations desk.'
+    };
+  }
+
+  if (track === 'gov_link') {
+    return {
+      title: 'Clearance Intake Saved',
+      body: 'This partner lane is registered for AFAT review, controlled access, and operational classification before full activation.'
+    };
+  }
+
+  return {
+    title: 'Operator Intake Saved',
+    body: 'Your driver/operator profile is registered. Vehicle verification, compliance status, and service readiness continue inside AFAT.'
+  };
+}
+
 export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '' }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
   const [govId, setGovId] = useState('');
@@ -164,6 +211,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
   const serviceProfile = SERVICE_PLAYBOOK[vehicleType] || SERVICE_PLAYBOOK.taxi;
   const companyProfile = COMPANY_PLAYBOOK[companyType] || COMPANY_PLAYBOOK['Transport agency'];
+  const completionCopy = getCompletionCopy(track);
 
   const handleGovLinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,7 +233,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       setLoading(false);
 
       if (error) {
-        setErrorText(error.message);
+        setErrorText(explainRegistrationError(error.message));
         return;
       }
 
@@ -234,7 +282,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       setLoading(false);
 
       if (error) {
-        setErrorText(error.message);
+        setErrorText(explainRegistrationError(error.message));
         return;
       }
 
@@ -268,7 +316,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
     setLoading(false);
 
     if (error) {
-      setErrorText(error.message);
+      setErrorText(explainRegistrationError(error.message));
       return;
     }
 
@@ -301,7 +349,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
     setLoading(false);
 
     if (error) {
-      setErrorText(error.message);
+      setErrorText(explainRegistrationError(error.message));
       return;
     }
 
@@ -344,8 +392,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center border border-green-500/20 mb-6 shadow-[0_0_40px_rgba(34,197,94,0.2)]">
                 <CheckCircle className="w-12 h-12 text-green-500" />
               </div>
-              <h3 className="text-2xl font-black text-white uppercase italic tracking-tight mb-2">Identity Verified</h3>
-              <p className="text-sm text-slate-400 text-center font-bold">Welcome to the AFAT Mobility Grid. Your vehicle blueprint is active.</p>
+              <h3 className="text-2xl font-black text-white uppercase italic tracking-tight mb-2">{completionCopy.title}</h3>
+              <p className="text-sm text-slate-400 text-center font-bold">{completionCopy.body}</p>
             </div>
           ) : track === 'select' ? (
             <div className="space-y-4">

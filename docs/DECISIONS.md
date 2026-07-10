@@ -70,3 +70,54 @@
 - Reason: hardcoded checkpoints in operator drive mode made the product look more advanced than the underlying data contract actually was.
 - Reason: even partial live truth is more valuable than decorative intelligence if AFAT is positioning itself as infrastructure.
 - Tradeoff: sparse live data will now be more visible until checkpoint seeding and steward enrollment grow.
+
+## Decision 17: Keep Role-Switching Visible Only In Local QA
+- Reason: the app should not spend precious interface space narrating the user's identity in normal sessions when the goal is operational flow clarity.
+- Reason: QA still needs fast role switching on localhost to inspect commuter, operator, planner, and admin surfaces without waiting on real auth states.
+- Tradeoff: developers lose some always-visible role context in normal browsing, but the product feels less like a demo shell.
+
+## Decision 18: Make Negotiation Booking-Linked Before Making It Bigger
+- Reason: a smaller real workflow is more valuable than a larger fake negotiation experience.
+- Reason: tying operator negotiation to `bookings` and `negotiations` gives AFAT a real audit trail and a path to accepted-fare settlement.
+- Tradeoff: commuter-side bargaining remains asymmetrical for now, because the pre-booking passenger UX still needs a deeper lifecycle design.
+
+## Decision 19: Role Entry Must Preserve User Intent Before Profile Resolution
+- Reason: AFAT has different user types, and a phone session without a profile should not silently become a generic commuter experience.
+- Reason: capturing access intent before OTP lets onboarding route directly into commuter, operator, company/planner, or government-linked tracks.
+- Tradeoff: this adds a small amount of client-side state, so backend role guards still need to remain the source of authority for protected actions.
+
+## Decision 20: Admin Must Act On Queues, Not Only See Dashboards
+- Reason: special access is only valuable if admin can adjudicate compliance, review map truth, copy/payment-check callbacks, enroll checkpoints, and prepare directives from one operational desk.
+- Reason: investor-grade credibility comes from visible receive -> review -> act loops, not from static metrics.
+- Tradeoff: some queues are now visible before the complete backend lifecycle exists, so staged areas must stay labeled honestly until persistence, scoring, rewards, and audit trails are complete.
+
+## Decision 21: Movement Logs Stay Raw, Reviews Become Human Validation
+- Reason: `movement_logs` should remain the raw signal substrate for telemetry and campaign inputs.
+- Reason: `map_signal_reviews` creates a separate audit trail for admin/steward judgment, confidence, publication, and contributor reward.
+- Tradeoff: route-truth data now has one more table to join, but the receive/review/publish model is much cleaner and scales better across cities.
+
+## Decision 22: Prepare AFAT For Provider Mobility From Now
+- Reason: the team may keep using managed platforms while building, but the system should be designed so database, auth, storage, queues, and frontend delivery can move without a rewrite.
+- Reason: avoiding provider lock-in is especially important for data sovereignty, regional expansion, and future cost control.
+- Tradeoff: this requires stricter internal contracts now: backend-owned auth/session logic, migration-first schema discipline, storage abstraction, and no frontend dependence on provider-specific behavior.
+
+## Decision 23: Notifications Must Be System Infrastructure, Not Just UI Feedback
+- Reason: dispatch, compliance, map-construction notices, and urgent ops events need one AFAT-controlled delivery spine instead of each feature inventing its own message path.
+- Reason: centralizing in-app, WhatsApp, Telegram, and email fan-out keeps future provider swaps and auditability manageable.
+- Tradeoff: delivery truth is now better structured, but channel success still depends on linked contact data and live provider env configuration.
+
+## Decision 24: Do Not Pretend Email Auth Is Finished Before The Login Contract Changes
+- Reason: the current login surface is still phone-first, and bolting in a hidden email path would create another fake-complete auth branch.
+- Reason: it is better to wire SMTP cleanly first, then deliberately add email OTP UX and backend verification when we choose that path.
+- Tradeoff: temporary bootstrap access remains necessary while SMS provider onboarding is blocked.
+
+## Decision 25: Prefer Supabase Email Access Over A New Custom Email Auth Layer
+- Reason: AFAT already depends on Supabase, and Supabase Auth can provide email OTP / magic-link access, user/session handling, and profile linkage without creating another bespoke auth service.
+- Reason: this keeps auth, future storage, and realtime closer together while the platform is still stabilizing.
+- Tradeoff: live behavior now depends on correct Supabase Auth configuration and its supported email flow semantics.
+
+## Decision 26: Keep Supabase As AFAT Core; Use Firebase Only For Mobile Add-Ons If Needed
+- Reason: AFAT core data is relational, permissioned, and audit-heavy: profiles, roles, vehicles, permits, bookings, incidents, payments, checkpoints, dispatches, and compliance reviews need SQL joins, migrations, constraints, and RLS-friendly authorization.
+- Reason: Supabase keeps Postgres, Auth, Storage, Realtime, and a future self-hosting path closer together, which better matches AFAT's data-sovereignty and provider-mobility goals.
+- Reason: Firebase is still useful later for mobile-specific services such as push notifications, Crashlytics, Analytics, Remote Config, or limited realtime client presence, but Firestore should not replace the operational system of record now.
+- Tradeoff: Supabase requires stricter schema/RLS discipline and correct email/SMTP/Auth configuration, but switching core data to Firebase now would add a major rewrite and make compliance-grade reporting harder.

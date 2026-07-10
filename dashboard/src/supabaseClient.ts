@@ -7,11 +7,11 @@ const supabaseAnonKey =
   'placeholder-key';
 
 // ═══ AUTO-DETECTION: Render Backend URL ═══
-const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
+const liveApiBaseUrl = 'https://asteck-bot.onrender.com';
 
 function resolveApiBaseUrl() {
   const runtimeApiOverride = localStorage.getItem('afat_api_base_override');
-  return runtimeApiOverride || import.meta.env.VITE_API_URL || (isProd ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000');
+  return runtimeApiOverride || import.meta.env.VITE_API_URL || liveApiBaseUrl;
 }
 
 export const apiBaseUrl = resolveApiBaseUrl();

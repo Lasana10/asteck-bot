@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -28,9 +28,33 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [errorText, setErrorText] = useState('');
   const [showBypass, setShowBypass] = useState(false);
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
 
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
+  const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
+  const apiTarget = getApiBaseUrl();
+
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 5000);
+
+    fetch(`${getApiBaseUrl()}/health`, { signal: controller.signal })
+      .then((res) => {
+        if (mounted) setBackendStatus(res.ok ? 'live' : 'offline');
+      })
+      .catch(() => {
+        if (mounted) setBackendStatus('offline');
+      })
+      .finally(() => window.clearTimeout(timer));
+
+    return () => {
+      mounted = false;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -53,7 +77,9 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       : await sendPhoneOtp(normalizedPhone);
     const { error } = result;
     if (error) {
-      setErrorText(error.message);
+      setErrorText(authChannel === 'email'
+        ? `${error.message} Check Supabase Auth email settings, redirect URLs, and SMTP if no email arrives.`
+        : `${error.message} Phone OTP depends on the AFAT backend and the active SMS provider.`);
     } else {
       setStep('verify');
     }
@@ -145,6 +171,40 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           </div>
         )}
 
+        <div className="mb-6 grid grid-cols-2 gap-2">
+          <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
+            <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {supabaseReady ? 'Configured' : 'Needs env'}
+            </p>
+          </div>
+          <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT backend</p>
+            <p className={`mt-1 text-xs font-black ${backendStatus === 'live' ? 'text-emerald-200' : backendStatus === 'checking' ? 'text-blue-200' : 'text-red-200'}`}>
+              {backendStatus === 'live' ? 'Live' : backendStatus === 'checking' ? 'Checking' : 'Offline'}
+            </p>
+            <p className="mt-1 truncate text-[9px] font-semibold text-white/35">{apiTarget.replace(/^https?:\/\//, '')}</p>
+          </div>
+        </div>
+
+        {backendStatus === 'offline' && (
+          <div className="mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
+            <p className="text-xs font-bold leading-relaxed text-red-100/80">
+              AFAT cannot reach the API target from this browser. Use the live backend unless you are running a local backend on purpose.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setApiBaseOverride('https://asteck-bot.onrender.com');
+                window.location.reload();
+              }}
+              className="mt-3 rounded-xl border border-red-200/20 bg-red-100/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-100"
+            >
+              Use live backend
+            </button>
+          </div>
+        )}
+
         {step === 'identity' ? (
           <form onSubmit={handleSendOtp} className="space-y-6">
             <div>
@@ -173,6 +233,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             </div>
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
+              <div className="mb-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Recommended now: Email OTP</p>
+                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Phone OTP stays available, but email is the active low-friction path while SMS provider registration is being completed.</p>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { channel: 'phone', label: 'Phone OTP' },
@@ -225,7 +289,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               disabled={loading || (authChannel === 'email' ? !normalizedEmail.includes('@') : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Transmitting...' : authChannel === 'email' ? 'Request Email Access Link' : 'Request Access Code'}
+              {loading ? 'Transmitting...' : authChannel === 'email' ? 'Send Email Code' : 'Request Phone Code'}
               {!loading && <ChevronRight className="w-4 h-4" />}
             </button>
           </form>
@@ -244,7 +308,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               />
               <p className="mt-2 text-[10px] font-semibold text-white/40">
                 {authChannel === 'email'
-                  ? 'AFAT can complete this step from an email code or from the secure email link if Supabase is configured for magic links.'
+                  ? 'Use the code from the Supabase email, or open the secure email link in this browser.'
                   : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
               </p>
             </div>
@@ -283,7 +347,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               disabled={loading || (otp.length < 6 && authChannel === 'email') || (authChannel === 'phone' && otp.length < 6 && !adminCode.trim() && !accessCode.trim())}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Verifying Intel...' : authChannel === 'email' ? 'Verify Email Access' : accessCode.trim() ? 'Use Temporary Access Code' : roleIntent === 'admin' && adminCode.trim() ? 'Use Admin Access Code' : 'Verify & Establish Link'}
+            {loading ? 'Verifying...' : authChannel === 'email' ? 'Verify Email Code' : accessCode.trim() ? 'Use Temporary Access Code' : roleIntent === 'admin' && adminCode.trim() ? 'Use Admin Access Code' : 'Verify Phone Access'}
             </button>
             <button
               type="button"
@@ -632,7 +696,7 @@ function AppShell() {
               <div className="mb-8 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/60">Why you’re here</p>
                 <p className="mt-2 text-sm font-medium leading-relaxed text-white/75">
-                  AFAT now opens through a real access flow instead of the old guest shell. Sign in with your phone or register your commuter, operator, or fleet identity to enter the live system.
+                  AFAT now opens through a real access flow instead of the old guest shell. Email OTP is the recommended path now; phone OTP remains available for approved provider lanes. Register your commuter, operator, or fleet identity if no profile exists yet.
                 </p>
               </div>
 

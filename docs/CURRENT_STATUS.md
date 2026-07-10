@@ -179,6 +179,10 @@
 - WhatsApp notification delivery now targets Meta Cloud API envs, but live delivery depends on correct phone-number-id/token setup and recipient-linked numbers.
 - Supabase email access is now implemented locally, but browser/live verification depends on Supabase Auth email settings and the existing known local build-path sandbox issue.
 - Live frontend parity still depends on deploying the branch that contains the current auth work; env alignment alone is not enough if Cloudflare serves an older branch.
+- July 10, 2026 architecture decision: Firebase should not replace AFAT core right now. Keep Supabase/Postgres/Auth/RLS/Storage/Realtime as the operational system of record, and consider Firebase later only for mobile add-ons such as push notifications, Crashlytics, Analytics, or Remote Config.
+- July 10, 2026 frontend gate improvement: login now makes Email OTP the recommended path, shows visible Supabase email-auth readiness and AFAT backend health, and clarifies phone OTP as provider-dependent while SMS onboarding remains blocked.
+- July 10, 2026 registration UX improvement: onboarding errors now distinguish backend reachability, duplicate/resume cases, and database permission/RLS failures instead of showing a vague failed message.
+- July 10, 2026 backend-target fix: local/static frontend previews now default to the live Render API unless an explicit override is set, and the login gate exposes the active API target plus a "Use live backend" recovery action when offline.
 
 ## Latest Deployment Status
 - Code status in this workspace:
@@ -187,6 +191,11 @@
 - Live deployment status must be re-verified directly in Render/Cloudflare dashboards after each push.
 
 ## Latest Test Results
+- July 10, 2026:
+  - root `npx tsc --noEmit --pretty false` passed after the email-first access gate and registration-error clarity changes
+  - dashboard `npm run build` passed outside the sandbox and generated `dashboard/dist/assets/index-DxcEeBFg.js` plus `dashboard/dist/assets/index-cCZChnTC.css`
+  - static preview was restarted at `http://127.0.0.1:4192/` and returned HTTP 200
+  - local preview should be judged on `4192`, not stale `4191`
 - July 7, 2026:
   - backend `npx tsc --noEmit --pretty false` passed after Supabase email-access frontend integration
   - dashboard production build remains blocked by the pre-existing sandbox/path-resolution issue (`Cannot read directory "../../.."` / `Could not resolve ... vite.config.js`), so this change still needs in-browser/live verification rather than relying on this shell's build result
