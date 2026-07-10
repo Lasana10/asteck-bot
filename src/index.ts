@@ -53,6 +53,8 @@ app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     if (/^https:\/\/[a-z0-9-]+\.asteck-bot\.pages\.dev$/i.test(origin)) return callback(null, true);
+    if (/^http:\/\/127\.0\.0\.1:\d+$/i.test(origin)) return callback(null, true);
+    if (/^http:\/\/localhost:\d+$/i.test(origin)) return callback(null, true);
     return callback(new Error('Origin not allowed by AFAT CORS policy'));
   },
   credentials: true

@@ -18,6 +18,11 @@ function normalizeCameroonPhone(phone: string) {
   return String(phone || '').trim();
 }
 
+function normalizeOptionalText(value: any) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
 async function seedComplianceRecords(records: Array<Record<string, any>>) {
   if (!records.length) return;
   const { error } = await supabase.from('compliance_records').insert(records);
@@ -113,9 +118,18 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 
     const normalizedPhone = normalizeCameroonPhone(phone);
 
-    if (!full_name || !normalizedPhone || !national_id || !license_number) {
-      return res.status(400).json({ error: 'Missing required fields: full_name, phone, national_id, license_number' });
+    if (!full_name || !normalizedPhone) {
+      return res.status(400).json({ error: 'Missing required fields: full_name, phone' });
     }
+
+    const resolvedNationalId = normalizeOptionalText(national_id);
+    const resolvedLicenseNumber = normalizeOptionalText(license_number);
+    const intakeStatus =
+      resolvedNationalId && resolvedLicenseNumber
+        ? 'verification_ready'
+        : resolvedNationalId || resolvedLicenseNumber
+          ? 'partial_documents'
+          : 'field_followup_required';
 
     const { data: existing } = await supabase
       .from('profiles')
@@ -130,8 +144,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         .update({
           full_name,
           role: 'operator',
-          national_id_number: national_id,
-          license_number,
+          national_id_number: resolvedNationalId,
+          license_number: resolvedLicenseNumber,
           contractor_code: contractorCode,
           is_active: true,
           updated_at: new Date().toISOString()
@@ -195,9 +209,12 @@ router.post('/driver/register', async (req: Request, res: Response) => {
             base_city: base_city || null,
             operating_zone: operating_zone || null,
             affiliation_name: affiliation_name || null,
+            intake_status: intakeStatus,
           }
         },
-        message: `${full_name} profile updated and queued for AFAT operator verification.`
+        message: intakeStatus === 'verification_ready'
+          ? `${full_name} profile updated and queued for AFAT operator verification.`
+          : `${full_name} profile updated as a partial intake. AFAT still needs document follow-up before full activation.`
       });
     }
 
@@ -226,8 +243,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         full_name,
         phone: normalizedPhone,
         role: 'operator',
-        national_id_number: national_id,
-        license_number,
+        national_id_number: resolvedNationalId,
+        license_number: resolvedLicenseNumber,
         contractor_code: contractorCode,
         verification_status: verificationStatus,
         driver_dna_score: 75.0, // Start at neutral
@@ -286,9 +303,12 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           base_city: base_city || null,
           operating_zone: operating_zone || null,
           affiliation_name: affiliation_name || null,
+          intake_status: intakeStatus,
         }
       },
-      message: `Bienvenue ${full_name}! Code contractant: ${contractorCode}. Commission AFAT: 8%.`
+      message: intakeStatus === 'verification_ready'
+        ? `Bienvenue ${full_name}! Code contractant: ${contractorCode}. Commission AFAT: 8%.`
+        : `Bienvenue ${full_name}. Your AFAT intake is saved, but more identity or vehicle documents are still needed before full verification.`
     });
   } catch (error: any) {
     console.error('Driver registration error:', error);
@@ -334,9 +354,12 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
     const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
+    const resolvedName = normalizeOptionalText(full_name);
+    const fallbackName = normalizedPhone ? `AFAT commuter ${normalizedPhone.slice(-4)}` : null;
+    const commuterName = resolvedName || fallbackName;
 
-    if (!full_name || !normalizedPhone) {
-      return res.status(400).json({ error: 'Missing: full_name, phone' });
+    if (!commuterName || !normalizedPhone) {
+      return res.status(400).json({ error: 'Missing: phone' });
     }
 
     const { data: existing } = await supabase
@@ -349,7 +372,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
       const { data, error } = await supabase
         .from('profiles')
         .update({
-          full_name,
+          full_name: commuterName,
           role: existing.role || 'commuter',
           emergency_contact: emergency_contact || existing.emergency_contact || null,
           is_active: true,
@@ -369,6 +392,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
           onboarding_context: {
             preferred_city: preferred_city || null,
             preferred_zone: preferred_zone || null,
+            intake_status: resolvedName ? 'named_profile' : 'phone_first_partial',
           }
         },
         message: 'Existing AFAT profile resumed.'
@@ -378,7 +402,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
     const { data, error } = await supabase
       .from('profiles')
       .insert({
-        full_name,
+        full_name: commuterName,
         phone: normalizedPhone,
         role: 'commuter',
         emergency_contact: emergency_contact || null,
@@ -394,10 +418,11 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
       success: true,
       user: {
         id: data.id,
-        full_name,
+        full_name: commuterName,
         onboarding_context: {
           preferred_city: preferred_city || null,
           preferred_zone: preferred_zone || null,
+          intake_status: resolvedName ? 'named_profile' : 'phone_first_partial',
         }
       }
     });
@@ -412,8 +437,13 @@ router.post('/company/register', async (req: Request, res: Response) => {
     const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
 
-    if (!company_name || !normalizedPhone) {
-      return res.status(400).json({ error: 'Missing: company_name, phone' });
+    const resolvedCompanyName = normalizeOptionalText(company_name);
+    const resolvedContactPerson = normalizeOptionalText(contact_person);
+    const companyDisplayName = resolvedCompanyName || (normalizedPhone ? `AFAT fleet intake ${normalizedPhone.slice(-4)}` : null);
+    const coordinatorName = resolvedContactPerson || resolvedCompanyName || 'AFAT Fleet Coordinator';
+
+    if (!companyDisplayName || !normalizedPhone) {
+      return res.status(400).json({ error: 'Missing: phone' });
     }
 
     const { data: existing } = await supabase
@@ -421,8 +451,6 @@ router.post('/company/register', async (req: Request, res: Response) => {
       .select('*')
       .eq('phone', normalizedPhone)
       .maybeSingle();
-
-    const coordinatorName = contact_person || `${company_name} Coordinator`;
 
     const profilePayload = existing
       ? supabase
@@ -459,7 +487,7 @@ router.post('/company/register', async (req: Request, res: Response) => {
       ? supabase
           .from('companies')
           .update({
-            name: company_name,
+            name: companyDisplayName,
             contact_person: coordinatorName,
             fleet_size: fleet_size || existingCompany.fleet_size || null,
             notes: notes || existingCompany.notes || null,
@@ -469,7 +497,7 @@ router.post('/company/register', async (req: Request, res: Response) => {
       : supabase
           .from('companies')
           .insert({
-            name: company_name,
+            name: companyDisplayName,
             phone: normalizedPhone,
             contact_person: coordinatorName,
             fleet_size: fleet_size || null,
@@ -521,13 +549,18 @@ router.post('/company/register', async (req: Request, res: Response) => {
         notes: company.notes,
         company_type: company_type || null,
         service_coverage: service_coverage || null,
+        onboarding_context: {
+          intake_status: resolvedCompanyName && resolvedContactPerson ? 'verification_ready' : 'partial_intake',
+        }
       },
       profile: {
         id: data.id,
         role: 'planner',
         full_name: coordinatorName,
       },
-      message: `${company_name} is now queued for AFAT fleet onboarding.`
+      message: resolvedCompanyName && resolvedContactPerson
+        ? `${companyDisplayName} is now queued for AFAT fleet onboarding.`
+        : `${companyDisplayName} intake is saved. AFAT still needs coordinator or company details before full fleet activation.`
     });
   } catch (error: any) {
     console.error('Company registration error:', error);

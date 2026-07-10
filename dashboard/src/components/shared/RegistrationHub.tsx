@@ -168,6 +168,31 @@ function getCompletionCopy(track: RegistrationTrack) {
   };
 }
 
+function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: string | null) {
+  if (track === 'commuter' && intakeStatus === 'phone_first_partial') {
+    return {
+      title: 'Commuter Intake Saved',
+      body: 'AFAT created a phone-first commuter profile. Name, city, and safety preferences can be completed later without blocking access.'
+    };
+  }
+
+  if ((track === 'citizen_reg' || track === 'gov_link') && intakeStatus && intakeStatus !== 'verification_ready') {
+    return {
+      title: 'Operator Intake Saved',
+      body: 'AFAT accepted this operator as a partial intake. Document follow-up and service verification will continue before full activation.'
+    };
+  }
+
+  if (track === 'company' && intakeStatus === 'partial_intake') {
+    return {
+      title: 'Fleet Intake Saved',
+      body: 'AFAT opened the fleet workspace, but coordinator or company details still need follow-up before full planner activation.'
+    };
+  }
+
+  return getCompletionCopy(track);
+}
+
 export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '' }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
   const [govId, setGovId] = useState('');
@@ -196,12 +221,14 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
   const [serviceCoverage, setServiceCoverage] = useState('');
   const [companyNotes, setCompanyNotes] = useState('');
   const [errorText, setErrorText] = useState('');
+  const [completionState, setCompletionState] = useState<{ title: string; body: string } | null>(null);
 
   useEffect(() => {
     if (!isVisible) return;
     setTrack(initialTrack);
     setSuccess(false);
     setErrorText('');
+    setCompletionState(null);
     if (prefillPhone) {
       setPhone(prefillPhone.replace(/^\+?237/, '').trim());
     }
@@ -211,7 +238,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
   const serviceProfile = SERVICE_PLAYBOOK[vehicleType] || SERVICE_PLAYBOOK.taxi;
   const companyProfile = COMPANY_PLAYBOOK[companyType] || COMPANY_PLAYBOOK['Transport agency'];
-  const completionCopy = getCompletionCopy(track);
+  const completionCopy = completionState || getCompletionCopy(track);
 
   const handleGovLinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,6 +264,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
         return;
       }
 
+      setCompletionState(getCompletionCopyForStatus('gov_link', data?.driver?.onboarding_context?.intake_status));
       setSuccess(true);
       setTimeout(() => {
         onRegisterCustom({ 
@@ -286,6 +314,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
         return;
       }
 
+      setCompletionState(getCompletionCopyForStatus('citizen_reg', data?.driver?.onboarding_context?.intake_status));
       setSuccess(true);
       setTimeout(() => {
         onRegisterCustom({
@@ -320,6 +349,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       return;
     }
 
+    setCompletionState(getCompletionCopyForStatus('commuter', data?.user?.onboarding_context?.intake_status));
     setSuccess(true);
     setTimeout(() => {
       onRegisterCustom({
@@ -353,6 +383,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       return;
     }
 
+    setCompletionState(getCompletionCopyForStatus('company', data?.company?.onboarding_context?.intake_status));
     setSuccess(true);
     setTimeout(() => {
       onRegisterCustom({
@@ -441,8 +472,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
           ) : track === 'commuter' ? (
             <form onSubmit={handleCommuterSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Full Name</label>
-                <input required type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Marie Atangana" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-medium" />
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Full Name (Optional)</label>
+                <input type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Marie Atangana" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-medium" />
               </div>
 
               <div>
@@ -469,13 +500,17 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                 </div>
               </div>
 
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-emerald-100/80">
+                Phone is enough to open a commuter intake. Name, zone, and guardian details can be completed later.
+              </div>
+
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
 
               <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
-                <button disabled={loading || !driverName || !phone} type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-500/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                <button disabled={loading || !phone} type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-500/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
                   {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-950" /> : 'Create Commuter Access'}
                 </button>
               </div>
@@ -612,17 +647,17 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">National ID</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">National ID (Optional)</label>
                   <input type="text" value={driverNationalId} onChange={e=>setDriverNationalId(e.target.value)} placeholder="CNI / national ID" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">License Number</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">License Number (Optional)</label>
                   <input type="text" value={driverLicenseNumber} onChange={e=>setDriverLicenseNumber(e.target.value)} placeholder="Permit / license" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Plate Number</label>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Plate Number (Optional)</label>
                 <input type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-mono uppercase" />
               </div>
 
@@ -656,6 +691,10 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs font-medium leading-relaxed text-white/70">
+                AFAT can save this operator as a partial intake even if national ID, license, plate, or route details are not complete yet.
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -699,13 +738,13 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
           ) : (
             <form onSubmit={handleCompanySubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Company or Union Name</label>
-                <input required type="text" value={companyName} onChange={e=>setCompanyName(e.target.value)} placeholder="AFAT Express Union" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Company or Union Name (Optional)</label>
+                <input type="text" value={companyName} onChange={e=>setCompanyName(e.target.value)} placeholder="AFAT Express Union" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Coordinator Name</label>
-                <input required type="text" value={contactPerson} onChange={e=>setContactPerson(e.target.value)} placeholder="Operations lead" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Coordinator Name (Optional)</label>
+                <input type="text" value={contactPerson} onChange={e=>setContactPerson(e.target.value)} placeholder="Operations lead" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium" />
               </div>
 
               <div>
@@ -714,6 +753,10 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                   <span className="flex items-center px-4 text-slate-400 font-mono border-r border-white/10">+237</span>
                   <input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-amber-100/80">
+                A phone line is enough to open a fleet intake. AFAT can follow up later for coordinator identity, permits, and fleet packaging.
               </div>
 
               <div>
@@ -766,8 +809,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                 <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
-                <button disabled={loading || !companyName || !contactPerson || !phone} type="submit" className="flex-1 bg-amber-400 hover:bg-amber-300 disabled:bg-amber-400/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
-                  {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-950" /> : 'Enroll Fleet'}
+                <button disabled={loading || !phone} type="submit" className="flex-1 bg-amber-400 hover:bg-amber-300 disabled:bg-amber-400/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                  {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-950" /> : 'Open Fleet Intake'}
                 </button>
               </div>
             </form>
