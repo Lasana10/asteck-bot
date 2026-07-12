@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -17,15 +17,17 @@ import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 // 🔐 OTP LOGIN COMPONENT
 // ==============================================================================
 function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => void }) {
-  const [authChannel, setAuthChannel] = useState<'phone' | 'email'>('email');
+  const [authChannel, setAuthChannel] = useState<'email_password' | 'email_otp' | 'phone'>('email_password');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [adminCode, setAdminCode] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [step, setStep] = useState<'identity' | 'verify'>('identity');
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
+  const [infoText, setInfoText] = useState('');
   const [showBypass, setShowBypass] = useState(false);
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
@@ -71,13 +73,28 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     e.preventDefault();
     setLoading(true);
     setErrorText('');
+    setInfoText('');
     persistAccessIntent();
-    const result = authChannel === 'email'
+
+    if (authChannel === 'email_password') {
+      const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, { roleIntent });
+      if (error) {
+        setErrorText(`${error.message} Check Supabase Email provider settings and redirect URLs if this persists.`);
+      } else if (data?.mode === 'confirmation_required') {
+        setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
+      } else {
+        window.location.reload();
+      }
+      setLoading(false);
+      return;
+    }
+
+    const result = authChannel === 'email_otp'
       ? await sendEmailOtp(normalizedEmail, { roleIntent })
       : await sendPhoneOtp(normalizedPhone);
     const { error } = result;
     if (error) {
-      setErrorText(authChannel === 'email'
+      setErrorText(authChannel === 'email_otp'
         ? `${error.message} Check Supabase Auth email settings, redirect URLs, and SMTP if no email arrives.`
         : `${error.message} Phone OTP depends on the AFAT backend and the active SMS provider.`);
     } else {
@@ -90,8 +107,9 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     e.preventDefault();
     setLoading(true);
     setErrorText('');
+    setInfoText('');
     persistAccessIntent();
-    const { error } = authChannel === 'email'
+    const { error } = authChannel === 'email_otp'
       ? await verifyEmailOtp(normalizedEmail, otp)
       : await verifyPhoneOtp(normalizedPhone, otp, {
           roleIntent,
@@ -171,6 +189,12 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           </div>
         )}
 
+        {infoText && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 p-4 rounded-2xl text-xs mb-6 font-bold">
+            {infoText}
+          </div>
+        )}
+
         <div className="mb-6 grid grid-cols-2 gap-2">
           <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
             <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
@@ -234,13 +258,14 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
               <div className="mb-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Recommended now: Email OTP</p>
-                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Phone OTP stays available, but email is the active low-friction path while SMS provider registration is being completed.</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Recommended now: Email password</p>
+                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Email/password is the stable pilot lane. Email link/code and phone access remain available where providers are configured.</p>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {[
                   { channel: 'phone', label: 'Phone OTP' },
-                  { channel: 'email', label: 'Email OTP' },
+                  { channel: 'email_password', label: 'Email Pass' },
+                  { channel: 'email_otp', label: 'Email Link' },
                 ].map((item) => (
                   <button
                     key={item.channel}
@@ -259,17 +284,30 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             </div>
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
-                {authChannel === 'email' ? 'Secure email identity' : 'Secure phone line'}
+                {authChannel === 'phone' ? 'Secure phone line' : 'Secure email identity'}
               </label>
-              {authChannel === 'email' ? (
-                <input
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-semibold"
-                  required
-                />
+              {authChannel !== 'phone' ? (
+                <div className="space-y-3">
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-semibold"
+                    required
+                  />
+                  {authChannel === 'email_password' && (
+                    <input
+                      type="password"
+                      placeholder="Password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-semibold"
+                      minLength={6}
+                      required
+                    />
+                  )}
+                </div>
               ) : (
                 <div className="flex bg-slate-900 rounded-2xl overflow-hidden focus-within:ring-2 ring-blue-500/50 transition-all border border-white/10">
                   <span className="flex items-center justify-center px-5 bg-slate-950 text-slate-400 border-r border-white/10 font-mono font-bold">+237</span>
@@ -286,10 +324,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             </div>
               <button
                 type="submit"
-              disabled={loading || (authChannel === 'email' ? !normalizedEmail.includes('@') : normalizedPhone.length < 8)}
+              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Transmitting...' : authChannel === 'email' ? 'Send Email Code' : 'Request Phone Code'}
+              {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
               {!loading && <ChevronRight className="w-4 h-4" />}
             </button>
           </form>
@@ -304,10 +342,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 onChange={e => setOtp(e.target.value)}
                 className="w-full bg-slate-900 px-5 py-5 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono tracking-[0.5em] text-center text-3xl font-bold"
                 maxLength={6}
-                required={authChannel === 'email' || roleIntent !== 'admin' || (!adminCode.trim() && !accessCode.trim())}
+                required={authChannel === 'email_otp' || roleIntent !== 'admin' || (!adminCode.trim() && !accessCode.trim())}
               />
               <p className="mt-2 text-[10px] font-semibold text-white/40">
-                {authChannel === 'email'
+                {authChannel === 'email_otp'
                   ? 'Use the code from the Supabase email, or open the secure email link in this browser.'
                   : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
               </p>
@@ -344,10 +382,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
             <button
               type="submit"
-              disabled={loading || (otp.length < 6 && authChannel === 'email') || (authChannel === 'phone' && otp.length < 6 && !adminCode.trim() && !accessCode.trim())}
+              disabled={loading || (otp.length < 6 && authChannel === 'email_otp') || (authChannel === 'phone' && otp.length < 6 && !adminCode.trim() && !accessCode.trim())}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-            {loading ? 'Verifying...' : authChannel === 'email' ? 'Verify Email Code' : accessCode.trim() ? 'Use Temporary Access Code' : roleIntent === 'admin' && adminCode.trim() ? 'Use Admin Access Code' : 'Verify Phone Access'}
+            {loading ? 'Verifying...' : authChannel === 'email_otp' ? 'Verify Email Code' : accessCode.trim() ? 'Use Temporary Access Code' : roleIntent === 'admin' && adminCode.trim() ? 'Use Admin Access Code' : 'Verify Phone Access'}
             </button>
             <button
               type="button"
@@ -696,7 +734,7 @@ function AppShell() {
               <div className="mb-8 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/60">Why you’re here</p>
                 <p className="mt-2 text-sm font-medium leading-relaxed text-white/75">
-                  AFAT now opens through a real access flow instead of the old guest shell. Email OTP is the recommended path now; phone OTP remains available for approved provider lanes. Register your commuter, operator, or fleet identity if no profile exists yet.
+                  AFAT now opens through a real access flow instead of the old guest shell. Email and password is the recommended pilot path now; phone OTP remains available for approved provider lanes. Register your commuter, operator, or fleet identity if no profile exists yet.
                 </p>
               </div>
 

@@ -84,6 +84,76 @@ export async function verifyEmailOtp(email: string, token: string) {
   }
 }
 
+export async function signInOrSignUpWithEmailPassword(
+  email: string,
+  password: string,
+  options?: { roleIntent?: string }
+) {
+  try {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const cleanPassword = String(password || '');
+
+    const signIn = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: cleanPassword,
+    });
+
+    if (!signIn.error) {
+      if (signIn.data?.user?.id) {
+        localStorage.setItem('afat_local_user_id', signIn.data.user.id);
+        localStorage.setItem('afat_user_id', signIn.data.user.id);
+      }
+      localStorage.setItem('afat_access_email', normalizedEmail);
+      return { data: { ...signIn.data, mode: 'signed_in' }, error: null };
+    }
+
+    const message = signIn.error.message || '';
+    const canCreate =
+      message.toLowerCase().includes('invalid login') ||
+      message.toLowerCase().includes('invalid credentials') ||
+      message.toLowerCase().includes('email not confirmed') ||
+      message.toLowerCase().includes('user not found');
+
+    if (!canCreate) {
+      return { data: null, error: { message } };
+    }
+
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const signUp = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password: cleanPassword,
+      options: {
+        emailRedirectTo: redirectTo,
+        data: {
+          role: options?.roleIntent || 'commuter',
+          username: normalizedEmail.split('@')[0],
+          utm_source: 'afat_email_password_access',
+        },
+      },
+    });
+
+    if (signUp.error) {
+      return { data: null, error: { message: signUp.error.message || 'Email registration failed.' } };
+    }
+
+    if (signUp.data?.user?.id) {
+      localStorage.setItem('afat_local_user_id', signUp.data.user.id);
+      localStorage.setItem('afat_user_id', signUp.data.user.id);
+    }
+    localStorage.setItem('afat_access_email', normalizedEmail);
+
+    return {
+      data: {
+        ...signUp.data,
+        mode: signUp.data.session ? 'signed_up' : 'confirmation_required',
+      },
+      error: null,
+    };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 /**
  * Step 1: Send SMS OTP via Africa's Talking (through our Express backend)
  */
@@ -195,6 +265,13 @@ export async function signOut() {
 export function afatAuthHeaders() {
   const token = localStorage.getItem('afat_access_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function passageAuthHeaders() {
+  const localToken = localStorage.getItem('afat_access_token');
+  if (localToken) return { Authorization: `Bearer ${localToken}` };
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
 export async function getCurrentUser() {
@@ -736,6 +813,162 @@ export async function createServiceRequest(serviceData: any) {
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Service request failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export type AfatMeetingPoint = {
+  id: string;
+  name: string;
+  instructions: string;
+  latitude: number;
+  longitude: number;
+  photo_url?: string | null;
+  access_modes: string[];
+  walk_minutes: number;
+  confidence: number;
+  successful_pickups: number;
+};
+
+export type AfatPlaceCandidate = {
+  id: string;
+  name: string;
+  description?: string | null;
+  city: string;
+  zone_label?: string | null;
+  latitude: number;
+  longitude: number;
+  vehicle_access: string;
+  confidence: number;
+  confidence_label: 'high' | 'medium' | 'low';
+  successful_pickups: number;
+  explanation: string[];
+  meeting_points: AfatMeetingPoint[];
+};
+
+export async function resolveAfatPlace(payload: { query: string; city?: string; vehicle_type?: string }) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/place/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Place resolution failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function confirmAfatPlace(payload: {
+  profile_id?: string;
+  query_text: string;
+  city?: string;
+  place_id?: string;
+  meeting_point_id?: string;
+  confidence?: number;
+  resolution_status?: 'selected' | 'corrected' | 'none_correct';
+  feedback?: string;
+}) {
+  try {
+    const authHeaders = await passageAuthHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Place confirmation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function createPassageIntent(payload: {
+  passenger_id: string;
+  origin_text?: string;
+  destination_text: string;
+  arrival_target?: string;
+  selected_place_id?: string;
+  meeting_point_id?: string;
+  place_confidence?: number;
+  requested_vehicle_type?: string;
+  metadata?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await passageAuthHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/passages/intents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Passage intent creation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchPassageIntents(params: { passenger_id?: string; operator_id?: string; open?: boolean }) {
+  try {
+    const authHeaders = await passageAuthHeaders();
+    const query = new URLSearchParams();
+    if (params.passenger_id) query.set('passenger_id', params.passenger_id);
+    if (params.operator_id) query.set('operator_id', params.operator_id);
+    if (params.open) query.set('open', 'true');
+    const res = await fetch(`${getApiBaseUrl()}/api/passages/intents?${query.toString()}`, {
+      headers: { ...authHeaders },
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Passage lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function updatePassageIntentStatus(
+  passageId: string,
+  payload: { status: string; operator_id?: string; disruption_reason?: string }
+) {
+  try {
+    const authHeaders = await passageAuthHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/passages/intents/${passageId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Passage update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function reportPassageOutcome(
+  passageId: string,
+  payload: {
+    outcome_type: 'successful_pickup' | 'road_inaccessible' | 'meeting_point_incorrect' | 'passenger_no_show' | 'driver_cancelled' | 'passenger_cancelled';
+    responsibility?: 'driver' | 'passenger' | 'map' | 'road_condition' | 'shared' | 'unclassified';
+    notes?: string;
+    evidence?: Record<string, any>;
+  }
+) {
+  try {
+    const authHeaders = await passageAuthHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/passages/intents/${passageId}/outcome`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Passage outcome failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
