@@ -5,7 +5,7 @@ import {
   MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio, Megaphone,
   Database, Download, CheckCircle, Activity, Layout, Layers, Box, Cloud, Wifi, RefreshCw, ArrowUpRight
 } from 'lucide-react';
-import { fetchLiveMapOps, getOperatorWalletLedger, requestOperatorWithdrawal, submitNegotiationOffer, supabase } from '../../supabaseClient';
+import { fetchLiveMapOps, fetchPassageIntents, getOperatorWalletLedger, reportPassageOutcome, requestOperatorWithdrawal, submitNegotiationOffer, supabase, updatePassageIntentStatus } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { VoiceReporter } from '../shared/VoiceReporter';
 import { QRCodeGenerator } from '../shared/QRCodeGenerator';
@@ -39,6 +39,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const [isOnline, setIsOnline] = useState(false);
   const [vehicle, setVehicle] = useState<any>(null);
   const [requests, setRequests] = useState<any[]>([]);
+  const [passageIntents, setPassageIntents] = useState<any[]>([]);
   const [isVoiceReporterOpen, setIsVoiceReporterOpen] = useState(false);
   const [isQRGeneratorOpen, setIsQRGeneratorOpen] = useState(false);
   const [driveTimeMinutes, setDriveTimeMinutes] = useState(0);
@@ -224,10 +225,61 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
 
   const fetchRequests = async () => {
     if (!profile?.id) return;
-    const { data } = await supabase
-      .from('bookings').select('*, routes(name, price_per_seat)')
-      .eq('operator_id', profile.id).eq('status', 'pending').order('created_at', { ascending: false });
+    const [{ data }, openPassages, assignedPassages] = await Promise.all([
+      supabase
+        .from('bookings').select('*, routes(name, price_per_seat)')
+        .eq('operator_id', profile.id).eq('status', 'pending').order('created_at', { ascending: false }),
+      fetchPassageIntents({ open: true }),
+      fetchPassageIntents({ operator_id: profile.id }),
+    ]);
     setRequests(data || []);
+    const passages = [...(openPassages.data?.passages || []), ...(assignedPassages.data?.passages || [])];
+    setPassageIntents(Array.from(new Map(passages.map((passage: any) => [passage.id, passage])).values()));
+  };
+
+  const acknowledgePassage = async (passageId: string) => {
+    const { error } = await updatePassageIntentStatus(passageId, {
+      status: 'driver_acknowledged',
+      operator_id: profile.id,
+    });
+    if (error) {
+      setOperatorNotice(`Passage could not be acknowledged: ${error.message}`);
+      return;
+    }
+    setOperatorNotice('Passage acknowledged. AFAT now shows both sides the same meeting point and instructions.');
+    fetchRequests();
+  };
+
+  const markPassageArrived = async (passageId: string) => {
+    const { error } = await updatePassageIntentStatus(passageId, {
+      status: 'driver_arrived',
+      operator_id: profile.id,
+    });
+    if (error) {
+      setOperatorNotice(`Arrival could not be confirmed: ${error.message}`);
+      return;
+    }
+    setOperatorNotice('Arrival confirmed. The passenger and operator are now anchored on the same meeting point.');
+    fetchRequests();
+  };
+
+  const recordPassageOutcome = async (
+    passageId: string,
+    outcomeType: 'successful_pickup' | 'road_inaccessible' | 'meeting_point_incorrect' | 'passenger_no_show' | 'driver_cancelled' | 'passenger_cancelled',
+    responsibility: 'driver' | 'passenger' | 'map' | 'road_condition' | 'shared' | 'unclassified',
+  ) => {
+    const { error } = await reportPassageOutcome(passageId, {
+      outcome_type: outcomeType,
+      responsibility,
+    });
+    if (error) {
+      setOperatorNotice(`Outcome could not be recorded: ${error.message}`);
+      return;
+    }
+    setOperatorNotice(outcomeType === 'successful_pickup'
+      ? 'Pickup confirmed. AFAT has strengthened this meeting point with verified evidence.'
+      : 'Issue recorded. The passage remains active in recovery while operations reviews the evidence.');
+    fetchRequests();
   };
 
   const fetchWallet = async () => {
@@ -395,6 +447,69 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
 
       {renderOperatorNotice()}
 
+      {isOnline && passageIntents.length > 0 && (
+        <div className="mb-5 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300/65">AFAT passage intents</p>
+          {passageIntents.map((passage) => {
+            const place = passage.afat_places;
+            const meetingPoint = passage.afat_meeting_points;
+            return (
+              <div key={passage.id} className="rounded-[2rem] border border-emerald-400/20 bg-emerald-500/8 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-black text-white">{place?.canonical_name || passage.destination_text}</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-emerald-200/65">
+                      {passage.requested_vehicle_type || 'vehicle flexible'} · place confidence {passage.place_confidence || 0}%
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[9px] font-black uppercase text-white/55">
+                    {passage.arrival_target ? `Arrive ${new Date(passage.arrival_target).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Now'}
+                  </span>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-orange-200/60">Shared meeting point</p>
+                  <p className="mt-1 text-xs font-black text-white">{meetingPoint?.name || 'Meeting point pending review'}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-white/55">{meetingPoint?.instructions || 'Use the passenger description and request operations support before moving.'}</p>
+                  {meetingPoint && (
+                    <p className="mt-2 text-[10px] font-bold text-blue-200/65">Passenger walk {meetingPoint.walk_minutes} min · meeting confidence {meetingPoint.confidence}%</p>
+                  )}
+                </div>
+
+                {passage.status === 'open' ? (
+                  <button
+                    onClick={() => acknowledgePassage(passage.id)}
+                    disabled={!meetingPoint}
+                    className="mt-4 w-full rounded-2xl bg-emerald-500 px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-40"
+                  >
+                    Acknowledge meeting point
+                  </button>
+                ) : passage.status === 'recovery' ? (
+                  <div className="mt-4 rounded-2xl border border-orange-300/20 bg-orange-400/10 px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-orange-100">
+                    Recovery active · operations reviewing
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button onClick={() => markPassageArrived(passage.id)} className="col-span-2 rounded-2xl bg-blue-500 px-3 py-3 text-[9px] font-black uppercase text-white">
+                      I have arrived at meeting point
+                    </button>
+                    <button onClick={() => recordPassageOutcome(passage.id, 'successful_pickup', 'shared')} className="rounded-2xl bg-emerald-500 px-3 py-3 text-[9px] font-black uppercase text-slate-950">
+                      Pickup succeeded
+                    </button>
+                    <button onClick={() => recordPassageOutcome(passage.id, 'road_inaccessible', 'road_condition')} className="rounded-2xl border border-orange-300/25 bg-orange-400/10 px-3 py-3 text-[9px] font-black uppercase text-orange-100">
+                      Road inaccessible
+                    </button>
+                    <button onClick={() => recordPassageOutcome(passage.id, 'meeting_point_incorrect', 'map')} className="col-span-2 rounded-2xl border border-red-300/20 bg-red-400/10 px-3 py-3 text-[9px] font-black uppercase text-red-100">
+                      Meeting point incorrect
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {isOnline && requests.length > 0 && (
         <div className="space-y-4">
           {requests.map(req => (
@@ -461,7 +576,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
         </div>
       )}
 
-      {isOnline && requests.length === 0 && (
+      {isOnline && requests.length === 0 && passageIntents.length === 0 && (
         <div className="bg-black/40 backdrop-blur-md border border-white/5 rounded-[2rem] p-12 text-center shadow-inner">
           <div className="relative inline-block mb-4">
             <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl animate-pulse"></div>

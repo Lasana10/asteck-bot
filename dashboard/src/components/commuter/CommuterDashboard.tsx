@@ -15,16 +15,29 @@ import { DepartureBoard } from './DepartureBoard';
 import { SeatSelector } from './SeatSelector';
 import { PaymentSheet } from './PaymentSheet';
 import { TicketView } from './TicketView';
-import { createBookingFromHold, createSeatHold, fetchLiveMapOps, getActiveCampaigns, publishMapSignal, releaseSeatHold, supabase } from '../../supabaseClient';
+import {
+  createBookingFromHold,
+  createSeatHold,
+  fetchLiveMapOps,
+  fetchPassageIntents,
+  getActiveCampaigns,
+  publishMapSignal,
+  releaseSeatHold,
+  reportPassageOutcome,
+  supabase,
+  updatePassageIntentStatus,
+} from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { CommuterWallet } from './CommuterWallet';
 import { ConciergeHelp } from '../shared/ConciergeHelp';
+import { NegotiationPanel } from '../shared/NegotiationPanel';
 import { PointsSystem } from '../shared/PointsSystem';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
 import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
+import { PassagePlanner } from './PassagePlanner';
 
 interface Props {
   onSignOut: () => void;
@@ -64,6 +77,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [aiSentiment, setAiSentiment] = useState<string>('');
   const [productNotice, setProductNotice] = useState('');
   const [dataMissions, setDataMissions] = useState<any[]>([]);
+  const [activePassages, setActivePassages] = useState<any[]>([]);
+  const [passageActionInFlight, setPassageActionInFlight] = useState<string | null>(null);
 
   const handleSOS = () => {
     if (isGuest) {
@@ -110,6 +125,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   useEffect(() => {
     refreshLiveOps();
     hydrateDataMissions();
+    refreshActivePassages();
 
     const incidentChannel = supabase
       .channel('public:incidents')
@@ -129,7 +145,26 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       supabase.removeChannel(incidentChannel); 
       supabase.removeChannel(vehicleChannel);
     };
-  }, [profile?.preferred_city]);
+  }, [profile?.id, profile?.preferred_city]);
+
+  const refreshActivePassages = async () => {
+    if (!profile?.id) {
+      setActivePassages([]);
+      return;
+    }
+
+    const { data, error } = await fetchPassageIntents({ passenger_id: profile.id });
+    if (error) {
+      setProductNotice(`Passage sync failed: ${error.message}`);
+      return;
+    }
+
+    const passages = (data?.passages || []).filter((passage: any) => {
+      const status = String(passage.status || '').toLowerCase();
+      return !['completed', 'cancelled', 'closed', 'expired'].includes(status);
+    });
+    setActivePassages(passages);
+  };
 
   const hydrateDataMissions = async () => {
     const prepBoard = mapOfflineService.getPreparationBoard();
@@ -346,6 +381,133 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setProductNotice(`Mission published: ${mission.title}. Signal ${signalId} is now feeding AFAT map intelligence.`);
   };
 
+  const requestPassageRecovery = async (passage: any) => {
+    if (!passage?.id) return;
+    setPassageActionInFlight(passage.id);
+    const { error } = await reportPassageOutcome(passage.id, {
+      outcome_type: 'meeting_point_incorrect',
+      responsibility: 'map',
+      notes: 'Passenger reported they cannot safely reach or identify the meeting point.',
+      evidence: {
+        source: 'commuter_app',
+        previous_status: passage.status,
+        destination_text: passage.destination_text,
+      },
+    });
+
+    if (!error) {
+      await updatePassageIntentStatus(passage.id, {
+        status: 'recovery',
+        disruption_reason: 'passenger_cannot_reach_meeting_point',
+      });
+    }
+
+    setPassageActionInFlight(null);
+    if (error) {
+      setProductNotice(`Recovery request failed: ${error.message}`);
+      return;
+    }
+
+    setProductNotice('AFAT recovery is active. Operations and nearby operators can now review a safer meeting option.');
+    refreshActivePassages();
+  };
+
+  const closePassengerPassage = async (passage: any) => {
+    if (!passage?.id) return;
+    setPassageActionInFlight(passage.id);
+    const { error } = await updatePassageIntentStatus(passage.id, { status: 'cancelled' });
+    setPassageActionInFlight(null);
+
+    if (error) {
+      setProductNotice(`Passage close failed: ${error.message}`);
+      return;
+    }
+
+    setProductNotice('Passage closed. No pickup charge should be applied until the outcome is classified.');
+    refreshActivePassages();
+  };
+
+  const renderActivePassageQueue = () => {
+    if (!activePassages.length) return null;
+
+    const statusCopy: Record<string, string> = {
+      open: 'Searching for the right operator',
+      requested: 'Searching for the right operator',
+      driver_acknowledged: 'Operator has accepted the meeting point',
+      driver_arrived: 'Operator is at the meeting point',
+      recovery: 'Recovery in progress',
+    };
+
+    return (
+      <div className="px-5 pb-6 z-[4000] relative">
+        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/8 p-4 shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-emerald-300/80">Active passages</p>
+              <h2 className="mt-1 text-base font-black tracking-tight text-white">Your current movement loop</h2>
+            </div>
+            <button onClick={refreshActivePassages} className="rounded-xl border border-white/10 bg-white/5 p-3 text-white/70 hover:text-white" title="Refresh passages">
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {activePassages.slice(0, 3).map((passage) => {
+              const place = passage.afat_places || passage.place || {};
+              const meetingPoint = passage.afat_meeting_points || passage.meeting_point || {};
+              const status = String(passage.status || 'requested');
+              const isBusy = passageActionInFlight === passage.id;
+              return (
+                <div key={passage.id} className="rounded-xl border border-white/10 bg-slate-950/55 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-white">{place.canonical_name || passage.destination_text || 'Destination to confirm'}</p>
+                      <p className="mt-1 text-[11px] font-bold text-white/45">{passage.origin_text || 'Current position'} to {passage.destination_text || 'selected place'}</p>
+                    </div>
+                    <span className="shrink-0 rounded-lg bg-blue-500/10 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-blue-300">
+                      {status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-emerald-400/15 bg-emerald-400/8 p-3">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-300">Meeting point</p>
+                    <p className="mt-1 text-sm font-black text-white">{meetingPoint.name || passage.meeting_point_name || 'Meeting point pending'}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-white/55">
+                      {meetingPoint.instructions || passage.meeting_point_instructions || 'AFAT is keeping the passenger and operator on the same pickup identity.'}
+                    </p>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-bold text-white/50">
+                    <span>Confidence: {passage.place_confidence ?? meetingPoint.confidence ?? 'pending'}%</span>
+                    <span>{passage.arrival_target ? `Target ${new Date(passage.arrival_target).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Flexible arrival'}</span>
+                  </div>
+                  <p className="mt-2 text-[11px] font-bold text-emerald-200/70">{statusCopy[status] || 'AFAT is coordinating the passage.'}</p>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => requestPassageRecovery(passage)}
+                      disabled={isBusy}
+                      className="rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-3 text-[9px] font-black uppercase tracking-widest text-amber-100 disabled:opacity-50"
+                    >
+                      Cannot reach point
+                    </button>
+                    <button
+                      onClick={() => closePassengerPassage(passage)}
+                      disabled={isBusy}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[9px] font-black uppercase tracking-widest text-white/70 disabled:opacity-50"
+                    >
+                      End passage
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Sub-views
   if (view === 'departures') return <DepartureBoard onSelectDeparture={handleDepartureSelect} onBack={() => setView('home')} />;
   if (view === 'seats' && selectedDeparture) return <SeatSelector departure={selectedDeparture} onConfirmSeat={handleSeatSelect} onBack={() => setView('departures')} />;
@@ -528,37 +690,20 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         />
       </div>
 
-      {/* ── From/To Search Bar ──────────────────────────── */}
+      {/* ── AFAT Place Intelligence ─────────────────────── */}
       <div className="px-5 pb-6 z-[4000] relative">
-        <div className="bg-slate-800 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl">
-          <div className="flex items-center gap-4 px-7 py-5 border-b border-white/10 group">
-            <div className="w-3 h-3 rounded-full bg-blue-400 shadow-[0_0_15px_#60a5fa] group-hover:scale-125 transition-transform" />
-            <input
-              type="text"
-              value={searchFrom}
-              onChange={e => setSearchFrom(e.target.value)}
-              placeholder="Source Station..."
-              className="flex-1 bg-transparent text-[15px] text-white placeholder:text-white/40 outline-none font-black italic tracking-tight"
-            />
-          </div>
-          <div className="flex items-center gap-4 px-7 py-5">
-            <MapPin className="w-5 h-5 text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]" />
-            <input
-              type="text"
-              value={searchTo}
-              onChange={e => setSearchTo(e.target.value)}
-              placeholder="Destination..."
-              className="flex-1 bg-transparent text-[15px] text-white placeholder:text-white/40 outline-none font-black italic tracking-tight"
-            />
-            <button
-              onClick={() => setView('departures')}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-[13px] font-black px-7 py-3 rounded-2xl uppercase tracking-[0.2em] transition-all active:scale-95 shadow-[0_0_25px_rgba(37,99,235,0.5)] italic"
-            >
-              LOCATE
-            </button>
-          </div>
-        </div>
+        <PassagePlanner
+          profile={profile}
+          originText={searchFrom}
+          initialDestination={searchTo}
+          onPassageCreated={(passage) => {
+            setProductNotice(`Passage ${passage?.id?.slice(0, 8) || ''} is active. The selected meeting point is now shared with operators.`);
+            refreshActivePassages();
+          }}
+        />
       </div>
+
+      {renderActivePassageQueue()}
 
       {/* ── Dynamic Intel Map Section ──────────────────────── */}
       <div className={`mx-5 rounded-[2.5rem] overflow-hidden border relative shadow-[0_20px_60px_rgba(0,0,0,0.6)] animate-in zoom-in-95 duration-700 ${profile?.subscription_tier === 'guardian' ? 'border-blue-500/40 shadow-blue-500/20' : 'border-white/10'}`} style={{height: '300px'}}>
@@ -1131,11 +1276,25 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             <MapPin className="w-3.5 h-3.5 text-orange-400" />
             <input type="text" value={searchTo} onChange={e => setSearchTo(e.target.value)} placeholder="Destination (ex: Bonamoussadi)" className="flex-1 bg-transparent text-[15px] text-white placeholder:text-white/40 outline-none font-bold" />
           </div>
-          <button onClick={() => setView('departures')} className="w-full bg-blue-600 hover:bg-blue-500 text-white text-[14px] font-black py-4 uppercase tracking-widest transition-all">
-            Rechercher un trajet
+          <button onClick={() => document.getElementById('commuter-passage-planner')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="w-full bg-blue-600 hover:bg-blue-500 text-white text-[14px] font-black py-4 uppercase tracking-widest transition-all">
+            Construire le passage
           </button>
         </div>
       </div>
+
+      <div id="commuter-passage-planner" className="mb-6">
+        <PassagePlanner
+          profile={profile}
+          originText={searchFrom}
+          initialDestination={searchTo}
+          onPassageCreated={(passage) => {
+            setProductNotice(`Passage ${passage?.id?.slice(0, 8) || ''} is active. The selected meeting point is now shared with operators.`);
+            refreshActivePassages();
+          }}
+        />
+      </div>
+
+      {renderActivePassageQueue()}
 
       <div className="grid grid-cols-1 gap-3 mb-6">
         <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4">
