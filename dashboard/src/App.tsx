@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -83,6 +83,16 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       } else if (data?.mode === 'confirmation_required') {
         setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
       } else {
+        const profileResult = await ensureSupabaseEmailProfile({
+          roleIntent,
+          accessCode: accessCode.trim() || undefined,
+          adminCode: adminCode.trim() || undefined,
+        });
+        if (profileResult.error) {
+          setErrorText(profileResult.error.message);
+          setLoading(false);
+          return;
+        }
         window.location.reload();
       }
       setLoading(false);
@@ -119,6 +129,18 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     if (error) {
       setErrorText(error.message);
     } else {
+      if (authChannel === 'email_otp') {
+        const profileResult = await ensureSupabaseEmailProfile({
+          roleIntent,
+          accessCode: accessCode.trim() || undefined,
+          adminCode: adminCode.trim() || undefined,
+        });
+        if (profileResult.error) {
+          setErrorText(profileResult.error.message);
+          setLoading(false);
+          return;
+        }
+      }
       window.location.reload();
     }
     setLoading(false);
@@ -144,29 +166,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         localStorage.setItem('afat_access_intent_role', role);
         window.location.reload();
       } else {
-        const testPhone = `23769999900${role === 'commuter' ? '1' : role === 'operator' ? '2' : role === 'planner' ? '3' : '4'}`;
-        const testName = `Test ${role.toUpperCase()}`;
-        
-        const { data: newProfile, error: createError } = await supabase
-          .from('profiles')
-          .insert({
-            full_name: testName,
-            phone: testPhone,
-            role: role,
-            trust_points: 100,
-            is_active: true,
-            created_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (createError) throw createError;
-
-        localStorage.setItem('afat_local_user_id', newProfile.id);
-        localStorage.setItem('afat_local_phone', testPhone);
-        localStorage.setItem('afat_user_id', newProfile.id);
-        localStorage.setItem('afat_access_intent_role', role);
-        window.location.reload();
+        setErrorText(`No seeded ${role} profile exists yet. Use email auth with the AFAT bootstrap code, or create a real ${role} account through onboarding.`);
       }
     } catch (err: any) {
       setErrorText(`Bypass failed: ${err.message || 'database connection issue'}`);
@@ -307,6 +307,15 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                       required
                     />
                   )}
+                  {['planner', 'admin'].includes(roleIntent) && (
+                    <input
+                      type="password"
+                      placeholder={roleIntent === 'admin' ? 'Admin bootstrap code' : 'Temporary access code'}
+                      value={roleIntent === 'admin' ? adminCode : accessCode}
+                      onChange={e => roleIntent === 'admin' ? setAdminCode(e.target.value) : setAccessCode(e.target.value)}
+                      className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="flex bg-slate-900 rounded-2xl overflow-hidden focus-within:ring-2 ring-blue-500/50 transition-all border border-white/10">
@@ -350,7 +359,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
               </p>
             </div>
-            {authChannel === 'phone' && (
+            {(authChannel === 'phone' || (authChannel === 'email_otp' && roleIntent === 'planner')) && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Temporary Access Code</label>
                 <input
@@ -365,7 +374,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 </p>
               </div>
             )}
-            {authChannel === 'phone' && roleIntent === 'admin' && (
+            {(authChannel === 'phone' || authChannel === 'email_otp') && roleIntent === 'admin' && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Admin Bootstrap Code</label>
                 <input
@@ -577,6 +586,12 @@ function AppShell() {
 
         const supabaseSession = await getCurrentUser();
         if (supabaseSession.user?.id) {
+          const profileResult = await ensureSupabaseEmailProfile({
+            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
+          });
+          if (profileResult.error) {
+            setBootError(profileResult.error.message);
+          }
           setSessionUser({
             id: supabaseSession.user.id,
             phone: supabaseSession.user.phone || localStorage.getItem('afat_local_phone') || '',
@@ -614,7 +629,9 @@ function AppShell() {
             phone: session.user.phone || localStorage.getItem('afat_local_phone') || '',
           });
           telemetry.start(session.user.id);
-          fetchRole(session.user.id);
+          ensureSupabaseEmailProfile({
+            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
+          }).finally(() => fetchRole(session.user.id));
         }
 
         if (event === 'SIGNED_OUT') {

@@ -8,6 +8,8 @@ import { aiRouter } from '../services/AIRouter';
 import { brainService } from '../services/brain';
 import { PaymentService } from '../services/payment';
 import { ArkeselClient } from '../infra/arkesel';
+import { TermiiClient } from '../infra/termii';
+import { NotificationChannel, NotificationService } from '../services/NotificationService';
 
 const router = express.Router();
 const ticketSecret = process.env.TICKET_SIGNING_SECRET || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || 'afat-dev-ticket-secret';
@@ -28,6 +30,14 @@ function signLocalAuth(payload: Record<string, any>) {
   return `${body}.${signature}`;
 }
 
+function hashToken(token: string) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function generateOpaqueToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
 function verifyLocalAuth(token?: string) {
   if (!token || !token.includes('.')) return null;
   const [body, signature] = token.split('.');
@@ -45,6 +55,182 @@ function authPayloadFromRequest(req: Request) {
   return verifyLocalAuth(token);
 }
 
+function normalizeAuthPhone(phone: string) {
+  const digits = String(phone || '').replace(/[^\d]/g, '');
+  if (digits.startsWith('237')) return `+${digits}`;
+  return `+237${digits.replace(/^0+/, '')}`;
+}
+
+function otpProviderMode() {
+  const configured = String(process.env.OTP_PROVIDER || '').trim().toLowerCase();
+  if (configured === 'termii') return 'termii';
+  if (configured === 'arkesel') return 'arkesel';
+  if (TermiiClient.isConfigured()) return 'termii';
+  if (Boolean(process.env.ARKESEL_API_KEY)) return 'arkesel';
+  return 'development';
+}
+
+function adminBootstrapConfig() {
+  const code = String(process.env.AFAT_ADMIN_BOOTSTRAP_CODE || '').trim();
+  const allowlist = String(process.env.AFAT_ADMIN_BOOTSTRAP_PHONES || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map(normalizeAuthPhone);
+  return { code, allowlist };
+}
+
+function generalBootstrapConfig() {
+  const code = String(process.env.AFAT_BOOTSTRAP_ACCESS_CODE || '').trim();
+  const allowlist = String(process.env.AFAT_BOOTSTRAP_ALLOW_PHONES || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map(normalizeAuthPhone);
+  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'commuter,operator,planner,admin')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return { code, allowlist, roles };
+}
+
+function emailBootstrapConfig() {
+  const generalCode = String(process.env.AFAT_BOOTSTRAP_ACCESS_CODE || '').trim();
+  const adminCode = String(process.env.AFAT_ADMIN_BOOTSTRAP_CODE || '').trim();
+  const allowlist = String(process.env.AFAT_BOOTSTRAP_ALLOW_EMAILS || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const adminAllowlist = String(process.env.AFAT_ADMIN_BOOTSTRAP_EMAILS || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'commuter,operator,planner,admin')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return { generalCode, adminCode, allowlist, adminAllowlist, roles };
+}
+
+function issueAccessToken(profile: any, phone: string) {
+  return signLocalAuth({
+    sub: profile.id,
+    phone,
+    role: profile.role || 'commuter',
+    exp: Date.now() + 1000 * 60 * 15,
+  });
+}
+
+async function issueRefreshSession(profile: any, phone: string, req: Request) {
+  const refreshToken = generateOpaqueToken();
+  const refreshTokenHash = hashToken(refreshToken);
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+
+  const { data: session, error } = await supabase
+    .from('auth_refresh_sessions')
+    .insert({
+      profile_id: profile.id,
+      phone,
+      refresh_token_hash: refreshTokenHash,
+      user_agent: String(req.headers['user-agent'] || '').slice(0, 512) || null,
+      ip_address: String(req.ip || req.headers['x-forwarded-for'] || '').slice(0, 128) || null,
+      expires_at: expiresAt,
+      last_used_at: new Date().toISOString(),
+    })
+    .select('id, expires_at')
+    .single();
+
+  if (error) throw error;
+  return { refreshToken, session };
+}
+
+async function getAuthProfileByToken(req: Request) {
+  const auth = authPayloadFromRequest(req);
+  if (!auth?.sub) return { auth: null, profile: null };
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', auth.sub)
+    .maybeSingle();
+  return { auth, profile };
+}
+
+async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
+  const { auth, profile } = await getAuthProfileByToken(req);
+  if (!auth?.sub || !profile) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return null;
+  }
+
+  if (roles?.length && !roles.includes(String(profile.role || '').toLowerCase())) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+
+  return { auth, profile };
+}
+
+async function fetchProfilesForNotificationTarget(target: {
+  user_ids?: string[];
+  role?: string;
+  city?: string;
+}) {
+  if (target.user_ids?.length) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role')
+      .in('id', target.user_ids);
+    if (error) throw error;
+    return data || [];
+  }
+
+  if (!target.role) return [];
+
+  let query = supabase
+    .from('profiles')
+    .select('id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role')
+    .eq('role', target.role)
+    .limit(100);
+
+  if (target.city) {
+    query = query.eq('preferred_city', target.city);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+async function notifyRecipients(target: {
+  user_ids?: string[];
+  role?: string;
+  city?: string;
+}, payload: {
+  type: string;
+  title: string;
+  body: string;
+  referenceId?: string | null;
+  channels?: NotificationChannel[];
+}) {
+  const recipients = await fetchProfilesForNotificationTarget(target);
+  if (!recipients.length) {
+    return { recipients: [], deliveries: [] };
+  }
+
+  const deliveries = await NotificationService.notifyMany(
+    recipients,
+    {
+      type: payload.type,
+      title: payload.title,
+      body: payload.body,
+      referenceId: payload.referenceId || null,
+    },
+    payload.channels?.length ? payload.channels : ['in_app']
+  );
+
+  return { recipients, deliveries };
+}
+
 async function appendWalletLedgerEntry(entry: any) {
   const { error } = await supabase
     .from('wallet_ledger')
@@ -58,6 +244,19 @@ async function appendWalletLedgerEntry(entry: any) {
 }
 
 async function appendPaymentEvent(entry: any) {
+  if (entry?.external_id) {
+    const { data: existing } = await supabase
+      .from('payment_events')
+      .select('id')
+      .eq('provider', entry.provider || 'pawapay')
+      .eq('external_id', entry.external_id)
+      .eq('event_type', entry.event_type)
+      .eq('event_status', entry.event_status)
+      .maybeSingle();
+
+    if (existing) return existing;
+  }
+
   const { error } = await supabase
     .from('payment_events')
     .insert({
@@ -67,6 +266,20 @@ async function appendPaymentEvent(entry: any) {
     });
 
   if (error) throw error;
+}
+
+function validateWebhookSecret(req: Request) {
+  const expected = process.env.PAWAPAY_WEBHOOK_SECRET || process.env.AFAT_WEBHOOK_SECRET;
+  if (!expected) return true;
+
+  const provided = String(
+    req.headers['x-afat-webhook-secret'] ||
+    req.headers['x-webhook-secret'] ||
+    req.query.secret ||
+    ''
+  );
+
+  return provided === expected;
 }
 
 async function ensureOperatorWallet(operatorId: string) {
@@ -252,14 +465,62 @@ router.post('/auth/send-otp', async (req: Request, res: Response) => {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
 
-    const hasSmsProvider = Boolean(process.env.ARKESEL_API_KEY);
-    const code = await ArkeselClient.sendOTP(phone);
+    const normalizedPhone = normalizeAuthPhone(phone);
+    const { data: recentChallenge } = await supabase
+      .from('auth_otp_challenges')
+      .select('id, created_at')
+      .eq('phone', normalizedPhone)
+      .is('consumed_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (recentChallenge?.created_at) {
+      const ageMs = Date.now() - new Date(recentChallenge.created_at).getTime();
+      if (ageMs < 45 * 1000) {
+        return res.status(429).json({ error: 'Please wait before requesting another OTP.' });
+      }
+    }
+
+    const provider = otpProviderMode();
+    const hasSmsProvider = provider !== 'development';
+    const devMode = process.env.NODE_ENV !== 'production';
+    if (!hasSmsProvider && !devMode) {
+      return res.status(503).json({ error: 'OTP provider not configured for production.' });
+    }
+    let code = '';
+    let providerRef: string | null = null;
+
+    if (provider === 'termii') {
+      const result = await TermiiClient.sendOTP(normalizedPhone);
+      if (!result.success) {
+        return res.status(502).json({ error: 'Termii OTP send failed' });
+      }
+      providerRef = result.pinId;
+    } else {
+      code = await ArkeselClient.sendOTP(normalizedPhone);
+    }
+
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+    const { error: challengeError } = await supabase
+      .from('auth_otp_challenges')
+      .insert({
+        phone: normalizedPhone,
+        otp_code: code,
+        delivery_provider: provider,
+        provider_ref: providerRef,
+        expires_at: expiresAt,
+      });
+
+    if (challengeError) throw challengeError;
 
     res.status(200).json({
       success: true,
       message: hasSmsProvider ? 'OTP sent successfully' : 'Development OTP generated',
-      mode: hasSmsProvider ? 'sms' : 'development',
-      ...(hasSmsProvider ? {} : { dev_code: code })
+      mode: provider,
+      expires_at: expiresAt,
+      ...(!hasSmsProvider && devMode ? { dev_code: code } : {})
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to send OTP' });
@@ -268,15 +529,61 @@ router.post('/auth/send-otp', async (req: Request, res: Response) => {
 
 router.post('/auth/verify-otp', async (req: Request, res: Response) => {
   try {
-    const { phone, code } = req.body;
-    if (!phone || !code) return res.status(400).json({ error: 'Phone and code required' });
+    const { phone, code, adminCode, accessCode, roleIntent } = req.body;
+    if (!phone || (!code && !adminCode && !accessCode)) return res.status(400).json({ error: 'Phone and code required' });
 
-    const hasSmsProvider = Boolean(process.env.ARKESEL_API_KEY);
-    const isDevCode = !hasSmsProvider && code === '123456';
-    const isVerified = ArkeselClient.verifyOTP(phone, code) || isDevCode;
+    const normalizedPhone = normalizeAuthPhone(phone);
+    const desiredRole = String(roleIntent || 'commuter').trim().toLowerCase();
+    const provider = otpProviderMode();
+    const hasSmsProvider = provider !== 'development';
+    const devMode = process.env.NODE_ENV !== 'production';
+    const isDevCode = !hasSmsProvider && devMode && code === '123456';
+    const { code: bootstrapCode, allowlist } = adminBootstrapConfig();
+    const { code: generalBootstrapCode, allowlist: generalAllowlist, roles: generalRoles } = generalBootstrapConfig();
+    const wantsAdminBootstrap = String(roleIntent || '').trim().toLowerCase() === 'admin' && Boolean(adminCode);
+    const adminBootstrapAllowed =
+      wantsAdminBootstrap &&
+      Boolean(bootstrapCode) &&
+      String(adminCode).trim() === bootstrapCode &&
+      allowlist.includes(normalizedPhone);
+    const generalBootstrapAllowed =
+      Boolean(accessCode) &&
+      Boolean(generalBootstrapCode) &&
+      String(accessCode).trim() === generalBootstrapCode &&
+      generalAllowlist.includes(normalizedPhone) &&
+      generalRoles.includes(desiredRole);
+    let challengeVerified = false;
+
+    const { data: challenge, error: challengeLookupError } = await supabase
+      .from('auth_otp_challenges')
+      .select('id, otp_code, attempts, expires_at, consumed_at, delivery_provider, provider_ref')
+      .eq('phone', normalizedPhone)
+      .is('consumed_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (challengeLookupError) throw challengeLookupError;
+
+    if (challenge && new Date(challenge.expires_at).getTime() > Date.now()) {
+      if (challenge.delivery_provider === 'termii' && challenge.provider_ref) {
+        const verification = await TermiiClient.verifyOTP(challenge.provider_ref, String(code).trim());
+        challengeVerified = verification.success;
+      } else {
+        challengeVerified = challenge.otp_code === String(code).trim();
+      }
+      await supabase
+        .from('auth_otp_challenges')
+        .update({
+          attempts: Number(challenge.attempts || 0) + 1,
+          consumed_at: challengeVerified ? new Date().toISOString() : null,
+        })
+        .eq('id', challenge.id);
+    }
+
+    const isVerified = adminBootstrapAllowed || generalBootstrapAllowed || challengeVerified || ArkeselClient.verifyOTP(normalizedPhone, code) || isDevCode;
 
     if (isVerified) {
-      const normalizedPhone = String(phone).trim();
       const { data: existingProfile, error: lookupError } = await supabase
         .from('profiles')
         .select('id, full_name, role, phone')
@@ -293,7 +600,7 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
           .insert({
             full_name: `AFAT User ${normalizedPhone.slice(-4)}`,
             phone: normalizedPhone,
-            role: 'commuter',
+            role: adminBootstrapAllowed ? 'admin' : generalBootstrapAllowed ? desiredRole : 'commuter',
             trust_points: 25,
             is_active: true,
             created_at: new Date().toISOString()
@@ -305,23 +612,244 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
         profile = createdProfile;
       }
 
+      if (adminBootstrapAllowed && profile.role !== 'admin') {
+        const { data: elevatedProfile, error: elevateError } = await supabase
+          .from('profiles')
+          .update({ role: 'admin', updated_at: new Date().toISOString() })
+          .eq('id', profile.id)
+          .select('id, full_name, role, phone')
+          .single();
+        if (elevateError) throw elevateError;
+        profile = elevatedProfile;
+      }
+
+      if (generalBootstrapAllowed && profile.role !== desiredRole) {
+        const { data: bootstrapProfile, error: bootstrapElevateError } = await supabase
+          .from('profiles')
+          .update({ role: desiredRole, updated_at: new Date().toISOString() })
+          .eq('id', profile.id)
+          .select('id, full_name, role, phone')
+          .single();
+        if (bootstrapElevateError) throw bootstrapElevateError;
+        profile = bootstrapProfile;
+      }
+
+      const accessToken = issueAccessToken(profile, normalizedPhone);
+      const { refreshToken, session } = await issueRefreshSession(profile, normalizedPhone, req);
+
       res.status(200).json({
         success: true,
         userId: profile.id,
         phone: normalizedPhone,
         profile,
-        accessToken: signLocalAuth({
-          sub: profile.id,
-          phone: normalizedPhone,
-          role: profile.role || 'commuter',
-          exp: Date.now() + 1000 * 60 * 60 * 24 * 30,
-        })
+        accessToken,
+        refreshToken,
+        session: {
+          id: session.id,
+          expires_at: session.expires_at,
+        }
       });
     } else {
       res.status(400).json({ error: 'Invalid OTP code' });
     }
   } catch (error) {
     res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
+  try {
+    const header = req.headers.authorization || '';
+    const supabaseAccessToken = header.toLowerCase().startsWith('bearer ') ? header.slice(7) : '';
+    if (!supabaseAccessToken) {
+      return res.status(401).json({ error: 'Supabase session required.' });
+    }
+
+    const { data: userResult, error: userError } = await supabase.auth.getUser(supabaseAccessToken);
+    if (userError || !userResult?.user?.id) {
+      return res.status(401).json({ error: 'Invalid Supabase session.' });
+    }
+
+    const user = userResult.user;
+    const email = String(user.email || '').trim().toLowerCase();
+    const requestedRole = String(req.body?.roleIntent || user.user_metadata?.role || 'commuter').trim().toLowerCase();
+    const publicRoles = new Set(['commuter', 'operator']);
+    const platformRoles = new Set(['commuter', 'operator', 'planner', 'admin']);
+    if (!platformRoles.has(requestedRole)) {
+      return res.status(400).json({ error: 'Unsupported role intent.' });
+    }
+
+    const { generalCode, adminCode, allowlist, adminAllowlist, roles } = emailBootstrapConfig();
+    const accessCode = String(req.body?.accessCode || '').trim();
+    const providedAdminCode = String(req.body?.adminCode || '').trim();
+    const generalBootstrapAllowed =
+      Boolean(generalCode) &&
+      accessCode === generalCode &&
+      allowlist.includes(email) &&
+      roles.includes(requestedRole);
+    const adminBootstrapAllowed =
+      requestedRole === 'admin' &&
+      Boolean(adminCode) &&
+      providedAdminCode === adminCode &&
+      adminAllowlist.includes(email);
+
+    if (!publicRoles.has(requestedRole) && !generalBootstrapAllowed && !adminBootstrapAllowed) {
+      return res.status(403).json({
+        error: 'This role needs AFAT email bootstrap approval. Add the email to AFAT_BOOTSTRAP_ALLOW_EMAILS or use commuter/operator.',
+      });
+    }
+
+    const finalRole = requestedRole;
+    const username = email ? email.split('@')[0] : `afat-${user.id.slice(0, 8)}`;
+    const fullName =
+      String(user.user_metadata?.full_name || user.user_metadata?.name || '').trim() ||
+      `AFAT ${finalRole.charAt(0).toUpperCase()}${finalRole.slice(1)}`;
+
+    const { data: existingProfile, error: lookupError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+
+    let profile = existingProfile;
+    if (!profile) {
+      const { data: createdProfile, error: createError } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          full_name: fullName,
+          username,
+          role: finalRole,
+          trust_points: finalRole === 'commuter' ? 50 : 25,
+          preferred_city: 'yaounde',
+          is_active: true,
+          attribution_source: 'supabase_email_auth',
+          created_at: new Date().toISOString(),
+        })
+        .select('*')
+        .single();
+      if (createError) throw createError;
+      profile = createdProfile;
+    } else if (profile.role !== finalRole && (publicRoles.has(finalRole) || generalBootstrapAllowed || adminBootstrapAllowed)) {
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('profiles')
+        .update({ role: finalRole, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+        .select('*')
+        .single();
+      if (updateError) throw updateError;
+      profile = updatedProfile;
+    }
+
+    const accessIdentity = email || profile.phone || user.id;
+    const accessToken = issueAccessToken(profile, accessIdentity);
+    const { refreshToken, session } = await issueRefreshSession(profile, accessIdentity, req);
+
+    res.status(200).json({
+      success: true,
+      userId: profile.id,
+      email,
+      profile,
+      accessToken,
+      refreshToken,
+      session: {
+        id: session.id,
+        expires_at: session.expires_at,
+      },
+    });
+  } catch (error: any) {
+    console.error('Supabase email profile bootstrap error:', error);
+    res.status(500).json({ error: error.message || 'Email profile bootstrap failed.' });
+  }
+});
+
+router.post('/auth/refresh', async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+
+    const refreshTokenHash = hashToken(String(refreshToken));
+    const { data: session, error } = await supabase
+      .from('auth_refresh_sessions')
+      .select('id, profile_id, phone, expires_at, revoked_at')
+      .eq('refresh_token_hash', refreshTokenHash)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!session || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now()) {
+      return res.status(401).json({ error: 'Refresh session expired or invalid' });
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, full_name, role, phone')
+      .eq('id', session.profile_id)
+      .maybeSingle();
+    if (profileError) throw profileError;
+    if (!profile) return res.status(401).json({ error: 'Profile no longer exists' });
+
+    const nextRefreshToken = generateOpaqueToken();
+    const nextHash = hashToken(nextRefreshToken);
+    const nextExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+
+    const { error: rotateError } = await supabase
+      .from('auth_refresh_sessions')
+      .update({
+        refresh_token_hash: nextHash,
+        last_used_at: new Date().toISOString(),
+        expires_at: nextExpiresAt,
+      })
+      .eq('id', session.id);
+    if (rotateError) throw rotateError;
+
+    res.status(200).json({
+      success: true,
+      accessToken: issueAccessToken(profile, session.phone),
+      refreshToken: nextRefreshToken,
+      profile,
+      session: {
+        id: session.id,
+        expires_at: nextExpiresAt,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Refresh failed' });
+  }
+});
+
+router.get('/auth/me', async (req: Request, res: Response) => {
+  try {
+    const { auth, profile } = await getAuthProfileByToken(req);
+    if (!auth?.sub || !profile) return res.status(401).json({ error: 'Unauthorized' });
+    res.status(200).json({
+      success: true,
+      userId: profile.id,
+      profile,
+      auth: {
+        sub: auth.sub,
+        phone: auth.phone,
+        role: auth.role,
+        exp: auth.exp,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Auth lookup failed' });
+  }
+});
+
+router.post('/auth/logout', async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (refreshToken) {
+      await supabase
+        .from('auth_refresh_sessions')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('refresh_token_hash', hashToken(String(refreshToken)));
+    }
+    res.status(200).json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Logout failed' });
   }
 });
 
@@ -619,6 +1147,10 @@ router.get('/payment/provider-readiness', (_req: Request, res: Response) => {
 // ── PAYMENT WEBHOOK (PawaPay callback) ────────────────────────────────────
 router.post('/webhook/pawapay', async (req: Request, res: Response) => {
   try {
+    if (!validateWebhookSecret(req)) {
+      return res.status(403).json({ error: 'Invalid webhook secret' });
+    }
+
     const transactionId = req.body.transactionId || req.body.depositId || req.body.payoutId;
     const status = String(req.body.status || '').toUpperCase();
     const externalId = req.body.externalId || req.body.booking_id;
@@ -748,6 +1280,23 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
     } = req.body;
 
     const userId = auth?.sub || profile_id;
+    if (userId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('data_ingest_allowed')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (!profile || !profile.data_ingest_allowed) {
+        return res.status(202).json({
+          success: true,
+          accepted: false,
+          reason: 'telemetry_staged_passive',
+          message: 'Telemetry queued under passive review queue. Live ingestion requires Admin activation.'
+        });
+      }
+    }
+
     const lat = Number(latitude);
     const lng = Number(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -832,6 +1381,93 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
     console.error('Map signal ingest error:', error);
     res.status(500).json({ error: error.message || 'Map signal ingest failed' });
   }
+});
+
+async function persistMapSignalReview(req: Request, res: Response, movementLogIdOverride?: string) {
+  try {
+    const auth = authPayloadFromRequest(req);
+    const {
+      movement_log_id: bodyMovementLogId,
+      status = 'queued',
+      confidence_score = 50,
+      decision_notes,
+      reward_points = 0,
+      reviewer_id,
+    } = req.body;
+    const movement_log_id = movementLogIdOverride || bodyMovementLogId;
+
+    if (!movement_log_id) {
+      return res.status(400).json({ error: 'movement_log_id required' });
+    }
+
+    const allowed = ['queued', 'validated', 'dismissed', 'published'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: 'Invalid review status' });
+    }
+
+    const reviewerId = auth?.sub || reviewer_id || null;
+    const points = Math.max(0, Math.min(100, Number(reward_points || 0)));
+    const reviewPayload = {
+      movement_log_id,
+      reviewer_id: reviewerId,
+      status,
+      confidence_score: Math.max(0, Math.min(100, Number(confidence_score || 50))),
+      decision_notes: decision_notes || null,
+      reward_points: points,
+      reviewed_at: status === 'queued' ? null : new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: review, error } = await supabase
+      .from('map_signal_reviews')
+      .upsert(reviewPayload, { onConflict: 'movement_log_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    if (points > 0 && ['validated', 'published'].includes(status)) {
+      const { data: signal } = await supabase
+        .from('movement_logs')
+        .select('user_id')
+        .eq('id', movement_log_id)
+        .maybeSingle();
+
+      if (signal?.user_id) {
+        await supabase.rpc('award_points', {
+          p_user_id: signal.user_id,
+          p_amount: points,
+          p_reason: `Route truth ${status}`,
+          p_ref_id: movement_log_id,
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      review,
+      review_effect: {
+        enters_admin_audit: true,
+        contributor_rewarded: points > 0 && ['validated', 'published'].includes(status),
+        publish_ready: status === 'published',
+      },
+    });
+  } catch (error: any) {
+    console.error('Map signal review error:', error);
+    res.status(500).json({ error: error.message || 'Map signal review failed' });
+  }
+}
+
+router.post('/ops/map-signal-reviews', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin', 'planner']);
+  if (!access) return;
+  return persistMapSignalReview(req, res);
+});
+
+router.patch('/ops/map-signal-reviews/:movementLogId', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin', 'planner']);
+  if (!access) return;
+  return persistMapSignalReview(req, res, String(req.params.movementLogId));
 });
 
 router.get('/ops/checkpoints', async (req: Request, res: Response) => {
@@ -931,6 +1567,58 @@ router.post('/ops/checkpoints/enroll', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Checkpoint enroll error:', error);
     res.status(500).json({ error: error.message || 'Checkpoint enrollment failed' });
+  }
+});
+
+router.post('/ops/notifications/send', async (req: Request, res: Response) => {
+  try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
+
+    const {
+      user_ids,
+      role,
+      city,
+      channels,
+      title,
+      body,
+      type = 'ops_broadcast',
+      reference_id,
+    } = req.body || {};
+
+    if ((!Array.isArray(user_ids) || !user_ids.length) && !role) {
+      return res.status(400).json({ error: 'Provide user_ids or a role target.' });
+    }
+
+    if (!title || !body) {
+      return res.status(400).json({ error: 'title and body are required.' });
+    }
+
+    const { recipients, deliveries } = await notifyRecipients(
+      {
+        user_ids: Array.isArray(user_ids) ? user_ids.filter(Boolean) : undefined,
+        role: role ? String(role).toLowerCase() : undefined,
+        city: city ? String(city).trim().toLowerCase() : undefined,
+      },
+      {
+        type,
+        title,
+        body,
+        referenceId: reference_id || null,
+        channels: Array.isArray(channels) ? channels : ['in_app'],
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      sent_by: access.profile.id,
+      recipient_count: recipients.length,
+      recipients,
+      deliveries,
+    });
+  } catch (error: any) {
+    console.error('Ops notification send error:', error);
+    res.status(500).json({ error: error.message || 'Notification send failed' });
   }
 });
 
@@ -1127,6 +1815,15 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
     );
 
+    const missionSignalIds = scopedMissionSignals.map((signal: any) => signal.id).filter(Boolean);
+    const { data: signalReviews } = missionSignalIds.length
+      ? await supabase
+        .from('map_signal_reviews')
+        .select('movement_log_id, status, confidence_score, reward_points, reviewed_at, decision_notes')
+        .in('movement_log_id', missionSignalIds)
+      : { data: [] as any[] };
+    const reviewBySignal = new Map((signalReviews || []).map((review: any) => [review.movement_log_id, review]));
+
     res.status(200).json({
       success: true,
       city: regionKey,
@@ -1168,6 +1865,8 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       campaign_signals: scopedMissionSignals.map((signal: any) => ({
         ...signal,
         publish_channel: 'movement_logs',
+        review: reviewBySignal.get(signal.id) || null,
+        review_status: reviewBySignal.get(signal.id)?.status || 'new',
         signal_age_seconds: signal.timestamp ? Math.max(0, Math.round((Date.now() - new Date(signal.timestamp).getTime()) / 1000)) : null,
       })),
     });
@@ -1213,6 +1912,8 @@ router.get('/ops/report-center', async (_req: Request, res: Response) => {
 
 router.patch('/ops/reports/:id/status', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const { id } = req.params;
     const { status, resolver_id } = req.body;
     const allowed = ['new', 'pending', 'verified', 'resolved', 'dismissed', 'expired'];
@@ -1229,7 +1930,7 @@ router.patch('/ops/reports/:id/status', async (req: Request, res: Response) => {
 
     if (['resolved', 'dismissed', 'expired'].includes(status)) {
       update.resolved_at = new Date().toISOString();
-      if (resolver_id) update.resolver_id = resolver_id;
+      update.resolver_id = resolver_id || access.profile.id;
     }
 
     const { data, error } = await supabase
@@ -1451,6 +2152,8 @@ router.get('/compliance/summary/:profileId', async (req: Request, res: Response)
 
 router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const { id } = req.params;
     const { status, notes } = req.body;
     const allowed = ['missing', 'pending', 'submitted', 'verified', 'expired', 'rejected', 'needs_followup'];
@@ -1473,6 +2176,21 @@ router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
+    if (data?.profile_id) {
+      await notifyRecipients(
+        { user_ids: [data.profile_id] },
+        {
+          type: 'compliance_update',
+          title: `Compliance ${status.replace(/_/g, ' ')}`,
+          body: notes
+            ? `AFAT updated your compliance record to ${status.replace(/_/g, ' ')}. ${notes}`
+            : `AFAT updated your compliance record to ${status.replace(/_/g, ' ')}.`,
+          referenceId: data.id,
+          channels: ['in_app', 'whatsapp'],
+        }
+      );
+    }
+
     res.status(200).json({ success: true, record: data });
   } catch (error: any) {
     console.error('Compliance status update error:', error);
@@ -1482,6 +2200,8 @@ router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
 
 router.post('/dispatch/assign', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner', 'operator']);
+    if (!access) return;
     const {
       booking_id,
       route_id,
@@ -1509,7 +2229,7 @@ router.post('/dispatch/assign', async (req: Request, res: Response) => {
         route_id: route_id || null,
         operator_id: operator_id || null,
         vehicle_id: vehicle_id || null,
-        dispatcher_id: dispatcher_id || null,
+        dispatcher_id: dispatcher_id || access.profile.id,
         origin: origin || null,
         destination: destination || null,
         priority: priority || 'normal',
@@ -1532,6 +2252,19 @@ router.post('/dispatch/assign', async (req: Request, res: Response) => {
         .from('bookings')
         .update({ status: 'accepted', updated_at: new Date().toISOString() })
         .eq('id', booking_id);
+    }
+
+    if (data?.operator_id) {
+      await notifyRecipients(
+        { user_ids: [data.operator_id] },
+        {
+          type: 'dispatch_assignment',
+          title: `New ${data.priority || 'normal'} dispatch`,
+          body: `${data.origin || 'AFAT command'} -> ${data.destination || 'assigned destination'}${data.notes ? `\n${data.notes}` : ''}`,
+          referenceId: data.id,
+          channels: ['in_app', 'whatsapp', 'telegram'],
+        }
+      );
     }
 
     res.status(201).json({ success: true, dispatch: data });

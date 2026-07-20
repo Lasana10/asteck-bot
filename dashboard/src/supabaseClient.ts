@@ -154,6 +154,46 @@ export async function signInOrSignUpWithEmailPassword(
   }
 }
 
+export async function ensureSupabaseEmailProfile(options?: {
+  roleIntent?: string;
+  accessCode?: string;
+  adminCode?: string;
+}) {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      return { data: null, error: { message: 'No Supabase email session is active yet.' } };
+    }
+
+    const res = await fetch(`${getApiBaseUrl()}/api/auth/supabase-profile`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        roleIntent: options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter',
+        accessCode: options?.accessCode || '',
+        adminCode: options?.adminCode || '',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
+
+    if (data?.userId) {
+      localStorage.setItem('afat_local_user_id', data.userId);
+      localStorage.setItem('afat_user_id', data.userId);
+    }
+    if (data?.accessToken) localStorage.setItem('afat_access_token', data.accessToken);
+    if (data?.refreshToken) localStorage.setItem('afat_refresh_token', data.refreshToken);
+
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 /**
  * Step 1: Send SMS OTP via Africa's Talking (through our Express backend)
  */
