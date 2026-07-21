@@ -330,6 +330,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
           id: data?.driver?.id,
           role: 'operator',
           vehicleType,
+          full_name: data?.driver?.full_name || driverName || `AFAT operator ${phone.slice(-4)}`,
+          phone,
           ids_number: data?.driver?.contractor_code,
           plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
           operator_application_status: data?.driver?.operator_application_status || data?.driver?.onboarding_context?.application_status,
@@ -362,14 +364,15 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
     setCompletionState(getCompletionCopyForStatus('commuter', data?.user?.onboarding_context?.intake_status));
     setSuccess(true);
-    setTimeout(() => {
-      onRegisterCustom({
-        id: data?.user?.id,
-        role: 'commuter',
-        full_name: data?.user?.full_name || driverName,
-      });
-      onClose();
-    }, 1500);
+      setTimeout(() => {
+        onRegisterCustom({
+          id: data?.user?.id,
+          role: 'commuter',
+          full_name: data?.user?.full_name || driverName,
+          phone,
+        });
+        onClose();
+      }, 1500);
   };
 
   const handleCompanySubmit = async (e: React.FormEvent) => {
@@ -396,15 +399,16 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
     setCompletionState(getCompletionCopyForStatus('company', data?.company?.onboarding_context?.intake_status));
     setSuccess(true);
-    setTimeout(() => {
-      onRegisterCustom({
-        id: data?.profile?.id,
-        role: 'planner',
-        full_name: data?.profile?.full_name || contactPerson || companyName,
-        company_name: data?.company?.company_name || companyName,
-      });
-      onClose();
-    }, 1500);
+      setTimeout(() => {
+        onRegisterCustom({
+          id: data?.profile?.id,
+          role: 'planner',
+          full_name: data?.profile?.full_name || contactPerson || companyName,
+          company_name: data?.company?.company_name || companyName,
+          phone,
+        });
+        onClose();
+      }, 1500);
   };
 
   return (
@@ -645,7 +649,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
             <form onSubmit={handleCitizenSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
                <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Full Name</label>
-                <input required type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Jean Dupont" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
+                <input type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Jean Dupont" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-slate-500 font-medium" />
               </div>
 
               <div>
@@ -705,7 +709,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs font-medium leading-relaxed text-white/70">
-                AFAT can save this operator as a partial intake even if national ID, license, plate, or route details are not complete yet.
+                AFAT can save this operator as a partial intake even if full name, national ID, license, plate, or route details are not complete yet. Phone remains the required anchor.
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -741,7 +745,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                 <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
-                <button disabled={loading || !driverName} type="submit" className="flex-1 bg-white hover:bg-slate-200 disabled:bg-white/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                <button disabled={loading || !phone} type="submit" className="flex-1 bg-white hover:bg-slate-200 disabled:bg-white/50 text-slate-950 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
                   {loading ? <Zap className="w-5 h-5 animate-pulse text-slate-900" /> : 'Submit for Verification'}
                 </button>
               </div>

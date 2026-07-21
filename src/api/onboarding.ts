@@ -127,9 +127,12 @@ router.post('/driver/register', async (req: Request, res: Response) => {
     } = req.body;
 
     const normalizedPhone = normalizeCameroonPhone(phone);
+    const resolvedName = normalizeOptionalText(full_name);
+    const fallbackName = normalizedPhone ? `AFAT operator ${normalizedPhone.slice(-4)}` : null;
+    const operatorName = resolvedName || fallbackName;
 
-    if (!full_name || !normalizedPhone) {
-      return res.status(400).json({ error: 'Missing required fields: full_name, phone' });
+    if (!operatorName || !normalizedPhone) {
+      return res.status(400).json({ error: 'Missing required fields: phone' });
     }
 
     const resolvedNationalId = normalizeOptionalText(national_id);
@@ -155,7 +158,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       const { data: profile, error: updateError } = await supabase
         .from('profiles')
         .update({
-          full_name,
+          full_name: operatorName,
           role: 'operator',
           national_id_number: resolvedNationalId,
           license_number: resolvedLicenseNumber,
@@ -218,6 +221,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         resumed: true,
         driver: {
           id: profile.id,
+          full_name: profile.full_name || operatorName,
+          phone: normalizedPhone,
           contractor_code: contractorCode,
           verification_status: profile.verification_status || 'pending',
           operator_application_status: profile.operator_application_status || applicationStatus,
@@ -233,10 +238,10 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           }
         },
         message: applicationStatus === 'APPROVED'
-          ? `${full_name} remains AFAT-approved and can continue live operator work.`
+          ? `${operatorName} remains AFAT-approved and can continue live operator work.`
           : intakeStatus === 'verification_ready'
-            ? `${full_name} profile updated and queued for AFAT operator verification.`
-            : `${full_name} profile updated as a partial intake. AFAT still needs document follow-up before full activation.`
+            ? `${operatorName} profile updated and queued for AFAT operator verification.`
+            : `${operatorName} profile updated as a partial intake. AFAT still needs document follow-up before full activation.`
       });
     }
 
@@ -263,7 +268,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
     const { data: profile, error } = await supabase
       .from('profiles')
       .insert({
-        full_name,
+        full_name: operatorName,
         phone: normalizedPhone,
         role: 'operator',
         national_id_number: resolvedNationalId,
@@ -322,6 +327,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       success: true,
       driver: {
         id: profile.id,
+        full_name: profile.full_name || operatorName,
+        phone: normalizedPhone,
         contractor_code: contractorCode,
         verification_status: verificationStatus,
         operator_application_status: applicationStatus,
@@ -337,8 +344,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         }
       },
       message: intakeStatus === 'verification_ready'
-        ? `Bienvenue ${full_name}! Votre dossier operateur est en revue AFAT. Code contractant: ${contractorCode}.`
-        : `Bienvenue ${full_name}. Your AFAT intake is saved, but more identity or vehicle documents are still needed before full verification.`
+        ? `Bienvenue ${operatorName}! Votre dossier operateur est en revue AFAT. Code contractant: ${contractorCode}.`
+        : `Bienvenue ${operatorName}. Your AFAT intake is saved, but more identity or vehicle documents are still needed before full verification.`
     });
   } catch (error: any) {
     console.error('Driver registration error:', error);
