@@ -1114,6 +1114,27 @@ export async function sendOpsNotification(payload: {
   }
 }
 
+export async function updateOperatorLifecycle(
+  operatorId: string,
+  payload: {
+    status: 'APPLICATION_STARTED' | 'DOCUMENTS_PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+    notes?: string;
+  }
+) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/operators/${operatorId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Operator status update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function getMyBookings(passengerId: string) {
   const { data, error } = await supabase
     .from('bookings')

@@ -176,10 +176,17 @@ function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: str
     };
   }
 
+  if ((track === 'citizen_reg' || track === 'gov_link') && intakeStatus === 'verification_ready') {
+    return {
+      title: 'Operator Review Started',
+      body: 'AFAT received the operator file and opened review. Dispatch, live bookings, and marketplace activation begin after approval from operations.'
+    };
+  }
+
   if ((track === 'citizen_reg' || track === 'gov_link') && intakeStatus && intakeStatus !== 'verification_ready') {
     return {
       title: 'Operator Intake Saved',
-      body: 'AFAT accepted this operator as a partial intake. Document follow-up and service verification will continue before full activation.'
+      body: 'AFAT accepted this operator as a partial intake. Missing documents, compliance follow-up, and approval still need to be completed before live service activation.'
     };
   }
 
@@ -274,7 +281,9 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
           ids_number: data?.driver?.contractor_code || govId,
           cni_number: govId.split('-').pop(),
           plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
-          full_name: driverName || `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`
+          full_name: driverName || `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`,
+          operator_application_status: data?.driver?.operator_application_status || data?.driver?.onboarding_context?.application_status,
+          is_active: false
         });
         onClose();
       }, 1500);
@@ -322,7 +331,9 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
           role: 'operator',
           vehicleType,
           ids_number: data?.driver?.contractor_code,
-          plate_number: data?.driver?.vehicle?.plate_number || plateNumber
+          plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
+          operator_application_status: data?.driver?.operator_application_status || data?.driver?.onboarding_context?.application_status,
+          is_active: false
         });
         onClose();
       }, 1500);

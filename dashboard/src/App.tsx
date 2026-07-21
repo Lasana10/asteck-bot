@@ -551,7 +551,9 @@ function AppShell() {
         cni_number: idData?.cni_number || null,
         plate_number: idData?.plate_number || null,
         company_name: idData?.company_name || null,
-        is_verified: !!idData?.ids_number
+        is_verified: !!idData?.ids_number,
+        is_active: typeof idData?.is_active === 'boolean' ? idData.is_active : role !== 'operator',
+        operator_application_status: idData?.operator_application_status || (role === 'operator' ? 'UNDER_REVIEW' : null)
       });
       setLoading(false);
     };

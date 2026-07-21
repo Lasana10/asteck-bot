@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ViewToggle } from '../shared/ViewToggle';
 import { InteractiveMap } from '../shared/InteractiveMap';
 import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle, CreditCard, FileCheck, Globe2, GraduationCap, HandHeart, Landmark, X, Sparkles } from 'lucide-react';
-import { enrollCheckpoint, fetchComplianceRadar, fetchPaymentProviderReadiness, getApiBaseUrl, setApiBaseOverride, supabase } from '../../supabaseClient';
+import { createDispatchAssignment, enrollCheckpoint, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateComplianceStatus, updateOperatorLifecycle } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
@@ -25,6 +25,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   const [isIntelligenceOpen, setIsIntelligenceOpen] = useState(false);
   const [paymentReadiness, setPaymentReadiness] = useState<any>(null);
   const [complianceRadar, setComplianceRadar] = useState<any>(null);
+  const [liveMapOps, setLiveMapOps] = useState<any>(null);
   const [commandFeedback, setCommandFeedback] = useState<string>('');
   const [fieldDesk, setFieldDesk] = useState({
     checkpoint_name: '',
@@ -37,7 +38,16 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     targetRole: 'operator',
     targetSpecialization: 'taxi',
   });
+  const [dispatchDesk, setDispatchDesk] = useState({
+    operator_id: '',
+    vehicle_id: '',
+    origin: 'Yaounde command grid',
+    destination: 'Priority service sector',
+    priority: 'high',
+    notes: 'Admin-directed dispatch activation.',
+  });
   const [isSavingFieldDesk, setIsSavingFieldDesk] = useState(false);
+  const [isSavingDispatchDesk, setIsSavingDispatchDesk] = useState(false);
   const [backendTarget, setBackendTarget] = useState(getApiBaseUrl());
   const [networkStats, setNetworkStats] = useState({
     totalPacks: 1240,
@@ -79,7 +89,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
 
   const fetchAdminData = async () => {
     // 1. Fetch Users
-    const { data: userData } = await supabase.from('profiles').select('*').limit(5);
+    const { data: userData } = await supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(25);
     if (userData) setProfiles(userData);
 
     // 2. Fetch Campaigns
@@ -90,12 +100,14 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     const { data: dirData } = await supabase.from('sentinel_directives').select('*').eq('status', 'pending_admin').order('created_at', { ascending: false });
     if (dirData) setPendingDirectives(dirData);
 
-    const [paymentRes, complianceRes] = await Promise.allSettled([
+    const [paymentRes, complianceRes, liveMapRes] = await Promise.allSettled([
       fetchPaymentProviderReadiness(),
-      fetchComplianceRadar()
+      fetchComplianceRadar(),
+      fetchLiveMapOps('cameroon')
     ]);
     if (paymentRes.status === 'fulfilled' && paymentRes.value.data) setPaymentReadiness(paymentRes.value.data);
     if (complianceRes.status === 'fulfilled' && complianceRes.value.data) setComplianceRadar(complianceRes.value.data);
+    if (liveMapRes.status === 'fulfilled' && liveMapRes.value.data) setLiveMapOps(liveMapRes.value.data);
 
     // 3. Fetch Metrics
     const { count: userCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
@@ -155,6 +167,56 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     setCommandFeedback('Compliance desk opened with permit, payment, and rollout follow-up.');
   };
 
+  const handleComplianceAction = async (recordId: string, status: string, notes?: string) => {
+    setCommandFeedback(`Updating compliance record to ${status}...`);
+    const { error } = await updateComplianceStatus(recordId, status, notes);
+    if (error) {
+      setCommandFeedback(`Compliance update failed: ${error.message}`);
+      return;
+    }
+    setCommandFeedback(`Compliance record marked ${status}.`);
+    fetchAdminData();
+  };
+
+  const handleOperatorLifecycle = async (
+    operatorId: string,
+    status: 'APPLICATION_STARTED' | 'DOCUMENTS_PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'SUSPENDED',
+    notes?: string,
+  ) => {
+    setCommandFeedback(`Updating operator lifecycle to ${status}...`);
+    const { error } = await updateOperatorLifecycle(operatorId, { status, notes });
+    if (error) {
+      setCommandFeedback(`Operator lifecycle update failed: ${error.message}`);
+      return;
+    }
+    setCommandFeedback(`Operator lifecycle updated to ${status}.`);
+    fetchAdminData();
+  };
+
+  const handleRouteSignalReview = async (signal: any, status: 'queued' | 'validated' | 'dismissed' | 'published') => {
+    if (!signal?.id) {
+      setCommandFeedback('Route signal has no movement id and cannot be reviewed yet.');
+      return;
+    }
+
+    const rewardPoints = status === 'validated' ? 25 : status === 'published' ? 40 : 0;
+    const { error } = await reviewMapSignal({
+      movement_log_id: signal.id,
+      status,
+      confidence_score: status === 'dismissed' ? 20 : status === 'published' ? 90 : status === 'validated' ? 80 : 55,
+      reward_points: rewardPoints,
+      decision_notes: `Admin ${status} route-truth signal from ${signal.city || 'field zone'}.`,
+    });
+
+    if (error) {
+      setCommandFeedback(`Route signal review failed: ${error.message}`);
+      return;
+    }
+
+    setCommandFeedback(`Route signal marked ${status}${rewardPoints ? ` and ${rewardPoints} trust points queued` : ''}.`);
+    fetchAdminData();
+  };
+
   const copyPaymentCallback = async () => {
     const callbackUrl = paymentReadiness?.callback_url;
     if (!callbackUrl) {
@@ -180,6 +242,49 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   const stageOverride = (message: string, feedback: string) => {
     setOverrideMessage(message);
     setCommandFeedback(feedback);
+  };
+
+  const createAdminDirective = async (params: {
+    directive: string;
+    targetRole?: string;
+    source?: string;
+    basis?: string;
+    tier?: number;
+    metadata?: Record<string, any>;
+  }) => {
+    const payload = {
+      source: params.source || 'admin_command_matrix',
+      basis: params.basis || 'admin_workflow',
+      directive: params.directive,
+      tier: params.tier || 2,
+      target_role: params.targetRole || 'all',
+      status: 'pending_admin',
+      metadata: params.metadata || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('sentinel_directives')
+      .insert(payload)
+      .select()
+      .single();
+
+    return { data, error };
+  };
+
+  const toggleIngestion = async (userId: string, currentStatus: boolean) => {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ data_ingest_allowed: !currentStatus })
+      .eq('id', userId);
+    
+    if (!error) {
+      setProfiles(prev => prev.map(p => p.id === userId ? { ...p, data_ingest_allowed: !currentStatus } : p));
+      setCommandFeedback(`Ingestion status updated successfully.`);
+    } else {
+      setCommandFeedback(`Failed to update ingestion status: ${error.message}`);
+    }
   };
 
   const handleFieldDeskChange = (key: string, value: string) => {
@@ -222,13 +327,65 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     fetchAdminData();
   };
 
-  const notifyFieldCrew = () => {
+  const notifyFieldCrew = async () => {
     const targetCount = profiles.filter((profile) => profile.role === fieldDesk.targetRole).length;
     const cityLabel = fieldDesk.city.charAt(0).toUpperCase() + fieldDesk.city.slice(1);
+    const noticeBody = `AFAT map construction notice: ${fieldDesk.targetRole} ${fieldDesk.targetSpecialization} partners in ${cityLabel} should report route changes, hazards, pickup pressure, and checkpoint conditions around ${fieldDesk.zone_label || fieldDesk.checkpoint_name || 'the assigned zone'}.`;
     stageOverride(
-      `AFAT map construction notice: ${fieldDesk.targetRole} ${fieldDesk.targetSpecialization} partners in ${cityLabel} should report route changes, hazards, pickup pressure, and checkpoint conditions around ${fieldDesk.zone_label || fieldDesk.checkpoint_name || 'the assigned zone'}.`,
-      `Field notification prepared for ${targetCount} visible ${fieldDesk.targetRole} records in the current admin snapshot.`
+      noticeBody,
+      `Dispatching field notice to ${fieldDesk.targetRole} partners in ${cityLabel}...`
     );
+
+    const { data, error } = await sendOpsNotification({
+      role: fieldDesk.targetRole,
+      city: fieldDesk.city,
+      channels: ['in_app', 'whatsapp', 'telegram'],
+      title: `AFAT field build notice · ${cityLabel}`,
+      body: noticeBody,
+      type: 'map_build_notice',
+    });
+
+    if (error) {
+      setCommandFeedback(`Field notice failed: ${error.message}`);
+      return;
+    }
+
+    setCommandFeedback(
+      `Field notice sent to ${data?.recipient_count ?? targetCount} ${fieldDesk.targetRole} records with in-app delivery and channel fan-out where linked.`
+    );
+  };
+
+  const handleDispatchDeskChange = (key: string, value: string) => {
+    setDispatchDesk((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const submitDispatchDesk = async () => {
+    if (!dispatchDesk.operator_id.trim() && !dispatchDesk.vehicle_id.trim()) {
+      setCommandFeedback('Add an operator id or vehicle id before dispatching from admin.');
+      return;
+    }
+
+    setIsSavingDispatchDesk(true);
+    const dispatcherId = localStorage.getItem('afat_user_id') || undefined;
+    const { error } = await createDispatchAssignment({
+      operator_id: dispatchDesk.operator_id.trim() || undefined,
+      vehicle_id: dispatchDesk.vehicle_id.trim() || undefined,
+      dispatcher_id: dispatcherId,
+      origin: dispatchDesk.origin.trim(),
+      destination: dispatchDesk.destination.trim(),
+      priority: dispatchDesk.priority,
+      notes: dispatchDesk.notes.trim(),
+    });
+    setIsSavingDispatchDesk(false);
+
+    if (error) {
+      setCommandFeedback(`Admin dispatch failed: ${error.message}`);
+      return;
+    }
+
+    setCommandFeedback('Admin dispatch assignment created successfully.');
+    setDispatchDesk((prev) => ({ ...prev, operator_id: '', vehicle_id: '' }));
+    fetchAdminData();
   };
 
   const switchBackendTarget = (target: 'render' | 'local') => {
@@ -311,27 +468,40 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       },
       {
         label: 'Academy and badge',
-        status: 'planned',
+        status: 'in progress',
         icon: GraduationCap,
         signal: 'driver/operator certification',
         note: 'Training, AFAT certification badges, and priority placement for high-trust operators.',
         action: 'Queue academy',
-        onClick: () => stageOverride(
-          'AFAT Academy planning: define certified driver, operator, and fleet readiness requirements.',
-          'Academy planning message prepared in the broadcast composer.'
-        )
+        onClick: async () => {
+          const { error } = await createAdminDirective({
+            directive: 'AFAT Academy activation: prepare certified driver, operator, and fleet readiness workflow with badge, quality checks, and follow-up queue.',
+            targetRole: 'planner',
+            basis: 'academy_activation',
+            metadata: { workflow: 'academy_and_badge' },
+          });
+          setCommandFeedback(error ? `Academy queue failed: ${error.message}` : 'Academy activation directive saved for admin/planner follow-through.');
+          if (!error) fetchAdminData();
+        }
       },
       {
         label: 'Emergency logistics',
-        status: 'planned',
+        status: 'in progress',
         icon: HandHeart,
         signal: 'humanitarian mode',
         note: 'Disaster response, NGO transport, evacuation coordination, and medical supply routing.',
         action: 'Prepare alert',
-        onClick: () => stageOverride(
-          'Emergency logistics mode: verify incident, identify safe corridors, and coordinate approved transport partners.',
-          'Emergency logistics directive prepared in the broadcast composer.'
-        )
+        onClick: async () => {
+          const { error } = await createAdminDirective({
+            directive: 'Emergency logistics mode: verify incident, identify safe corridors, and coordinate approved transport partners for evacuation or humanitarian supply movement.',
+            targetRole: 'all',
+            basis: 'emergency_logistics',
+            tier: 1,
+            metadata: { workflow: 'humanitarian_mode' },
+          });
+          setCommandFeedback(error ? `Emergency logistics directive failed: ${error.message}` : 'Emergency logistics directive saved and ready for command review.');
+          if (!error) fetchAdminData();
+        }
       }
     ];
 
@@ -471,16 +641,46 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                    <div key={i} className="flex items-center justify-between p-4 hover:bg-slate-800/50 rounded-2xl transition-all border border-transparent hover:border-slate-800">
                       <div className="flex items-center gap-4">
                          <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center font-bold text-slate-500 border border-slate-700">
-                            {p.username?.[0].toUpperCase() || 'U'}
+                            {(p.full_name || p.username || 'U')[0].toUpperCase()}
                          </div>
                          <div>
-                            <p className="font-bold text-sm">{p.username}</p>
-                            <p className="text-[10px] font-mono text-slate-600 uppercase">{p.role}</p>
+                            <p className="font-bold text-sm">{p.full_name || p.username || p.phone}</p>
+                            <p className="text-[9px] font-mono text-slate-500 uppercase">{p.role} {p.phone ? `(${p.phone})` : ''}</p>
+                            {p.role === 'operator' && (
+                              <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-amber-300/80">
+                                {p.operator_application_status || (p.is_active ? 'APPROVED' : 'UNDER_REVIEW')}
+                              </p>
+                            )}
                          </div>
                       </div>
-                      <button onClick={() => setCommandFeedback(`Profile review staged for ${p.username || 'this node'}.`)} className="text-slate-500 hover:text-white p-2">
-                         <ArrowUpRight className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {p.role === 'operator' && (
+                          <>
+                            <button
+                              onClick={() => handleOperatorLifecycle(p.id, 'APPROVED', 'Approved from AFAT admin command center.')}
+                              className="rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/25"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleOperatorLifecycle(p.id, 'UNDER_REVIEW', 'Moved back to AFAT review queue for final checks.')}
+                              className="rounded-xl border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-amber-200 transition hover:bg-amber-500/25"
+                            >
+                              Review
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => toggleIngestion(p.id, !!p.data_ingest_allowed)}
+                          className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition ${
+                            p.data_ingest_allowed
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-slate-950 text-slate-500 border border-white/5'
+                          }`}
+                        >
+                          {p.data_ingest_allowed ? '🔴 Live Ingest: Active' : '⚪ Mock Ingest'}
+                        </button>
+                      </div>
                    </div>
                  ))}
               </div>
@@ -683,6 +883,51 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                       <p className="mt-1 text-2xl font-black text-red-300">{complianceRadar?.summary?.overdue || 0}</p>
                     </div>
                   </div>
+
+                  <div className="mt-4 space-y-3">
+                    {(complianceRadar?.records || []).slice(0, 5).map((record: any) => (
+                      <div key={record.id} className="rounded-2xl border border-white/8 bg-slate-950/60 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-black uppercase tracking-tight text-white">
+                              {record.document_type || record.requirement_key || 'Compliance record'}
+                            </p>
+                            <p className="mt-1 text-[10px] font-semibold text-white/45">
+                              {record.profile_name || record.owner_name || record.profile_id || 'Unassigned'} · {record.status || 'pending'}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[8px] font-black uppercase tracking-widest text-white/50">
+                            {record.due_at ? 'dated' : 'queue'}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => handleComplianceAction(record.id, 'verified', 'Verified from admin intelligence desk.')}
+                            className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-emerald-200 transition hover:bg-emerald-500/15"
+                          >
+                            Verify
+                          </button>
+                          <button
+                            onClick={() => handleComplianceAction(record.id, 'needs_followup', 'Needs operator follow-up from admin intelligence desk.')}
+                            className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-amber-200 transition hover:bg-amber-500/15"
+                          >
+                            Follow up
+                          </button>
+                          <button
+                            onClick={() => handleComplianceAction(record.id, 'rejected', 'Rejected from admin intelligence desk pending corrected document.')}
+                            className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-red-200 transition hover:bg-red-500/15"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!(complianceRadar?.records || []).length && (
+                      <div className="rounded-2xl border border-white/8 bg-slate-950/60 p-4 text-xs font-semibold text-white/45">
+                        No compliance records loaded yet. New operator and company registrations will feed this queue.
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
@@ -817,6 +1062,75 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                     </button>
                   </div>
                 </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-white">Dispatch workbench</h3>
+                      <p className="mt-1 text-xs text-white/45">Admin can push a direct assignment for operator or vehicle lanes even before customer-side traffic is live.</p>
+                    </div>
+                    <Activity className="h-5 w-5 text-amber-300" />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      value={dispatchDesk.operator_id}
+                      onChange={(e) => handleDispatchDeskChange('operator_id', e.target.value)}
+                      placeholder="Operator id"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <input
+                      value={dispatchDesk.vehicle_id}
+                      onChange={(e) => handleDispatchDeskChange('vehicle_id', e.target.value)}
+                      placeholder="Vehicle id"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <input
+                      value={dispatchDesk.origin}
+                      onChange={(e) => handleDispatchDeskChange('origin', e.target.value)}
+                      placeholder="Origin"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <input
+                      value={dispatchDesk.destination}
+                      onChange={(e) => handleDispatchDeskChange('destination', e.target.value)}
+                      placeholder="Destination"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                    <select
+                      value={dispatchDesk.priority}
+                      onChange={(e) => handleDispatchDeskChange('priority', e.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white focus:outline-none"
+                    >
+                      <option value="low">Low</option>
+                      <option value="normal">Normal</option>
+                      <option value="high">High</option>
+                      <option value="emergency">Emergency</option>
+                    </select>
+                    <input
+                      value={dispatchDesk.notes}
+                      onChange={(e) => handleDispatchDeskChange('notes', e.target.value)}
+                      placeholder="Dispatch notes"
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      onClick={submitDispatchDesk}
+                      disabled={isSavingDispatchDesk}
+                      className="rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98] disabled:opacity-50"
+                    >
+                      {isSavingDispatchDesk ? 'Assigning...' : 'Create dispatch'}
+                    </button>
+                    <button
+                      onClick={() => launchOrchestrator('Review this admin dispatch request and recommend whether it should go to operator, vehicle, or service queue next.', 'AFAT orchestrator opened from the admin dispatch workbench.')}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
+                    >
+                      Ask orchestrator
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -829,6 +1143,63 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                   <div className="mt-4 space-y-2">
                     <button onClick={() => launchOrchestrator('Summarize the platform state and tell me the next admin action to take.', 'AFAT orchestrator is now attached to the admin command center.')} className="w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]">Platform summary</button>
                     <button onClick={() => launchOrchestrator('Which incidents, compliance issues, and payment risks need action first?', 'AFAT orchestrator is now reviewing incidents, compliance, and payment risks together.')} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:text-white">Risk priorities</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Route-truth signals</h3>
+                    <MapPin className="h-5 w-5 text-cyan-300" />
+                  </div>
+                  <div className="space-y-3">
+                    {(liveMapOps?.campaign_signals || []).slice(0, 5).map((signal: any, index: number) => (
+                      <div key={signal.id || index} className="rounded-2xl border border-white/8 bg-slate-950/60 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-tight text-white">
+                              {signal.signal_type || 'field signal'}
+                            </p>
+                            <p className="mt-1 text-[10px] font-semibold text-white/45">
+                              {signal.city || 'city'} · {signal.publish_channel || 'ops'} · {signal.signal_age_seconds ? `${signal.signal_age_seconds}s ago` : 'fresh'}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest text-cyan-100">
+                            {signal.review_status || 'new'}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => handleRouteSignalReview(signal, 'queued')}
+                            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white/60 transition hover:text-white"
+                          >
+                            Queue
+                          </button>
+                          <button
+                            onClick={() => handleRouteSignalReview(signal, 'validated')}
+                            className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-emerald-200 transition hover:bg-emerald-500/15"
+                          >
+                            Validate
+                          </button>
+                          <button
+                            onClick={() => handleRouteSignalReview(signal, 'dismissed')}
+                            className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-red-200 transition hover:bg-red-500/15"
+                          >
+                            Dismiss
+                          </button>
+                          <button
+                            onClick={() => handleRouteSignalReview(signal, 'published')}
+                            className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-cyan-100 transition hover:bg-cyan-500/15"
+                          >
+                            Publish
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {!(liveMapOps?.campaign_signals || []).length && (
+                      <div className="rounded-2xl border border-white/8 bg-slate-950/60 p-4 text-xs font-semibold text-white/45">
+                        No campaign signals yet. Commuter data missions and checkpoint reports will appear here after publication.
+                      </div>
+                    )}
                   </div>
                 </div>
 

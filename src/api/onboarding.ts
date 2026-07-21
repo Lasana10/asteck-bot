@@ -23,6 +23,16 @@ function normalizeOptionalText(value: any) {
   return text || null;
 }
 
+function deriveOperatorApplicationStatus(intakeStatus: string) {
+  if (intakeStatus === 'verification_ready') return 'UNDER_REVIEW';
+  if (intakeStatus === 'partial_documents') return 'DOCUMENTS_PENDING';
+  return 'APPLICATION_STARTED';
+}
+
+function isOperatorApproved(profile: any) {
+  return String(profile?.operator_application_status || '').toUpperCase() === 'APPROVED';
+}
+
 async function seedComplianceRecords(records: Array<Record<string, any>>) {
   if (!records.length) return;
   const { error } = await supabase.from('compliance_records').insert(records);
@@ -139,6 +149,9 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 
     if (existing) {
       const contractorCode = existing.contractor_code || `AFAT-D-${Date.now().toString(36).toUpperCase()}`;
+      const applicationStatus = isOperatorApproved(existing)
+        ? 'APPROVED'
+        : deriveOperatorApplicationStatus(intakeStatus);
       const { data: profile, error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -147,7 +160,12 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           national_id_number: resolvedNationalId,
           license_number: resolvedLicenseNumber,
           contractor_code: contractorCode,
-          is_active: true,
+          operator_application_status: applicationStatus,
+          operator_application_submitted_at: existing.operator_application_submitted_at || new Date().toISOString(),
+          operator_review_notes: applicationStatus === 'APPROVED'
+            ? existing.operator_review_notes || 'Operator remains approved.'
+            : 'Operator intake refreshed and queued for AFAT review.',
+          is_active: applicationStatus === 'APPROVED',
           updated_at: new Date().toISOString()
         })
         .eq('id', existing.id)
@@ -202,6 +220,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           id: profile.id,
           contractor_code: contractorCode,
           verification_status: profile.verification_status || 'pending',
+          operator_application_status: profile.operator_application_status || applicationStatus,
           commission_rate: '8%',
           vehicle,
           onboarding_context: {
@@ -210,11 +229,14 @@ router.post('/driver/register', async (req: Request, res: Response) => {
             operating_zone: operating_zone || null,
             affiliation_name: affiliation_name || null,
             intake_status: intakeStatus,
+            application_status: profile.operator_application_status || applicationStatus,
           }
         },
-        message: intakeStatus === 'verification_ready'
-          ? `${full_name} profile updated and queued for AFAT operator verification.`
-          : `${full_name} profile updated as a partial intake. AFAT still needs document follow-up before full activation.`
+        message: applicationStatus === 'APPROVED'
+          ? `${full_name} remains AFAT-approved and can continue live operator work.`
+          : intakeStatus === 'verification_ready'
+            ? `${full_name} profile updated and queued for AFAT operator verification.`
+            : `${full_name} profile updated as a partial intake. AFAT still needs document follow-up before full activation.`
       });
     }
 
@@ -235,6 +257,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 
     // Generate contractor code
     const contractorCode = `AFAT-D-${Date.now().toString(36).toUpperCase()}`;
+    const applicationStatus = deriveOperatorApplicationStatus(intakeStatus);
 
     // Create driver profile
     const { data: profile, error } = await supabase
@@ -253,7 +276,12 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         fatigue_hours_today: 0,
         max_daily_hours: 12,
         operator_id: operator_id || null,
-        is_active: true,
+        operator_application_status: applicationStatus,
+        operator_application_submitted_at: new Date().toISOString(),
+        operator_review_notes: applicationStatus === 'UNDER_REVIEW'
+          ? 'Operator intake received and waiting for approval.'
+          : 'Operator intake saved; more documents are still needed before approval.',
+        is_active: false,
         created_at: new Date().toISOString()
       })
       .select()
@@ -296,6 +324,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         id: profile.id,
         contractor_code: contractorCode,
         verification_status: verificationStatus,
+        operator_application_status: applicationStatus,
         commission_rate: '8%',
         vehicle,
         onboarding_context: {
@@ -304,10 +333,11 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           operating_zone: operating_zone || null,
           affiliation_name: affiliation_name || null,
           intake_status: intakeStatus,
+          application_status: applicationStatus,
         }
       },
       message: intakeStatus === 'verification_ready'
-        ? `Bienvenue ${full_name}! Code contractant: ${contractorCode}. Commission AFAT: 8%.`
+        ? `Bienvenue ${full_name}! Votre dossier operateur est en revue AFAT. Code contractant: ${contractorCode}.`
         : `Bienvenue ${full_name}. Your AFAT intake is saved, but more identity or vehicle documents are still needed before full verification.`
     });
   } catch (error: any) {

@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   referral_code TEXT,
   subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'guardian')),
   subscription_expiry TIMESTAMPTZ,
+  operator_application_status TEXT DEFAULT 'APPLICATION_STARTED',
+  operator_application_submitted_at TIMESTAMPTZ,
+  operator_approved_at TIMESTAMPTZ,
+  operator_review_notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -256,6 +260,45 @@ CREATE TABLE IF NOT EXISTS public.movement_logs (
   campaign_id UUID -- Link to data collection campaigns
 );
 
+CREATE TABLE IF NOT EXISTS public.map_signal_reviews (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  movement_log_id UUID NOT NULL REFERENCES public.movement_logs(id) ON DELETE CASCADE,
+  reviewer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'validated', 'dismissed', 'published')),
+  confidence_score INTEGER NOT NULL DEFAULT 50,
+  decision_notes TEXT,
+  reward_points INTEGER NOT NULL DEFAULT 0,
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(movement_log_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.auth_otp_challenges (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  phone TEXT NOT NULL,
+  otp_code TEXT NOT NULL,
+  delivery_provider TEXT DEFAULT 'arkesel',
+  provider_ref TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  consumed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.auth_refresh_sessions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  refresh_token_hash TEXT NOT NULL,
+  user_agent TEXT,
+  ip_address TEXT,
+  revoked_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ============================================
 -- 10. COLLECTION CAMPAIGNS (Admin Data Ops)
 -- ============================================
@@ -450,6 +493,10 @@ CREATE TABLE IF NOT EXISTS public.checkpoint_memberships (
 CREATE INDEX idx_compliance_records_profile ON public.compliance_records(profile_id);
 CREATE INDEX idx_compliance_records_company ON public.compliance_records(company_id);
 CREATE INDEX idx_compliance_records_status ON public.compliance_records(status);
+CREATE INDEX idx_map_signal_reviews_status ON public.map_signal_reviews(status);
+CREATE INDEX idx_map_signal_reviews_movement ON public.map_signal_reviews(movement_log_id);
+CREATE INDEX idx_auth_otp_challenges_phone ON public.auth_otp_challenges(phone, created_at DESC);
+CREATE INDEX idx_auth_refresh_sessions_profile ON public.auth_refresh_sessions(profile_id, created_at DESC);
 CREATE INDEX idx_dispatch_assignments_status ON public.dispatch_assignments(status);
 CREATE INDEX idx_dispatch_assignments_operator ON public.dispatch_assignments(operator_id);
 CREATE INDEX idx_dispatch_assignments_vehicle ON public.dispatch_assignments(vehicle_id);
@@ -521,6 +568,9 @@ ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fuel_stations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.movement_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.map_signal_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.auth_otp_challenges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.auth_refresh_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.collection_campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.trust_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
@@ -537,7 +587,12 @@ ALTER TABLE public.checkpoint_memberships ENABLE ROW LEVEL SECURITY;
 
 -- 1. PROFILES
 CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "Admins can update all profiles" ON public.profiles FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+) WITH CHECK (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
 
 -- 2. INCIDENTS
 CREATE POLICY "Incidents are viewable by everyone" ON public.incidents FOR SELECT USING (status != 'false');
@@ -585,6 +640,14 @@ CREATE POLICY "Only admins view all movement" ON public.movement_logs FOR SELECT
   user_id = auth.uid() OR 
   EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
 );
+CREATE POLICY "Admins and planners view map signal reviews" ON public.map_signal_reviews FOR SELECT USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('planner', 'admin'))
+);
+CREATE POLICY "Admins manage map signal reviews" ON public.map_signal_reviews FOR ALL USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
+CREATE POLICY "No direct client access to auth OTP challenges" ON public.auth_otp_challenges FOR ALL USING (false);
+CREATE POLICY "Users view own refresh sessions" ON public.auth_refresh_sessions FOR SELECT USING (profile_id = auth.uid());
 
 -- 10. CAMPAIGNS
 CREATE POLICY "Campaigns readable by everyone" ON public.collection_campaigns FOR SELECT USING (is_active = true);

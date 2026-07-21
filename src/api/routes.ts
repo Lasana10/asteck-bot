@@ -1570,6 +1570,74 @@ router.post('/ops/checkpoints/enroll', async (req: Request, res: Response) => {
   }
 });
 
+router.patch('/ops/operators/:operatorId/status', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin', 'planner']);
+  if (!access) return;
+
+  try {
+    const operatorId = String(req.params.operatorId || '').trim();
+    const nextStatus = String(req.body?.status || '').trim().toUpperCase();
+    const reviewNotes = String(req.body?.notes || '').trim();
+    const allowedStatuses = new Set([
+      'APPLICATION_STARTED',
+      'DOCUMENTS_PENDING',
+      'UNDER_REVIEW',
+      'APPROVED',
+      'REJECTED',
+      'SUSPENDED',
+    ]);
+
+    if (!operatorId || !allowedStatuses.has(nextStatus)) {
+      return res.status(400).json({ error: 'Valid operator id and lifecycle status are required.' });
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from('profiles')
+      .select('id, role, full_name, is_active, operator_application_status')
+      .eq('id', operatorId)
+      .eq('role', 'operator')
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (!existing) {
+      return res.status(404).json({ error: 'Operator profile not found.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const updatePayload: Record<string, any> = {
+      operator_application_status: nextStatus,
+      operator_review_notes: reviewNotes || null,
+      updated_at: nowIso,
+      is_active: nextStatus === 'APPROVED',
+    };
+
+    if (nextStatus === 'APPROVED') {
+      updatePayload.operator_approved_at = nowIso;
+      updatePayload.verification_status = 'verified';
+    } else if (['REJECTED', 'SUSPENDED'].includes(nextStatus)) {
+      updatePayload.operator_approved_at = null;
+    }
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .update(updatePayload)
+      .eq('id', operatorId)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      operator: profile,
+      message: `${existing.full_name || 'Operator'} marked ${nextStatus}.`,
+    });
+  } catch (error: any) {
+    console.error('Operator lifecycle update error:', error);
+    return res.status(500).json({ error: error.message || 'Operator lifecycle update failed.' });
+  }
+});
+
 router.post('/ops/notifications/send', async (req: Request, res: Response) => {
   try {
     const access = await requireAuthRole(req, res, ['admin', 'planner']);

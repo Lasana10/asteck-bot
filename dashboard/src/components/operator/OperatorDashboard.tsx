@@ -77,6 +77,10 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const [negotiatingRequest, setNegotiatingRequest] = useState<any | null>(null);
   const [operatorNotice, setOperatorNotice] = useState('');
   const [isNegotiationSaving, setIsNegotiationSaving] = useState(false);
+  const operatorLifecycle = String(
+    profile?.operator_application_status || (profile?.is_active ? 'APPROVED' : 'UNDER_REVIEW')
+  ).toUpperCase();
+  const isOperatorApproved = operatorLifecycle === 'APPROVED' && profile?.is_active !== false;
 
   const handleDownloadMap = async (regionId: 'yaounde' | 'douala' | 'cameroon') => {
     if (offlineMaps[regionId]) return;
@@ -304,6 +308,10 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   };
 
   const toggleOnline = async () => {
+    if (!isOperatorApproved) {
+      setOperatorNotice('AFAT approval is still pending. Complete review and compliance before going live.');
+      return;
+    }
     const newStatus = !isOnline;
     setIsOnline(newStatus);
     if (vehicle?.id) {
@@ -394,6 +402,55 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
       </div>
     ) : null
   );
+
+  const renderLifecycleBanner = () => {
+    if (isOperatorApproved) return null;
+
+    const lifecycleCopy: Record<string, { title: string; body: string }> = {
+      APPLICATION_STARTED: {
+        title: 'Application started',
+        body: 'AFAT saved the operator profile, but identity and vehicle details are still incomplete.',
+      },
+      DOCUMENTS_PENDING: {
+        title: 'Documents pending',
+        body: 'AFAT needs more operator or vehicle documents before review can finish.',
+      },
+      UNDER_REVIEW: {
+        title: 'Under review',
+        body: 'Operations is reviewing this operator for live dispatch, bookings, and marketplace activation.',
+      },
+      REJECTED: {
+        title: 'Application needs correction',
+        body: 'This operator file was rejected for now. Review notes below should be resolved before reapplying.',
+      },
+      SUSPENDED: {
+        title: 'Operator suspended',
+        body: 'Live activity is paused. AFAT must clear the operator again before dispatch returns.',
+      },
+    };
+
+    const copy = lifecycleCopy[operatorLifecycle] || lifecycleCopy.UNDER_REVIEW;
+
+    return (
+      <div className="mx-5 mt-4 rounded-[1.75rem] border border-amber-400/20 bg-amber-500/10 p-5">
+        <div className="flex items-start gap-3">
+          <div className="mt-1 rounded-2xl border border-amber-400/25 bg-amber-400/10 p-2">
+            <ShieldAlert className="h-4 w-4 text-amber-300" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/70">Operator readiness</p>
+            <h2 className="mt-1 text-base font-black text-white">{copy.title}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-white/70">{copy.body}</p>
+            {profile?.operator_review_notes && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-[11px] text-white/65">
+                {profile.operator_review_notes}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderDirectiveSurface = () => (
     <div id="operator-directives">
@@ -1263,10 +1320,13 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           {/* Online/Offline toggle */}
           <button
             onClick={toggleOnline}
+            disabled={!isOperatorApproved}
             className={`flex items-center gap-2.5 px-5 py-2.5 rounded-full font-black text-[11px] transition-all uppercase tracking-[0.15em] border ${
               isOnline
                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
-                : 'bg-white/5 text-white/40 border-white/10'
+                : !isOperatorApproved
+                  ? 'bg-amber-500/10 text-amber-200/65 border-amber-500/20 cursor-not-allowed'
+                  : 'bg-white/5 text-white/40 border-white/10'
             }`}
           >
             <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse shadow-[0_0_10px_#10b981]' : 'bg-white/20'}`}></div>
@@ -1277,6 +1337,8 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
           </button>
         </div>
       </header>
+
+      {renderLifecycleBanner()}
 
       {/* ── Shift Status Bar ────────────────────────────── */}
       {isOnline && (
