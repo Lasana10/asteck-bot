@@ -6,12 +6,62 @@ const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   'placeholder-key';
 
-// ═══ AUTO-DETECTION: Render Backend URL ═══
 const liveApiBaseUrl = 'https://asteck-bot.onrender.com';
+const apiOverrideStorageKey = 'afat_api_base_override';
+const localRuntimeHosts = new Set(['localhost', '127.0.0.1']);
+
+function normalizeApiUrl(url?: string | null) {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw).toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function canUseWindow() {
+  return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+}
+
+export function isLocalAppRuntime() {
+  if (!canUseWindow()) return false;
+  return localRuntimeHosts.has(window.location.hostname);
+}
+
+function isProductionAfatRuntime() {
+  if (!canUseWindow()) return false;
+  const hostname = window.location.hostname.toLowerCase();
+  if (localRuntimeHosts.has(hostname)) return false;
+  return hostname.endsWith('.pages.dev') || hostname.endsWith('.workers.dev') || hostname === 'dashboard.afat.cm';
+}
+
+function isLocalApiUrl(url?: string | null) {
+  const normalized = normalizeApiUrl(url);
+  if (!normalized) return false;
+  try {
+    return localRuntimeHosts.has(new URL(normalized).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function getStoredApiOverride() {
+  if (!canUseWindow()) return null;
+  const normalized = normalizeApiUrl(localStorage.getItem(apiOverrideStorageKey));
+  if (!normalized) {
+    localStorage.removeItem(apiOverrideStorageKey);
+    return null;
+  }
+  if (isProductionAfatRuntime() && isLocalApiUrl(normalized)) {
+    localStorage.removeItem(apiOverrideStorageKey);
+    return null;
+  }
+  return normalized;
+}
 
 function resolveApiBaseUrl() {
-  const runtimeApiOverride = localStorage.getItem('afat_api_base_override');
-  return runtimeApiOverride || import.meta.env.VITE_API_URL || liveApiBaseUrl;
+  return getStoredApiOverride() || normalizeApiUrl(import.meta.env.VITE_API_URL) || liveApiBaseUrl;
 }
 
 export const apiBaseUrl = resolveApiBaseUrl();
@@ -21,11 +71,52 @@ export function getApiBaseUrl() {
 }
 
 export function setApiBaseOverride(url: string | null) {
+  if (!canUseWindow()) return;
   if (!url) {
-    localStorage.removeItem('afat_api_base_override');
+    localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
-  localStorage.setItem('afat_api_base_override', url);
+  const normalized = normalizeApiUrl(url);
+  if (!normalized) {
+    localStorage.removeItem(apiOverrideStorageKey);
+    return;
+  }
+  if (isProductionAfatRuntime() && isLocalApiUrl(normalized)) {
+    localStorage.removeItem(apiOverrideStorageKey);
+    return;
+  }
+  localStorage.setItem(apiOverrideStorageKey, normalized);
+}
+
+async function probeApiHealth(url: string) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch(`${url}/health`, { signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function ensureReachableApiBaseUrl() {
+  const current = resolveApiBaseUrl();
+  const fallback = normalizeApiUrl(import.meta.env.VITE_API_URL) || liveApiBaseUrl;
+
+  if (await probeApiHealth(current)) {
+    return { url: current, healthy: true, corrected: false };
+  }
+
+  if (fallback !== current && await probeApiHealth(fallback)) {
+    if (canUseWindow()) {
+      localStorage.removeItem(apiOverrideStorageKey);
+    }
+    return { url: fallback, healthy: true, corrected: true };
+  }
+
+  return { url: current, healthy: false, corrected: false };
 }
 
 if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY)) {

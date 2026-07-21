@@ -389,6 +389,13 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   };
 
   const switchBackendTarget = (target: 'render' | 'local') => {
+    const canUseLocalBackend = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+    if (target === 'local' && !canUseLocalBackend) {
+      setApiBaseOverride(null);
+      setBackendTarget(getApiBaseUrl());
+      setCommandFeedback('Local backend overrides are disabled on deployed AFAT surfaces. Live Render backend remains active.');
+      return;
+    }
     const nextUrl = target === 'render' ? 'https://asteck-bot.onrender.com' : 'http://localhost:3000';
     setApiBaseOverride(nextUrl);
     setBackendTarget(nextUrl);

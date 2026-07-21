@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -31,30 +31,29 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [showBypass, setShowBypass] = useState(false);
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
+  const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
 
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
-  const apiTarget = getApiBaseUrl();
 
   useEffect(() => {
     let mounted = true;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 5000);
-
-    fetch(`${getApiBaseUrl()}/health`, { signal: controller.signal })
-      .then((res) => {
-        if (mounted) setBackendStatus(res.ok ? 'live' : 'offline');
+    ensureReachableApiBaseUrl()
+      .then(({ url, healthy, corrected }) => {
+        if (!mounted) return;
+        setApiTarget(url);
+        setBackendStatus(healthy ? 'live' : 'offline');
+        if (corrected) {
+          setInfoText((current) => current || 'AFAT restored the live backend automatically for this device.');
+        }
       })
       .catch(() => {
         if (mounted) setBackendStatus('offline');
-      })
-      .finally(() => window.clearTimeout(timer));
+      });
 
     return () => {
       mounted = false;
-      controller.abort();
-      window.clearTimeout(timer);
     };
   }, []);
 
