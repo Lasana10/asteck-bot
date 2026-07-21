@@ -137,9 +137,10 @@ export function PlannerDashboard({ onSignOut }: Props) {
         body: 'Confirm landmark names, nearby entrances, and whether passengers can safely wait there. Mark contradictions for operations review.',
       },
     };
+    const recipientRole = targetRole === 'checkpoint' ? 'planner' : targetRole;
 
     const { error, data } = await sendOpsNotification({
-      role: targetRole,
+      role: recipientRole,
       city,
       channels: ['in_app'],
       type: 'map_collection_mission',
@@ -148,7 +149,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
     });
 
     setMissionInFlight(null);
-    setOpsMessage(error ? error.message : `Field mission sent to ${data?.recipient_count || 0} ${targetRole} profiles in ${city}.`);
+    setOpsMessage(error ? error.message : `Field mission sent to ${data?.recipient_count || 0} ${targetRole === 'checkpoint' ? 'planner/steward' : targetRole} profiles in ${city}.`);
   };
 
   const handleReportAction = async (id: string, status: 'verified' | 'resolved' | 'dismissed') => {
@@ -161,15 +162,31 @@ export function PlannerDashboard({ onSignOut }: Props) {
   const handleQuickDispatch = async () => {
     const firstVehicle = demandRadar?.vehicles?.[0];
     const firstRoute = demandRadar?.routes?.[0];
+    const openPassage = passageQueue.find((passage) => !['assigned', 'driver_acknowledged', 'driver_arrived'].includes(String(passage.status || '').toLowerCase()));
+
+    if (!firstVehicle?.operator_id && !firstVehicle?.id) {
+      setOpsMessage('Dispatch blocked: no live operator or vehicle is available. Send an operator field mission or wait for live fleet telemetry.');
+      return;
+    }
+
+    if (!firstRoute?.id && !openPassage?.id) {
+      setOpsMessage('Dispatch blocked: no booking or active passage intent is waiting for assignment.');
+      return;
+    }
+
     const { error } = await createDispatchAssignment({
       operator_id: firstVehicle?.operator_id,
       vehicle_id: firstVehicle?.id,
-      booking_id: firstRoute?.id,
+      booking_id: firstRoute?.id || openPassage?.booking_id || null,
       route_id: firstRoute?.route_id,
-      origin: firstRoute?.routes?.origin || 'Yaounde Grid',
-      destination: firstRoute?.routes?.destination || 'High-demand sector',
+      origin: firstRoute?.routes?.origin || openPassage?.origin_text || 'Yaounde Grid',
+      destination: firstRoute?.routes?.destination || openPassage?.destination_text || 'High-demand sector',
       priority: demandRadar?.summary?.recommendation === 'add_supply' ? 'high' : 'normal',
-      notes: 'Auto-created from planner demand radar.',
+      notes: openPassage?.id
+        ? `Created from planner demand radar for passage ${openPassage.id}.`
+        : 'Created from planner demand radar.',
+      pickup_lat: openPassage?.meeting_point?.latitude || openPassage?.pickup_lat || null,
+      pickup_lng: openPassage?.meeting_point?.longitude || openPassage?.pickup_lng || null,
     });
     setOpsMessage(error ? error.message : 'Dispatch assigned from demand radar.');
     fetchIntelligence();
