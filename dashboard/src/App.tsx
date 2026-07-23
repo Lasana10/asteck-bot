@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -149,20 +149,13 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setLoading(true);
     setErrorText('');
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, phone, role')
-        .eq('role', role)
-        .limit(1)
-        .maybeSingle();
-
+      const { data, error } = await bypassAfatRole(role);
       if (error) throw error;
 
-      if (data) {
-        localStorage.setItem('afat_local_user_id', data.id);
-        localStorage.setItem('afat_local_phone', data.phone || '237699999001');
-        localStorage.setItem('afat_user_id', data.id);
-        localStorage.setItem('afat_access_intent_role', role);
+      if (data?.userId) {
+        if (!localStorage.getItem('afat_local_phone')) {
+          localStorage.setItem('afat_local_phone', '237699999001');
+        }
         window.location.reload();
       } else {
         setErrorText(`No seeded ${role} profile exists yet. Use email auth with the AFAT bootstrap code, or create a real ${role} account through onboarding.`);

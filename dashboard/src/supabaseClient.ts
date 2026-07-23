@@ -285,6 +285,37 @@ export async function ensureSupabaseEmailProfile(options?: {
   }
 }
 
+export async function bypassAfatRole(role: string) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/auth/qa-bypass`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'QA bypass failed.' } };
+
+    if (data?.userId) {
+      localStorage.setItem('afat_local_user_id', data.userId);
+      localStorage.setItem('afat_user_id', data.userId);
+    }
+    if (data?.profile?.phone) {
+      localStorage.setItem('afat_local_phone', data.profile.phone);
+    }
+    if (data?.accessToken) {
+      localStorage.setItem('afat_access_token', data.accessToken);
+    }
+    if (data?.refreshToken) {
+      localStorage.setItem('afat_refresh_token', data.refreshToken);
+    }
+    localStorage.setItem('afat_access_intent_role', role);
+
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 /**
  * Step 1: Send SMS OTP via Africa's Talking (through our Express backend)
  */
@@ -414,6 +445,15 @@ export async function getCurrentUser() {
  * Get the full universal profile including their ROLE (commuter, operator, planner, admin)
  */
 export async function getProfile(userId: string) {
+  const localAccessToken = localStorage.getItem('afat_access_token');
+  if (localAccessToken) {
+    const afatSession = await fetchAfatSessionProfile();
+    const sessionProfile = afatSession.data?.profile;
+    if (sessionProfile?.id === userId) {
+      return { data: sessionProfile, error: null };
+    }
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .select('*')

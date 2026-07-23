@@ -112,6 +112,12 @@ function emailBootstrapConfig() {
   return { generalCode, adminCode, allowlist, adminAllowlist, roles };
 }
 
+function qaBypassAllowed(req: Request) {
+  if (process.env.AFAT_ALLOW_QA_BYPASS === 'true') return true;
+  const host = String(req.headers.origin || req.headers.referer || '').toLowerCase();
+  return host.includes('localhost') || host.includes('127.0.0.1');
+}
+
 function issueAccessToken(profile: any, phone: string) {
   return signLocalAuth({
     sub: profile.id,
@@ -761,6 +767,59 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Supabase email profile bootstrap error:', error);
     res.status(500).json({ error: error.message || 'Email profile bootstrap failed.' });
+  }
+});
+
+router.post('/auth/qa-bypass', async (req: Request, res: Response) => {
+  try {
+    if (!qaBypassAllowed(req)) {
+      return res.status(403).json({ error: 'QA bypass is disabled for this environment.' });
+    }
+
+    const requestedRole = String(req.body?.role || 'commuter').trim().toLowerCase();
+    const allowedRoles = new Set(['commuter', 'operator', 'planner', 'admin']);
+    if (!allowedRoles.has(requestedRole)) {
+      return res.status(400).json({ error: 'Unsupported bypass role.' });
+    }
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', requestedRole)
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!profile?.id) {
+      return res.status(404).json({
+        error: `No seeded ${requestedRole} profile exists yet. Create one through onboarding first.`,
+      });
+    }
+
+    const accessIdentity = String(
+      profile.phone ||
+      profile.email ||
+      profile.contact_phone ||
+      `qa:${profile.id}`
+    );
+    const accessToken = issueAccessToken(profile, accessIdentity);
+    const { refreshToken, session } = await issueRefreshSession(profile, accessIdentity, req);
+
+    res.status(200).json({
+      success: true,
+      userId: profile.id,
+      profile,
+      accessToken,
+      refreshToken,
+      session: {
+        id: session.id,
+        expires_at: session.expires_at,
+      },
+    });
+  } catch (error: any) {
+    console.error('QA bypass bootstrap error:', error);
+    res.status(500).json({ error: error.message || 'QA bypass failed.' });
   }
 });
 
