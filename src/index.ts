@@ -174,6 +174,22 @@ async function main() {
   app.use('/api', apiRoutes);
   app.use('/api/onboard', onboardingRoutes);
   app.use('/api', placeIntelligenceRoutes);
+  app.use('/api', (req: Request, res: Response) => {
+    res.status(404).json({
+      error: 'AFAT API route not found',
+      method: req.method,
+      path: req.originalUrl,
+    });
+  });
+  app.use((err: Error, req: Request, res: Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    const isApiRequest = req.originalUrl.startsWith('/api');
+    console.error('AFAT request error:', err);
+    res.status(isApiRequest ? 500 : 400).json({
+      error: isApiRequest ? 'AFAT API request failed' : 'Request rejected',
+      detail: process.env.NODE_ENV === 'production' ? undefined : err.message,
+    });
+  });
 
   await startBot();
 

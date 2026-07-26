@@ -36,6 +36,17 @@ function isProductionAfatRuntime() {
   return hostname.endsWith('.pages.dev') || hostname.endsWith('.workers.dev') || hostname === 'dashboard.afat.cm';
 }
 
+function isFrontendHostingUrl(url?: string | null) {
+  const normalized = normalizeApiUrl(url);
+  if (!normalized) return false;
+  try {
+    const hostname = new URL(normalized).hostname.toLowerCase();
+    return hostname.endsWith('.pages.dev') || hostname.endsWith('.workers.dev') || hostname === 'dashboard.afat.cm';
+  } catch {
+    return false;
+  }
+}
+
 function isLocalApiUrl(url?: string | null) {
   const normalized = normalizeApiUrl(url);
   if (!normalized) return false;
@@ -53,7 +64,7 @@ function getStoredApiOverride() {
     localStorage.removeItem(apiOverrideStorageKey);
     return null;
   }
-  if (isProductionAfatRuntime() && isLocalApiUrl(normalized)) {
+  if (isProductionAfatRuntime() && (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized))) {
     localStorage.removeItem(apiOverrideStorageKey);
     return null;
   }
@@ -81,11 +92,31 @@ export function setApiBaseOverride(url: string | null) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
-  if (isProductionAfatRuntime() && isLocalApiUrl(normalized)) {
+  if (isProductionAfatRuntime() && (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized))) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
   localStorage.setItem(apiOverrideStorageKey, normalized);
+}
+
+async function readApiJson(res: Response, fallback: string) {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const body = await res.text().catch(() => '');
+    const preview = body.replace(/\s+/g, ' ').slice(0, 120);
+    return {
+      data: null,
+      error: {
+        message: `${fallback} API returned ${res.status} ${res.statusText || ''} as ${contentType || 'unknown content type'}${preview ? `: ${preview}` : ''}`,
+      },
+    };
+  }
+
+  try {
+    return { data: await res.json(), error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || fallback } };
+  }
 }
 
 async function probeApiHealth(url: string) {
@@ -269,7 +300,9 @@ export async function ensureSupabaseEmailProfile(options?: {
         adminCode: options?.adminCode || '',
       }),
     });
-    const data = await res.json();
+    const parsed = await readApiJson(res, 'Email profile bootstrap failed.');
+    if (parsed.error) return parsed;
+    const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
 
     if (data?.userId) {
@@ -292,7 +325,9 @@ export async function bypassAfatRole(role: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role }),
     });
-    const data = await res.json();
+    const parsed = await readApiJson(res, 'QA bypass failed.');
+    if (parsed.error) return parsed;
+    const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'QA bypass failed.' } };
 
     if (data?.userId) {
