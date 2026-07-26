@@ -120,34 +120,52 @@ async function readApiJson(res: Response, fallback: string) {
 }
 
 async function probeApiHealth(url: string) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 4000);
-  try {
-    const res = await fetch(`${url}/health`, { signal: controller.signal });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timer);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 9000);
+    try {
+      const res = await fetch(`${url}/health`, {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        return true;
+      }
+    } catch {
+      // Render cold starts can make the first probe miss; retry once before failing.
+    } finally {
+      window.clearTimeout(timer);
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1200));
   }
+
+  return false;
 }
 
 export async function ensureReachableApiBaseUrl() {
   const current = resolveApiBaseUrl();
-  const fallback = normalizeApiUrl(import.meta.env.VITE_API_URL) || liveApiBaseUrl;
+  const envUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+  const candidates = [current, envUrl, liveApiBaseUrl].filter((value, index, list): value is string => {
+    return Boolean(value) && list.indexOf(value) === index;
+  });
 
-  if (await probeApiHealth(current)) {
-    return { url: current, healthy: true, corrected: false };
-  }
+  for (const candidate of candidates) {
+    if (await probeApiHealth(candidate)) {
+      const corrected = candidate !== current;
+      if (corrected && canUseWindow()) {
+        if (candidate === liveApiBaseUrl || candidate === envUrl) {
+          localStorage.removeItem(apiOverrideStorageKey);
+        } else {
+          localStorage.setItem(apiOverrideStorageKey, candidate);
+        }
+      }
 
-  if (fallback !== current && await probeApiHealth(fallback)) {
-    if (canUseWindow()) {
-      localStorage.removeItem(apiOverrideStorageKey);
+      return { url: candidate, healthy: true, corrected };
     }
-    return { url: fallback, healthy: true, corrected: true };
   }
 
-  return { url: current, healthy: false, corrected: false };
+  return { url: candidates[0] || liveApiBaseUrl, healthy: false, corrected: false };
 }
 
 if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY)) {
