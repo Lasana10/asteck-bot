@@ -82,8 +82,36 @@ export const offlineSync = {
     for (const mutation of queue) {
       try {
         if (mutation.type === 'INSERT_INCIDENT') {
-          const { error } = await supabase.from('incidents').insert([mutation.payload]);
-          if (error) throw error;
+          const incident = mutation.payload || {};
+          const response = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+            body: JSON.stringify({
+              signal_type: 'incident',
+              incident_type: incident.type || incident.incident_type || 'road_hazard',
+              latitude: incident.latitude,
+              longitude: incident.longitude,
+              address: incident.address,
+              description: incident.description,
+              severity: incident.severity,
+              reporter_id: incident.reporter_id,
+              source: 'offline_sync',
+              actor_type: 'verified_offline_report',
+              verification_hint: 'queued_replay',
+              metadata: {
+                offline_mutation_id: mutation.id,
+                queued_at: mutation.timestamp,
+                original_payload: incident,
+              },
+            }),
+          });
+          const contentType = response.headers.get('content-type') || '';
+          const data = contentType.toLowerCase().includes('application/json')
+            ? await response.json().catch(() => ({}))
+            : { error: await response.text().then((text) => text.replace(/\s+/g, ' ').slice(0, 140)).catch(() => '') };
+          if (!response.ok) {
+            throw new Error(data.error || 'Offline incident replay failed');
+          }
         } 
         else if (mutation.type === 'UPDATE_BOOKING') {
           const { id, ...data } = mutation.payload;

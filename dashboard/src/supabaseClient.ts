@@ -1042,7 +1042,9 @@ export async function fetchSafetyScore(lat?: number, lng?: number, radiusKm: num
 export async function fetchDemandRadar() {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/ops/demand-radar`);
-    const data = await res.json();
+    const parsed = await readApiJson(res, 'Demand radar fetch failed.');
+    if (parsed.error) return { data: null, error: parsed.error };
+    const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Demand radar fetch failed.' } };
     return { data, error: null };
   } catch (err: any) {
@@ -1057,7 +1059,9 @@ export async function publishMapSignal(signalData: any) {
       headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify(signalData),
     });
-    const data = await res.json();
+    const parsed = await readApiJson(res, 'Map signal publish failed.');
+    if (parsed.error) return { data: null, error: parsed.error };
+    const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Map signal publish failed.' } };
     return { data, error: null };
   } catch (err: any) {
@@ -1069,7 +1073,9 @@ export async function fetchLiveMapOps(city: string = 'cameroon') {
   try {
     const params = new URLSearchParams({ city });
     const res = await fetch(`${getApiBaseUrl()}/api/ops/live-map?${params.toString()}`);
-    const data = await res.json();
+    const parsed = await readApiJson(res, 'Live map feed failed.');
+    if (parsed.error) return { data: null, error: parsed.error };
+    const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Live map feed failed.' } };
     return { data, error: null };
   } catch (err: any) {
@@ -1091,7 +1097,9 @@ export async function reviewMapSignal(reviewData: {
       headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify(reviewData),
     });
-    const data = await res.json();
+    const parsed = await readApiJson(res, 'Map signal review failed.');
+    if (parsed.error) return { data: null, error: parsed.error };
+    const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Map signal review failed.' } };
     return { data, error: null };
   } catch (err: any) {
