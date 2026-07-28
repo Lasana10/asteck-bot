@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Phone, MapPin, Shield, Loader2 } from 'lucide-react';
 import { sendPanicAlert, supabase } from '../../supabaseClient';
 
+const SOS_FALLBACK_STORAGE_KEY = 'afat_pending_sos_events';
+
 interface Props {
   userId: string;
   userName: string;
@@ -44,17 +46,17 @@ export function EmergencySOS({ userId, userName, onClose }: Props) {
     });
 
     if (error) {
-      await supabase.from('incidents').insert({
-        type: 'emergency',
-        description: `EMERGENCY SOS from ${userName}. Location: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`,
+      const pendingRaw = localStorage.getItem(SOS_FALLBACK_STORAGE_KEY);
+      const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
+      pending.push({
+        user_id: userId,
+        user_name: userName,
         latitude: location.lat,
         longitude: location.lng,
-        severity: 5,
         source: 'sos_button_fallback',
-        status: 'active',
-        reporter_id: userId,
-        reporter_username: userName
+        created_at: new Date().toISOString(),
       });
+      localStorage.setItem(SOS_FALLBACK_STORAGE_KEY, JSON.stringify(pending));
 
       try {
         await supabase.from('sos_events').insert({

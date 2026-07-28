@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Mic, Square, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
-import { getApiBaseUrl, supabase } from '../../supabaseClient';
+import { getApiBaseUrl, publishMapSignal } from '../../supabaseClient';
 
 export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: () => void }) {
   const [isRecording, setIsRecording] = useState(false);
@@ -113,8 +113,23 @@ export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: ()
         location: `POINT(${lng} ${lat})`
       };
 
-      await supabase.from('incidents').insert([incidentPayload]);
-      
+      const { error: publishError } = await publishMapSignal({
+        profile_id: profile.id,
+        signal_type: 'incident',
+        incident_type: incidentPayload.type,
+        description: incidentPayload.description,
+        severity: incidentPayload.severity,
+        latitude: lat,
+        longitude: lng,
+        source: 'voice_report',
+        actor_type: 'verified_voice_report',
+        verification_hint: 'trusted',
+      });
+
+      if (publishError) {
+        throw new Error(publishError.message || 'Voice report could not be ingested by AFAT.');
+      }
+
       setResult(incidentPayload);
     } catch (err: any) {
       setError(err.message || 'Error processing brain scan.');
