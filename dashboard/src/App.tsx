@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight, Chrome } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -36,6 +36,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
+  const guestAccessEnabled = import.meta.env.VITE_ENABLE_GUEST_ACCESS === 'true';
   const oauthCodeStorageKey = 'afat_oauth_access_code';
   const oauthAdminCodeStorageKey = 'afat_oauth_admin_code';
 
@@ -93,6 +94,20 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       setErrorText(`${error.message} Check that Google is enabled in Supabase Auth and the callback URL is allowed.`);
       setLoading(false);
     }
+  };
+
+  const handleGuestAccess = async () => {
+    setLoading(true);
+    setErrorText('');
+    setInfoText('');
+    localStorage.setItem('afat_access_intent_role', 'commuter');
+    const { error } = await signInAsGuest();
+    if (error) {
+      setErrorText(`${error.message} Guest access requires Supabase Anonymous Sign-ins and AFAT guest RLS to be enabled.`);
+      setLoading(false);
+      return;
+    }
+    window.location.reload();
   };
 
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -198,7 +213,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     <div className="flex flex-col items-center justify-center font-sans text-on-surface">
       <div className="w-full max-w-sm glass-panel p-8 rounded-[32px] shadow-ambient-float relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-signature-gradient opacity-50"></div>
-        
+
         <h1 className="text-3xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">AFAT</h1>
         <p className="text-slate-500 text-center mb-6 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligent Safe Passage</p>
 
@@ -378,6 +393,16 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <p className="text-[10px] font-semibold leading-relaxed text-white/40">
               Google confirms your identity. AFAT still controls driver, planner and admin approval separately.
             </p>
+            {guestAccessEnabled && (
+              <button
+                type="button"
+                onClick={handleGuestAccess}
+                disabled={loading || !supabaseReady}
+                className="w-full border border-white/10 bg-slate-950 text-white/75 hover:text-white font-black py-3.5 rounded-2xl transition-all disabled:opacity-50 uppercase tracking-widest text-[10px]"
+              >
+                Continue as guest, limited
+              </button>
+            )}
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-6">
@@ -565,6 +590,93 @@ function AuthCallback() {
   );
 }
 
+type AfatRole = 'commuter' | 'operator' | 'planner' | 'admin';
+type AccessLevel = 'public' | 'guest' | 'verified' | 'operator' | 'planner' | 'admin';
+
+function normalizeAfatRole(role?: string | null): AfatRole {
+  return ['operator', 'planner', 'admin'].includes(String(role || '').toLowerCase())
+    ? String(role).toLowerCase() as AfatRole
+    : 'commuter';
+}
+
+function getAccessLevel(profile: any, sessionUser: any): AccessLevel {
+  if (!sessionUser?.id) return 'public';
+  const role = normalizeAfatRole(profile?.role);
+  if (role === 'admin') return 'admin';
+  if (role === 'planner') return 'planner';
+  if (role === 'operator') return 'operator';
+  return profile?.access_level === 'guest' || localStorage.getItem('afat_access_level') === 'guest' ? 'guest' : 'verified';
+}
+
+function canUseOperatorConsole(profile: any) {
+  if (!profile) return false;
+  const status = String(profile.operator_application_status || '').toUpperCase();
+  return normalizeAfatRole(profile.role) === 'operator' && profile.is_active !== false && (!status || status === 'APPROVED');
+}
+
+function OperatorAccessPending({ profile, onRegister }: { profile: any; onRegister: () => void }) {
+  const status = String(profile?.operator_application_status || 'APPLICATION_STARTED').replace(/_/g, ' ');
+  return (
+    <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
+      <div className="mesh-gradient" />
+      <div className="relative z-10 mx-auto max-w-3xl">
+        <div className="rounded-[2rem] border border-amber-400/20 bg-slate-950/80 p-7 shadow-ambient-float backdrop-blur-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/70">Controlled operator access</p>
+          <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">Operator approval required</h1>
+          <p className="mt-4 text-sm font-semibold leading-relaxed text-white/65">
+            Your Google or email account is valid, but AFAT has not approved this profile for live driver/operator operations yet.
+            This protects passengers, operators, payments and city intelligence from fake role elevation.
+          </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Current role</p>
+              <p className="mt-2 text-sm font-black uppercase text-white">{normalizeAfatRole(profile?.role)}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Application</p>
+              <p className="mt-2 text-sm font-black uppercase text-amber-100">{status}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Live console</p>
+              <p className="mt-2 text-sm font-black uppercase text-red-200">Locked</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRegister}
+            className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
+          >
+            Complete operator application
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessLevelStrip({ accessLevel, profile }: { accessLevel: AccessLevel; profile: any }) {
+  const label: Record<AccessLevel, string> = {
+    public: 'Public visitor',
+    guest: 'Guest session',
+    verified: 'Verified passenger',
+    operator: 'Approved operator',
+    planner: 'Planner / authority',
+    admin: 'AFAT command',
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+      <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-xs font-bold text-white/60 backdrop-blur-xl">
+        <span className="text-[9px] font-black uppercase tracking-[0.24em] text-cyan-200/60">Access level</span>
+        <span className="ml-3 text-white">{label[accessLevel]}</span>
+        {profile?.operator_application_status && normalizeAfatRole(profile?.role) !== 'operator' && (
+          <span className="ml-3 text-amber-200">Operator application: {String(profile.operator_application_status).replace(/_/g, ' ')}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ==============================================================================
 // 🚪 MAIN APP ROUTER (Gatekeeper)
 // ==============================================================================
@@ -713,7 +825,7 @@ function AppShell() {
           return;
         }
 
-        if (localProfileId) {
+        if (isLocalReview && localProfileId) {
           setSessionUser({ id: localProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
           localStorage.setItem('afat_user_id', localProfileId);
           await fetchRole(localProfileId);
@@ -762,9 +874,9 @@ function AppShell() {
         const { data, error } = await getProfile(userId);
         if (!error && data) {
           setUserProfile(data);
-          setUserRole(data.role || 'commuter');
+          setUserRole(normalizeAfatRole(data.role));
           setBootError(null);
-          
+
           const hasOnboarded = localStorage.getItem(`onboarded_${userId}`);
           if (!hasOnboarded) {
             setShowOnboarding(true);
@@ -786,6 +898,7 @@ function AppShell() {
       localStorage.removeItem('afat_local_user_id');
       localStorage.removeItem('afat_local_phone');
       localStorage.removeItem('afat_user_id');
+      localStorage.removeItem('afat_access_level');
       setLocalAuthUserId(null);
       setUserProfile(null);
       setUserRole(null);
@@ -801,7 +914,7 @@ function AppShell() {
 
     const renderRoleToggle = () => (
       <div className="fixed top-4 right-4 z-[9999] flex flex-col items-end gap-2">
-        <button 
+        <button
           onClick={() => setIsProtocolHubOpen(!isProtocolHubOpen)}
           className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-2xl border ${isProtocolHubOpen ? 'bg-red-500 border-red-400 rotate-90' : 'bg-[#0f1520]/90 backdrop-blur-xl border-white/10 hover:border-blue-400/50 hover:scale-110'}`}
         >
@@ -933,9 +1046,9 @@ function AppShell() {
               </div>
             </div>
           </div>
-          <RegistrationHub 
-            isVisible={isRegistrationHubOpen} 
-            onClose={() => setIsRegistrationHubOpen(false)} 
+          <RegistrationHub
+            isVisible={isRegistrationHubOpen}
+            onClose={() => setIsRegistrationHubOpen(false)}
             initialTrack={registrationTrack}
             prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
             onRegisterCustom={(data) => {
@@ -944,14 +1057,28 @@ function AppShell() {
                 setLocalAuthUserId(data.id);
               }
               forceRole(data.role, data.vehicleType, data);
-            }} 
+            }}
           />
         </div>
       );
     }
 
     const renderDashboard = () => {
-      switch (userRole) {
+      const accessLevel = getAccessLevel(userProfile, sessionUser);
+      const effectiveRole = normalizeAfatRole(userRole);
+      if (effectiveRole === 'operator' && !canUseOperatorConsole(userProfile)) {
+        return (
+          <OperatorAccessPending
+            profile={userProfile}
+            onRegister={() => {
+              setRegistrationTrack('citizen_reg');
+              setIsRegistrationHubOpen(true);
+            }}
+          />
+        );
+      }
+
+      switch (effectiveRole) {
         case 'admin':
           return <AdminControlPanel onSignOut={handleSignOut} activeTab={activeTab} />;
         case 'planner':
@@ -1029,16 +1156,17 @@ function AppShell() {
       <div className="min-h-screen flex flex-col sentinel-bg text-white selection:bg-blue-500/30">
         <div className="mesh-gradient" />
         <div className="relative z-10 flex-1 flex flex-col">
+          <AccessLevelStrip accessLevel={getAccessLevel(userProfile, sessionUser)} profile={userProfile} />
           {renderRoleFrame()}
           {renderDashboard()}
         </div>
-        <BottomNav role={userRole as any} activeTab={activeTab} onTabChange={setActiveTab} />
+        <BottomNav role={normalizeAfatRole(userRole) as any} activeTab={activeTab} onTabChange={setActiveTab} />
         {showDevOverride && renderRoleToggle()}
-        <RoleOnboarding 
-          role={userRole as any} 
+        <RoleOnboarding
+          role={normalizeAfatRole(userRole) as any}
           profile={userProfile}
-          isVisible={showOnboarding} 
-          onClose={handleOnboardingComplete} 
+          isVisible={showOnboarding}
+          onClose={handleOnboardingComplete}
         />
         <RegistrationHub
           isVisible={isRegistrationHubOpen}
@@ -1053,7 +1181,7 @@ function AppShell() {
             forceRole(data.role, data.vehicleType, data);
           }}
         />
-        <AICopilot userName={userProfile?.full_name || 'User'} userRole={userRole || 'commuter'} />
+        <AICopilot userName={userProfile?.full_name || 'User'} userRole={normalizeAfatRole(userRole)} />
       </div>
     );
   } catch (err: any) {

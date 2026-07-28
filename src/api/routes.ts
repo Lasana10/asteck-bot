@@ -677,9 +677,12 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     }
 
     const user = userResult.user;
+    const isAnonymousSession = Boolean((user as any).is_anonymous);
     const email = String(user.email || '').trim().toLowerCase();
-    const requestedRole = String(req.body?.roleIntent || user.user_metadata?.role || 'commuter').trim().toLowerCase();
-    const publicRoles = new Set(['commuter', 'operator']);
+    const requestedRole = isAnonymousSession
+      ? 'commuter'
+      : String(req.body?.roleIntent || user.user_metadata?.role || 'commuter').trim().toLowerCase();
+    const publicRoles = new Set(['commuter']);
     const platformRoles = new Set(['commuter', 'operator', 'planner', 'admin']);
     if (!platformRoles.has(requestedRole)) {
       return res.status(400).json({ error: 'Unsupported role intent.' });
@@ -699,13 +702,14 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       providedAdminCode === adminCode &&
       adminAllowlist.includes(email);
 
-    if (!publicRoles.has(requestedRole) && !generalBootstrapAllowed && !adminBootstrapAllowed) {
+    const operatorApplicationRequested = requestedRole === 'operator' && !generalBootstrapAllowed && !adminBootstrapAllowed;
+    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !generalBootstrapAllowed && !adminBootstrapAllowed) {
       return res.status(403).json({
-        error: 'This role needs AFAT email bootstrap approval. Add the email to AFAT_BOOTSTRAP_ALLOW_EMAILS or use commuter/operator.',
+        error: 'This role needs AFAT email bootstrap approval. Add the email to AFAT_BOOTSTRAP_ALLOW_EMAILS or use commuter access.',
       });
     }
 
-    const finalRole = requestedRole;
+    const finalRole = operatorApplicationRequested ? 'commuter' : requestedRole;
     const username = email ? email.split('@')[0] : `afat-${user.id.slice(0, 8)}`;
     const fullName =
       String(user.user_metadata?.full_name || user.user_metadata?.name || '').trim() ||
@@ -730,6 +734,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
           trust_points: finalRole === 'commuter' ? 50 : 25,
           preferred_city: 'yaounde',
           is_active: true,
+          operator_application_status: operatorApplicationRequested ? 'APPLICATION_STARTED' : null,
           attribution_source: 'supabase_email_auth',
           created_at: new Date().toISOString(),
         })
@@ -737,10 +742,25 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .single();
       if (createError) throw createError;
       profile = createdProfile;
+    } else if (operatorApplicationRequested) {
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          operator_application_status: profile.operator_application_status || 'APPLICATION_STARTED',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+        .select('*')
+        .single();
+      if (updateError) throw updateError;
+      profile = updatedProfile;
     } else if (profile.role !== finalRole && (publicRoles.has(finalRole) || generalBootstrapAllowed || adminBootstrapAllowed)) {
       const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
-        .update({ role: finalRole, updated_at: new Date().toISOString() })
+        .update({
+          role: finalRole,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', user.id)
         .select('*')
         .single();

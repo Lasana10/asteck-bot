@@ -200,6 +200,22 @@ export async function signInWithGoogle(options?: { roleIntent?: string }) {
   }
 }
 
+export async function signInAsGuest() {
+  try {
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error) return { data: null, error: { message: error.message || 'Guest access failed.' } };
+    if (data?.user?.id) {
+      localStorage.setItem('afat_local_user_id', data.user.id);
+      localStorage.setItem('afat_user_id', data.user.id);
+      localStorage.setItem('afat_access_intent_role', 'commuter');
+      localStorage.setItem('afat_access_level', 'guest');
+    }
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Guest access failed.' } };
+  }
+}
+
 export async function completeGoogleAuthCallback(options?: {
   roleIntent?: string;
   accessCode?: string;
