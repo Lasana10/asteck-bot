@@ -533,7 +533,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                   )}
                 </div>
 
-                {passage.status === 'open' ? (
+                {['open', 'assigned'].includes(String(passage.status || '')) ? (
                   <button
                     onClick={() => acknowledgePassage(passage.id)}
                     disabled={!meetingPoint}

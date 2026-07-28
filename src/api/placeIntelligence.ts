@@ -239,7 +239,7 @@ router.patch('/passages/intents/:id/status', async (req: Request, res: Response)
   try {
     const identity = await resolveIdentity(req);
     if (!identity) return res.status(401).json({ error: 'Authentication required.' });
-    const allowedStatuses = new Set(['open', 'driver_acknowledged', 'passenger_walking', 'driver_arrived', 'meeting_confirmed', 'converted', 'cancelled', 'recovery']);
+    const allowedStatuses = new Set(['open', 'assigned', 'driver_acknowledged', 'passenger_walking', 'driver_arrived', 'meeting_confirmed', 'converted', 'completed', 'cancelled', 'recovery']);
     const status = String(req.body?.status || '');
     if (!allowedStatuses.has(status)) return res.status(400).json({ error: 'Unsupported passage status.' });
 
@@ -253,7 +253,7 @@ router.patch('/passages/intents/:id/status', async (req: Request, res: Response)
     const privileged = ['planner', 'admin'].includes(identity.role);
     const passengerOwns = current.passenger_id === identity.id;
     const operatorOwns = current.operator_id === identity.id;
-    const claimingOpenPassage = status === 'driver_acknowledged' && !current.operator_id && identity.role === 'operator';
+    const claimingOpenPassage = ['assigned', 'driver_acknowledged'].includes(status) && !current.operator_id && identity.role === 'operator';
     if (!privileged && !passengerOwns && !operatorOwns && !claimingOpenPassage) {
       return res.status(403).json({ error: 'Passage access denied.' });
     }

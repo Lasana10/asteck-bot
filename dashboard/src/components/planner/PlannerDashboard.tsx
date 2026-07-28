@@ -174,6 +174,20 @@ export function PlannerDashboard({ onSignOut }: Props) {
       return;
     }
 
+    if (openPassage?.id && firstVehicle?.operator_id) {
+      const { error } = await updatePassageIntentStatus(openPassage.id, {
+        status: 'assigned',
+        operator_id: firstVehicle.operator_id,
+      });
+      if (error) {
+        setOpsMessage(error.message);
+        return;
+      }
+      setOpsMessage(`Passage assigned to operator ${String(firstVehicle.operator_id).slice(0, 8)}. The operator can now acknowledge the shared meeting point.`);
+      fetchIntelligence();
+      return;
+    }
+
     const { error } = await createDispatchAssignment({
       operator_id: firstVehicle?.operator_id,
       vehicle_id: firstVehicle?.id,
@@ -428,7 +442,7 @@ export function PlannerDashboard({ onSignOut }: Props) {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-black text-white">{passage.origin_text || 'Origin to confirm'} → {passage.destination_text}</p>
-                    <p className="text-[11px] text-slate-500 mt-1">{passage.meeting_point?.name || passage.meeting_point_name || 'Meeting point pending'}</p>
+                    <p className="text-[11px] text-slate-500 mt-1">{passage.afat_meeting_points?.name || passage.meeting_point?.name || passage.meeting_point_name || 'Meeting point pending'}</p>
                   </div>
                   <span className="text-[9px] font-black uppercase px-2 py-1 rounded-lg bg-blue-500/10 text-blue-300">{String(passage.status || 'requested').replace(/_/g, ' ')}</span>
                 </div>

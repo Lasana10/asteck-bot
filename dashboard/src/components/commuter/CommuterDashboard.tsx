@@ -433,8 +433,12 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     const statusCopy: Record<string, string> = {
       open: 'Searching for the right operator',
       requested: 'Searching for the right operator',
+      assigned: 'An operator has been matched and must acknowledge the pickup identity',
       driver_acknowledged: 'Operator has accepted the meeting point',
+      passenger_walking: 'Walk to the shared meeting point',
       driver_arrived: 'Operator is at the meeting point',
+      meeting_confirmed: 'Pickup confirmed and map confidence improved',
+      completed: 'Passage completed',
       recovery: 'Recovery in progress',
     };
 
@@ -484,10 +488,22 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
                   <p className="mt-2 text-[11px] font-bold text-emerald-200/70">{statusCopy[status] || 'AFAT is coordinating the passage.'}</p>
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
+                    {['driver_acknowledged', 'passenger_walking'].includes(status) && (
+                      <button
+                        onClick={() => updatePassageIntentStatus(passage.id, { status: 'passenger_walking' }).then(() => {
+                          setProductNotice('Walking state shared. The operator sees that you are moving to the agreed meeting point.');
+                          refreshActivePassages();
+                        })}
+                        disabled={isBusy}
+                        className="rounded-xl border border-emerald-300/25 bg-emerald-400/10 px-3 py-3 text-[9px] font-black uppercase tracking-widest text-emerald-100 disabled:opacity-50"
+                      >
+                        Start walking
+                      </button>
+                    )}
                     <button
                       onClick={() => requestPassageRecovery(passage)}
                       disabled={isBusy}
-                      className="rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-3 text-[9px] font-black uppercase tracking-widest text-amber-100 disabled:opacity-50"
+                      className={`${['driver_acknowledged', 'passenger_walking'].includes(status) ? '' : 'col-span-1'} rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-3 text-[9px] font-black uppercase tracking-widest text-amber-100 disabled:opacity-50`}
                     >
                       Cannot reach point
                     </button>
