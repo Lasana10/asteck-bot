@@ -178,6 +178,77 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // 🔐 AUTH & ROLES (Phone OTP Focus)
 // ==============================================================================
 
+export async function signInWithGoogle(options?: { roleIntent?: string }) {
+  try {
+    const roleIntent = options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter';
+    localStorage.setItem('afat_access_intent_role', roleIntent);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (error) return { data: null, error: { message: error.message || 'Google sign-in failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Google sign-in failed.' } };
+  }
+}
+
+export async function completeGoogleAuthCallback(options?: {
+  roleIntent?: string;
+  accessCode?: string;
+  adminCode?: string;
+}) {
+  try {
+    const url = new URL(window.location.href);
+    const authCode = url.searchParams.get('code');
+    const errorDescription = url.searchParams.get('error_description') || url.searchParams.get('error');
+
+    if (errorDescription) {
+      return { data: null, error: { message: errorDescription } };
+    }
+
+    if (authCode) {
+      const { error } = await supabase.auth.exchangeCodeForSession(authCode);
+      if (error) return { data: null, error: { message: error.message || 'Could not complete Google sign-in.' } };
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      return { data: null, error: { message: sessionError.message || 'Could not restore the Google session.' } };
+    }
+
+    if (!sessionData.session?.user?.id) {
+      return { data: null, error: { message: 'Google sign-in returned without an active AFAT session.' } };
+    }
+
+    const profileResult = await ensureSupabaseEmailProfile({
+      roleIntent: options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter',
+      accessCode: options?.accessCode || '',
+      adminCode: options?.adminCode || '',
+    });
+
+    if (profileResult.error) return profileResult;
+
+    return {
+      data: {
+        session: sessionData.session,
+        profile: profileResult.data?.profile || null,
+        userId: profileResult.data?.userId || sessionData.session.user.id,
+      },
+      error: null,
+    };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Could not complete Google sign-in.' } };
+  }
+}
+
 export async function sendEmailOtp(email: string, options?: { roleIntent?: string }) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();

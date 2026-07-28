@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole } from './supabaseClient';
-import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight } from 'lucide-react';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole } from './supabaseClient';
+import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight, Chrome } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
 import { OperatorDashboard } from './components/operator/OperatorDashboard';
@@ -36,6 +36,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
+  const oauthCodeStorageKey = 'afat_oauth_access_code';
+  const oauthAdminCodeStorageKey = 'afat_oauth_admin_code';
 
   useEffect(() => {
     let mounted = true;
@@ -65,6 +67,31 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     }
     if (normalizedEmail) {
       localStorage.setItem('afat_access_email', normalizedEmail);
+    }
+  };
+
+  const persistOAuthBootstrapCodes = () => {
+    sessionStorage.removeItem(oauthCodeStorageKey);
+    sessionStorage.removeItem(oauthAdminCodeStorageKey);
+    if (accessCode.trim()) {
+      sessionStorage.setItem(oauthCodeStorageKey, accessCode.trim());
+    }
+    if (adminCode.trim()) {
+      sessionStorage.setItem(oauthAdminCodeStorageKey, adminCode.trim());
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setErrorText('');
+    setInfoText('');
+    persistAccessIntent();
+    persistOAuthBootstrapCodes();
+
+    const { error } = await signInWithGoogle({ roleIntent });
+    if (error) {
+      setErrorText(`${error.message} Check that Google is enabled in Supabase Auth and the callback URL is allowed.`);
+      setLoading(false);
     }
   };
 
@@ -323,14 +350,34 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 </div>
               )}
             </div>
-              <button
-                type="submit"
+            <button
+              type="submit"
               disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
               {!loading && <ChevronRight className="w-4 h-4" />}
             </button>
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-white/10" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-slate-950 px-3 text-[9px] font-black uppercase tracking-widest text-white/35">or verified identity</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading || !supabaseReady}
+              className="w-full border border-white/15 bg-white text-slate-950 hover:bg-slate-100 font-black py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+            >
+              <Chrome className="h-4 w-4" />
+              Continue with Google
+            </button>
+            <p className="text-[10px] font-semibold leading-relaxed text-white/40">
+              Google confirms your identity. AFAT still controls driver, planner and admin approval separately.
+            </p>
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-6">
@@ -453,6 +500,71 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   );
 }
 
+function AuthCallback() {
+  const [status, setStatus] = useState<'loading' | 'error'>('loading');
+  const [message, setMessage] = useState('Completing secure Google access...');
+
+  useEffect(() => {
+    let mounted = true;
+    const roleIntent = localStorage.getItem('afat_access_intent_role') || 'commuter';
+    const accessCode = sessionStorage.getItem('afat_oauth_access_code') || '';
+    const adminCode = sessionStorage.getItem('afat_oauth_admin_code') || '';
+
+    completeGoogleAuthCallback({ roleIntent, accessCode, adminCode })
+      .then(({ error }) => {
+        sessionStorage.removeItem('afat_oauth_access_code');
+        sessionStorage.removeItem('afat_oauth_admin_code');
+
+        if (!mounted) return;
+        if (error) {
+          setStatus('error');
+          setMessage(error.message || 'AFAT could not complete Google sign-in.');
+          return;
+        }
+
+        window.history.replaceState({}, '', '/');
+        window.location.replace('/');
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        setStatus('error');
+        setMessage(err?.message || 'AFAT could not complete Google sign-in.');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+      <div className="w-full max-w-md glass-panel rounded-[32px] border border-white/10 p-8 text-center shadow-ambient-float">
+        <AFATLogo className="mx-auto h-12 w-12" />
+        <h1 className="mt-6 text-2xl font-black uppercase tracking-tight">AFAT Google Access</h1>
+        <p className={`mt-4 text-sm font-bold leading-relaxed ${status === 'error' ? 'text-red-200' : 'text-white/55'}`}>
+          {message}
+        </p>
+        {status === 'loading' ? (
+          <div className="mx-auto mt-6 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-blue-400" />
+        ) : (
+          <div className="mt-6 grid gap-3">
+            <button
+              type="button"
+              onClick={() => window.location.replace('/')}
+              className="rounded-2xl bg-blue-600 px-5 py-4 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-500"
+            >
+              Return to AFAT access
+            </button>
+            <p className="text-[10px] font-semibold leading-relaxed text-white/40">
+              Check Supabase Google provider settings, callback redirect URLs, and AFAT backend reachability if this repeats.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ==============================================================================
 // 🚪 MAIN APP ROUTER (Gatekeeper)
 // ==============================================================================
@@ -460,6 +572,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 export default function App() {
   const pathname = window.location.pathname || '/';
   const watchMatch = pathname.match(/^\/watch\/([^/]+)$/);
+
+  if (pathname === '/auth/callback') {
+    return <AuthCallback />;
+  }
 
   if (watchMatch?.[1]) {
     return <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />;
