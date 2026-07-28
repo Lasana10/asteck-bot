@@ -118,6 +118,45 @@ function qaBypassAllowed(req: Request) {
   return host.includes('localhost') || host.includes('127.0.0.1');
 }
 
+async function verifyTurnstileToken(req: Request, action: string) {
+  const secret = process.env.TURNSTILE_SECRET;
+  const expectedHostnames = new Set(
+    String(process.env.TURNSTILE_HOSTNAMES || '')
+      .split(',')
+      .map((hostname) => hostname.trim())
+      .filter(Boolean)
+  );
+  const token = String(req.body?.turnstileToken || req.body?.['cf-turnstile-response'] || '').trim();
+
+  if (!secret) return { ok: false, status: 503, error: 'Turnstile secret is not configured on AFAT backend.' };
+  if (!token || token.length > 2048) return { ok: false, status: 403, error: 'Turnstile verification token is required.' };
+  if (!expectedHostnames.size) return { ok: false, status: 503, error: 'Turnstile hostname allowlist is not configured.' };
+
+  try {
+    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    const remoteip = forwarded || req.socket.remoteAddress || undefined;
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(10000),
+      body: new URLSearchParams({
+        secret,
+        response: token,
+        ...(remoteip ? { remoteip } : {}),
+      }),
+    });
+
+    if (!response.ok) return { ok: false, status: 403, error: `Turnstile siteverify failed with ${response.status}.` };
+    const result: any = await response.json();
+    if (!result.success) return { ok: false, status: 403, error: 'Turnstile challenge was not accepted.' };
+    if (result.action !== action) return { ok: false, status: 403, error: 'Turnstile action mismatch.' };
+    if (!expectedHostnames.has(result.hostname)) return { ok: false, status: 403, error: 'Turnstile hostname mismatch.' };
+    return { ok: true, status: 200, result };
+  } catch (error: any) {
+    return { ok: false, status: 403, error: error.message || 'Turnstile verification failed.' };
+  }
+}
+
 function issueAccessToken(profile: any, phone: string) {
   return signLocalAuth({
     sub: profile.id,
@@ -790,6 +829,19 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/auth/guest-gate', async (req: Request, res: Response) => {
+  const turnstile = await verifyTurnstileToken(req, 'guest_access');
+  if (!turnstile.ok) {
+    return res.status(turnstile.status).json({ error: turnstile.error });
+  }
+
+  return res.status(200).json({
+    success: true,
+    gate: 'guest_access',
+    message: 'Guest access challenge accepted.',
+  });
+});
+
 router.post('/auth/qa-bypass', async (req: Request, res: Response) => {
   try {
     if (!qaBypassAllowed(req)) {
@@ -1357,6 +1409,13 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
       actor_type = 'app_user',
       verification_hint,
     } = req.body;
+
+    if ((signal_type === 'incident' || incident_type) && source === 'app') {
+      const turnstile = await verifyTurnstileToken(req, 'incident_report');
+      if (!turnstile.ok) {
+        return res.status(turnstile.status).json({ error: turnstile.error });
+      }
+    }
 
     const userId = auth?.sub || profile_id;
     if (userId) {

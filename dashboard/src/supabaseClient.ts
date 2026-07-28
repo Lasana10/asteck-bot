@@ -200,8 +200,18 @@ export async function signInWithGoogle(options?: { roleIntent?: string }) {
   }
 }
 
-export async function signInAsGuest() {
+export async function signInAsGuest(turnstileToken: string) {
   try {
+    const gate = await fetch(`${getApiBaseUrl()}/api/auth/guest-gate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turnstileToken }),
+    });
+    const gateData = await gate.json().catch(() => ({}));
+    if (!gate.ok) {
+      return { data: null, error: { message: gateData.error || 'Guest security check failed.' } };
+    }
+
     const { data, error } = await supabase.auth.signInAnonymously();
     if (error) return { data: null, error: { message: error.message || 'Guest access failed.' } };
     if (data?.user?.id) {

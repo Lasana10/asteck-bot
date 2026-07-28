@@ -36,6 +36,7 @@ import { PointsSystem } from '../shared/PointsSystem';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
 import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
+import { TurnstileGate } from '../shared/TurnstileGate';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 import { PassagePlanner } from './PassagePlanner';
 
@@ -79,6 +80,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [dataMissions, setDataMissions] = useState<any[]>([]);
   const [activePassages, setActivePassages] = useState<any[]>([]);
   const [passageActionInFlight, setPassageActionInFlight] = useState<string | null>(null);
+  const [incidentTurnstileToken, setIncidentTurnstileToken] = useState('');
 
   const handleSOS = () => {
     if (isGuest) {
@@ -249,15 +251,34 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     e.preventDefault();
     const lat = 3.848 + (Math.random() - 0.5) * 0.05;
     const lng = 11.502 + (Math.random() - 0.5) * 0.05;
-    const payload = {
-      reporter_id: profile?.id, reporter_username: profile?.username || 'Citizen',
-      type: newIncident.type, description: newIncident.description,
-      latitude: lat, longitude: lng, location: `POINT(${lng} ${lat})`,
-      severity: newIncident.severity, source: 'app',
-      expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString()
-    };
-    const { error } = await supabase.from('incidents').insert([payload]);
-    if (!error) { setIsReportModalOpen(false); setNewIncident({ type: 'accident', description: '', severity: 3 }); }
+    if (!incidentTurnstileToken) {
+      setProductNotice('Complete the AFAT security check before publishing this report.');
+      return;
+    }
+
+    const { error } = await publishMapSignal({
+      profile_id: profile?.id,
+      signal_type: 'incident',
+      incident_type: newIncident.type,
+      description: newIncident.description,
+      latitude: lat,
+      longitude: lng,
+      severity: newIncident.severity,
+      source: 'app',
+      actor_type: isGuest ? 'guest_incident_report' : 'verified_incident_report',
+      turnstileToken: incidentTurnstileToken,
+      verification_hint: isGuest ? 'guest_unverified' : 'trusted',
+    });
+
+    setIncidentTurnstileToken('');
+    if (!error) {
+      setIsReportModalOpen(false);
+      setNewIncident({ type: 'accident', description: '', severity: 3 });
+      setProductNotice('Incident submitted through AFAT protected ingestion. It now enters confidence scoring and map review.');
+      refreshLiveOps();
+    } else {
+      setProductNotice(`Incident report failed: ${error.message}`);
+    }
   };
 
   // Booking flow handlers
@@ -1582,7 +1603,13 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
                   className="w-full accent-blue-500"
                 />
               </div>
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl text-[13px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/50 active:scale-[0.98]">
+              <TurnstileGate
+                action="incident_report"
+                onToken={setIncidentTurnstileToken}
+                onExpire={() => setIncidentTurnstileToken('')}
+                className="rounded-2xl border border-white/10 bg-black/20 p-3"
+              />
+              <button type="submit" disabled={!incidentTurnstileToken} className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/40 disabled:text-white/50 text-white font-black py-4 rounded-xl text-[13px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/50 active:scale-[0.98]">
                 <Send className="w-4 h-4" /> Signaler maintenant
               </button>
             </form>

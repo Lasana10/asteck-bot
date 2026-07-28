@@ -12,6 +12,7 @@ import { RegistrationHub } from './components/shared/RegistrationHub';
 import { telemetry } from './services/telemetryService';
 import { AICopilot } from './components/shared/AICopilot';
 import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
+import { TurnstileGate } from './components/shared/TurnstileGate';
 
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
@@ -32,6 +33,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
+  const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
 
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
@@ -101,9 +103,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setErrorText('');
     setInfoText('');
     localStorage.setItem('afat_access_intent_role', 'commuter');
-    const { error } = await signInAsGuest();
+    const { error } = await signInAsGuest(guestTurnstileToken);
     if (error) {
       setErrorText(`${error.message} Guest access requires Supabase Anonymous Sign-ins and AFAT guest RLS to be enabled.`);
+      setGuestTurnstileToken('');
       setLoading(false);
       return;
     }
@@ -394,14 +397,21 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               Google confirms your identity. AFAT still controls driver, planner and admin approval separately.
             </p>
             {guestAccessEnabled && (
-              <button
-                type="button"
-                onClick={handleGuestAccess}
-                disabled={loading || !supabaseReady}
-                className="w-full border border-white/10 bg-slate-950 text-white/75 hover:text-white font-black py-3.5 rounded-2xl transition-all disabled:opacity-50 uppercase tracking-widest text-[10px]"
-              >
-                Continue as guest, limited
-              </button>
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                <TurnstileGate
+                  action="guest_access"
+                  onToken={setGuestTurnstileToken}
+                  onExpire={() => setGuestTurnstileToken('')}
+                />
+                <button
+                  type="button"
+                  onClick={handleGuestAccess}
+                  disabled={loading || !supabaseReady || !guestTurnstileToken}
+                  className="w-full border border-white/10 bg-slate-950 text-white/75 hover:text-white font-black py-3.5 rounded-2xl transition-all disabled:opacity-50 uppercase tracking-widest text-[10px]"
+                >
+                  Continue as guest, limited
+                </button>
+              </div>
             )}
           </form>
         ) : (
