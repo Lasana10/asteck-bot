@@ -538,6 +538,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 function AuthCallback() {
   const [status, setStatus] = useState<'loading' | 'error'>('loading');
   const [message, setMessage] = useState('Completing secure Google access...');
+  const [phase, setPhase] = useState<'redirect' | 'session' | 'profile' | 'ready'>('redirect');
 
   useEffect(() => {
     let mounted = true;
@@ -545,6 +546,7 @@ function AuthCallback() {
     const accessCode = sessionStorage.getItem('afat_oauth_access_code') || '';
     const adminCode = sessionStorage.getItem('afat_oauth_admin_code') || '';
 
+    setPhase('session');
     completeGoogleAuthCallback({ roleIntent, accessCode, adminCode })
       .then(({ error }) => {
         sessionStorage.removeItem('afat_oauth_access_code');
@@ -557,6 +559,7 @@ function AuthCallback() {
           return;
         }
 
+        setPhase('profile');
         window.history.replaceState({}, '', '/');
         window.location.replace('/');
       })
@@ -580,7 +583,21 @@ function AuthCallback() {
           {message}
         </p>
         {status === 'loading' ? (
-          <div className="mx-auto mt-6 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-blue-400" />
+          <div className="mt-6 grid gap-3 text-left">
+            <div className={`rounded-2xl border px-4 py-3 ${phase === 'redirect' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 1</p>
+              <p className="mt-1 text-xs font-bold text-white">Google redirected back to AFAT.</p>
+            </div>
+            <div className={`rounded-2xl border px-4 py-3 ${phase === 'session' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 2</p>
+              <p className="mt-1 text-xs font-bold text-white">Restoring your Supabase session.</p>
+            </div>
+            <div className={`rounded-2xl border px-4 py-3 ${phase === 'profile' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 3</p>
+              <p className="mt-1 text-xs font-bold text-white">Loading your AFAT profile and access lane.</p>
+            </div>
+            <div className="mx-auto mt-1 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-blue-400" />
+          </div>
         ) : (
           <div className="mt-6 grid gap-3">
             <button

@@ -233,11 +233,13 @@ export async function completeGoogleAuthCallback(options?: {
 }) {
   try {
     const url = new URL(window.location.href);
-    const authCode = url.searchParams.get('code');
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const authCode = url.searchParams.get('code') || hashParams.get('code');
     const errorDescription = url.searchParams.get('error_description') || url.searchParams.get('error');
+    const hashError = hashParams.get('error_description') || hashParams.get('error');
 
-    if (errorDescription) {
-      return { data: null, error: { message: errorDescription } };
+    if (errorDescription || hashError) {
+      return { data: null, error: { message: errorDescription || hashError || 'Google sign-in failed.' } };
     }
 
     if (authCode) {
