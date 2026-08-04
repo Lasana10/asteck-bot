@@ -14,7 +14,11 @@ function normalizeApiUrl(url?: string | null) {
   const raw = String(url || '').trim();
   if (!raw) return null;
   try {
-    return new URL(raw).toString().replace(/\/$/, '');
+    const parsed = new URL(raw);
+    parsed.hash = '';
+    parsed.search = '';
+    parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\/api$/i, '') || '/';
+    return parsed.toString().replace(/\/$/, '');
   } catch {
     return null;
   }
@@ -405,7 +409,8 @@ export async function ensureSupabaseEmailProfile(options?: {
       return { data: null, error: { message: 'No Supabase email session is active yet.' } };
     }
 
-    const res = await fetch(`${getApiBaseUrl()}/api/auth/supabase-profile`, {
+    const endpoint = `${getApiBaseUrl()}/api/auth/supabase-profile`;
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -417,7 +422,7 @@ export async function ensureSupabaseEmailProfile(options?: {
         adminCode: options?.adminCode || '',
       }),
     });
-    const parsed = await readApiJson(res, 'Email profile bootstrap failed.');
+    const parsed = await readApiJson(res, `Email profile bootstrap failed at ${endpoint}.`);
     if (parsed.error) return parsed;
     const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
