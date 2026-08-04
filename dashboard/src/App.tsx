@@ -641,7 +641,11 @@ function canUseOperatorConsole(profile: any) {
   return normalizeAfatRole(profile.role) === 'operator' && profile.is_active !== false && (!status || status === 'APPROVED');
 }
 
-function OperatorAccessPending({ profile, onRegister }: { profile: any; onRegister: () => void }) {
+function hasOperatorApplication(profile: any) {
+  return Boolean(profile?.operator_application_status);
+}
+
+function OperatorAccessPending({ profile, onRegister, onUseCommuter }: { profile: any; onRegister: () => void; onUseCommuter: () => void }) {
   const status = String(profile?.operator_application_status || 'APPLICATION_STARTED').replace(/_/g, ' ');
   return (
     <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
@@ -674,6 +678,68 @@ function OperatorAccessPending({ profile, onRegister }: { profile: any; onRegist
             className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
           >
             Complete operator application
+          </button>
+          <button
+            type="button"
+            onClick={onUseCommuter}
+            className="ml-3 mt-7 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
+          >
+            Continue as commuter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RestrictedAccessPending({
+  requestedRole,
+  onRegister,
+  onUseCommuter,
+}: {
+  requestedRole: 'planner' | 'admin';
+  onRegister: () => void;
+  onUseCommuter: () => void;
+}) {
+  const label = requestedRole === 'admin' ? 'Admin command' : 'Planner access';
+  return (
+    <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
+      <div className="mesh-gradient" />
+      <div className="relative z-10 mx-auto max-w-3xl">
+        <div className="rounded-[2rem] border border-blue-400/20 bg-slate-950/80 p-7 shadow-ambient-float backdrop-blur-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-200/70">Invite controlled access</p>
+          <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">{label} requires approval</h1>
+          <p className="mt-4 text-sm font-semibold leading-relaxed text-white/65">
+            Your Google account is valid. AFAT keeps this lane locked until an approved bootstrap code, organization profile,
+            or admin invitation confirms that this account should manage people, operators, city data, or platform controls.
+          </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Identity</p>
+              <p className="mt-2 text-sm font-black uppercase text-emerald-100">Verified</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Requested lane</p>
+              <p className="mt-2 text-sm font-black uppercase text-blue-100">{requestedRole}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Console</p>
+              <p className="mt-2 text-sm font-black uppercase text-amber-100">Invite needed</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRegister}
+            className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
+          >
+            Complete organization intake
+          </button>
+          <button
+            type="button"
+            onClick={onUseCommuter}
+            className="ml-3 mt-7 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
+          >
+            Continue as commuter
           </button>
         </div>
       </div>
@@ -1093,13 +1159,36 @@ function AppShell() {
     const renderDashboard = () => {
       const accessLevel = getAccessLevel(userProfile, sessionUser);
       const effectiveRole = normalizeAfatRole(userRole);
-      if (effectiveRole === 'operator' && !canUseOperatorConsole(userProfile)) {
+      const intendedRole = localStorage.getItem('afat_access_intent_role') || effectiveRole;
+      const wantsOperatorConsole = effectiveRole === 'operator' || intendedRole === 'operator';
+      if (wantsOperatorConsole && ((effectiveRole === 'operator' && !canUseOperatorConsole(userProfile)) || hasOperatorApplication(userProfile))) {
         return (
           <OperatorAccessPending
             profile={userProfile}
             onRegister={() => {
               setRegistrationTrack('citizen_reg');
               setIsRegistrationHubOpen(true);
+            }}
+            onUseCommuter={() => {
+              localStorage.setItem('afat_access_intent_role', 'commuter');
+              setUserRole('commuter');
+              setActiveTab('home');
+            }}
+          />
+        );
+      }
+      if (effectiveRole === 'commuter' && (intendedRole === 'planner' || intendedRole === 'admin')) {
+        return (
+          <RestrictedAccessPending
+            requestedRole={intendedRole as 'planner' | 'admin'}
+            onRegister={() => {
+              setRegistrationTrack(getRegistrationTrackForRole(intendedRole));
+              setIsRegistrationHubOpen(true);
+            }}
+            onUseCommuter={() => {
+              localStorage.setItem('afat_access_intent_role', 'commuter');
+              setUserRole('commuter');
+              setActiveTab('home');
             }}
           />
         );

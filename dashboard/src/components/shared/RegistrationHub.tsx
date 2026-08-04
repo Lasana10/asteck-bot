@@ -595,8 +595,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Gov Identity Number (CNI / QR ID)</label>
-                    <input required type="text" value={govId} onChange={e=>setGovId(e.target.value)} placeholder="e.g., CM-2026-X891" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Gov Identity Number (CNI / QR ID, optional)</label>
+                    <input type="text" value={govId} onChange={e=>setGovId(e.target.value)} placeholder="e.g., CM-2026-X891" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
                   </div>
 
                   <div>
@@ -605,8 +605,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Secured Plate Number</label>
-                    <input required type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono text-lg uppercase" />
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Secured Plate Number (optional)</label>
+                    <input type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono text-lg uppercase" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -636,12 +636,16 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
 
+              <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-blue-100/80">
+                AFAT can save this strategic intake with only a phone line. Missing ID, plate, QR, and documents become follow-up tasks before approval.
+              </div>
+
               <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
-                <button disabled={loading || !govId || !plateNumber || isScanningQR} type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
-                  {loading ? <Zap className="w-5 h-5 animate-pulse" /> : 'Execute Clearance'}
+                <button disabled={loading || !phone || isScanningQR} type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
+                  {loading ? <Zap className="w-5 h-5 animate-pulse" /> : govId && plateNumber ? 'Execute Clearance' : 'Save Strategic Intake'}
                 </button>
               </div>
             </form>
