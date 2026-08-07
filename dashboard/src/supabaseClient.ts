@@ -128,11 +128,21 @@ async function probeApiHealth(url: string) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 9000);
     try {
-      const res = await fetch(`${url}/health`, {
+      const res = await fetch(`${url}/health/contract`, {
         signal: controller.signal,
         cache: 'no-store',
       });
       if (res.ok) {
+        const contract = await res.json().catch(() => null);
+        const requiredRoutes = Array.isArray(contract?.required_routes) ? contract.required_routes : [];
+        const hasAuthContract =
+          contract?.status === 'contract_ready' &&
+          requiredRoutes.includes('POST /api/auth/supabase-profile') &&
+          requiredRoutes.includes('POST /api/auth/qa-bypass') &&
+          requiredRoutes.includes('POST /api/onboard/passenger/register');
+        if (!hasAuthContract) {
+          continue;
+        }
         return true;
       }
     } catch {
