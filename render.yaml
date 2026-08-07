@@ -10,7 +10,7 @@ services:
     plan: starter
     dockerContext: .
     dockerfilePath: Dockerfile
-    healthCheckPath: /health
+    healthCheckPath: /health/contract
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false

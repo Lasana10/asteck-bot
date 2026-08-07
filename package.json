@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && cd dashboard && npm install && npm run build",
+    "build": "npm run build:backend && npm run build:dashboard",
+    "build:backend": "tsc",
+    "build:dashboard": "cd dashboard && npm install && npm run build",
     "test:api-contract": "node scripts/verify-api-contract.mjs",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"

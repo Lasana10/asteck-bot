@@ -17,8 +17,8 @@ RUN npm install --include=dev
 # Copy source code
 COPY src ./src
 
-# Build the project (allow type warnings, JS is still emitted)
-RUN npm run build; exit 0
+# Build only the backend in the API image. If this fails, Render must fail the deploy.
+RUN npm run build:backend
 
 # Production stage
 FROM node:22-alpine
