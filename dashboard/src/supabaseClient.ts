@@ -123,38 +123,94 @@ async function readApiJson(res: Response, fallback: string) {
   }
 }
 
-async function probeApiHealth(url: string) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 9000);
-    try {
-      const res = await fetch(`${url}/health/contract`, {
-        signal: controller.signal,
-        cache: 'no-store',
-      });
-      if (res.ok) {
-        const contract = await res.json().catch(() => null);
-        const requiredRoutes = Array.isArray(contract?.required_routes) ? contract.required_routes : [];
-        const hasAuthContract =
-          contract?.status === 'contract_ready' &&
-          requiredRoutes.includes('POST /api/auth/supabase-profile') &&
-          requiredRoutes.includes('POST /api/auth/qa-bypass') &&
-          requiredRoutes.includes('POST /api/onboard/passenger/register');
-        if (!hasAuthContract) {
-          continue;
-        }
-        return true;
-      }
-    } catch {
-      // Render cold starts can make the first probe miss; retry once before failing.
-    } finally {
-      window.clearTimeout(timer);
+type ApiHealthCheckResult = {
+  healthy: boolean;
+  contractHealthy: boolean;
+  reason?: string;
+};
+
+async function probeJsonEndpoint(endpoint: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(endpoint, {
+      signal: controller.signal,
+      cache: 'no-store',
+      mode: 'cors',
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+      const body = await res.text().catch(() => '');
+      return {
+        ok: false,
+        status: res.status,
+        reason: `Expected JSON from ${endpoint}, received ${contentType || 'unknown content type'}${body ? `: ${body.replace(/\s+/g, ' ').slice(0, 120)}` : ''}`,
+      };
     }
 
-    await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    const json = await res.json().catch(() => null);
+    return {
+      ok: res.ok,
+      status: res.status,
+      json,
+      reason: res.ok ? '' : String(json?.error || json?.message || `HTTP ${res.status}`),
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 0,
+      reason: err?.name === 'AbortError' ? `Timed out reaching ${endpoint}` : err?.message || `Failed to reach ${endpoint}`,
+    };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function probeApiHealth(url: string) {
+  let lastFailure = 'AFAT backend health probe did not return a usable response.';
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const contractResponse = await probeJsonEndpoint(`${url}/health/contract`, 12000 + attempt * 3000);
+    if (contractResponse.ok) {
+      const contract = contractResponse.json;
+      const requiredRoutes = Array.isArray(contract?.required_routes) ? contract.required_routes : [];
+      const hasAuthContract =
+        contract?.status === 'contract_ready' &&
+        requiredRoutes.includes('POST /api/auth/supabase-profile') &&
+        requiredRoutes.includes('POST /api/auth/qa-bypass') &&
+        requiredRoutes.includes('POST /api/onboard/passenger/register');
+      if (hasAuthContract) {
+        return { healthy: true, contractHealthy: true };
+      }
+      lastFailure = `AFAT contract probe responded without the expected auth routes at ${url}.`;
+    } else if (contractResponse.reason) {
+      lastFailure = contractResponse.reason;
+    }
+
+    const healthResponse = await probeJsonEndpoint(`${url}/health`, 8000 + attempt * 2000);
+    if (healthResponse.ok) {
+      const health = healthResponse.json;
+      const basicHealthOkay =
+        health?.status === 'UP' &&
+        health?.api_mount === '/api';
+      if (basicHealthOkay) {
+        return {
+          healthy: true,
+          contractHealthy: false,
+          reason: contractResponse.reason || 'AFAT backend passed the basic health check while the contract probe was still warming up.',
+        };
+      }
+      lastFailure = `AFAT basic health responded unexpectedly at ${url}.`;
+    } else if (healthResponse.reason) {
+      lastFailure = healthResponse.reason;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1200 * (attempt + 1)));
   }
 
-  return false;
+  return { healthy: false, contractHealthy: false, reason: lastFailure };
 }
 
 export async function ensureReachableApiBaseUrl() {
@@ -165,7 +221,8 @@ export async function ensureReachableApiBaseUrl() {
   });
 
   for (const candidate of candidates) {
-    if (await probeApiHealth(candidate)) {
+    const health = await probeApiHealth(candidate);
+    if (health.healthy) {
       const corrected = candidate !== current;
       if (corrected && canUseWindow()) {
         if (candidate === liveApiBaseUrl || candidate === envUrl) {
@@ -175,11 +232,63 @@ export async function ensureReachableApiBaseUrl() {
         }
       }
 
-      return { url: candidate, healthy: true, corrected };
+      return {
+        url: candidate,
+        healthy: true,
+        corrected,
+        contractHealthy: health.contractHealthy,
+        detail: health.reason || '',
+      };
     }
   }
 
-  return { url: candidates[0] || liveApiBaseUrl, healthy: false, corrected: false };
+  const failedCandidate = candidates[0] || liveApiBaseUrl;
+  const failedHealth = await probeApiHealth(failedCandidate);
+  return {
+    url: failedCandidate,
+    healthy: false,
+    corrected: false,
+    contractHealthy: false,
+    detail: failedHealth.reason || '',
+  };
+}
+
+async function requestAfatApi(path: string, init: RequestInit, fallback: string) {
+  const attempt = async (baseUrl: string) => {
+    const endpoint = `${baseUrl}${path}`;
+    try {
+      const res = await fetch(endpoint, init);
+      const parsed = await readApiJson(res, `${fallback} at ${endpoint}.`);
+      return { endpoint, res, parsed };
+    } catch (err: any) {
+      return {
+        endpoint,
+        res: null,
+        parsed: {
+          data: null,
+          error: { message: err?.message || `${fallback} at ${endpoint}.` },
+        },
+      };
+    }
+  };
+
+  const firstBase = getApiBaseUrl();
+  const firstAttempt = await attempt(firstBase);
+  if (!firstAttempt.parsed.error) {
+    return firstAttempt;
+  }
+
+  const probe = await ensureReachableApiBaseUrl();
+  if (!probe.healthy) {
+    return firstAttempt;
+  }
+
+  if (probe.url === firstBase) {
+    const secondAttempt = await attempt(probe.url);
+    return secondAttempt.parsed.error ? firstAttempt : secondAttempt;
+  }
+
+  return attempt(probe.url);
 }
 
 if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY)) {
@@ -216,13 +325,16 @@ export async function signInWithGoogle(options?: { roleIntent?: string }) {
 
 export async function signInAsGuest(turnstileToken: string) {
   try {
-    const gate = await fetch(`${getApiBaseUrl()}/api/auth/guest-gate`, {
+    const gateResult = await requestAfatApi('/api/auth/guest-gate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turnstileToken }),
-    });
-    const gateData = await gate.json().catch(() => ({}));
-    if (!gate.ok) {
+    }, 'Guest security check failed');
+    if (gateResult.parsed.error) {
+      return { data: null, error: gateResult.parsed.error };
+    }
+    const gateData = gateResult.parsed.data || {};
+    if (!gateResult.res?.ok) {
       return { data: null, error: { message: gateData.error || 'Guest security check failed.' } };
     }
 
@@ -419,8 +531,7 @@ export async function ensureSupabaseEmailProfile(options?: {
       return { data: null, error: { message: 'No Supabase email session is active yet.' } };
     }
 
-    const endpoint = `${getApiBaseUrl()}/api/auth/supabase-profile`;
-    const res = await fetch(endpoint, {
+    const result = await requestAfatApi('/api/auth/supabase-profile', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -431,11 +542,10 @@ export async function ensureSupabaseEmailProfile(options?: {
         accessCode: options?.accessCode || '',
         adminCode: options?.adminCode || '',
       }),
-    });
-    const parsed = await readApiJson(res, `Email profile bootstrap failed at ${endpoint}.`);
-    if (parsed.error) return parsed;
-    const data = parsed.data;
-    if (!res.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
+    }, 'Email profile bootstrap failed');
+    if (result.parsed.error) return result.parsed;
+    const data = result.parsed.data;
+    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
 
     if (data?.userId) {
       localStorage.setItem('afat_local_user_id', data.userId);
@@ -452,15 +562,14 @@ export async function ensureSupabaseEmailProfile(options?: {
 
 export async function bypassAfatRole(role: string) {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/auth/qa-bypass`, {
+    const result = await requestAfatApi('/api/auth/qa-bypass', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role }),
-    });
-    const parsed = await readApiJson(res, 'QA bypass failed.');
-    if (parsed.error) return parsed;
-    const data = parsed.data;
-    if (!res.ok) return { data: null, error: { message: data.error || 'QA bypass failed.' } };
+    }, 'QA bypass failed');
+    if (result.parsed.error) return result.parsed;
+    const data = result.parsed.data;
+    if (!result.res?.ok) return { data: null, error: { message: data.error || 'QA bypass failed.' } };
 
     if (data?.userId) {
       localStorage.setItem('afat_local_user_id', data.userId);
@@ -488,13 +597,14 @@ export async function bypassAfatRole(role: string) {
  */
 export async function sendPhoneOtp(phone: string) {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/auth/send-otp`, {
+    const result = await requestAfatApi('/api/auth/send-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone }),
-    });
-    const data = await res.json();
-    if (!res.ok) return { data: null, error: { message: data.error || 'Failed to send OTP.' } };
+    }, 'Failed to send OTP');
+    if (result.parsed.error) return result.parsed;
+    const data = result.parsed.data;
+    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Failed to send OTP.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -507,7 +617,7 @@ export async function sendPhoneOtp(phone: string) {
  */
 export async function verifyPhoneOtp(phone: string, token: string, options?: { roleIntent?: string; adminCode?: string; accessCode?: string }) {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/auth/verify-otp`, {
+    const result = await requestAfatApi('/api/auth/verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -517,9 +627,10 @@ export async function verifyPhoneOtp(phone: string, token: string, options?: { r
         adminCode: options?.adminCode,
         accessCode: options?.accessCode,
       }),
-    });
-    const data = await res.json();
-    if (!res.ok) return { data: null, error: { message: data.error || 'Verification failed.' } };
+    }, 'Phone verification failed');
+    if (result.parsed.error) return result.parsed;
+    const data = result.parsed.data;
+    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Verification failed.' } };
 
     if (data?.userId) {
       localStorage.setItem('afat_local_user_id', data.userId);

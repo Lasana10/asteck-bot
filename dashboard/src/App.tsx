@@ -33,6 +33,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
+  const [backendDetail, setBackendDetail] = useState('');
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
 
   const normalizedPhone = phone.replace(/\s+/g, '');
@@ -44,18 +45,28 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
   useEffect(() => {
     let mounted = true;
-    ensureReachableApiBaseUrl()
-      .then(({ url, healthy, corrected }) => {
-        if (!mounted) return;
-        setApiTarget(url);
-        setBackendStatus(healthy ? 'live' : 'offline');
-        if (corrected) {
-          setInfoText((current) => current || 'AFAT restored the live backend automatically for this device.');
-        }
-      })
-      .catch(() => {
-        if (mounted) setBackendStatus('offline');
-      });
+
+    const syncBackendStatus = async () => {
+      if (!mounted) return;
+      setBackendStatus('checking');
+      const { url, healthy, corrected, contractHealthy, detail } = await ensureReachableApiBaseUrl();
+      if (!mounted) return;
+      setApiTarget(url);
+      setBackendStatus(healthy ? 'live' : 'offline');
+      setBackendDetail(detail || '');
+      if (corrected) {
+        setInfoText((current) => current || 'AFAT restored the live backend automatically for this device.');
+      } else if (healthy && !contractHealthy && detail) {
+        setInfoText((current) => current || detail);
+      }
+    };
+
+    syncBackendStatus().catch(() => {
+      if (mounted) {
+        setBackendStatus('offline');
+        setBackendDetail('AFAT could not verify the API target from this browser.');
+      }
+    });
 
     return () => {
       mounted = false;
@@ -251,18 +262,45 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         {backendStatus === 'offline' && (
           <div className="mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
             <p className="text-xs font-bold leading-relaxed text-red-100/80">
-              AFAT cannot reach the API target from this browser. Use the live backend unless you are running a local backend on purpose.
+              AFAT cannot confirm the API target from this browser yet. This is often a Render wake-up or routing issue, not a full backend outage.
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                setApiBaseOverride('https://asteck-bot.onrender.com');
-                window.location.reload();
-              }}
-              className="mt-3 rounded-xl border border-red-200/20 bg-red-100/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-100"
-            >
-              Use live backend
-            </button>
+            {backendDetail && (
+              <p className="mt-2 text-[11px] leading-relaxed text-red-100/60">
+                {backendDetail}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setErrorText('');
+                  setInfoText('');
+                  setBackendStatus('checking');
+                  const { url, healthy, corrected, contractHealthy, detail } = await ensureReachableApiBaseUrl();
+                  setApiTarget(url);
+                  setBackendStatus(healthy ? 'live' : 'offline');
+                  setBackendDetail(detail || '');
+                  if (corrected) {
+                    setInfoText('AFAT restored the live backend automatically for this device.');
+                  } else if (healthy && !contractHealthy && detail) {
+                    setInfoText(detail);
+                  }
+                }}
+                className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+              >
+                Retry check
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setApiBaseOverride('https://asteck-bot.onrender.com');
+                  window.location.reload();
+                }}
+                className="rounded-xl border border-red-200/20 bg-red-100/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-100"
+              >
+                Use live backend
+              </button>
+            </div>
           </div>
         )}
 
