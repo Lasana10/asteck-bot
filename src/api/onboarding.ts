@@ -159,7 +159,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         .from('profiles')
         .update({
           full_name: operatorName,
-          role: 'operator',
+          role: isOperatorApproved(existing) ? 'operator' : (existing.role || 'commuter'),
           national_id_number: resolvedNationalId,
           license_number: resolvedLicenseNumber,
           contractor_code: contractorCode,
@@ -194,7 +194,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
             .insert({
               operator_id: existing.id,
               plate_number: vehicle_plate,
-              vehicle_type,
+              type: vehicle_type,
               capacity: vehicle_capacity || 4,
               status: 'inactive',
               created_at: new Date().toISOString()
@@ -270,7 +270,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       .insert({
         full_name: operatorName,
         phone: normalizedPhone,
-        role: 'operator',
+        role: 'commuter',
         national_id_number: resolvedNationalId,
         license_number: resolvedLicenseNumber,
         contractor_code: contractorCode,
@@ -302,7 +302,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         .insert({
           operator_id: profile.id,
           plate_number: vehicle_plate,
-          vehicle_type,
+          type: vehicle_type,
           capacity: vehicle_capacity || 4,
           status: 'inactive',
           created_at: new Date().toISOString()
@@ -367,7 +367,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
       .insert({
         operator_id: driver_id,
         plate_number,
-        vehicle_type,
+        type: vehicle_type,
         capacity: capacity || 4,
         brand: brand || null,
         model: model || null,

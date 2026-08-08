@@ -1913,7 +1913,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
     const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }, { data: missionSignals }] = await Promise.all([
       supabase
         .from('vehicles')
-        .select('id, operator_id, plate_number, vehicle_type, type, is_available, current_lat, current_lng, last_ping_at, rating')
+        .select('id, operator_id, plate_number, type, is_available, current_lat, current_lng, last_ping_at, rating')
         .eq('is_available', true)
         .limit(200),
       supabase
@@ -2001,6 +2001,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         : null;
       return {
         ...vehicle,
+        vehicle_type: vehicle.type,
         signal_age_seconds: ageSeconds,
         signal_quality: ageSeconds === null ? 'unknown' : ageSeconds <= 60 ? 'fresh' : ageSeconds <= 300 ? 'aging' : 'stale',
         publish_channel: 'vehicles',
