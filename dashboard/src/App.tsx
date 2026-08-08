@@ -301,6 +301,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                       entry.candidate.replace(/^https?:\/\//, ''),
                       `contract ${entry.contract.status || 0}: ${entry.contract.reason}`,
                       `health ${entry.health.status || 0}: ${entry.health.reason}`,
+                      `auth ${entry.authContract.status || 0}: ${entry.authContract.reason}`,
                     ]);
                     setBackendDiagnostics(lines.join('\n'));
                   } catch (err: any) {

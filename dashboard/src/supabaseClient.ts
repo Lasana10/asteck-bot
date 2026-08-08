@@ -141,6 +141,11 @@ export type AfatBackendDiagnosticEntry = {
     status: number;
     reason: string;
   };
+  authContract: {
+    ok: boolean;
+    status: number;
+    reason: string;
+  };
 };
 
 async function probeJsonEndpoint(endpoint: string, timeoutMs: number) {
@@ -208,12 +213,14 @@ async function probeApiHealth(url: string) {
       const health = healthResponse.json;
       const basicHealthOkay =
         health?.status === 'UP' &&
-        health?.api_mount === '/api';
+        (health?.api_mount === '/api' || health?.service === 'AFAT');
       if (basicHealthOkay) {
         return {
           healthy: true,
           contractHealthy: false,
-          reason: contractResponse.reason || 'AFAT backend passed the basic health check while the contract probe was still warming up.',
+          reason: health?.api_mount === '/api'
+            ? (contractResponse.reason || 'AFAT backend passed the basic health check while the contract probe was still warming up.')
+            : 'Render is alive, but it is serving an older AFAT backend contract. Auth/profile routes may still need the Render backend redeploy.',
         };
       }
       lastFailure = `AFAT basic health responded unexpectedly at ${url}.`;
@@ -279,6 +286,33 @@ export async function runAfatBackendDiagnostics() {
   for (const candidate of candidates) {
     const contractResponse = await probeJsonEndpoint(`${candidate}/health/contract`, 12000);
     const healthResponse = await probeJsonEndpoint(`${candidate}/health`, 10000);
+    const authResponse = await fetch(`${candidate}/api/auth/supabase-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      mode: 'cors',
+      body: JSON.stringify({ roleIntent: 'commuter' }),
+    })
+      .then(async (res) => {
+        const contentType = res.headers.get('content-type') || '';
+        const body = contentType.toLowerCase().includes('application/json')
+          ? await res.json().catch(() => null)
+          : await res.text().catch(() => '');
+        const reason = contentType.toLowerCase().includes('application/json')
+          ? String(body?.error || body?.message || (res.status === 401 ? 'Route exists and rejected missing Supabase session as expected.' : 'OK'))
+          : `Expected JSON auth response, received ${contentType || 'unknown content type'}${body ? `: ${String(body).replace(/\s+/g, ' ').slice(0, 120)}` : ''}`;
+
+        return {
+          ok: res.status === 401 || res.ok,
+          status: res.status,
+          reason,
+        };
+      })
+      .catch((err: any) => ({
+        ok: false,
+        status: 0,
+        reason: err?.message || 'Failed to reach auth contract route.',
+      }));
     entries.push({
       candidate,
       contract: {
@@ -290,6 +324,11 @@ export async function runAfatBackendDiagnostics() {
         ok: healthResponse.ok,
         status: healthResponse.status,
         reason: healthResponse.reason || 'OK',
+      },
+      authContract: {
+        ok: authResponse.ok,
+        status: authResponse.status,
+        reason: authResponse.reason || 'OK',
       },
     });
   }
