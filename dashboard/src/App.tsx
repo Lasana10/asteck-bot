@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole, runAfatBackendDiagnostics } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight, Chrome } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { CommuterDashboard } from './components/commuter/CommuterDashboard';
@@ -34,6 +34,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
   const [backendDetail, setBackendDetail] = useState('');
+  const [backendDiagnostics, setBackendDiagnostics] = useState('');
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
 
   const normalizedPhone = phone.replace(/\s+/g, '');
@@ -292,6 +293,26 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               </button>
               <button
                 type="button"
+                onClick={async () => {
+                  setBackendDiagnostics('Running AFAT backend diagnostics...');
+                  try {
+                    const report = await runAfatBackendDiagnostics();
+                    const lines = report.entries.flatMap((entry) => [
+                      entry.candidate.replace(/^https?:\/\//, ''),
+                      `contract ${entry.contract.status || 0}: ${entry.contract.reason}`,
+                      `health ${entry.health.status || 0}: ${entry.health.reason}`,
+                    ]);
+                    setBackendDiagnostics(lines.join('\n'));
+                  } catch (err: any) {
+                    setBackendDiagnostics(err?.message || 'AFAT diagnostics failed.');
+                  }
+                }}
+                className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+              >
+                Run diagnostics
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setApiBaseOverride('https://asteck-bot.onrender.com');
                   window.location.reload();
@@ -301,6 +322,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 Use live backend
               </button>
             </div>
+            {backendDiagnostics && (
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-slate-950/60 p-3 text-[10px] leading-relaxed text-red-50/85">
+                {backendDiagnostics}
+              </pre>
+            )}
           </div>
         )}
 

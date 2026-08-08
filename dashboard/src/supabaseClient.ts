@@ -129,6 +129,20 @@ type ApiHealthCheckResult = {
   reason?: string;
 };
 
+export type AfatBackendDiagnosticEntry = {
+  candidate: string;
+  contract: {
+    ok: boolean;
+    status: number;
+    reason: string;
+  };
+  health: {
+    ok: boolean;
+    status: number;
+    reason: string;
+  };
+};
+
 async function probeJsonEndpoint(endpoint: string, timeoutMs: number) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -250,6 +264,41 @@ export async function ensureReachableApiBaseUrl() {
     corrected: false,
     contractHealthy: false,
     detail: failedHealth.reason || '',
+  };
+}
+
+export async function runAfatBackendDiagnostics() {
+  const current = resolveApiBaseUrl();
+  const envUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+  const candidates = [current, envUrl, liveApiBaseUrl].filter((value, index, list): value is string => {
+    return Boolean(value) && list.indexOf(value) === index;
+  });
+
+  const entries: AfatBackendDiagnosticEntry[] = [];
+
+  for (const candidate of candidates) {
+    const contractResponse = await probeJsonEndpoint(`${candidate}/health/contract`, 12000);
+    const healthResponse = await probeJsonEndpoint(`${candidate}/health`, 10000);
+    entries.push({
+      candidate,
+      contract: {
+        ok: contractResponse.ok,
+        status: contractResponse.status,
+        reason: contractResponse.reason || 'OK',
+      },
+      health: {
+        ok: healthResponse.ok,
+        status: healthResponse.status,
+        reason: healthResponse.reason || 'OK',
+      },
+    });
+  }
+
+  return {
+    runtimeUrl: current,
+    envUrl,
+    liveUrl: liveApiBaseUrl,
+    entries,
   };
 }
 
