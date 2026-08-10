@@ -52,7 +52,7 @@ Recommended:
 
 ## 3. Frontend Env Vars
 
-In Cloudflare Pages, set:
+In Cloudflare Pages, set these for every environment you will test. Production variables do not always apply to branch preview URLs such as `https://<hash>.asteck-bot.pages.dev`.
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
@@ -63,6 +63,8 @@ Optional if still used elsewhere:
 
 - `VITE_GROQ_API_KEY`
 - `VITE_GEMINI_API_KEY`
+
+For preview deployments, confirm the same `VITE_*` variables exist under the Preview/Branch environment, then redeploy that preview. If the login card says `Email auth: Needs env`, expand `Env details` on the page to see which compile-time variable is missing without exposing secrets.
 
 ## 4. Local Backend Test
 

@@ -41,6 +41,13 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
+  const envDiagnostics = [
+    `mode: ${import.meta.env.MODE || 'unknown'}`,
+    `supabase url: ${import.meta.env.VITE_SUPABASE_URL ? 'present' : 'missing'}`,
+    `publishable key: ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ? 'present' : 'missing'}`,
+    `anon key: ${import.meta.env.VITE_SUPABASE_ANON_KEY ? 'present' : 'missing'}`,
+    `api url: ${import.meta.env.VITE_API_URL || 'fallback live backend'}`,
+  ];
   const guestAccessEnabled = import.meta.env.VITE_ENABLE_GUEST_ACCESS === 'true';
   const oauthCodeStorageKey = 'afat_oauth_access_code';
   const oauthAdminCodeStorageKey = 'afat_oauth_admin_code';
@@ -260,6 +267,16 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
               {supabaseReady ? 'Configured' : 'Needs env'}
             </p>
+            {!supabaseReady && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-amber-100/70">
+                  Env details
+                </summary>
+                <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-amber-200/10 bg-slate-950/60 p-2 text-[9px] leading-relaxed text-amber-50/80">
+                  {envDiagnostics.join('\n')}
+                </pre>
+              </details>
+            )}
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
             <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT backend</p>
