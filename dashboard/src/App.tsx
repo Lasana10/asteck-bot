@@ -37,15 +37,19 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [backendDetail, setBackendDetail] = useState('');
   const [backendDiagnostics, setBackendDiagnostics] = useState('');
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
+  const [authTurnstileToken, setAuthTurnstileToken] = useState('');
 
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
+  const turnstileReady = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
+  const needsAuthTurnstile = turnstileReady && (authChannel === 'email_password' || authChannel === 'email_otp');
   const envDiagnostics = [
     `mode: ${import.meta.env.MODE || 'unknown'}`,
     `supabase url: ${import.meta.env.VITE_SUPABASE_URL ? 'present' : 'missing'}`,
     `publishable key: ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ? 'present' : 'missing'}`,
     `anon key: ${import.meta.env.VITE_SUPABASE_ANON_KEY ? 'present' : 'missing'}`,
+    `turnstile site key: ${import.meta.env.VITE_TURNSTILE_SITE_KEY ? 'present' : 'missing'}`,
     `api url: ${import.meta.env.VITE_API_URL || 'fallback live backend'}`,
   ];
   const guestAccessEnabled = import.meta.env.VITE_ENABLE_GUEST_ACCESS === 'true';
@@ -90,6 +94,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    setAuthTurnstileToken('');
+  }, [authChannel, normalizedEmail, password]);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -150,7 +158,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     persistAccessIntent();
 
     if (authChannel === 'email_password') {
-      const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, { roleIntent });
+      const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, {
+        roleIntent,
+        captchaToken: authTurnstileToken || undefined,
+      });
       if (error) {
         setErrorText(`${error.message} Check Supabase Email provider settings and redirect URLs if this persists.`);
       } else if (data?.mode === 'confirmation_required') {
@@ -173,7 +184,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     }
 
     const result = authChannel === 'email_otp'
-      ? await sendEmailOtp(normalizedEmail, { roleIntent })
+      ? await sendEmailOtp(normalizedEmail, { roleIntent, captchaToken: authTurnstileToken || undefined })
       : await sendPhoneOtp(normalizedPhone);
     const { error } = result;
     if (error) {
@@ -464,9 +475,18 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 </div>
               )}
             </div>
+            {needsAuthTurnstile && (
+              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                <TurnstileGate
+                  action="email_auth"
+                  onToken={setAuthTurnstileToken}
+                  onExpire={() => setAuthTurnstileToken('')}
+                />
+              </div>
+            )}
             <button
               type="submit"
-              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
+              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) || (needsAuthTurnstile && !authTurnstileToken) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}

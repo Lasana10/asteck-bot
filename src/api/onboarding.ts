@@ -275,8 +275,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         license_number: resolvedLicenseNumber,
         contractor_code: contractorCode,
         verification_status: verificationStatus,
-        driver_dna_score: 75.0, // Start at neutral
-        driver_dna_tier: 'Recruit',
+        driver_dna_tier: 'Insufficient verified evidence',
         commission_rate: 0.08, // 8% default platform fee
         fatigue_hours_today: 0,
         max_daily_hours: 12,
@@ -887,27 +886,24 @@ router.get('/driver/contract/:driver_id', async (req: Request, res: Response) =>
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name, contractor_code, commission_rate, driver_dna_score, driver_dna_tier, created_at')
+      .select('full_name, contractor_code, commission_rate, trust_score, driver_dna_tier, created_at')
       .eq('id', driver_id)
       .single();
 
     if (!profile) return res.status(404).json({ error: 'Driver not found' });
 
-    // Commission tiers based on DriverDNA
     let effectiveRate = profile.commission_rate || 0.08;
-    if ((profile.driver_dna_score || 0) >= 90) effectiveRate = 0.05; // Elite: 5%
-    if ((profile.driver_dna_score || 0) >= 95) effectiveRate = 0.03; // Legend: 3%
 
     res.status(200).json({
       driver: profile.full_name,
       contractor_code: profile.contractor_code,
       base_commission: '8%',
       effective_commission: `${Math.round(effectiveRate * 100)}%`,
-      dna_score: profile.driver_dna_score,
+      dna_score: profile.trust_score ?? null,
       tier: profile.driver_dna_tier,
       member_since: profile.created_at,
       contract_type: 'Independent Service Provider',
-      terms: 'AFAT platform usage agreement. Driver retains full independence. Commission deducted per completed trip.'
+      terms: 'AFAT platform usage agreement. Driver retains full independence. Driver DNA remains evidence-gated and does not automatically change commission.'
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch contract' });

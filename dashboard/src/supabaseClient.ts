@@ -491,7 +491,7 @@ export async function completeGoogleAuthCallback(options?: {
   }
 }
 
-export async function sendEmailOtp(email: string, options?: { roleIntent?: string }) {
+export async function sendEmailOtp(email: string, options?: { roleIntent?: string; captchaToken?: string }) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
@@ -500,6 +500,7 @@ export async function sendEmailOtp(email: string, options?: { roleIntent?: strin
       options: {
         shouldCreateUser: true,
         emailRedirectTo: redirectTo,
+        captchaToken: options?.captchaToken,
         data: {
           role: options?.roleIntent || 'commuter',
           username: normalizedEmail.split('@')[0],
@@ -540,7 +541,7 @@ export async function verifyEmailOtp(email: string, token: string) {
 export async function signInOrSignUpWithEmailPassword(
   email: string,
   password: string,
-  options?: { roleIntent?: string }
+  options?: { roleIntent?: string; captchaToken?: string }
 ) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -549,6 +550,9 @@ export async function signInOrSignUpWithEmailPassword(
     const signIn = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password: cleanPassword,
+      options: {
+        captchaToken: options?.captchaToken,
+      },
     });
 
     if (!signIn.error) {
@@ -577,6 +581,7 @@ export async function signInOrSignUpWithEmailPassword(
       password: cleanPassword,
       options: {
         emailRedirectTo: redirectTo,
+        captchaToken: options?.captchaToken,
         data: {
           role: options?.roleIntent || 'commuter',
           username: normalizedEmail.split('@')[0],

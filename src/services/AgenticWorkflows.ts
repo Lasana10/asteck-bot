@@ -88,7 +88,7 @@ export class AgenticWorkflows {
         .select('*')
         .eq('role', 'operator')
         .eq('is_active', true)
-        .order('driver_dna_score', { ascending: false })
+        .order('trust_score', { ascending: false })
         .limit(1)
         .maybeSingle();
 

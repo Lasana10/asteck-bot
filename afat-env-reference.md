@@ -44,6 +44,7 @@ Required:
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_API_URL=https://asteck-bot.onrender.com`
+- `VITE_TURNSTILE_SITE_KEY`
 
 Optional:
 
