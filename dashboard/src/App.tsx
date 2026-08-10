@@ -18,6 +18,7 @@ import { TurnstileGate } from './components/shared/TurnstileGate';
 // 🔐 OTP LOGIN COMPONENT
 // ==============================================================================
 function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => void }) {
+  const isStaffAccess = typeof window !== 'undefined' && window.location.pathname === '/staff/access';
   const [authChannel, setAuthChannel] = useState<'email_password' | 'email_otp' | 'phone'>('email_password');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -30,7 +31,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [errorText, setErrorText] = useState('');
   const [infoText, setInfoText] = useState('');
   const [showBypass, setShowBypass] = useState(false);
-  const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>('commuter');
+  const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>(isStaffAccess ? 'planner' : 'commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
   const [backendDetail, setBackendDetail] = useState('');
@@ -43,6 +44,15 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const guestAccessEnabled = import.meta.env.VITE_ENABLE_GUEST_ACCESS === 'true';
   const oauthCodeStorageKey = 'afat_oauth_access_code';
   const oauthAdminCodeStorageKey = 'afat_oauth_admin_code';
+  const accessLanes = isStaffAccess
+    ? [
+        { role: 'planner', label: 'Planner' },
+        { role: 'admin', label: 'Admin' },
+      ]
+    : [
+        { role: 'commuter', label: 'Commuter' },
+        { role: 'operator', label: 'Operator' },
+      ];
 
   useEffect(() => {
     let mounted = true;
@@ -336,12 +346,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access lane</label>
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { role: 'commuter', label: 'Commuter' },
-                  { role: 'operator', label: 'Operator' },
-                  { role: 'planner', label: 'Planner' },
-                  { role: 'admin', label: 'Admin' },
-                ].map((item) => (
+                {accessLanes.map((item) => (
                   <button
                     key={item.role}
                     type="button"
@@ -356,6 +361,15 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   </button>
                 ))}
               </div>
+              {!isStaffAccess && (
+                <button
+                  type="button"
+                  onClick={() => window.location.assign('/staff/access')}
+                  className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/35 hover:text-white"
+                >
+                  Staff access
+                </button>
+              )}
             </div>
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
@@ -546,15 +560,17 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         )}
 
         <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center">
-          <button
-            type="button"
-            onClick={() => setShowBypass(!showBypass)}
-            className="text-[10px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors"
-          >
-            {showBypass ? 'Hide QA Bypass' : 'Use QA Bypass'}
-          </button>
+          {isStaffAccess && import.meta.env.DEV && (
+            <button
+              type="button"
+              onClick={() => setShowBypass(!showBypass)}
+              className="text-[10px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors"
+            >
+              {showBypass ? 'Hide QA Bypass' : 'Use QA Bypass'}
+            </button>
+          )}
 
-          {showBypass && (
+          {showBypass && isStaffAccess && import.meta.env.DEV && (
             <div className="mt-4 grid grid-cols-2 gap-2 w-full">
               <button
                 type="button"
@@ -587,13 +603,15 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => onRegisterRequest(roleIntent)}
-            className="mt-4 text-[10px] text-white/60 hover:text-white font-bold uppercase tracking-widest transition-colors"
-          >
-            Register this lane instead
-          </button>
+          {!isStaffAccess && (
+            <button
+              type="button"
+              onClick={() => onRegisterRequest(roleIntent)}
+              className="mt-4 text-[10px] text-white/60 hover:text-white font-bold uppercase tracking-widest transition-colors"
+            >
+              Register this lane instead
+            </button>
+          )}
         </div>
       </div>
     </div>

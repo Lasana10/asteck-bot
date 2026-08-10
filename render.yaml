@@ -5,7 +5,7 @@ services:
     ipAllowList: [] # Only allow internal access
 
   - type: web
-    name: sentinel-backend
+    name: asteck-bot
     env: docker
     plan: starter
     dockerContext: .
@@ -30,6 +30,10 @@ services:
         value: production
       - key: WEBHOOK_DOMAIN
         sync: false
+      - key: FRONTEND_URL
+        value: https://asteck-bot.pages.dev
+      - key: CLOUDFLARE_PREVIEW_URL
+        value: https://8dab4729.asteck-bot.pages.dev
       - key: ADMIN_IDS
         sync: false
       - key: GEMINI_API_KEY

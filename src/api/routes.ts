@@ -113,6 +113,7 @@ function emailBootstrapConfig() {
 }
 
 function qaBypassAllowed(req: Request) {
+  if (process.env.NODE_ENV === 'production') return false;
   if (process.env.AFAT_ALLOW_QA_BYPASS === 'true') return true;
   const host = String(req.headers.origin || req.headers.referer || '').toLowerCase();
   return host.includes('localhost') || host.includes('127.0.0.1');
@@ -3068,9 +3069,9 @@ router.post('/booking/complete', async (req: Request, res: Response) => {
     // 2. Trigger Async DNA Pipeline
     await dnaQueue.add(`dna-update-${booking_id}`, { driverId: driver_id, tripId: booking_id });
 
-    res.status(200).json({ 
-      success: true, 
-      message: 'Trip completed. DriverDNA update queued.' 
+    res.status(200).json({
+      success: true,
+      message: 'Trip completed. DriverDNA evidence review queued.'
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

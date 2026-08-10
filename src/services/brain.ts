@@ -98,7 +98,7 @@ Return ONLY valid JSON (no markdown, no explanation):
   /**
    * Calculates the Safety Score (0-100) for a driver based on:
    */
-  async calculateDriverDNA(driverId: string): Promise<{ score: number, tier: string }> {
+  async calculateDriverDNA(driverId: string): Promise<{ score: number | null, tier: string, confidence: string, reason?: string }> {
     console.log(`🧠 [BRAIN] Calculating DriverDNA for ${driverId}...`);
     
     const { data: profile } = await supabase
@@ -109,25 +109,35 @@ Return ONLY valid JSON (no markdown, no explanation):
 
     const { data: bookings } = await supabase
       .from('bookings')
-      .select('rating')
+      .select('rating, status')
       .eq('operator_id', driverId)
-      .not('rating', 'is', null);
+      .eq('status', 'completed');
 
-    const ratingsCount = bookings?.length || 0;
-    const avgRating = ratingsCount > 0 
-      ? bookings!.reduce((acc, curr) => acc + (curr.rating || 0), 0) / ratingsCount 
-      : 4.5;
+    const completedTrips = bookings?.length || 0;
+    const ratedTrips = bookings?.filter((booking) => booking.rating !== null && booking.rating !== undefined) || [];
+    const ratingsCount = ratedTrips.length;
 
-    // Logic: Base 70 + (Points / 100) + (AvgRating * 5)
-    let score = 70 + ((profile?.trust_points || 0) / 100) + (avgRating * 4);
+    if (completedTrips < 10 || ratingsCount < 3) {
+      return {
+        score: null,
+        tier: 'Insufficient verified evidence',
+        confidence: 'insufficient',
+        reason: `Needs at least 10 completed trips and 3 passenger ratings. Current evidence: ${completedTrips} completed trips, ${ratingsCount} ratings.`,
+      };
+    }
+
+    const avgRating = ratedTrips.reduce((acc, curr) => acc + (curr.rating || 0), 0) / ratingsCount;
+
+    const trustPoints = Math.max(0, Number(profile?.trust_points || 0));
+    let score = 45 + Math.min(20, trustPoints / 100) + (avgRating * 7);
     score = Math.min(Math.max(score, 0), 100);
 
-    let tier = 'Iron';
+    let tier = 'Verified';
     if (score > 90) tier = 'Diamond Sentinel';
     else if (score > 80) tier = 'Platinum';
     else if (score > 60) tier = 'Gold';
 
-    return { score: Math.round(score), tier };
+    return { score: Math.round(score), tier, confidence: completedTrips >= 50 ? 'high' : completedTrips >= 25 ? 'medium' : 'low' };
   }
 }
 
