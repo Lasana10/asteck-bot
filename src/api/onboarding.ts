@@ -33,6 +33,40 @@ function isOperatorApproved(profile: any) {
   return String(profile?.operator_application_status || '').toUpperCase() === 'APPROVED';
 }
 
+async function getOptionalSupabaseUser(req: Request) {
+  const header = String(req.headers.authorization || '');
+  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7) : '';
+  if (!token) return null;
+
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user?.id) return null;
+  return data.user;
+}
+
+async function findExistingProfile(params: { authUserId?: string; phone?: string }) {
+  if (params.authUserId) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', params.authUserId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  if (params.phone) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('phone', params.phone)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  return null;
+}
+
 async function seedComplianceRecords(records: Array<Record<string, any>>) {
   if (!records.length) return;
   const { error } = await supabase.from('compliance_records').insert(records);
@@ -116,6 +150,7 @@ function buildCompanyComplianceRecords(params: {
 // ── DRIVER ONBOARDING ────────────────────────────────────────────────────────
 router.post('/driver/register', async (req: Request, res: Response) => {
   try {
+    const authUser = await getOptionalSupabaseUser(req);
     const {
       full_name, phone, national_id, license_number,
       vehicle_type, vehicle_plate, vehicle_capacity,
@@ -144,11 +179,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           ? 'partial_documents'
           : 'field_followup_required';
 
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('phone', normalizedPhone)
-      .maybeSingle();
+    const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
     if (existing) {
       const contractorCode = existing.contractor_code || `AFAT-D-${Date.now().toString(36).toUpperCase()}`;
@@ -268,7 +299,9 @@ router.post('/driver/register', async (req: Request, res: Response) => {
     const { data: profile, error } = await supabase
       .from('profiles')
       .insert({
+        ...(authUser?.id ? { id: authUser.id } : {}),
         full_name: operatorName,
+        username: authUser?.email ? String(authUser.email).split('@')[0] : undefined,
         phone: normalizedPhone,
         role: 'commuter',
         national_id_number: resolvedNationalId,
@@ -388,6 +421,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
 // ── PASSENGER REGISTRATION ───────────────────────────────────────────────────
 router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
+    const authUser = await getOptionalSupabaseUser(req);
     const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
     const resolvedName = normalizeOptionalText(full_name);
@@ -398,11 +432,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing: phone' });
     }
 
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('phone', normalizedPhone)
-      .maybeSingle();
+    const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
     if (existing) {
       const { data, error } = await supabase
@@ -438,7 +468,9 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
     const { data, error } = await supabase
       .from('profiles')
       .insert({
+        ...(authUser?.id ? { id: authUser.id } : {}),
         full_name: commuterName,
+        username: authUser?.email ? String(authUser.email).split('@')[0] : undefined,
         phone: normalizedPhone,
         role: 'commuter',
         emergency_contact: emergency_contact || null,
@@ -470,6 +502,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
 // ── COMPANY / FLEET REGISTRATION ────────────────────────────────────────────
 router.post('/company/register', async (req: Request, res: Response) => {
   try {
+    const authUser = await getOptionalSupabaseUser(req);
     const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
 
@@ -482,18 +515,15 @@ router.post('/company/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing: phone' });
     }
 
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('phone', normalizedPhone)
-      .maybeSingle();
+    const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
     const profilePayload = existing
       ? supabase
           .from('profiles')
           .update({
             full_name: coordinatorName,
-            role: 'planner',
+            role: existing.role || 'commuter',
+            operator_review_notes: 'Fleet/company intake submitted. Planner authority requires AFAT staff approval.',
             is_active: true,
             updated_at: new Date().toISOString()
           })
@@ -501,10 +531,13 @@ router.post('/company/register', async (req: Request, res: Response) => {
       : supabase
           .from('profiles')
           .insert({
+            ...(authUser?.id ? { id: authUser.id } : {}),
             full_name: coordinatorName,
+            username: authUser?.email ? String(authUser.email).split('@')[0] : undefined,
             phone: normalizedPhone,
-            role: 'planner',
-            trust_points: 100,
+            role: 'commuter',
+            trust_points: 50,
+            operator_review_notes: 'Fleet/company intake submitted. Planner authority requires AFAT staff approval.',
             is_active: true,
             created_at: new Date().toISOString()
           });
@@ -591,8 +624,9 @@ router.post('/company/register', async (req: Request, res: Response) => {
       },
       profile: {
         id: data.id,
-        role: 'planner',
+        role: data.role || 'commuter',
         full_name: coordinatorName,
+        company_application_status: resolvedCompanyName && resolvedContactPerson ? 'UNDER_REVIEW' : 'PARTIAL_INTAKE',
       },
       message: resolvedCompanyName && resolvedContactPerson
         ? `${companyDisplayName} is now queued for AFAT fleet onboarding.`

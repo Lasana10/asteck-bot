@@ -151,7 +151,7 @@ function getCompletionCopy(track: RegistrationTrack) {
   if (track === 'company') {
     return {
       title: 'Fleet Workspace Created',
-      body: 'Your company profile is ready for planner access. Compliance, fleet documents, and dispatch setup continue from the operations desk.'
+      body: 'Your company intake is saved for AFAT review. Fleet documents, coordinator verification, and planner authority are activated by operations after approval.'
     };
   }
 
@@ -194,6 +194,13 @@ function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: str
     return {
       title: 'Fleet Intake Saved',
       body: 'AFAT opened the fleet workspace, but coordinator or company details still need follow-up before full planner activation.'
+    };
+  }
+
+  if (track === 'company' && intakeStatus === 'verification_ready') {
+    return {
+      title: 'Fleet Review Opened',
+      body: 'AFAT received the company file. Planner controls remain locked until operations approves the organization and coordinator.'
     };
   }
 
@@ -402,9 +409,10 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       setTimeout(() => {
         onRegisterCustom({
           id: data?.profile?.id,
-          role: 'planner',
+          role: data?.profile?.role || 'commuter',
           full_name: data?.profile?.full_name || contactPerson || companyName,
           company_name: data?.company?.company_name || companyName,
+          company_application_status: data?.profile?.company_application_status || data?.company?.onboarding_context?.intake_status,
           phone,
         });
         onClose();

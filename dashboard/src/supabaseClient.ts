@@ -807,6 +807,13 @@ async function passageAuthHeaders() {
   return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
+async function onboardingAuthHeaders() {
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}` };
+  const localToken = localStorage.getItem('afat_access_token');
+  return localToken ? { Authorization: `Bearer ${localToken}` } : {};
+}
+
 export async function getCurrentUser() {
   const { data: { session }, error } = await supabase.auth.getSession();
   return { user: session?.user || null, error };
@@ -934,9 +941,10 @@ export async function registerVehicle(vehicleData: any) {
 
 export async function registerPassenger(passengerData: any) {
   try {
+    const authHeaders = await onboardingAuthHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/onboard/passenger/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(passengerData),
     });
     const data = await res.json();
@@ -949,9 +957,10 @@ export async function registerPassenger(passengerData: any) {
 
 export async function registerDriver(driverData: any) {
   try {
+    const authHeaders = await onboardingAuthHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/onboard/driver/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(driverData),
     });
     const data = await res.json();
@@ -964,9 +973,10 @@ export async function registerDriver(driverData: any) {
 
 export async function registerCompany(companyData: any) {
   try {
+    const authHeaders = await onboardingAuthHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/onboard/company/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(companyData),
     });
     const data = await res.json();
