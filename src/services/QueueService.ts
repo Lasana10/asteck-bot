@@ -5,9 +5,7 @@
 
 import { Queue, Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
-import { aiRouter } from './AIRouter';
 import { supabase } from '../infra/supabase';
-import { extractFirstJsonObject } from './aiParsing';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new Redis(REDIS_URL, {
@@ -23,45 +21,42 @@ const worker = new Worker('driver-dna', async (job: Job) => {
   console.log(`🧬 Processing DriverDNA for ${driverId} (Trip: ${tripId})...`);
 
   try {
-    // 1. Fetch trip data and driver stats
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('reports_count, accurate_reports, trust_score')
-      .eq('id', driverId)
-      .single();
-
     const { data: trip } = await supabase
       .from('bookings')
       .select('rating, feedback, route_id')
       .eq('id', tripId)
       .single();
 
-    // 2. Use THE PREDICTIVE MIND to calculate new score
-    const analysis = await aiRouter.predict(
-      `Calculate DriverDNA update.
-       Current Score: ${profile?.trust_score || 75}
-       Trip Rating: ${trip?.rating || 5}
-       Feedback: "${trip?.feedback || 'None'}"
-       Accurate Reports: ${profile?.accurate_reports || 0}/${profile?.reports_count || 0}
-       
-       Output JSON { new_score, tier, reasoning }.`
-    );
+    const { data: completedTrips } = await supabase
+      .from('bookings')
+      .select('id, rating')
+      .eq('operator_id', driverId)
+      .eq('status', 'completed');
 
-    const result = extractFirstJsonObject(analysis.text);
-    if (!result) {
-      throw new Error(`AI response was not valid JSON: ${analysis.text.substring(0, 120)}`);
+    const completedCount = completedTrips?.length || 0;
+    const ratedTrips = completedTrips?.filter((booking) => booking.rating !== null && booking.rating !== undefined) || [];
+    if (completedCount < 10 || ratedTrips.length < 3) {
+      console.log(`DriverDNA evidence pending for ${driverId}: ${completedCount} completed trips, ${ratedTrips.length} ratings.`);
+      return {
+        status: 'insufficient_evidence',
+        completedTrips: completedCount,
+        ratings: ratedTrips.length,
+      };
     }
 
-    // 3. Update profile
+    const averageRating = ratedTrips.reduce((sum, booking) => sum + Number(booking.rating || 0), 0) / ratedTrips.length;
+    const newScore = Math.round(Math.max(0, Math.min(100, 45 + averageRating * 9 + Math.min(10, completedCount / 5))));
+    const tier = newScore >= 90 ? 'Diamond Sentinel' : newScore >= 80 ? 'Platinum' : newScore >= 60 ? 'Gold' : 'Verified';
+
     await supabase
       .from('profiles')
       .update({
-        trust_score: result.new_score,
-        driver_dna_tier: result.tier
+        trust_score: newScore,
+        driver_dna_tier: tier,
       })
       .eq('id', driverId);
 
-    console.log(`✅ DriverDNA updated to ${result.new_score} (${result.tier})`);
+    console.log(`✅ DriverDNA updated to ${newScore} (${tier}) from verified trip evidence. Last trip rating: ${trip?.rating ?? 'none'}`);
   } catch (error) {
     console.error(`❌ DriverDNA update failed for ${driverId}:`, error);
     throw error; // Let BullMQ retry
