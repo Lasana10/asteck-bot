@@ -1655,6 +1655,29 @@ export async function updateOperatorLifecycle(
   }
 }
 
+export async function updateCompanyLifecycle(
+  companyId: string,
+  payload: {
+    status: 'partial_intake' | 'under_review' | 'approved' | 'documents_pending' | 'rejected' | 'suspended';
+    notes?: string;
+    coordinator_profile_id?: string;
+    grant_planner_access?: boolean;
+  }
+) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/companies/${companyId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Company status update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function getMyBookings(passengerId: string) {
   const { data, error } = await supabase
     .from('bookings')
