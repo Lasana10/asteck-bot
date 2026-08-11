@@ -1,7 +1,9 @@
 # AFAT Next Steps
 
 ## Immediate Next Tasks
-1. Continue the functionality-completion pass behind the now-green frontend build:
+0. Stage and deploy the Identity and Access Foundation only after following `docs/ACCESS_FOUNDATION.md`: staging database migration, Supabase TOTP/redirect configuration, Render secrets, backend contract verification, then Cloudflare deployment and Founder/staff smoke tests. Do not treat the local commits as live.
+1. Convert sensitive legacy operational endpoints from `profiles.role` authorization to the new permission/scope helper, beginning with Admin mutation, operator lifecycle, dispatch, compliance, finance, data export, and organization-member management routes.
+2. Continue the functionality-completion pass behind the now-green frontend build:
    - align live frontend deployment branch with the code that contains the new auth flow:
      - Cloudflare production must not build `master` if the auth work remains on `sprint0-audit-fixes`
      - but branch switching alone is not enough if the current `Email OTP` UI changes are still only local modifications
@@ -27,23 +29,23 @@
    - deepen payment audit and PawaPay callback verification
    - add backend-backed workflows for academy/certification and emergency logistics
    - enforce role guards on sensitive admin/operator/planner actions
-2. Browser QA every role from the unified access flow:
+3. Browser QA every role from the unified access flow:
    - sign in/register as commuter, operator, planner/company, and admin
    - confirm each bottom-nav tab opens the right workspace
    - classify any remaining button as live action, staged action, planned feature, or bug
-3. Backend verification after the local PawaPay webhook-hardening edits:
+4. Backend verification after the local PawaPay webhook-hardening edits:
    - run backend typecheck/build
    - deploy/restart Render only after green checks
    - test `https://asteck-bot.onrender.com/api/webhook/pawapay` with sandbox callback payloads and secret configuration
-4. Add real review tables/workflows for map intelligence:
+5. Add real review tables/workflows for map intelligence:
    - `map_signal_reviews`
    - validation status
    - steward/admin reviewer
    - confidence score update
    - contributor reward eligibility
    - publish/dismiss history
-5. Keep memory files updated before every context compression or major handoff.
-6. Keep infrastructure portable while building:
+6. Keep memory files updated before every context compression or major handoff.
+7. Keep infrastructure portable while building:
    - backend-owned auth/session contract
    - migration-first Postgres discipline
    - storage abstraction for files/assets

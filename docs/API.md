@@ -8,6 +8,13 @@
 
 ## Main Endpoint Groups
 - Auth: `POST /api/auth/send-otp`, `POST /api/auth/verify-otp`
+- Identity and access:
+  - `GET /api/access/me`
+  - `POST /api/access/founder/bootstrap`
+  - `PUT /api/access/founder/pass`
+  - `POST /api/access/founder/pass/verify`
+  - `POST /api/access/staff/invitations`
+  - `POST /api/access/staff/invitations/accept`
 - Reporting/Safety:
   - `POST /api/report`
   - `POST /api/sos/panic`
@@ -60,8 +67,9 @@
 - Error returns `{ error: string }` with status code (`400/404/409/500/502` patterns present).
 
 ## Authentication
-- Current state: endpoint-level auth middleware is not consistently enforced across all mutation endpoints.
-- Required next step: central JWT verification + role checks across protected routes.
+- Access-foundation endpoints verify the Supabase bearer token server-side, derive trusted AAL from the verified JWT, and enforce permission/grant-ceiling rules.
+- Planner/Admin public bootstrap is disabled unless the explicit legacy feature flag is enabled; the production value must remain `false`.
+- Current boundary: older mutation endpoints are not yet consistently converted to the new permission helper. Full platform-wide RBAC conversion remains required.
 
 ## Webhooks
 - `POST /api/webhook/pawapay` for payment status callbacks.

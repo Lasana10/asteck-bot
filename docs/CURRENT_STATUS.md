@@ -1,4 +1,17 @@
-# AFAT Current Status (as of July 9, 2026)
+# AFAT Current Status (as of August 11, 2026)
+
+## August 11, 2026 Identity and Access Foundation
+
+- Existing staged AFAT production-contract/pilot work was reviewed, built, contract-tested, and checkpointed locally before access work began.
+- The identity/access implementation is split into local commits for schema, backend enforcement, and MFA activation UI.
+- The new migration defines multi-role assignments, permissions, scopes, D0–D3/O0–O5 clearance, capability overrides, staff invitations, append-only access audit, Founder bootstrap control, and Founder credentials.
+- Founder bootstrap is one-time and requires the configured confirmed email, a server-held one-time-code hash, and authenticator AAL2. No Founder email or service secret is in the frontend bundle.
+- Planner/Admin/staff activation is invitation-only. User-editable role metadata is treated only as UI intent and never as authorization.
+- Operators and organization representatives receive useful active roles immediately; clearance restricts sensitive operations while evidence progresses.
+- Private `/founder/bootstrap` and `/staff/invite` activation screens and an authorized Admin/Founder staff-invitation control exist locally.
+- Verification passed locally: PostgreSQL parser (130 statements), role/permission semantic check, backend TypeScript build, dashboard production build, dashboard lint, API contract check, and access-foundation security check.
+- Deployment truth: none of this access-foundation work has been pushed, deployed, or applied to production Supabase. Follow `docs/ACCESS_FOUNDATION.md` before any production change.
+- Remaining boundary: legacy operational endpoints still need systematic conversion to the new permission helper before claiming platform-wide RBAC enforcement.
 
 ## July 9, 2026 Deployment Truth Addendum
 - The frontend code in the local `sprint0-audit-fixes` worktree does include the `Email OTP` lane:

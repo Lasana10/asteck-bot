@@ -52,6 +52,12 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
+      - key: AFAT_FOUNDER_BOOTSTRAP_EMAIL
+        sync: false
+      - key: AFAT_FOUNDER_BOOTSTRAP_TOKEN_HASH
+        sync: false
+      - key: AFAT_ENABLE_LEGACY_ROLE_BOOTSTRAP
+        value: "false"
       - key: PAYMENT_API_KEY
         sync: false
       - key: PAYMENT_PROVIDER
