@@ -385,6 +385,64 @@ if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLIS
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+async function authenticatedAccessRequest(path: string, method = 'GET', body?: object) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (sessionError || !token) {
+    return { data: null, error: { message: sessionError?.message || 'A verified Supabase session is required.' } };
+  }
+
+  const result = await requestAfatApi(path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }, 'AFAT access request failed');
+  if (result.parsed.error) return result.parsed;
+  if (!result.res?.ok) {
+    return {
+      data: null,
+      error: { message: result.parsed.data?.error || result.parsed.data?.message || 'AFAT access request failed.' },
+    };
+  }
+  return { data: result.parsed.data, error: null };
+}
+
+export function getAfatAccessSnapshot() {
+  return authenticatedAccessRequest('/api/access/me');
+}
+
+export function bootstrapAfatFounder(bootstrapCode: string) {
+  return authenticatedAccessRequest('/api/access/founder/bootstrap', 'POST', { bootstrapCode });
+}
+
+export function setAfatFounderPass(founderPass: string) {
+  return authenticatedAccessRequest('/api/access/founder/pass', 'PUT', { founderPass });
+}
+
+export function verifyAfatFounderPass(founderPass: string) {
+  return authenticatedAccessRequest('/api/access/founder/pass/verify', 'POST', { founderPass });
+}
+
+export function createAfatStaffInvitation(input: {
+  email: string;
+  roleKey: string;
+  companyId?: string | null;
+  scopes?: Array<{ type: string; value: string }>;
+  reason?: string;
+}) {
+  return authenticatedAccessRequest('/api/access/staff/invitations', 'POST', input);
+}
+
+export function acceptAfatStaffInvitation(invitationId: string, invitationToken: string) {
+  return authenticatedAccessRequest('/api/access/staff/invitations/accept', 'POST', {
+    invitationId,
+    invitationToken,
+  });
+}
+
 // ==============================================================================
 // 🔐 AUTH & ROLES (Phone OTP Focus)
 // ==============================================================================
@@ -502,7 +560,7 @@ export async function sendEmailOtp(email: string, options?: { roleIntent?: strin
         emailRedirectTo: redirectTo,
         captchaToken: options?.captchaToken,
         data: {
-          role: options?.roleIntent || 'commuter',
+          role_intent: options?.roleIntent || 'commuter',
           username: normalizedEmail.split('@')[0],
           utm_source: 'afat_email_access',
         },
@@ -583,7 +641,7 @@ export async function signInOrSignUpWithEmailPassword(
         emailRedirectTo: redirectTo,
         captchaToken: options?.captchaToken,
         data: {
-          role: options?.roleIntent || 'commuter',
+          role_intent: options?.roleIntent || 'commuter',
           username: normalizedEmail.split('@')[0],
           utm_source: 'afat_email_password_access',
         },

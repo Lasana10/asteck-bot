@@ -11,6 +11,9 @@ const files = {
   onboarding: read('src', 'api', 'onboarding.ts'),
   index: read('src', 'index.ts'),
   render: read('render.yaml'),
+  client: read('dashboard', 'src', 'supabaseClient.ts'),
+  app: read('dashboard', 'src', 'App.tsx'),
+  activation: read('dashboard', 'src', 'components', 'access', 'AccessActivationPage.tsx'),
 };
 
 function sourceTree(dir) {
@@ -54,6 +57,13 @@ const required = [
   ['operator clearance limits operations', files.onboarding, "restricted: isApproved ? [] : ['trip.accept', 'vehicle.operate']"],
   ['organization O0 active-limited', files.onboarding, "clearance_level: 'O0'"],
   ['Founder env is server-only', files.render, 'AFAT_FOUNDER_BOOTSTRAP_EMAIL'],
+  ['Founder activation route', files.app, "pathname === '/founder/bootstrap'"],
+  ['staff activation route', files.app, "pathname === '/staff/invite'"],
+  ['frontend Founder API', files.client, "'/api/access/founder/bootstrap'"],
+  ['frontend invitation acceptance API', files.client, "'/api/access/staff/invitations/accept'"],
+  ['activation requires authenticator assurance', files.activation, 'getAuthenticatorAssuranceLevel'],
+  ['activation performs MFA challenge', files.activation, 'challengeAndVerify'],
+  ['invitation URL is scrubbed', files.activation, "window.history.replaceState({}, '', '/staff/invite')"],
 ];
 
 const forbidden = [
