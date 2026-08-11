@@ -7,6 +7,7 @@ const files = {
   routes: readFileSync(join(root, 'src', 'api', 'routes.ts'), 'utf8'),
   onboarding: readFileSync(join(root, 'src', 'api', 'onboarding.ts'), 'utf8'),
   access: readFileSync(join(root, 'src', 'api', 'access.ts'), 'utf8'),
+  mapFoundation: readFileSync(join(root, 'src', 'api', 'mapFoundation.ts'), 'utf8'),
   frontend: readFileSync(join(root, 'dashboard', 'src', 'supabaseClient.ts'), 'utf8'),
 };
 
@@ -28,6 +29,10 @@ const checks = [
   ['access: Founder Pass verification', files.access, "router.post('/access/founder/pass/verify'"],
   ['access: staff invitation', files.access, "router.post('/access/staff/invitations'"],
   ['access: staff invitation acceptance', files.access, "router.post('/access/staff/invitations/accept'"],
+  ['map: source catalog', files.mapFoundation, "router.get('/ops/map/sources'"],
+  ['map: source candidates', files.mapFoundation, "router.get('/ops/map/source-records'"],
+  ['map: bounded import', files.mapFoundation, "router.post('/ops/map/imports'"],
+  ['map: reviewed promotion', files.mapFoundation, "router.post('/ops/map/source-records/:id/review'"],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
   ['frontend calls passenger onboarding API', files.frontend, '/api/onboard/passenger/register'],
