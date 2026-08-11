@@ -6,6 +6,7 @@ const files = {
   index: readFileSync(join(root, 'src', 'index.ts'), 'utf8'),
   routes: readFileSync(join(root, 'src', 'api', 'routes.ts'), 'utf8'),
   onboarding: readFileSync(join(root, 'src', 'api', 'onboarding.ts'), 'utf8'),
+  access: readFileSync(join(root, 'src', 'api', 'access.ts'), 'utf8'),
   frontend: readFileSync(join(root, 'dashboard', 'src', 'supabaseClient.ts'), 'utf8'),
 };
 
@@ -21,6 +22,12 @@ const checks = [
   ['onboarding: passenger register', files.onboarding, "router.post('/passenger/register'"],
   ['onboarding: driver register', files.onboarding, "router.post('/driver/register'"],
   ['onboarding: company register', files.onboarding, "router.post('/company/register'"],
+  ['access: current identity snapshot', files.access, "router.get('/access/me'"],
+  ['access: Founder bootstrap', files.access, "router.post('/access/founder/bootstrap'"],
+  ['access: Founder Pass setup', files.access, "router.put('/access/founder/pass'"],
+  ['access: Founder Pass verification', files.access, "router.post('/access/founder/pass/verify'"],
+  ['access: staff invitation', files.access, "router.post('/access/staff/invitations'"],
+  ['access: staff invitation acceptance', files.access, "router.post('/access/staff/invitations/accept'"],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
   ['frontend calls passenger onboarding API', files.frontend, '/api/onboard/passenger/register'],

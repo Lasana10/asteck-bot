@@ -721,31 +721,61 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     const email = String(user.email || '').trim().toLowerCase();
     const requestedRole = isAnonymousSession
       ? 'commuter'
-      : String(req.body?.roleIntent || user.user_metadata?.role || 'commuter').trim().toLowerCase();
+      : String(req.body?.roleIntent || 'commuter').trim().toLowerCase();
     const publicRoles = new Set(['commuter']);
     const platformRoles = new Set(['commuter', 'operator', 'planner', 'admin']);
     if (!platformRoles.has(requestedRole)) {
       return res.status(400).json({ error: 'Unsupported role intent.' });
     }
 
+    const { data: existingProfile, error: lookupError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+
+    const requestedStaffRoles = requestedRole === 'planner'
+      ? ['fleet_planner', 'afat_operational_planner', 'municipal_planner', 'government_planner', 'emergency_planner']
+      : ['operations_admin', 'security_admin', 'platform_admin', 'founder_owner'];
+    const { data: activeStaffAssignments, error: assignmentLookupError } = requestedRole === 'planner' || requestedRole === 'admin'
+      ? await supabase
+          .from('profile_role_assignments')
+          .select('id, role_key')
+          .eq('profile_id', user.id)
+          .eq('status', 'active')
+          .in('role_key', requestedStaffRoles)
+          .limit(1)
+      : { data: [], error: null };
+    if (assignmentLookupError) throw assignmentLookupError;
+
     const { generalCode, adminCode, allowlist, adminAllowlist, roles } = emailBootstrapConfig();
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
+    const legacyBootstrapEnabled = process.env.AFAT_ENABLE_LEGACY_ROLE_BOOTSTRAP === 'true';
     const generalBootstrapAllowed =
+      legacyBootstrapEnabled &&
       Boolean(generalCode) &&
       accessCode === generalCode &&
       allowlist.includes(email) &&
       roles.includes(requestedRole);
     const adminBootstrapAllowed =
+      legacyBootstrapEnabled &&
       requestedRole === 'admin' &&
       Boolean(adminCode) &&
       providedAdminCode === adminCode &&
       adminAllowlist.includes(email);
 
-    const operatorApplicationRequested = requestedRole === 'operator' && !generalBootstrapAllowed && !adminBootstrapAllowed;
-    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !generalBootstrapAllowed && !adminBootstrapAllowed) {
+    const existingLegacyStaff = existingProfile?.role === requestedRole && ['planner', 'admin'].includes(requestedRole);
+    const invitedStaffAllowed = Boolean(activeStaffAssignments?.length);
+    const operatorAlreadyApproved = requestedRole === 'operator' &&
+      existingProfile?.role === 'operator' &&
+      existingProfile?.operator_application_status === 'APPROVED';
+    const operatorApplicationRequested = requestedRole === 'operator' && !operatorAlreadyApproved && !generalBootstrapAllowed;
+    const staffAccessAllowed = existingLegacyStaff || invitedStaffAllowed || generalBootstrapAllowed || adminBootstrapAllowed;
+    if ((requestedRole === 'planner' || requestedRole === 'admin') && !staffAccessAllowed) {
       return res.status(403).json({
-        error: 'This role needs AFAT email bootstrap approval. Add the email to AFAT_BOOTSTRAP_ALLOW_EMAILS or use commuter access.',
+        error: 'Planner and Admin access is invitation-only. Sign in with the invited email and accept the AFAT staff invitation.',
       });
     }
 
@@ -754,13 +784,6 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     const fullName =
       String(user.user_metadata?.full_name || user.user_metadata?.name || '').trim() ||
       `AFAT ${finalRole.charAt(0).toUpperCase()}${finalRole.slice(1)}`;
-
-    const { data: existingProfile, error: lookupError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (lookupError) throw lookupError;
 
     let profile = existingProfile;
     if (!profile) {
@@ -806,6 +829,33 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .single();
       if (updateError) throw updateError;
       profile = updatedProfile;
+    }
+
+    const safeAssignments = [
+      { role_key: 'commuter', status: 'active', source: 'automatic', reason: 'Safe default AFAT identity' },
+      { role_key: 'community_contributor', status: 'active', source: 'automatic', reason: 'Universal reporting capability' },
+      ...(operatorApplicationRequested
+        ? [{ role_key: 'operator_applicant', status: 'active', source: 'application', reason: 'Operator onboarding intent recorded' }]
+        : []),
+    ];
+    for (const assignment of safeAssignments) {
+      const { data: existingAssignment, error: existingAssignmentError } = await supabase
+        .from('profile_role_assignments')
+        .select('id')
+        .eq('profile_id', user.id)
+        .eq('role_key', assignment.role_key)
+        .is('company_id', null)
+        .in('status', ['pending', 'provisional', 'active'])
+        .maybeSingle();
+      if (existingAssignmentError) throw existingAssignmentError;
+      if (!existingAssignment) {
+        const { error: assignmentError } = await supabase.from('profile_role_assignments').insert({
+          profile_id: user.id,
+          company_id: null,
+          ...assignment,
+        });
+        if (assignmentError) throw assignmentError;
+      }
     }
 
     const accessIdentity = email || profile.phone || user.id;
