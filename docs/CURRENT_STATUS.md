@@ -1,5 +1,16 @@
 # AFAT Current Status (as of August 11, 2026)
 
+## August 11, 2026 Governed Map-Source Foundation
+
+- Overture Maps, OpenStreetMap, Foursquare Open Source Places, and AFAT internal evidence now have an explicit local source catalog with licence, attribution, version, and usage-constraint fields.
+- Targeted point extracts can be normalized by `scripts/prepare-map-import.mjs`, validated in dry-run mode, and submitted in bounded batches of at most 500 records within a 1.5-degree pilot box.
+- External records enter `afat_geo_source_records` as candidates. They are never automatically searchable AFAT truth.
+- Authorized AAL2 staff can approve or reject candidates with a written reason through an audited, service-only transaction. Approved places still require separate entrance/meeting-point verification.
+- The Admin Command Center now exposes a Governed Map Sources panel with source licences, candidate/approved/rejected counts, recent imports, and the review queue.
+- The old offline-map guide was corrected: the current Leaflet PWA does not automatically read raw MBTiles from Cache Storage, and no offline-navigation claim should be made before a PMTiles/tile-server/browser-adapter path is implemented and device-tested.
+- Local verification passed: PostgreSQL parser (58 statements), backend TypeScript build, dashboard production build, dashboard lint, access-foundation check, API-contract check, and map-foundation safety/importer check.
+- Deployment truth: the migration, API, source catalog, UI, and external datasets have not been deployed or imported into production. A staging migration, licence/version selection, bounded source extracts, dry run, and sample review are still required.
+
 ## August 11, 2026 Identity and Access Foundation
 
 - Existing staged AFAT production-contract/pilot work was reviewed, built, contract-tested, and checkpointed locally before access work began.

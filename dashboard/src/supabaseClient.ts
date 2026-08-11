@@ -443,6 +443,54 @@ export function acceptAfatStaffInvitation(invitationId: string, invitationToken:
   });
 }
 
+export type AfatMapSource = {
+  source_key: string;
+  display_name: string;
+  provider_name: string;
+  source_class: string;
+  homepage_url: string | null;
+  license_expression: string;
+  attribution_text: string;
+  enabled: boolean;
+  candidate_counts: Record<string, number>;
+  metadata?: Record<string, unknown>;
+};
+
+export type AfatMapSourceRecord = {
+  id: string;
+  source_key: string;
+  external_feature_id: string;
+  canonical_name: string;
+  source_category: string | null;
+  source_address: string | null;
+  latitude: number;
+  longitude: number;
+  source_confidence: number;
+  review_status: string;
+  dataset_version: string;
+};
+
+export function fetchAfatMapFoundation() {
+  return authenticatedAccessRequest('/api/ops/map/sources');
+}
+
+export function fetchAfatMapSourceRecords(status = 'candidate', sourceKey?: string) {
+  const params = new URLSearchParams({ status, limit: '30' });
+  if (sourceKey) params.set('source_key', sourceKey);
+  return authenticatedAccessRequest(`/api/ops/map/source-records?${params.toString()}`);
+}
+
+export function reviewAfatMapSourceRecord(recordId: string, input: {
+  decision: 'approve' | 'reject';
+  reason: string;
+  canonicalName?: string;
+  city?: string;
+  zoneLabel?: string;
+  confidence?: number;
+}) {
+  return authenticatedAccessRequest(`/api/ops/map/source-records/${recordId}/review`, 'POST', input);
+}
+
 // ==============================================================================
 // 🔐 AUTH & ROLES (Phone OTP Focus)
 // ==============================================================================

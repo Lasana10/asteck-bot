@@ -1,6 +1,7 @@
 # AFAT Next Steps
 
 ## Immediate Next Tasks
+0.1. Stage the governed map-source foundation after Identity and Access is active: apply `db/20260811_map_source_foundation.sql`, verify RLS/grants, obtain a lawful versioned Yaounde Overture/OSM/Foursquare extract, run a dry import, apply one small candidate batch, and have a Data Steward review a sample. Do not bulk-import Cameroon or publish candidates automatically.
 0. Stage and deploy the Identity and Access Foundation only after following `docs/ACCESS_FOUNDATION.md`: staging database migration, Supabase TOTP/redirect configuration, Render secrets, backend contract verification, then Cloudflare deployment and Founder/staff smoke tests. Do not treat the local commits as live.
 1. Convert sensitive legacy operational endpoints from `profiles.role` authorization to the new permission/scope helper, beginning with Admin mutation, operator lifecycle, dispatch, compliance, finance, data export, and organization-member management routes.
 2. Continue the functionality-completion pass behind the now-green frontend build:

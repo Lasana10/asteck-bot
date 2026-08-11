@@ -38,6 +38,10 @@
   - `POST /api/guardian/token`
   - `GET /api/guardian/watch/:token`
 - Ops/Dispatch/Compliance:
+  - `GET /api/ops/map/sources` (permission: `map.sources.view`)
+  - `GET /api/ops/map/source-records` (permission: `map.sources.view`)
+  - `POST /api/ops/map/imports` (permission: `map.import.manage`, AAL2; dry-run by default)
+  - `POST /api/ops/map/source-records/:id/review` (permission: `map.evidence.review`, AAL2)
   - `GET /api/ops/live-map`
   - `GET /api/ops/report-center`
   - `PATCH /api/ops/reports/:id/status`
@@ -70,6 +74,7 @@
 - Access-foundation endpoints verify the Supabase bearer token server-side, derive trusted AAL from the verified JWT, and enforce permission/grant-ceiling rules.
 - Planner/Admin public bootstrap is disabled unless the explicit legacy feature flag is enabled; the production value must remain `false`.
 - Current boundary: older mutation endpoints are not yet consistently converted to the new permission helper. Full platform-wide RBAC conversion remains required.
+- Geographic source imports never promote records directly into public place search. Promotion is a separate audited review; meeting-point verification remains another distinct step.
 
 ## Webhooks
 - `POST /api/webhook/pawapay` for payment status callbacks.
