@@ -56,6 +56,9 @@ export function requestContext(req: Request) {
 }
 
 export async function requireSupabaseIdentity(req: Request): Promise<AuthenticatedIdentity> {
+  if (!String(process.env.SUPABASE_SECRET_KEY || '').trim()) {
+    throw new AccessControlError(503, 'AFAT access authority requires the server-only Supabase secret key.');
+  }
   const token = bearerToken(req);
   if (!token) throw new AccessControlError(401, 'Supabase session required.');
 
@@ -291,6 +294,9 @@ export async function createStaffInvitation(
 ) {
   const email = input.email.trim().toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new AccessControlError(400, 'A valid staff email is required.');
+  if (input.companyId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.companyId)) {
+    throw new AccessControlError(400, 'Organization scope must be a valid UUID.');
+  }
   await requireAccessPermission(identity, 'access.staff.invite', input.companyId);
 
   const assignments = await activeAssignments(identity.id);

@@ -8,6 +8,7 @@ import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
 import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
+import { StaffInvitationPanel } from '../access/StaffInvitationPanel';
 
 interface Props {
   onSignOut: () => void;
@@ -577,6 +578,8 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
             if (action === 'onboard') launchCampaign();
           }}
         />
+
+        <StaffInvitationPanel />
 
         <div className="rounded-[2rem] border border-white/10 bg-slate-950/75 p-5 shadow-2xl">
           <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">

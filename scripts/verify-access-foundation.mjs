@@ -14,6 +14,7 @@ const files = {
   client: read('dashboard', 'src', 'supabaseClient.ts'),
   app: read('dashboard', 'src', 'App.tsx'),
   activation: read('dashboard', 'src', 'components', 'access', 'AccessActivationPage.tsx'),
+  invitationPanel: read('dashboard', 'src', 'components', 'access', 'StaffInvitationPanel.tsx'),
 };
 
 function sourceTree(dir) {
@@ -40,6 +41,7 @@ const required = [
   ['sensitive invitation revoke', files.migration, 'revoke all on public.staff_invitations from public, anon, authenticated'],
   ['service-only Founder RPC', files.migration, 'grant execute on function public.afat_bootstrap_founder(uuid, text, jsonb) to service_role'],
   ['verified Supabase identity', files.service, 'supabase.auth.getUser(token)'],
+  ['server-only Supabase authority required', files.service, "process.env.SUPABASE_SECRET_KEY"],
   ['trusted AAL2 claim', files.service, "claims.aal === 'aal2'"],
   ['constant-time bootstrap check', files.service, 'crypto.timingSafeEqual'],
   ['Founder Pass rate lock', files.service, 'failedAttempts >= 5'],
@@ -64,6 +66,8 @@ const required = [
   ['activation requires authenticator assurance', files.activation, 'getAuthenticatorAssuranceLevel'],
   ['activation performs MFA challenge', files.activation, 'challengeAndVerify'],
   ['invitation URL is scrubbed', files.activation, "window.history.replaceState({}, '', '/staff/invite')"],
+  ['admin staff invitation control', files.invitationPanel, 'createAfatStaffInvitation'],
+  ['invitation control checks permission snapshot', files.invitationPanel, "permissions.includes('access.staff.invite')"],
 ];
 
 const forbidden = [
