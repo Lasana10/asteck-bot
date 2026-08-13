@@ -11,6 +11,18 @@ export interface WorkspaceData {
   finance: FinanceSummary;
 }
 
+async function activeSchool() {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const [{ data: membership, error: membershipError }, { data: userData, error: userError }] = await Promise.all([
+    supabase.from("dreem_school_memberships").select("school_id").eq("status", "approved").limit(1).maybeSingle(),
+    supabase.auth.getUser(),
+  ]);
+  if (membershipError) throw membershipError;
+  if (userError) throw userError;
+  if (!membership || !userData.user) throw new Error("No active school membership was found.");
+  return { schoolId:String(membership.school_id), userId:userData.user.id };
+}
+
 export async function loadWorkspace(): Promise<WorkspaceData> {
   if (!isSupabaseConfigured || !supabase) {
     return { brand: demoBrand, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
@@ -92,4 +104,46 @@ export async function createSignal(input: Omit<CommunitySignal, "id" | "status" 
   const { data, error } = await supabase.from("dreem_community_signals").insert({ ...input, school_id:memberships[0].school_id, assigned_role:assignedRole }).select().single();
   if (error) throw error;
   return { id:String(data.id),sourceRole:data.source_role,sourceName:data.source_name,subjectType:data.subject_type,subjectName:data.subject_name,category:data.category,message:data.message,severity:data.severity,status:data.status,assignedRole:data.assigned_role,createdAt:data.created_at } as CommunitySignal;
+}
+
+export async function saveSchoolBrand(brand: SchoolBrand): Promise<SchoolBrand> {
+  if (!isSupabaseConfigured || !supabase) return brand;
+  const { schoolId } = await activeSchool();
+  const { error } = await supabase.from("dreem_school_brands").upsert({
+    school_id:schoolId, short_name:brand.shortName, motto:brand.motto, city:brand.city,
+    subsystem:brand.subsystem, primary_color:brand.primaryColor, accent_color:brand.accentColor,
+    logo_url:brand.logoUrl ?? null, receipt_prefix:brand.receiptPrefix, student_id_prefix:brand.studentIdPrefix,
+    updated_at:new Date().toISOString(),
+  }, { onConflict:"school_id" });
+  if (error) throw error;
+  return brand;
+}
+
+export async function openCashierSession(openingFloat: number) {
+  if (!isSupabaseConfigured || !supabase) return { id:crypto.randomUUID(), status:"open" as const };
+  const { schoolId, userId } = await activeSchool();
+  const { data: existing, error: readError } = await supabase.from("dreem_cashier_sessions")
+    .select("id,status").eq("school_id",schoolId).eq("cashier_user_id",userId).eq("status","open").maybeSingle();
+  if (readError) throw readError;
+  if (existing) return { id:String(existing.id), status:"open" as const };
+  const { data, error } = await supabase.from("dreem_cashier_sessions")
+    .insert({ school_id:schoolId, cashier_user_id:userId, opening_float:openingFloat }).select("id,status").single();
+  if (error) throw error;
+  return { id:String(data.id), status:"open" as const };
+}
+
+export async function updateSignalStatus(signalId: string, status: CommunitySignal["status"]) {
+  if (!isSupabaseConfigured || !supabase) return status;
+  const { schoolId, userId } = await activeSchool();
+  const { data: signal, error: readError } = await supabase.from("dreem_community_signals")
+    .select("status").eq("id",signalId).eq("school_id",schoolId).single();
+  if (readError) throw readError;
+  const { error } = await supabase.from("dreem_community_signals").update({ status }).eq("id",signalId).eq("school_id",schoolId);
+  if (error) throw error;
+  const { error:eventError } = await supabase.from("dreem_signal_events").insert({
+    school_id:schoolId, signal_id:signalId, event_type:"status_changed", from_status:signal.status,
+    to_status:status, actor_user_id:userId,
+  });
+  if (eventError) throw eventError;
+  return status;
 }

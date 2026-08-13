@@ -5,7 +5,7 @@ import Shell, { type ViewKey } from "./components/Shell";
 import { CommandView, FinanceView, LearnersView, SchoolStudioView, SignalsView, TeachersView } from "./components/Views";
 import { demoPulse } from "./domain/demo";
 import type { CommunitySignal } from "./domain/types";
-import { loadWorkspace, type WorkspaceData } from "./lib/repository";
+import { loadWorkspace, saveSchoolBrand, updateSignalStatus, type WorkspaceData } from "./lib/repository";
 
 function WorkspaceApp() {
   const [view, setView] = useState<ViewKey>("command");
@@ -25,6 +25,14 @@ function WorkspaceApp() {
   if (!workspace) return <div className="auth-screen"><div className="auth-card"><strong>DREEM</strong><p>Preparing the school operating picture…</p></div></div>;
 
   const addSignal = (signal: CommunitySignal) => setWorkspace((current) => current ? { ...current, signals: [signal, ...current.signals] } : current);
+  const saveBrand = async (brand: WorkspaceData["brand"]) => {
+    const saved = await saveSchoolBrand(brand);
+    setWorkspace((current) => current ? { ...current, brand:saved } : current);
+  };
+  const moveSignal = async (signalId: string, status: CommunitySignal["status"]) => {
+    await updateSignalStatus(signalId,status);
+    setWorkspace((current) => current ? { ...current, signals:current.signals.map(item=>item.id===signalId?{...item,status}:item) } : current);
+  };
   const openFeedback = () => setFeedbackOpen(true);
 
   return <>
@@ -33,8 +41,8 @@ function WorkspaceApp() {
       {view === "learners" && <LearnersView learners={workspace.learners} brand={workspace.brand} />}
       {view === "teachers" && <TeachersView teachers={workspace.teachers} />}
       {view === "finance" && <FinanceView finance={workspace.finance} />}
-      {view === "signals" && <SignalsView signals={workspace.signals} onFeedback={openFeedback} />}
-      {view === "studio" && <SchoolStudioView brand={workspace.brand} />}
+      {view === "signals" && <SignalsView signals={workspace.signals} onFeedback={openFeedback} onStatus={moveSignal} />}
+      {view === "studio" && <SchoolStudioView brand={workspace.brand} onSave={saveBrand} />}
     </Shell>
     <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} onCreated={addSignal} />
   </>;
