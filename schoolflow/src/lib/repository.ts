@@ -1,0 +1,95 @@
+import type { CommunitySignal, FinanceSummary, LearnerSummary, SchoolBrand, TeacherSummary } from "../domain/types";
+import { demoBrand, demoFinance, demoLearners, demoSignals, demoTeachers } from "../domain/demo";
+import { routeSignal } from "../domain/rules";
+import { isSupabaseConfigured, supabase } from "./supabase";
+
+export interface WorkspaceData {
+  brand: SchoolBrand;
+  learners: LearnerSummary[];
+  teachers: TeacherSummary[];
+  signals: CommunitySignal[];
+  finance: FinanceSummary;
+}
+
+export async function loadWorkspace(): Promise<WorkspaceData> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { brand: demoBrand, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
+  }
+
+  const { data: memberships, error: membershipError } = await supabase
+    .from("dreem_school_memberships")
+    .select("school_id")
+    .eq("status", "approved")
+    .limit(1);
+  if (membershipError) throw membershipError;
+  const membership = memberships?.[0] as Record<string, unknown> | undefined;
+  if (!membership) throw new Error("Your account is not attached to an active school.");
+  const schoolId = String(membership.school_id);
+  const [schoolResult,brandResult] = await Promise.all([
+    supabase.from("schools").select("name,slug").eq("id",schoolId).single(),
+    supabase.from("dreem_school_brands").select("*").eq("school_id",schoolId).maybeSingle(),
+  ]);
+  if(schoolResult.error) throw schoolResult.error;
+  const rawSchool=schoolResult.data;
+  const rawBrand=brandResult.data;
+
+  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, profileResult, signalResult, accountResult, paymentResult, reconciliationResult] = await Promise.all([
+    supabase.from("students").select("id,matricule,full_name,class_name,attendance_rate,risk_level").eq("school_id",schoolId).is("merged_into_student_id",null).limit(100),
+    supabase.from("dreem_growth_snapshots").select("*").eq("school_id",schoolId).order("snapshot_date",{ascending:false}).limit(500),
+    supabase.from("dreem_interventions").select("student_id,title,owner_user_id,status,review_on").eq("school_id",schoolId).not("status","in","(closed,cancelled)").order("review_on").limit(200),
+    supabase.from("dreem_student_credentials").select("student_id,status,valid_until,issued_at").eq("school_id",schoolId).order("issued_at",{ascending:false}).limit(200),
+    supabase.from("dreem_teacher_growth_snapshots").select("*").eq("school_id",schoolId).order("snapshot_date",{ascending:false}).limit(200),
+    supabase.from("profiles").select("id,full_name").eq("school_id",schoolId).limit(300),
+    supabase.from("dreem_community_signals").select("*").eq("school_id", schoolId).order("created_at", { ascending: false }).limit(100),
+    supabase.from("fee_accounts").select("amount_due").eq("school_id",schoolId),
+    supabase.from("dreem_financial_payments").select("amount,received_at").eq("school_id",schoolId),
+    supabase.from("dreem_reconciliation_reviews").select("variance,status,submitted_at").eq("school_id",schoolId),
+  ]);
+  if (studentResult.error) throw studentResult.error;
+  if (growthResult.error) throw growthResult.error;
+  if (interventionResult.error) throw interventionResult.error;
+  if (credentialResult.error) throw credentialResult.error;
+  if (teacherResult.error) throw teacherResult.error;
+  if (signalResult.error) throw signalResult.error;
+  const profileNames=new Map((profileResult.data??[]).map(row=>[String(row.id),String(row.full_name)]));
+  const latestGrowth=new Map<string,Record<string,unknown>>();
+  for(const row of growthResult.data??[]) if(!latestGrowth.has(String(row.student_id))) latestGrowth.set(String(row.student_id),row);
+  const latestTeacher=new Map<string,Record<string,unknown>>();
+  for(const row of teacherResult.data??[]) if(!latestTeacher.has(String(row.teacher_user_id))) latestTeacher.set(String(row.teacher_user_id),row);
+  const interventions=new Map((interventionResult.data??[]).map(row=>[String(row.student_id),row]));
+  const credentials=new Map<string,Record<string,unknown>>();
+  for(const row of credentialResult.data??[]) if(!credentials.has(String(row.student_id))) credentials.set(String(row.student_id),row);
+  const today=new Date().toISOString().slice(0,10);
+  const todaysPayments=(paymentResult.data??[]).filter(row=>String(row.received_at).startsWith(today));
+  const openExceptions=(reconciliationResult.data??[]).filter(row=>row.status==="pending"&&Number(row.variance)!==0);
+
+  return {
+    brand: {
+      name:String(rawSchool.name),shortName:String(rawBrand?.short_name??rawSchool.slug?.slice(0,3).toUpperCase()??"DRM"),motto:String(rawBrand?.motto??""),city:String(rawBrand?.city??""),
+      subsystem:(rawBrand?.subsystem??"bilingual") as SchoolBrand["subsystem"],primaryColor:String(rawBrand?.primary_color??"#123b2c"),accentColor:String(rawBrand?.accent_color??"#c9df83"),
+      logoUrl:rawBrand?.logo_url?String(rawBrand.logo_url):undefined,receiptPrefix:String(rawBrand?.receipt_prefix??"DRM"),studentIdPrefix:String(rawBrand?.student_id_prefix??"DRM"),
+    },
+    learners:(studentResult.data??[]).map(row=>{const growth=latestGrowth.get(String(row.id));const action=interventions.get(String(row.id));const credential=credentials.get(String(row.id));return {
+      id:String(row.id),matricule:String(row.matricule),name:String(row.full_name),className:String(row.class_name??"Unassigned"),mastery:Number(growth?.mastery??0),attendance:Number(growth?.attendance??row.attendance_rate??0),engagement:Number(growth?.engagement??0),wellbeing:Number(growth?.wellbeing??0),trend:0,nextAction:String(action?.title??"Review learner OneFile"),interventionOwner:action?.owner_user_id?profileNames.get(String(action.owner_user_id)):undefined,idStatus:(credential?.status??"expired") as LearnerSummary["idStatus"],
+    }}),
+    teachers:Array.from(latestTeacher.values()).map(row=>({
+      id:String(row.teacher_user_id),name:profileNames.get(String(row.teacher_user_id))??"Teacher",subject:String(row.subject_name),learnerGrowth:Number(row.learner_growth),coverage:Number(row.curriculum_coverage),mastery:Number(row.mastery),workload:row.workload as TeacherSummary["workload"],nextSupport:String(row.next_support),
+    })),
+    signals: (signalResult.data ?? []).map((row) => ({
+      id:String(row.id),sourceRole:row.source_role as CommunitySignal["sourceRole"],sourceName:String(row.source_name),subjectType:row.subject_type as CommunitySignal["subjectType"],subjectName:String(row.subject_name),category:String(row.category),message:String(row.message),severity:row.severity as CommunitySignal["severity"],status:row.status as CommunitySignal["status"],assignedRole:row.assigned_role as CommunitySignal["assignedRole"],createdAt:String(row.created_at),
+    })),
+    finance:{expectedToday:(accountResult.data??[]).reduce((sum,row)=>sum+Number(row.amount_due),0),collectedToday:todaysPayments.reduce((sum,row)=>sum+Number(row.amount),0),reconciledToday:todaysPayments.reduce((sum,row)=>sum+Number(row.amount),0)-openExceptions.reduce((sum,row)=>sum+Math.abs(Number(row.variance)),0),openExceptions:openExceptions.length,openExceptionValue:openExceptions.reduce((sum,row)=>sum+Math.abs(Number(row.variance)),0),nextDeposit:0},
+  };
+}
+
+export async function createSignal(input: Omit<CommunitySignal, "id" | "status" | "assignedRole" | "createdAt">): Promise<CommunitySignal> {
+  const assignedRole = routeSignal(input.category);
+  if (!isSupabaseConfigured || !supabase) {
+    return { ...input, id:crypto.randomUUID(), status:"new", assignedRole, createdAt:new Date().toISOString() };
+  }
+  const { data: memberships, error: membershipError } = await supabase.from("dreem_school_memberships").select("school_id").eq("status", "approved").limit(1);
+  if (membershipError || !memberships?.[0]) throw membershipError ?? new Error("No active school membership.");
+  const { data, error } = await supabase.from("dreem_community_signals").insert({ ...input, school_id:memberships[0].school_id, assigned_role:assignedRole }).select().single();
+  if (error) throw error;
+  return { id:String(data.id),sourceRole:data.source_role,sourceName:data.source_name,subjectType:data.subject_type,subjectName:data.subject_name,category:data.category,message:data.message,severity:data.severity,status:data.status,assignedRole:data.assigned_role,createdAt:data.created_at } as CommunitySignal;
+}

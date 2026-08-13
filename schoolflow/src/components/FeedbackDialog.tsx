@@ -1,0 +1,20 @@
+import { type FormEvent, useState } from "react";
+import { AlertTriangle, CheckCircle2, X } from "lucide-react";
+import { z } from "zod";
+import type { CommunitySignal } from "../domain/types";
+import { createSignal } from "../lib/repository";
+
+const signalSchema = z.object({
+  sourceRole:z.enum(["parent","student","teacher","staff"]), sourceName:z.string().trim().min(2).max(100),
+  subjectType:z.enum(["student","teacher","school","service"]), subjectName:z.string().trim().min(2).max(100),
+  category:z.string().trim().min(2).max(60), message:z.string().trim().min(10).max(1200),
+  severity:z.enum(["normal","important","urgent","safeguarding"]),
+});
+
+export default function FeedbackDialog({ open, onClose, onCreated }:{open:boolean;onClose:()=>void;onCreated:(signal:CommunitySignal)=>void}) {
+  const [status,setStatus]=useState<{kind:"idle"|"error"|"success";message:string}>({kind:"idle",message:""});
+  const [busy,setBusy]=useState(false);
+  if(!open) return null;
+  async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setStatus({kind:"idle",message:""});const raw=Object.fromEntries(new FormData(event.currentTarget));const parsed=signalSchema.safeParse(raw);if(!parsed.success){setStatus({kind:"error",message:parsed.error.issues[0]?.message??"Check the form."});setBusy(false);return;}try{const signal=await createSignal(parsed.data);onCreated(signal);setStatus({kind:"success",message:"Signal received and assigned for follow-up."});event.currentTarget.reset();}catch(error){setStatus({kind:"error",message:error instanceof Error?error.message:"The signal could not be saved."});}finally{setBusy(false);}}
+  return <div className="modal-backdrop" onMouseDown={event=>event.target===event.currentTarget&&onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="signal-title"><button className="modal-close" onClick={onClose} aria-label="Close"><X/></button><span className="kicker">VOICE BECOMES ACTION</span><h2 id="signal-title">Feedback, recognition or signalement</h2><p>Your message receives an owner, status and follow-up. Safeguarding concerns are routed directly to the principal.</p><form onSubmit={submit}><div className="form-grid"><label>Your role<select name="sourceRole" defaultValue="parent"><option value="parent">Parent / Guardian</option><option value="student">Student</option><option value="teacher">Teacher</option><option value="staff">School staff</option></select></label><label>Your full name<input name="sourceName" required placeholder="Full name"/></label><label>It concerns<select name="subjectType" defaultValue="student"><option value="student">A student</option><option value="teacher">A teacher</option><option value="school">The school</option><option value="service">A service</option></select></label><label>Person or service<input name="subjectName" required placeholder="e.g. Amara or Transport"/></label><label>Category<select name="category" defaultValue="Learning support"><option>Learning support</option><option>Teaching</option><option>Recognition</option><option>Attendance</option><option>Finance</option><option>Communication</option><option>Transport</option><option>Safeguarding</option></select></label><label>Priority<select name="severity" defaultValue="normal"><option value="normal">General feedback</option><option value="important">Important follow-up</option><option value="urgent">Urgent concern</option><option value="safeguarding">Safeguarding</option></select></label></div><label>What happened, and what would help?<textarea name="message" rows={5} minLength={10} required placeholder="Give clear facts and the improvement you hope to see…"/></label>{status.kind!=="idle"?<div className={`form-status ${status.kind}`}>{status.kind==="success"?<CheckCircle2/>:<AlertTriangle/>}{status.message}</div>:null}<button className="primary" disabled={busy} type="submit">{busy?"Creating follow-up…":"Submit and assign follow-up"}</button></form></section></div>;
+}
