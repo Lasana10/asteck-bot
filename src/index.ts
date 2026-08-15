@@ -4,6 +4,8 @@ import { scheduler } from './services/scheduler';
 import apiRoutes from './api/routes';
 import onboardingRoutes from './api/onboarding';
 import placeIntelligenceRoutes from './api/placeIntelligence';
+import accessRoutes, { accessErrorHandler } from './api/access';
+import mapFoundationRoutes from './api/mapFoundation';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import * as Sentry from "@sentry/node";
@@ -50,6 +52,16 @@ const requiredApiRoutes = [
   'POST /api/onboard/passenger/register',
   'POST /api/onboard/driver/register',
   'POST /api/onboard/company/register',
+  'GET /api/access/me',
+  'POST /api/access/founder/bootstrap',
+  'PUT /api/access/founder/pass',
+  'POST /api/access/founder/pass/verify',
+  'POST /api/access/staff/invitations',
+  'POST /api/access/staff/invitations/accept',
+  'GET /api/ops/map/sources',
+  'GET /api/ops/map/source-records',
+  'POST /api/ops/map/imports',
+  'POST /api/ops/map/source-records/:id/review',
   'GET /health',
   'GET /health/live',
   'GET /health/ready',
@@ -252,6 +264,9 @@ async function main() {
   app.use('/api', apiRoutes);
   app.use('/api/onboard', onboardingRoutes);
   app.use('/api', placeIntelligenceRoutes);
+  app.use('/api', accessRoutes);
+  app.use('/api', mapFoundationRoutes);
+  app.use(accessErrorHandler);
   app.use('/api', (req: Request, res: Response) => {
     res.status(404).json({
       error: 'AFAT API route not found',

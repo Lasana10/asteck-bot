@@ -13,6 +13,17 @@ import { telemetry } from './services/telemetryService';
 import { AICopilot } from './components/shared/AICopilot';
 import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 import { TurnstileGate } from './components/shared/TurnstileGate';
+import { AccessActivationPage } from './components/access/AccessActivationPage';
+
+function completeProtectedSignIn() {
+  const destination = sessionStorage.getItem('afat_post_auth_redirect');
+  sessionStorage.removeItem('afat_post_auth_redirect');
+  if (destination === '/staff/invite' || destination === '/founder/bootstrap') {
+    window.location.replace(destination);
+    return;
+  }
+  window.location.reload();
+}
 
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
@@ -183,7 +194,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           setLoading(false);
           return;
         }
-        window.location.reload();
+        completeProtectedSignIn();
       }
       setLoading(false);
       return;
@@ -231,7 +242,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           return;
         }
       }
-      window.location.reload();
+      completeProtectedSignIn();
     }
     setLoading(false);
   };
@@ -692,8 +703,10 @@ function AuthCallback() {
         }
 
         setPhase('profile');
+        const protectedDestination = sessionStorage.getItem('afat_post_auth_redirect');
+        sessionStorage.removeItem('afat_post_auth_redirect');
         window.history.replaceState({}, '', '/');
-        window.location.replace('/');
+        window.location.replace(protectedDestination === '/staff/invite' || protectedDestination === '/founder/bootstrap' ? protectedDestination : '/');
       })
       .catch((err) => {
         if (!mounted) return;
@@ -912,6 +925,14 @@ export default function App() {
 
   if (pathname === '/auth/callback') {
     return <AuthCallback />;
+  }
+
+  if (pathname === '/founder/bootstrap') {
+    return <AccessActivationPage mode="founder" />;
+  }
+
+  if (pathname === '/staff/invite') {
+    return <AccessActivationPage mode="staff" />;
   }
 
   if (watchMatch?.[1]) {

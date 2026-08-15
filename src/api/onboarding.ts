@@ -23,6 +23,130 @@ function normalizeOptionalText(value: any) {
   return text || null;
 }
 
+function normalizeOrganizationType(value: unknown) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized.includes('union')) return 'transport_union';
+  if (normalized.includes('public') || normalized.includes('municipal') || normalized.includes('government')) {
+    return 'government_authority';
+  }
+  if (normalized.includes('institution') || normalized.includes('corporate')) return 'institution';
+  if (normalized.includes('independent')) return 'independent_operator';
+  if (normalized.includes('emergency')) return 'emergency_partner';
+  return 'fleet_company';
+}
+
+async function ensureRoleAssignment(params: {
+  profileId: string;
+  roleKey: string;
+  companyId?: string | null;
+  status: 'pending' | 'provisional' | 'active';
+  source: 'application' | 'review' | 'system';
+  reason: string;
+}) {
+  const companyId = params.companyId || null;
+  let query = supabase
+    .from('profile_role_assignments')
+    .select('id, status')
+    .eq('profile_id', params.profileId)
+    .eq('role_key', params.roleKey)
+    .in('status', ['pending', 'provisional', 'active']);
+  query = companyId ? query.eq('company_id', companyId) : query.is('company_id', null);
+  const { data: existing, error: lookupError } = await query.maybeSingle();
+  if (lookupError) throw lookupError;
+
+  if (existing?.id) {
+    const { error } = await supabase.from('profile_role_assignments').update({
+      status: existing.status === 'active' ? 'active' : params.status,
+      source: params.source,
+      reason: params.reason,
+      updated_at: new Date().toISOString(),
+    }).eq('id', existing.id);
+    if (error) throw error;
+    return existing.id;
+  }
+
+  const { data, error } = await supabase.from('profile_role_assignments').insert({
+    profile_id: params.profileId,
+    role_key: params.roleKey,
+    company_id: companyId,
+    status: params.status,
+    source: params.source,
+    reason: params.reason,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function upsertClearance(params: {
+  profileId?: string;
+  companyId?: string;
+  track: 'operator' | 'organization';
+  level: string;
+  status: 'active_limited' | 'under_review' | 'active' | 'restricted';
+  available: string[];
+  restricted: string[];
+  reasons?: Record<string, string>;
+  nextSteps?: Array<Record<string, unknown>>;
+}) {
+  let query = supabase.from('clearance_records').select('id, status').eq('track', params.track);
+  query = params.profileId
+    ? query.eq('profile_id', params.profileId)
+    : query.eq('company_id', params.companyId!);
+  const { data: existing, error: lookupError } = await query.maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing?.status === 'active' && params.status !== 'active') return;
+
+  const payload = {
+    profile_id: params.profileId || null,
+    company_id: params.companyId || null,
+    track: params.track,
+    level: params.level,
+    status: params.status,
+    available_capabilities: params.available,
+    restricted_capabilities: params.restricted,
+    restriction_reasons: params.reasons || {},
+    next_steps: params.nextSteps || [],
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = existing?.id
+    ? await supabase.from('clearance_records').update(payload).eq('id', existing.id)
+    : await supabase.from('clearance_records').insert(payload);
+  if (error) throw error;
+}
+
+async function syncOperatorAccess(profileId: string, applicationStatus: string) {
+  const isApproved = applicationStatus === 'APPROVED';
+  const roleKey = isApproved ? 'verified_operator' : 'operator_applicant';
+  await ensureRoleAssignment({
+    profileId,
+    roleKey,
+    status: 'active',
+    source: isApproved ? 'review' : 'application',
+    reason: isApproved ? 'Operator clearance approved' : 'Operator onboarding is active with safe limited capabilities',
+  });
+
+  const level = applicationStatus === 'APPROVED'
+    ? 'D3'
+    : applicationStatus === 'UNDER_REVIEW'
+      ? 'D2'
+      : applicationStatus === 'DOCUMENTS_PENDING'
+        ? 'D1'
+        : 'D0';
+  await upsertClearance({
+    profileId,
+    track: 'operator',
+    level,
+    status: isApproved ? 'active' : applicationStatus === 'UNDER_REVIEW' ? 'under_review' : 'active_limited',
+    available: ['report.create', 'report.confirm', 'field.mission.join', 'vehicle.prepare', 'training.join'],
+    restricted: isApproved ? [] : ['trip.accept', 'vehicle.operate'],
+    reasons: isApproved ? {} : {
+      'trip.accept': 'Passenger operations unlock when operator and vehicle minimum requirements are approved.',
+      'vehicle.operate': 'Vehicle and operator clearance are still progressing.',
+    },
+    nextSteps: isApproved ? [] : [{ action: 'complete_operator_clearance' }],
+  });
+}
+
 function deriveOperatorApplicationStatus(intakeStatus: string) {
   if (intakeStatus === 'verification_ready') return 'UNDER_REVIEW';
   if (intakeStatus === 'partial_documents') return 'DOCUMENTS_PENDING';
@@ -246,6 +370,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           verificationStatus: profile.verification_status || 'pending',
         })
       );
+      await syncOperatorAccess(profile.id, applicationStatus);
 
       return res.status(200).json({
         success: true,
@@ -354,6 +479,7 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         verificationStatus,
       })
     );
+    await syncOperatorAccess(profile.id, applicationStatus);
 
     res.status(201).json({
       success: true,
@@ -560,6 +686,7 @@ router.post('/company/register', async (req: Request, res: Response) => {
             contact_person: coordinatorName,
             fleet_size: fleet_size || existingCompany.fleet_size || null,
             notes: notes || existingCompany.notes || null,
+            organization_type: normalizeOrganizationType(company_type),
             updated_at: new Date().toISOString()
           })
           .eq('id', existingCompany.id)
@@ -571,6 +698,9 @@ router.post('/company/register', async (req: Request, res: Response) => {
             contact_person: coordinatorName,
             fleet_size: fleet_size || null,
             notes: notes || null,
+            organization_type: normalizeOrganizationType(company_type),
+            clearance_level: 'O0',
+            clearance_status: 'active_limited',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           });
@@ -581,13 +711,17 @@ router.post('/company/register', async (req: Request, res: Response) => {
 
     const { data: membership } = await supabase
       .from('company_memberships')
-      .select('id')
+      .select('id, status')
       .eq('company_id', company.id)
       .eq('profile_id', data.id)
       .maybeSingle();
 
     const { error: membershipError } = membership
-      ? { error: null }
+      ? await supabase.from('company_memberships').update({
+          role: 'owner',
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        }).eq('id', membership.id)
       : await supabase.from('company_memberships').insert({
         company_id: company.id,
         profile_id: data.id,
@@ -607,6 +741,27 @@ router.post('/company/register', async (req: Request, res: Response) => {
         companyNotes: notes,
       })
     );
+
+    await ensureRoleAssignment({
+      profileId: data.id,
+      roleKey: 'organization_owner',
+      companyId: company.id,
+      status: 'active',
+      source: 'application',
+      reason: 'Organization representative can prepare the roster and clearance journey while review progresses',
+    });
+    await upsertClearance({
+      companyId: company.id,
+      track: 'organization',
+      level: 'O0',
+      status: 'active_limited',
+      available: ['organization.profile.prepare', 'organization.roster.prepare', 'training.join'],
+      restricted: ['organization.full_operations'],
+      reasons: {
+        'organization.full_operations': 'Full fleet operations unlock progressively as organization evidence is reviewed.',
+      },
+      nextSteps: [{ action: 'complete_organization_clearance' }],
+    });
 
     res.status(201).json({
       success: true,

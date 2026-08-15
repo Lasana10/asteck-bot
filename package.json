@@ -9,6 +9,8 @@
     "build:backend": "tsc",
     "build:dashboard": "cd dashboard && npm install && npm run build",
     "test:api-contract": "node scripts/verify-api-contract.mjs",
+    "test:access-foundation": "node scripts/verify-access-foundation.mjs",
+    "test:map-foundation": "node scripts/verify-map-foundation.mjs",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
