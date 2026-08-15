@@ -64,6 +64,24 @@ export interface FinanceSummary {
   nextDeposit: number;
 }
 
+export type PaymentMethod = "cash" | "momo" | "bank_transfer" | "card" | "cheque";
+
+export interface PaymentCommand {
+  studentId: string;
+  feeAccountId?: string;
+  cashierSessionId?: string;
+  method: PaymentMethod;
+  amount: number;
+  externalReference?: string;
+  idempotencyKey: string;
+  payerName: string;
+}
+
+export interface PaymentReceipt {
+  paymentId: string;
+  receiptNumber: string;
+}
+
 export interface CommunitySignal {
   id: string;
   sourceRole: "parent" | "student" | "teacher" | "staff";

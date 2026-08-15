@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canApproveClosure, cashVariance, routeSignal } from "./rules";
+import { canApproveClosure, cashVariance, requirePositiveAmount, routeSignal } from "./rules";
 
 describe("operational controls", () => {
   it("routes safeguarding directly to the principal", () => expect(routeSignal("Safeguarding")).toBe("principal"));
@@ -9,5 +9,10 @@ describe("operational controls", () => {
   it("requires an independent authorized reviewer", () => {
     expect(canApproveClosure("user-a", "user-b", ["teacher"])).toBe(false);
     expect(canApproveClosure("user-a", "user-b", ["accountant"])).toBe(true);
+  });
+  it("rejects invalid payment amounts before reaching the backend", () => {
+    expect(() => requirePositiveAmount(0)).toThrow("positive");
+    expect(() => requirePositiveAmount(Number.NaN)).toThrow("positive");
+    expect(requirePositiveAmount(25_000.555)).toBe(25_000.56);
   });
 });

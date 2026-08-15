@@ -1,6 +1,6 @@
-import type { CommunitySignal, FinanceSummary, LearnerSummary, SchoolBrand, TeacherSummary } from "../domain/types";
+import type { CommunitySignal, FinanceSummary, LearnerSummary, PaymentCommand, PaymentReceipt, SchoolBrand, TeacherSummary } from "../domain/types";
 import { demoBrand, demoFinance, demoLearners, demoSignals, demoTeachers } from "../domain/demo";
-import { routeSignal } from "../domain/rules";
+import { requirePositiveAmount, routeSignal } from "../domain/rules";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 export interface WorkspaceData {
@@ -130,6 +130,30 @@ export async function openCashierSession(openingFloat: number) {
     .insert({ school_id:schoolId, cashier_user_id:userId, opening_float:openingFloat }).select("id,status").single();
   if (error) throw error;
   return { id:String(data.id), status:"open" as const };
+}
+
+export async function recordPayment(command: PaymentCommand): Promise<PaymentReceipt> {
+  const amount = requirePositiveAmount(command.amount);
+  if (!command.studentId) throw new Error("Choose a learner before recording payment.");
+  if (!command.payerName.trim()) throw new Error("Payer name is required.");
+  if (!command.idempotencyKey.trim()) throw new Error("Idempotency key is required.");
+  if (!isSupabaseConfigured || !supabase) {
+    return { paymentId: crypto.randomUUID(), receiptNumber: `DEMO-${new Date().toISOString().slice(0,10).replaceAll("-","")}` };
+  }
+  const { data, error } = await supabase.rpc("dreem_record_payment", {
+    p_student_id: command.studentId,
+    p_fee_account_id: command.feeAccountId ?? null,
+    p_cashier_session_id: command.cashierSessionId ?? null,
+    p_method: command.method,
+    p_amount: amount,
+    p_external_reference: command.externalReference ?? null,
+    p_idempotency_key: command.idempotencyKey,
+    p_payer_name: command.payerName.trim(),
+  });
+  if (error) throw error;
+  const receipt = Array.isArray(data) ? data[0] : data;
+  if (!receipt) throw new Error("Payment command did not return a receipt.");
+  return { paymentId:String(receipt.payment_id), receiptNumber:String(receipt.receipt_number) };
 }
 
 export async function updateSignalStatus(signalId: string, status: CommunitySignal["status"]) {

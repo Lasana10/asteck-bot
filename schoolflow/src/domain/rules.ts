@@ -15,3 +15,12 @@ export function cashVariance(collected: number, reconciled: number): number {
 export function canApproveClosure(submittedBy: string, reviewedBy: string, roles: Role[]): boolean {
   return submittedBy !== reviewedBy && roles.some((role) => role === "accountant" || role === "principal" || role === "school_owner");
 }
+
+export function requirePositiveAmount(amount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be a positive number.");
+  return Math.round(amount * 100) / 100;
+}
+
+export function createIdempotencyKey(scope: string): string {
+  return `${scope}:${crypto.randomUUID()}`;
+}
