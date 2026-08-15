@@ -1,12 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const REQUIRED_RENDER_API_URL = 'https://asteck-bot.onrender.com';
+const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim() || 'https://placeholder.supabase.co';
 const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim() ||
+  String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim() ||
   'placeholder-key';
 
-const liveApiBaseUrl = 'https://asteck-bot.onrender.com';
+const liveApiBaseUrl = REQUIRED_RENDER_API_URL;
 const apiOverrideStorageKey = 'afat_api_base_override';
 const localRuntimeHosts = new Set(['localhost', '127.0.0.1']);
 
@@ -63,12 +64,16 @@ function isLocalApiUrl(url?: string | null) {
 
 function getStoredApiOverride() {
   if (!canUseWindow()) return null;
+  if (!isLocalAppRuntime()) {
+    localStorage.removeItem(apiOverrideStorageKey);
+    return null;
+  }
   const normalized = normalizeApiUrl(localStorage.getItem(apiOverrideStorageKey));
   if (!normalized) {
     localStorage.removeItem(apiOverrideStorageKey);
     return null;
   }
-  if (isProductionAfatRuntime() && (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized))) {
+  if (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized)) {
     localStorage.removeItem(apiOverrideStorageKey);
     return null;
   }
@@ -76,7 +81,17 @@ function getStoredApiOverride() {
 }
 
 function resolveApiBaseUrl() {
-  return getStoredApiOverride() || normalizeApiUrl(import.meta.env.VITE_API_URL) || liveApiBaseUrl;
+  const envApiBaseUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+  if (envApiBaseUrl === REQUIRED_RENDER_API_URL) {
+    return envApiBaseUrl;
+  }
+
+  const localOverride = getStoredApiOverride();
+  if (localOverride) {
+    return localOverride;
+  }
+
+  return REQUIRED_RENDER_API_URL;
 }
 
 export const apiBaseUrl = resolveApiBaseUrl();
@@ -91,12 +106,17 @@ export function setApiBaseOverride(url: string | null) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
+  if (!isLocalAppRuntime()) {
+    console.warn('Ignoring AFAT API override outside local development.');
+    localStorage.removeItem(apiOverrideStorageKey);
+    return;
+  }
   const normalized = normalizeApiUrl(url);
   if (!normalized) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
-  if (isProductionAfatRuntime() && (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized))) {
+  if (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized) || normalized !== REQUIRED_RENDER_API_URL) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }

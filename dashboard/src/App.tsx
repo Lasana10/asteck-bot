@@ -157,6 +157,12 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setInfoText('');
     persistAccessIntent();
 
+    if (authChannel !== 'phone' && !turnstileReady) {
+      setErrorText('Turnstile site key missing in this build. Save VITE_TURNSTILE_SITE_KEY in both Cloudflare Preview and Production, then create a fresh deployment.');
+      setLoading(false);
+      return;
+    }
+
     if (authChannel === 'email_password') {
       const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, {
         roleIntent,
@@ -272,7 +278,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-2 gap-2">
+        <div className="mb-6 grid grid-cols-3 gap-2">
           <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
             <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
             <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
@@ -288,6 +294,12 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 </pre>
               </details>
             )}
+          </div>
+          <div className={`rounded-2xl border px-3 py-3 ${turnstileReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Turnstile</p>
+            <p className={`mt-1 text-xs font-black ${turnstileReady ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {turnstileReady ? 'Configured' : 'Needs env'}
+            </p>
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
             <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT backend</p>
