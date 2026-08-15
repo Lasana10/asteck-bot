@@ -24,3 +24,12 @@ export function requirePositiveAmount(amount: number): number {
 export function createIdempotencyKey(scope: string): string {
   return `${scope}:${crypto.randomUUID()}`;
 }
+
+export function normalizeSlug(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+export function derivePrefix(value: string, fallback: string): string {
+  const cleaned = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return (cleaned.slice(0, 4) || fallback).toUpperCase();
+}

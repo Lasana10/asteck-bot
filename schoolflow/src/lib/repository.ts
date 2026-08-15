@@ -1,14 +1,30 @@
-import type { CommunitySignal, FinanceSummary, LearnerSummary, PaymentCommand, PaymentReceipt, SchoolBrand, TeacherSummary } from "../domain/types";
-import { demoBrand, demoFinance, demoLearners, demoSignals, demoTeachers } from "../domain/demo";
+import type { BootstrapPayload, BootstrapStatus, ClassConfig, CommunitySignal, FinanceSummary, LearnerSummary, PaymentCommand, PaymentReceipt, SchoolBrand, SchoolSetup, SubjectConfig, TeacherSummary, TermConfig, AcademicYearConfig } from "../domain/types";
+import { demoBrand, demoFinance, demoLearners, demoSetup, demoSignals, demoTeachers } from "../domain/demo";
 import { requirePositiveAmount, routeSignal } from "../domain/rules";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 export interface WorkspaceData {
   brand: SchoolBrand;
+  setup: SchoolSetup;
   learners: LearnerSummary[];
   teachers: TeacherSummary[];
   signals: CommunitySignal[];
   finance: FinanceSummary;
+}
+
+function formatInList(ids: string[]) {
+  return `(${ids.map((id) => `"${id}"`).join(",")})`;
+}
+
+async function deleteRemovedSetupRows(table: "dreem_academic_years" | "dreem_terms" | "dreem_classes" | "dreem_subjects", schoolId: string, keepIds: string[]) {
+  if (!supabase) return;
+  if (!keepIds.length) {
+    const { error } = await supabase.from(table).delete().eq("school_id", schoolId);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase.from(table).delete().eq("school_id", schoolId).not("id", "in", formatInList(keepIds));
+  if (error) throw error;
 }
 
 async function activeSchool() {
@@ -25,7 +41,7 @@ async function activeSchool() {
 
 export async function loadWorkspace(): Promise<WorkspaceData> {
   if (!isSupabaseConfigured || !supabase) {
-    return { brand: demoBrand, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
+    return { brand: demoBrand, setup: demoSetup, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
   }
 
   const { data: memberships, error: membershipError } = await supabase
@@ -45,7 +61,7 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   const rawSchool=schoolResult.data;
   const rawBrand=brandResult.data;
 
-  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, profileResult, signalResult, accountResult, paymentResult, reconciliationResult] = await Promise.all([
+  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, profileResult, signalResult, accountResult, paymentResult, reconciliationResult, academicYearResult, termResult, classResult, subjectResult] = await Promise.all([
     supabase.from("students").select("id,matricule,full_name,class_name,attendance_rate,risk_level").eq("school_id",schoolId).is("merged_into_student_id",null).limit(100),
     supabase.from("dreem_growth_snapshots").select("*").eq("school_id",schoolId).order("snapshot_date",{ascending:false}).limit(500),
     supabase.from("dreem_interventions").select("student_id,title,owner_user_id,status,review_on").eq("school_id",schoolId).not("status","in","(closed,cancelled)").order("review_on").limit(200),
@@ -56,6 +72,10 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
     supabase.from("fee_accounts").select("amount_due").eq("school_id",schoolId),
     supabase.from("dreem_financial_payments").select("amount,received_at").eq("school_id",schoolId),
     supabase.from("dreem_reconciliation_reviews").select("variance,status,submitted_at").eq("school_id",schoolId),
+    supabase.from("dreem_academic_years").select("*").eq("school_id",schoolId).order("starts_on",{ascending:false}),
+    supabase.from("dreem_terms").select("*").eq("school_id",schoolId).order("order_index"),
+    supabase.from("dreem_classes").select("*").eq("school_id",schoolId).order("name"),
+    supabase.from("dreem_subjects").select("*").eq("school_id",schoolId).order("name"),
   ]);
   if (studentResult.error) throw studentResult.error;
   if (growthResult.error) throw growthResult.error;
@@ -77,9 +97,15 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
 
   return {
     brand: {
-      name:String(rawSchool.name),shortName:String(rawBrand?.short_name??rawSchool.slug?.slice(0,3).toUpperCase()??"DRM"),motto:String(rawBrand?.motto??""),city:String(rawBrand?.city??""),
+      name:String(rawSchool.name),shortName:String(rawBrand?.short_name??rawSchool.slug?.slice(0,3).toUpperCase()??"DRM"),motto:String(rawBrand?.motto??""),address:String(rawBrand?.address_line??""),city:String(rawBrand?.city??""),
       subsystem:(rawBrand?.subsystem??"bilingual") as SchoolBrand["subsystem"],primaryColor:String(rawBrand?.primary_color??"#123b2c"),accentColor:String(rawBrand?.accent_color??"#c9df83"),
-      logoUrl:rawBrand?.logo_url?String(rawBrand.logo_url):undefined,receiptPrefix:String(rawBrand?.receipt_prefix??"DRM"),studentIdPrefix:String(rawBrand?.student_id_prefix??"DRM"),
+      logoUrl:rawBrand?.logo_url?String(rawBrand.logo_url):undefined,receiptPrefix:String(rawBrand?.receipt_prefix??"DRM"),studentIdPrefix:String(rawBrand?.student_id_prefix??"DRM"),timezone:String(rawBrand?.timezone??"Africa/Douala"),currency:String(rawBrand?.currency??"XAF"),
+    },
+    setup:{
+      academicYears:(academicYearResult.data??[]).map((row):AcademicYearConfig=>({id:String(row.id),name:String(row.name),startsOn:String(row.starts_on),endsOn:String(row.ends_on),status:row.status as AcademicYearConfig["status"]})),
+      terms:(termResult.data??[]).map((row):TermConfig=>({id:String(row.id),academicYearId:String(row.academic_year_id),name:String(row.name),startsOn:String(row.starts_on),endsOn:String(row.ends_on),orderIndex:Number(row.order_index)})),
+      classes:(classResult.data??[]).map((row):ClassConfig=>({id:String(row.id),academicYearId:row.academic_year_id?String(row.academic_year_id):undefined,name:String(row.name),sectionName:String(row.section_name??""),streamName:String(row.stream_name??""),levelName:String(row.level_name??"")})),
+      subjects:(subjectResult.data??[]).map((row):SubjectConfig=>({id:String(row.id),name:String(row.name),code:String(row.code),subsystem:row.subsystem as SubjectConfig["subsystem"],gradingWeight:Number(row.grading_weight)})),
     },
     learners:(studentResult.data??[]).map(row=>{const growth=latestGrowth.get(String(row.id));const action=interventions.get(String(row.id));const credential=credentials.get(String(row.id));return {
       id:String(row.id),matricule:String(row.matricule),name:String(row.full_name),className:String(row.class_name??"Unassigned"),mastery:Number(growth?.mastery??0),attendance:Number(growth?.attendance??row.attendance_rate??0),engagement:Number(growth?.engagement??0),wellbeing:Number(growth?.wellbeing??0),trend:0,nextAction:String(action?.title??"Review learner OneFile"),interventionOwner:action?.owner_user_id?profileNames.get(String(action.owner_user_id)):undefined,idStatus:(credential?.status??"expired") as LearnerSummary["idStatus"],
@@ -113,10 +139,110 @@ export async function saveSchoolBrand(brand: SchoolBrand): Promise<SchoolBrand> 
     school_id:schoolId, short_name:brand.shortName, motto:brand.motto, city:brand.city,
     subsystem:brand.subsystem, primary_color:brand.primaryColor, accent_color:brand.accentColor,
     logo_url:brand.logoUrl ?? null, receipt_prefix:brand.receiptPrefix, student_id_prefix:brand.studentIdPrefix,
+    address_line:brand.address, timezone:brand.timezone, currency:brand.currency,
     updated_at:new Date().toISOString(),
   }, { onConflict:"school_id" });
   if (error) throw error;
   return brand;
+}
+
+export async function loadBootstrapStatus(): Promise<BootstrapStatus> {
+  if (!isSupabaseConfigured || !supabase) return { mode: "ready", canBootstrap: true };
+  const { data, error } = await supabase.rpc("dreem_bootstrap_status");
+  if (error) throw error;
+  return {
+    mode: (data?.mode ?? "restricted") as BootstrapStatus["mode"],
+    canBootstrap: Boolean(data?.canBootstrap),
+    schoolId: data?.schoolId ? String(data.schoolId) : undefined,
+    role: data?.role ? String(data.role) : undefined,
+    status: data?.status ? String(data.status) : undefined,
+  };
+}
+
+export async function bootstrapSchool(input: BootstrapPayload) {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const { data, error } = await supabase.rpc("dreem_bootstrap_school", {
+    p_school_name: input.schoolName,
+    p_school_slug: input.schoolSlug,
+    p_short_name: input.shortName,
+    p_motto: input.motto,
+    p_city: input.city,
+    p_subsystem: input.subsystem,
+    p_receipt_prefix: input.receiptPrefix,
+    p_student_id_prefix: input.studentIdPrefix,
+    p_primary_color: input.primaryColor,
+    p_accent_color: input.accentColor,
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
+}
+
+export async function saveSchoolSetup(setup: SchoolSetup): Promise<SchoolSetup> {
+  if (!isSupabaseConfigured || !supabase) return setup;
+  const { schoolId } = await activeSchool();
+  const academicYears = setup.academicYears.filter((year) => year.name.trim() && year.startsOn && year.endsOn);
+  const academicYearIds = new Set(academicYears.map((year) => year.id));
+  const terms = setup.terms.filter((term) => term.name.trim() && term.startsOn && term.endsOn && academicYearIds.has(term.academicYearId));
+  const classes = setup.classes.filter((entry) => entry.name.trim());
+  const subjects = setup.subjects.filter((subject) => subject.name.trim() && subject.code.trim() && Number.isFinite(subject.gradingWeight) && subject.gradingWeight > 0);
+  const sanitized: SchoolSetup = {
+    academicYears,
+    terms,
+    classes,
+    subjects,
+  };
+  const academicYearsPayload = sanitized.academicYears.map((year) => ({
+    id: year.id,
+    school_id: schoolId,
+    name: year.name,
+    starts_on: year.startsOn,
+    ends_on: year.endsOn,
+    status: year.status,
+    updated_at: new Date().toISOString(),
+  }));
+  const termsPayload = sanitized.terms.map((term) => ({
+    id: term.id,
+    school_id: schoolId,
+    academic_year_id: term.academicYearId,
+    name: term.name,
+    starts_on: term.startsOn,
+    ends_on: term.endsOn,
+    order_index: term.orderIndex,
+    updated_at: new Date().toISOString(),
+  }));
+  const classesPayload = sanitized.classes.map((entry) => ({
+    id: entry.id,
+    school_id: schoolId,
+    academic_year_id: entry.academicYearId ?? null,
+    name: entry.name,
+    section_name: entry.sectionName,
+    stream_name: entry.streamName,
+    level_name: entry.levelName,
+    updated_at: new Date().toISOString(),
+  }));
+  const subjectsPayload = sanitized.subjects.map((subject) => ({
+    id: subject.id,
+    school_id: schoolId,
+    name: subject.name,
+    code: subject.code,
+    subsystem: subject.subsystem,
+    grading_weight: subject.gradingWeight,
+    updated_at: new Date().toISOString(),
+  }));
+  const [yearsResult, termsResult, classesResult, subjectsResult] = await Promise.all([
+    academicYearsPayload.length ? supabase.from("dreem_academic_years").upsert(academicYearsPayload) : Promise.resolve({ error: null }),
+    termsPayload.length ? supabase.from("dreem_terms").upsert(termsPayload) : Promise.resolve({ error: null }),
+    classesPayload.length ? supabase.from("dreem_classes").upsert(classesPayload) : Promise.resolve({ error: null }),
+    subjectsPayload.length ? supabase.from("dreem_subjects").upsert(subjectsPayload) : Promise.resolve({ error: null }),
+  ]);
+  for (const result of [yearsResult, termsResult, classesResult, subjectsResult]) {
+    if (result.error) throw result.error;
+  }
+  await deleteRemovedSetupRows("dreem_subjects", schoolId, sanitized.subjects.map((subject) => subject.id));
+  await deleteRemovedSetupRows("dreem_classes", schoolId, sanitized.classes.map((entry) => entry.id));
+  await deleteRemovedSetupRows("dreem_terms", schoolId, sanitized.terms.map((term) => term.id));
+  await deleteRemovedSetupRows("dreem_academic_years", schoolId, sanitized.academicYears.map((year) => year.id));
+  return sanitized;
 }
 
 export async function openCashierSession(openingFloat: number) {

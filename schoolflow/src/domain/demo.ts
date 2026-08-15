@@ -4,12 +4,15 @@ export const demoBrand: SchoolBrand = {
   name: "La Boussole Bilingual Academy",
   shortName: "LB",
   motto: "Knowledge · Character · Service",
+  address: "Carrefour Bastos, Yaounde",
   city: "Yaoundé",
   subsystem: "bilingual",
   primaryColor: "#123b2c",
   accentColor: "#c9df83",
   receiptPrefix: "LBA",
   studentIdPrefix: "LBA-26",
+  timezone: "Africa/Douala",
+  currency: "XAF",
 };
 
 export const demoLearners: LearnerSummary[] = [
@@ -38,3 +41,21 @@ export const demoPulse: PulseAction[] = [
   {id:"p3",category:"feedback",title:"Bilingual support could unlock Jean-Pierre",explanation:"Teacher evidence links the difficulty to English question wording, not mathematics",owner:"Mme Ngozi",dueLabel:"Plan by Friday",severity:"info",evidenceCount:6},
   {id:"p4",category:"learning",title:"Amara's intervention produced +18%",explanation:"Visual pattern method succeeded and can be saved to her OneFile and the teaching playbook",owner:"Class teacher",dueLabel:"Ready to close",severity:"positive",evidenceCount:4},
 ];
+
+export const demoSetup = {
+  academicYears: [{ id: "ay-1", name: "2026 / 2027", startsOn: "2026-09-01", endsOn: "2027-07-31", status: "active" as const }],
+  terms: [
+    { id: "term-1", academicYearId: "ay-1", name: "Term 1", startsOn: "2026-09-01", endsOn: "2026-12-18", orderIndex: 1 },
+    { id: "term-2", academicYearId: "ay-1", name: "Term 2", startsOn: "2027-01-04", endsOn: "2027-03-31", orderIndex: 2 },
+    { id: "term-3", academicYearId: "ay-1", name: "Term 3", startsOn: "2027-04-12", endsOn: "2027-07-31", orderIndex: 3 },
+  ],
+  classes: [
+    { id: "class-1", academicYearId: "ay-1", name: "Form 4A", sectionName: "Secondary", streamName: "A", levelName: "Form 4" },
+    { id: "class-2", academicYearId: "ay-1", name: "3eme B", sectionName: "Secondaire", streamName: "B", levelName: "3eme" },
+  ],
+  subjects: [
+    { id: "sub-1", name: "Mathematics", code: "MATH", subsystem: "bilingual" as const, gradingWeight: 100 },
+    { id: "sub-2", name: "Francais", code: "FR", subsystem: "francophone" as const, gradingWeight: 100 },
+    { id: "sub-3", name: "English Language", code: "ENG", subsystem: "anglophone" as const, gradingWeight: 100 },
+  ],
+};

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canApproveClosure, cashVariance, requirePositiveAmount, routeSignal } from "./rules";
+import { canApproveClosure, cashVariance, derivePrefix, normalizeSlug, requirePositiveAmount, routeSignal } from "./rules";
 
 describe("operational controls", () => {
   it("routes safeguarding directly to the principal", () => expect(routeSignal("Safeguarding")).toBe("principal"));
@@ -14,5 +14,12 @@ describe("operational controls", () => {
     expect(() => requirePositiveAmount(0)).toThrow("positive");
     expect(() => requirePositiveAmount(Number.NaN)).toThrow("positive");
     expect(requirePositiveAmount(25_000.555)).toBe(25_000.56);
+  });
+  it("normalizes school slugs consistently", () => {
+    expect(normalizeSlug(" La Boussole Bilingual Academy ")).toBe("la-boussole-bilingual-academy");
+  });
+  it("derives compact prefixes for receipts and student ids", () => {
+    expect(derivePrefix("La Boussole", "DRM")).toBe("LABO");
+    expect(derivePrefix(" ", "DRM")).toBe("DRM");
   });
 });

@@ -19,6 +19,7 @@ export interface SchoolBrand {
   name: string;
   shortName: string;
   motto: string;
+  address: string;
   city: string;
   subsystem: "anglophone" | "francophone" | "bilingual";
   primaryColor: string;
@@ -26,6 +27,70 @@ export interface SchoolBrand {
   logoUrl?: string;
   receiptPrefix: string;
   studentIdPrefix: string;
+  timezone: string;
+  currency: string;
+}
+
+export interface AcademicYearConfig {
+  id: string;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  status: "planning" | "active" | "closed";
+}
+
+export interface TermConfig {
+  id: string;
+  academicYearId: string;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  orderIndex: number;
+}
+
+export interface ClassConfig {
+  id: string;
+  academicYearId?: string;
+  name: string;
+  sectionName: string;
+  streamName: string;
+  levelName: string;
+}
+
+export interface SubjectConfig {
+  id: string;
+  name: string;
+  code: string;
+  subsystem: "anglophone" | "francophone" | "bilingual";
+  gradingWeight: number;
+}
+
+export interface SchoolSetup {
+  academicYears: AcademicYearConfig[];
+  terms: TermConfig[];
+  classes: ClassConfig[];
+  subjects: SubjectConfig[];
+}
+
+export interface BootstrapStatus {
+  mode: "ready" | "claimed" | "pending" | "rejected" | "approved" | "restricted";
+  canBootstrap: boolean;
+  schoolId?: string;
+  role?: string;
+  status?: string;
+}
+
+export interface BootstrapPayload {
+  schoolName: string;
+  schoolSlug: string;
+  shortName: string;
+  motto: string;
+  city: string;
+  subsystem: "anglophone" | "francophone" | "bilingual";
+  receiptPrefix: string;
+  studentIdPrefix: string;
+  primaryColor: string;
+  accentColor: string;
 }
 
 export interface LearnerSummary {
