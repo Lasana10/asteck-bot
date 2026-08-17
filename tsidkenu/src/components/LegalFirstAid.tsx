@@ -1,7 +1,7 @@
 "use client"
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HelpCircle, AlertCircle, FileText, UserCheck, ShieldCheck, ChevronRight, Scale, Info, Landmark } from 'lucide-react';
+import { HelpCircle, AlertCircle, FileText, UserCheck, ShieldCheck, ChevronRight, Scale, Info } from 'lucide-react';
 
 export default function LegalFirstAid() {
   const [stage, setStage] = useState(0); // 0: Start, 1: Explanation, 2: Risk, 3: Connect
@@ -21,9 +21,9 @@ export default function LegalFirstAid() {
         </div>
         <div className="flex gap-4">
            <div className="flex -space-x-4">
-              {["AK", "MN", "TB", "SL"].map((initials) => (
-                <div key={initials} className="w-10 h-10 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 overflow-hidden">
-                   <span>{initials}</span>
+              {[1,2,3,4].map(i => (
+                <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 overflow-hidden">
+                   <img src={`https://i.pravatar.cc/150?u=${i}`} alt="user" />
                 </div>
               ))}
               <div className="w-10 h-10 rounded-full border-2 border-white bg-heritage-green flex items-center justify-center text-[10px] font-black text-white">
@@ -51,11 +51,11 @@ export default function LegalFirstAid() {
                 </div>
                 <div className="space-y-2">
                    <h2 className="text-2xl heading-serif text-heritage-green">Describe your legal situation</h2>
-                   <p className="text-sm text-slate-500 max-w-md mx-auto">We&apos;ll provide a clear explanation and guide you to the right solution.</p>
+                   <p className="text-sm text-slate-500 max-w-md mx-auto">We'll provide a clear explanation and guide you to the right solution.</p>
                 </div>
                 <div className="w-full max-w-xl mx-auto">
                    <textarea 
-                     placeholder="Example: My employer has not paid my salary for 2 months..." 
+                     placeholder="Example: 'My employer hasn't paid my salary for 2 months...'" 
                      className="w-full bg-slate-50 border-none rounded-3xl p-8 text-sm outline-none focus:ring-1 focus:ring-heritage-green h-48 shadow-inner"
                    />
                 </div>
@@ -92,7 +92,7 @@ export default function LegalFirstAid() {
                      <div className="space-y-6">
                         <h3 className="text-xl font-bold text-heritage-green">Stage 1: Simple Explanation</h3>
                         <div className="p-8 bg-paper-white rounded-[2rem] border border-slate-100 text-sm text-slate-600 leading-relaxed font-medium">
-                           According to the Cameroon Labor Code, non-payment of salary is a breach of contract. You have the right to demand payment and potentially seek damages for delay. Under OHADA commercial rules, if this is a business debt, specific summary procedures apply.
+                           "According to the **Cameroon Labor Code**, non-payment of salary is a breach of contract. You have the right to demand payment and potentially seek damages for delay. Under OHADA commercial rules, if this is a business debt, specific summary procedures apply."
                         </div>
                         <button onClick={() => setStage(2)} className="btn-classic text-xs">Analyze My Risks</button>
                      </div>
@@ -107,14 +107,14 @@ export default function LegalFirstAid() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            <div className="p-6 bg-red-50 border border-red-100 rounded-3xl space-y-2">
                               <p className="text-xs font-black text-red-600 uppercase tracking-widest">Prescription Risk</p>
-                              <p className="text-sm font-bold text-red-900">You may lose your claim if you do not file within 30 days.</p>
+                              <p className="text-sm font-bold text-red-900">You may lose your claim if you don't file within 30 days.</p>
                            </div>
                            <div className="p-6 bg-orange-50 border border-orange-100 rounded-3xl space-y-2">
                               <p className="text-xs font-black text-orange-600 uppercase tracking-widest">Procedural Complexity</p>
-                              <p className="text-sm font-bold text-orange-900">Formal Mise en Demeure is required before court action.</p>
+                              <p className="text-sm font-bold text-orange-900">Formal 'Mise en Demeure' is required before court action.</p>
                            </div>
                         </div>
-                        <p className="text-xs text-slate-500 italic">This matter is classified as Medium Complexity. Professional representation is strongly recommended to protect your interests.</p>
+                        <p className="text-xs text-slate-500 italic">"This matter is classified as **Medium Complexity**. Professional representation is strongly recommended to protect your interests."</p>
                         <button onClick={() => setStage(3)} className="px-10 py-4 bg-heritage-green text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg">Take Guided Action</button>
                      </div>
                    )}

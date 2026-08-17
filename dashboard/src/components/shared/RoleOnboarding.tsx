@@ -54,19 +54,19 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
   const currentStep = steps[step];
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-slate-950/90 backdrop-blur-xl flex items-end justify-center p-3 sm:items-center sm:p-6 animate-in fade-in duration-500">
-      <div className="bg-slate-900 border border-white/10 rounded-[32px] sm:rounded-[48px] p-6 sm:p-10 max-w-md w-full max-h-[calc(100svh-1.5rem)] overflow-y-auto shadow-2xl relative overflow-hidden ring-1 ring-white/5">
-        <button onClick={onClose} className="absolute top-5 right-5 sm:top-8 sm:right-8 text-slate-500 hover:text-white"><X className="w-6 h-6" /></button>
+    <div className="fixed inset-0 z-[5000] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in duration-500">
+      <div className="bg-slate-900 border border-white/10 rounded-[48px] p-10 max-w-sm w-full shadow-2xl relative overflow-hidden ring-1 ring-white/5">
+        <button onClick={onClose} className="absolute top-8 right-8 text-slate-500 hover:text-white"><X className="w-6 h-6" /></button>
         
         <div className="flex flex-col items-center text-center">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white/10 rounded-[32px] sm:rounded-[40px] flex items-center justify-center text-white mb-6 sm:mb-8 border border-white/20 shadow-xl shadow-white/10">
-            <currentStep.icon className="w-10 h-10 sm:w-12 sm:h-12" />
+          <div className="w-24 h-24 bg-white/10 rounded-[40px] flex items-center justify-center text-white mb-8 border border-white/20 shadow-xl shadow-white/10">
+            <currentStep.icon className="w-12 h-12" />
           </div>
           
-          <h2 className="text-xl sm:text-2xl font-black mb-4 tracking-tight leading-tight uppercase italic">{currentStep.title}</h2>
-          <p className="text-slate-400 text-sm font-bold opacity-80 mb-8 sm:mb-12">{currentStep.desc}</p>
+          <h2 className="text-2xl font-black mb-4 tracking-tight leading-tight uppercase italic">{currentStep.title}</h2>
+          <p className="text-slate-400 text-sm font-bold opacity-80 mb-12">{currentStep.desc}</p>
           
-          <div className="flex gap-2 mb-8 sm:mb-10">
+          <div className="flex gap-2 mb-10">
              {steps.map((_, i) => (
                <div key={i} className={`h-1.5 rounded-full transition-all ${i === step ? 'w-8 bg-white' : 'w-2 bg-slate-800'}`}></div>
              ))}

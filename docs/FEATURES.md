@@ -1,30 +1,6 @@
 # AFAT Features Memory
 
 ## Completed Features
-- Supabase email access lane now exists in the frontend:
-  - login supports `phone OTP` and `email OTP`
-  - Supabase email sign-in request and email OTP verification are wired
-  - app boot now recognizes Supabase auth sessions in addition to AFAT backend-issued sessions
-  - role intent is preserved when starting the email access path
-- Central AFAT notification spine now exists:
-  - backend `NotificationService` can persist in-app alerts and fan out to WhatsApp, Telegram, and env-driven email
-  - new `/api/ops/notifications/send` route lets admin/planner send operational notifications by role/city or explicit user ids
-  - admin map-construction notices now send through the backend instead of only staging local text
-- Dispatch assignment now generates real operator notifications across linked channels instead of ending at row creation only.
-- Compliance status changes now generate real target-profile notifications instead of remaining silent backend updates.
-- Frontend backend-call auth propagation improved: dispatch, compliance, and service-request calls now carry AFAT auth headers so secured backend mutations work as intended.
-- Backend-owned AFAT auth contract now exists with durable OTP challenges, refresh-token sessions, `/auth/me`, `/auth/refresh`, and `/auth/logout`.
-- OTP provider selection is now configurable between `Termii`, `Arkesel`, and development mode instead of being hardwired to one provider path.
-- Frontend boot now restores AFAT session state through backend auth lookup/refresh before falling back to QA/local profile anchors.
-- Temporary bootstrap access now supports multiple role lanes through env-driven allowlisted phone + access-code logic, so blocked OTP provider registration does not stop controlled testing of real app flows.
-- Sensitive ops mutations have begun moving under AFAT auth role guards instead of remaining open by convention only.
-- Admin Intelligence Desk now includes a real dispatch workbench, so special access can send operator/vehicle assignments directly rather than relying only on planner-side dispatch controls.
-- Unified access entry now captures intended role lane before OTP and routes missing-profile sessions into the correct registration track.
-- RegistrationHub can now open directly to commuter, independent operator, government-linked, or company/fleet onboarding with phone prefill from the access flow.
-- Admin compliance queue now exposes actionable records with Verify, Follow up, and Reject actions backed by the compliance status API helper.
-- Admin route-truth queue now surfaces recent campaign/map signals from the live map feed and lets admins queue review directives for operational follow-up.
-- Route-truth review workflow is now backend-backed locally with `map_signal_reviews`, review status metadata in live-map responses, admin Queue/Validate/Dismiss/Publish actions, and trust-point reward support for validated/published contributor signals.
-- Dashboard production build passes after repairing interrupted import corruption in `App.tsx` and `RegistrationHub.tsx`.
 - Local review access now appears on localhost so the AFAT dashboard can be inspected as commuter, operator, planner, or admin without being blocked by production OTP/Supabase state.
 - Backend OTP flow now uses Arkesel when `ARKESEL_API_KEY` exists and only falls back to development code behavior when no SMS provider is configured.
 - Shared AFAT Strategic Layer now includes an ecosystem readiness board that clearly separates active, in-progress, and planned platform layers.
@@ -65,17 +41,6 @@
 - SOS panic endpoint writes emergency payload and attempts persistence.
 
 ## In-Progress Features
-- Supabase email auth is implemented, but still needs live configuration validation:
-  - confirm redirect URLs in Supabase Auth settings
-  - confirm email template/provider behavior for OTP vs secure link delivery
-  - confirm first-time sign-ins create/attach profiles cleanly for each AFAT lane
-- Email as an auth fallback is still in progress conceptually:
-  - SMTP delivery plumbing now exists
-  - Supabase email access is now the preferred real fallback direction
-  - backend-owned custom email OTP is no longer the recommended first path unless Supabase Auth email behavior proves insufficient
-- Backend PawaPay webhook hardening has started with optional callback-secret validation and event deduplication, but still needs backend build/deploy verification and provider callback smoke testing.
-- Admin route-truth review now has validate/dismiss/scoring/reward/publish controls, but still needs browser QA, live Supabase migration application, and fuller steward review history.
-- Role surfaces are becoming operational, but several ecosystem areas remain staged until backend workflows exist: academy/certification, emergency logistics, document/file storage, payment audit, and regional rollout task management.
 - Admin/special-access usefulness: admin now has a command matrix, but still needs backend-backed workflows for licensing decisions, compliance adjudication, map quality review, payment audit, and regional rollout.
 - Some admin actions now provide visible feedback or open a real desk, but deeper persistence and task execution still need backend-backed workflows.
 - Compliance gateway: onboarding and compliance records exist, but full digital licensing, permit renewal, document storage, expiry reminders, and regulator package flows are not complete.
@@ -118,8 +83,6 @@
 - Regional replication pack for each city: onboarding, dispatch, compliance, reporting, and local map packs as repeatable rollout modules.
 
 ## Blocked Features
-- Production-ready email/WhatsApp delivery is blocked until live env values are configured and smoke-tested after token/app-password rotation.
-- Full "all features operational" status is blocked until staged ecosystem flows receive backend persistence, authorization, live migration application, and QA verification rather than only frontend entry points.
 - Live payment collection is blocked until the latest backend code is deployed/restarted with correct Render env and PawaPay readiness returns live instead of stub.
 - Frontend can now display payment readiness truthfully, but true payment collection remains provider/deployment-readiness blocked.
 - Dedicated backend transaction endpoint for tontine contributions before the contribution button can be called live.

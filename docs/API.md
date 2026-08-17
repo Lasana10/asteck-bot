@@ -7,12 +7,7 @@
   - `GET /api/health`
 
 ## Main Endpoint Groups
-- Auth:
-  - `POST /api/auth/send-otp`
-  - `POST /api/auth/verify-otp`
-  - `POST /api/auth/refresh`
-  - `GET /api/auth/me`
-  - `POST /api/auth/logout`
+- Auth: `POST /api/auth/send-otp`, `POST /api/auth/verify-otp`
 - Reporting/Safety:
   - `POST /api/report`
   - `POST /api/sos/panic`
@@ -37,16 +32,11 @@
   - `GET /api/guardian/watch/:token`
 - Ops/Dispatch/Compliance:
   - `GET /api/ops/live-map`
-  - `POST /api/ops/map-signal-reviews`
-  - `PATCH /api/ops/map-signal-reviews/:movementLogId`
-  - `POST /api/ops/notifications/send`
   - `GET /api/ops/report-center`
   - `PATCH /api/ops/reports/:id/status`
   - `GET /api/ops/safety-score`
   - `GET /api/ops/demand-radar`
   - `GET /api/ops/compliance-radar`
-  - `POST /api/ops/checkpoints/enroll`
-  - `GET /api/ops/checkpoints`
   - `GET /api/dispatch/active`
   - `POST /api/dispatch/assign`
   - `POST /api/service/request`
@@ -70,9 +60,8 @@
 - Error returns `{ error: string }` with status code (`400/404/409/500/502` patterns present).
 
 ## Authentication
-- Current state: AFAT now has backend-owned access tokens + refresh sessions.
-- Role checks are now applied on several sensitive mutation routes including map-signal review, report status, compliance status, dispatch assignment, and ops notifications.
-- Remaining work: complete centralized coverage across all high-value protected mutations.
+- Current state: endpoint-level auth middleware is not consistently enforced across all mutation endpoints.
+- Required next step: central JWT verification + role checks across protected routes.
 
 ## Webhooks
 - `POST /api/webhook/pawapay` for payment status callbacks.
@@ -82,5 +71,5 @@
 - Supabase (DB + auth + realtime)
 - PawaPay / Africa’s Talking (payments path)
 - OpenRouter/Groq (AI path)
-- Telegram bot + Meta WhatsApp Cloud API + SMTP email (messaging/notification channels)
+- Telegram/Twilio (messaging channels)
 - Google/OSRM/Traccar (routing and fleet extensions)
