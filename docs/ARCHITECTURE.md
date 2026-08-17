@@ -4,11 +4,13 @@
 - Stack: React 19 + Vite + TypeScript + Tailwind + React Leaflet.
 - Location: `dashboard/`.
 - Shared role shell layer: `dashboard/src/components/shared/OperationsMissionControl.tsx` reads live backend status, live-map feed, payment readiness, and compliance radar where relevant.
+- Local review shell: QA-only role switching is available on localhost/review mode, but normal sessions should drop straight into the product surface rather than an identity-heavy wrapper.
 - Map direction: the frontend should render AFAT-controlled map intelligence layers derived from downloaded/open geodata, with live incident and fleet signals layered on top.
 - Data access split:
   - Supabase direct reads/writes for many tables.
   - Backend API calls via `apiBaseUrl` (`/api/*`) for operational workflows.
 - Real-time: Supabase channels for incidents, vehicles, bookings, notifications.
+- Negotiation path: operator fare negotiation now writes booking-linked records into `public.negotiations`; accepted negotiated fares can also be reflected on the booking record (`price_paid`).
 - PWA: `vite-plugin-pwa` enabled; service worker assets generated in build.
 
 ## Backend Architecture
@@ -18,7 +20,7 @@
 - Key modules:
   - `src/api/routes.ts` (core API surface)
   - `src/api/onboarding.ts` (onboarding endpoints)
-  - `src/services/*` (payments, AI router, queue jobs, telegram, etc.)
+  - `src/services/*` (payments, AI router, queue jobs, telegram, notification channels, etc.)
   - `src/infra/supabase.ts` (DB client + repositories)
 - Security middleware currently includes:
   - CORS allow-list
@@ -48,7 +50,9 @@
 - Groq (voice/AI integration path)
 - OSM / OSRM / self-controlled routing and tile preparation are preferred over Google-dependent foundations
 - Traccar integration path for fleet tracking
-- Telegram + Twilio WhatsApp hooks
+- Telegram bot channel
+- Meta WhatsApp Cloud API for outbound notifications
+- SMTP email provider path for transactional mail and future auth fallback
 
 ## AI Services
 - Rule-based + external-model fallback architecture in backend (`AIRouter`, `/api/ai/*`).
@@ -62,4 +66,4 @@
 - CI/CD path: GitHub push/merge triggers hosting redeploys.
 - Runtime config dependency:
   - Frontend envs: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL`.
-  - Backend envs: `SUPABASE_URL`, `SUPABASE_KEY`, payment/provider keys, bot keys.
+  - Backend envs: `SUPABASE_URL`, `SUPABASE_KEY`, payment/provider keys, bot keys, WhatsApp Cloud API credentials, SMTP credentials, and AFAT auth/bootstrap secrets.

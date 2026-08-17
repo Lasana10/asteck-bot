@@ -24,6 +24,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT T
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS usual_route JSONB;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS telegram_id TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS data_ingest_allowed BOOLEAN DEFAULT FALSE;
 
 -- Safe unique constraint addition
 DO $$
@@ -218,6 +219,104 @@ END $$;
 ALTER TABLE public.movement_logs
   ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION;
 
+CREATE TABLE IF NOT EXISTS public.map_signal_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  movement_log_id UUID NOT NULL REFERENCES public.movement_logs(id) ON DELETE CASCADE,
+  reviewer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  confidence_score INTEGER NOT NULL DEFAULT 50,
+  decision_notes TEXT,
+  reward_points INTEGER NOT NULL DEFAULT 0,
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(movement_log_id)
+);
+
+DO $$
+BEGIN
+  ALTER TABLE public.map_signal_reviews
+    DROP CONSTRAINT IF EXISTS map_signal_reviews_status_check;
+  ALTER TABLE public.map_signal_reviews
+    ADD CONSTRAINT map_signal_reviews_status_check
+    CHECK (status IN ('queued', 'validated', 'dismissed', 'published'));
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_map_signal_reviews_status
+  ON public.map_signal_reviews(status);
+
+CREATE INDEX IF NOT EXISTS idx_map_signal_reviews_movement
+  ON public.map_signal_reviews(movement_log_id);
+
+ALTER TABLE public.map_signal_reviews ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS map_signal_reviews_admin_planner_read ON public.map_signal_reviews;
+CREATE POLICY map_signal_reviews_admin_planner_read ON public.map_signal_reviews
+FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+    AND role IN ('planner', 'admin')
+  )
+);
+
+DROP POLICY IF EXISTS map_signal_reviews_admin_manage ON public.map_signal_reviews;
+CREATE POLICY map_signal_reviews_admin_manage ON public.map_signal_reviews
+FOR ALL USING (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+    AND role = 'admin'
+  )
+);
+
+CREATE TABLE IF NOT EXISTS public.auth_otp_challenges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone TEXT NOT NULL,
+  otp_code TEXT NOT NULL,
+  delivery_provider TEXT DEFAULT 'arkesel',
+  provider_ref TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  consumed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.auth_otp_challenges
+  ADD COLUMN IF NOT EXISTS provider_ref TEXT;
+
+CREATE TABLE IF NOT EXISTS public.auth_refresh_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  refresh_token_hash TEXT NOT NULL,
+  user_agent TEXT,
+  ip_address TEXT,
+  revoked_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_otp_challenges_phone
+  ON public.auth_otp_challenges(phone, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_auth_refresh_sessions_profile
+  ON public.auth_refresh_sessions(profile_id, created_at DESC);
+
+ALTER TABLE public.auth_otp_challenges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.auth_refresh_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS auth_otp_challenges_no_client_access ON public.auth_otp_challenges;
+CREATE POLICY auth_otp_challenges_no_client_access ON public.auth_otp_challenges
+FOR ALL USING (false);
+
+DROP POLICY IF EXISTS auth_refresh_sessions_user_read ON public.auth_refresh_sessions;
+CREATE POLICY auth_refresh_sessions_user_read ON public.auth_refresh_sessions
+FOR SELECT USING (profile_id = auth.uid());
+
 ALTER TABLE public.vehicles
   ADD COLUMN IF NOT EXISTS vehicle_type TEXT,
   ADD COLUMN IF NOT EXISTS brand TEXT,
@@ -293,6 +392,7 @@ CREATE TABLE IF NOT EXISTS public.checkpoints (
   trust_score INTEGER NOT NULL DEFAULT 50 CHECK (trust_score BETWEEN 0 AND 100),
   coverage_radius_meters INTEGER NOT NULL DEFAULT 350,
   notes TEXT,
+  is_live_ingestion_active BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -436,3 +536,6 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.checkpoints;
   END IF;
 END $$;
+
+-- Alter checkpoints table to make sure the live ingestion active flag is present
+ALTER TABLE public.checkpoints ADD COLUMN IF NOT EXISTS is_live_ingestion_active BOOLEAN NOT NULL DEFAULT FALSE;

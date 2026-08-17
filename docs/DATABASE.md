@@ -20,6 +20,9 @@
 - `company_memberships`
 - `notifications`
 - `movement_logs`
+- `map_signal_reviews`
+- `auth_otp_challenges`
+- `auth_refresh_sessions`
 - `sentinel_directives`
 - `collection_campaigns`
 
@@ -36,6 +39,8 @@
 - `checkpoints` is the live map checkpoint/steward node table
 - `checkpoint_memberships.checkpoint_id -> checkpoints.id`
 - `checkpoint_memberships.profile_id -> profiles.id`
+- `map_signal_reviews.movement_log_id -> movement_logs.id`
+- `auth_refresh_sessions.profile_id -> profiles.id`
 
 ## Indexes (Known from migrations)
 - `dispatch_assignments`: status/operator/vehicle/created indexes.
@@ -61,6 +66,10 @@
   - `db/afat_missing_tables.sql`
   - `db/seat_holds_and_companies.sql`
 - Ensure RLS policies for onboarding/compliance/service workflows are applied and verified.
+- Apply auth/session tables and route-truth review tables if still missing in live Supabase:
+  - `auth_otp_challenges`
+  - `auth_refresh_sessions`
+  - `map_signal_reviews`
 - Apply latest June 13 schema alignment:
   - booking status/payment status expansion
   - `movement_logs.accuracy`

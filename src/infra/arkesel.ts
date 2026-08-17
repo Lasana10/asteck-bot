@@ -15,6 +15,12 @@ const ARKESEL_API_URL = 'https://sms.arkesel.com/api/v2/sms/send';
 // In-memory OTP store (production: use Redis/Supabase)
 const otpStore = new Map<string, { code: string; expiresAt: number }>();
 
+function normalizeCameroonPhone(phone: string) {
+  const digits = String(phone || '').replace(/[^\d]/g, '');
+  if (digits.startsWith('237')) return `+${digits}`;
+  return `+237${digits.replace(/^0+/, '')}`;
+}
+
 export class ArkeselClient {
   private static apiKey = process.env.ARKESEL_API_KEY || '';
   private static senderId = process.env.ARKESEL_SENDER_ID || 'SENTINEL';
@@ -64,7 +70,7 @@ export class ArkeselClient {
    */
   static async sendOTP(phone: string): Promise<string> {
     const code = crypto.randomInt(100000, 999999).toString();
-    const formattedPhone = phone.startsWith('+') ? phone : `+237${phone}`;
+    const formattedPhone = normalizeCameroonPhone(phone);
 
     // Store with 5-minute expiry
     otpStore.set(formattedPhone, {
@@ -88,7 +94,7 @@ export class ArkeselClient {
    * Verify OTP code
    */
   static verifyOTP(phone: string, code: string): boolean {
-    const formattedPhone = phone.startsWith('+') ? phone : `+237${phone}`;
+    const formattedPhone = normalizeCameroonPhone(phone);
     const stored = otpStore.get(formattedPhone);
 
     if (!stored) return false;
