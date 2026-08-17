@@ -8,6 +8,7 @@
     "validate:pages-env": "node ./scripts/validate-pages-env.cjs",
     "test:env:missing": "node ./scripts/validate-pages-env.cjs --mode=missing",
     "test:env:complete": "node ./scripts/validate-pages-env.cjs --mode=complete",
+    "test:env:cf-no-api": "node ./scripts/validate-pages-env.cjs --mode=cf-no-api",
     "build": "npm run validate:pages-env && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

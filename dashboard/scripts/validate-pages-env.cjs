@@ -3,7 +3,6 @@
 const REQUIRED_API_URL = 'https://asteck-bot.onrender.com';
 const REQUIRED_KEYS = [
   'VITE_SUPABASE_URL',
-  'VITE_API_URL',
   'VITE_TURNSTILE_SITE_KEY',
 ];
 const SUPABASE_KEY_OPTIONS = [
@@ -44,15 +43,27 @@ function collectErrors(env) {
     errors.push('One of VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY is required');
   }
 
-  for (const key of ['VITE_SUPABASE_URL', 'VITE_API_URL']) {
-    const value = String(env[key] || '').trim();
-    if (value && !isHttpsUrl(value)) {
-      errors.push(`${key} must be a valid HTTPS URL`);
-    }
+  // VITE_SUPABASE_URL must be HTTPS when present
+  const supabaseUrl = String(env.VITE_SUPABASE_URL || '').trim();
+  if (supabaseUrl && !isHttpsUrl(supabaseUrl)) {
+    errors.push('VITE_SUPABASE_URL must be a valid HTTPS URL');
   }
 
-  if (String(env.VITE_API_URL || '').trim() && String(env.VITE_API_URL).trim() !== REQUIRED_API_URL) {
-    errors.push(`VITE_API_URL must be ${REQUIRED_API_URL}`);
+  // VITE_API_URL is optional. If absent, we'll use the canonical Render origin as a safe fallback.
+  const providedApi = String(env.VITE_API_URL || '').trim();
+  if (providedApi) {
+    if (!isHttpsUrl(providedApi)) {
+      errors.push('VITE_API_URL must be a valid HTTPS URL');
+    } else {
+      try {
+        const url = new URL(providedApi);
+        if (url.origin !== REQUIRED_API_URL) {
+          errors.push(`VITE_API_URL must resolve to ${REQUIRED_API_URL}`);
+        }
+      } catch {
+        errors.push('VITE_API_URL must be a valid HTTPS URL');
+      }
+    }
   }
 
   for (const key of SUPABASE_KEY_OPTIONS) {
@@ -81,7 +92,8 @@ function validateEnv(env, label) {
   const keySource = String(env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim()
     ? 'VITE_SUPABASE_PUBLISHABLE_KEY'
     : 'VITE_SUPABASE_ANON_KEY';
-  console.log(`[AFAT env guard] ${label}: OK (${keySource}, HTTPS URLs, Turnstile key present)`);
+  const apiUsed = String(env.VITE_API_URL || '').trim() || REQUIRED_API_URL;
+  console.log(`[AFAT env guard] ${label}: OK (${keySource}, API=${apiUsed}, HTTPS URLs, Turnstile key present)`);
   return true;
 }
 
@@ -107,6 +119,17 @@ function runScenario(mode) {
       VITE_TURNSTILE_SITE_KEY: '0x4AAAAAAATESTKEY',
     };
     return validateEnv(sample, 'complete-config');
+  }
+
+  if (mode === 'cf-no-api') {
+    const sample = {
+      CF_PAGES: '1',
+      VITE_SUPABASE_URL: 'https://example.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_example_public_key',
+      VITE_API_URL: '',
+      VITE_TURNSTILE_SITE_KEY: '0x4AAAAAAATESTKEY',
+    };
+    return validateEnv(sample, 'cf-no-api-config');
   }
 
   if (process.env.CF_PAGES !== '1') {
