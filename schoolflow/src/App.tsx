@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import AuthGate from "./components/AuthGate";
 import BootstrapView from "./components/BootstrapView";
 import FeedbackDialog from "./components/FeedbackDialog";
+import OperationalWorkflowsView from "./components/OperationalWorkflows";
 import Shell, { type ViewKey } from "./components/Shell";
 import { CommandView, FinanceView, LearnersView, SchoolStudioView, SignalsView, TeachersView } from "./components/Views";
 import { demoPulse } from "./domain/demo";
 import type { BootstrapStatus, CommunitySignal } from "./domain/types";
-import { bootstrapSchool, loadBootstrapStatus, loadWorkspace, saveSchoolBrand, saveSchoolSetup, updateSignalStatus, type WorkspaceData } from "./lib/repository";
+import { bootstrapSchool, enrolLearner, inviteStaff, issueStudentCredential, loadBootstrapStatus, loadWorkspace, recordAssessment, recordAttendance, saveSchoolBrand, saveSchoolSetup, updateSignalStatus, type WorkspaceData } from "./lib/repository";
 
 function WorkspaceApp() {
   const [view, setView] = useState<ViewKey>("command");
@@ -53,6 +54,7 @@ function WorkspaceApp() {
     const saved = await saveSchoolSetup(setup);
     setWorkspace((current) => current ? { ...current, setup:saved } : current);
   };
+  const refreshWorkspace = async () => setWorkspace(await loadWorkspace());
   const moveSignal = async (signalId: string, status: CommunitySignal["status"]) => {
     await updateSignalStatus(signalId,status);
     setWorkspace((current) => current ? { ...current, signals:current.signals.map(item=>item.id===signalId?{...item,status}:item) } : current);
@@ -62,6 +64,7 @@ function WorkspaceApp() {
   return <>
     <Shell brand={workspace.brand} view={view} onView={setView} signalCount={workspace.signals.filter((item) => item.status === "new").length} onFeedback={openFeedback}>
       {view === "command" && <CommandView learners={workspace.learners} finance={workspace.finance} pulse={demoPulse} signals={workspace.signals} />}
+      {view === "operations" && <OperationalWorkflowsView workspace={workspace} onInviteStaff={inviteStaff} onEnrolLearner={enrolLearner} onIssueCredential={issueStudentCredential} onRecordAttendance={recordAttendance} onRecordAssessment={recordAssessment} onRefresh={refreshWorkspace} />}
       {view === "learners" && <LearnersView learners={workspace.learners} brand={workspace.brand} />}
       {view === "teachers" && <TeachersView teachers={workspace.teachers} />}
       {view === "finance" && <FinanceView finance={workspace.finance} />}

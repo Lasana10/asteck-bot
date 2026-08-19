@@ -1,10 +1,11 @@
-import { BarChart3, BookOpenCheck, Building2, CircleUserRound, GraduationCap, MessageSquareMore, ReceiptText, Settings2, ShieldCheck, UsersRound } from "lucide-react";
+import { BarChart3, BookOpenCheck, Building2, CircleUserRound, ClipboardCheck, GraduationCap, MessageSquareMore, ReceiptText, Settings2, ShieldCheck, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
 import type { SchoolBrand } from "../domain/types";
 
-export type ViewKey = "command" | "learners" | "teachers" | "finance" | "signals" | "studio";
+export type ViewKey = "command" | "operations" | "learners" | "teachers" | "finance" | "signals" | "studio";
 const nav = [
   {id:"command" as const,label:"Command centre",icon:BarChart3},
+  {id:"operations" as const,label:"Daily operations",icon:ClipboardCheck},
   {id:"learners" as const,label:"Learner OneFiles",icon:GraduationCap},
   {id:"teachers" as const,label:"Teacher studio",icon:BookOpenCheck},
   {id:"finance" as const,label:"TrustLedger",icon:ReceiptText},

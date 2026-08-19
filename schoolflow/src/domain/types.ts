@@ -109,6 +109,75 @@ export interface LearnerSummary {
   idStatus: "active" | "expired" | "revoked";
 }
 
+export interface StaffInvitation {
+  id: string;
+  email: string;
+  fullName: string;
+  role: Exclude<Role, "platform_founder" | "parent" | "student">;
+  status: "pending" | "accepted" | "cancelled" | "expired";
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface EnrollmentPayload {
+  fullName: string;
+  className: string;
+  dateOfBirth?: string;
+  sex?: "female" | "male" | "other";
+  guardianName: string;
+  guardianPhone: string;
+  guardianEmail?: string;
+  relationship: string;
+  openingBalance: number;
+  idempotencyKey: string;
+}
+
+export interface EnrollmentResult {
+  studentId: string;
+  matricule: string;
+}
+
+export interface CredentialIssueResult {
+  credentialId: string;
+  verificationToken: string;
+}
+
+export interface AttendanceMarkInput {
+  studentId: string;
+  status: "present" | "late" | "absent" | "excused";
+  note?: string;
+}
+
+export interface AttendanceCommand {
+  className: string;
+  sessionDate: string;
+  periodLabel: string;
+  marks: AttendanceMarkInput[];
+  idempotencyKey: string;
+}
+
+export interface AssessmentMarkInput {
+  studentId: string;
+  score: number;
+  comment?: string;
+}
+
+export interface AssessmentCommand {
+  subjectId?: string;
+  className: string;
+  title: string;
+  maxScore: number;
+  assessmentDate: string;
+  marks: AssessmentMarkInput[];
+  idempotencyKey: string;
+}
+
+export interface OperationalSummary {
+  invitations: StaffInvitation[];
+  recentAttendance: number;
+  recentAssessments: number;
+}
+
 export interface TeacherSummary {
   id: string;
   name: string;

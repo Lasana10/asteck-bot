@@ -1,4 +1,4 @@
-import type { BootstrapPayload, BootstrapStatus, ClassConfig, CommunitySignal, FinanceSummary, LearnerSummary, PaymentCommand, PaymentReceipt, SchoolBrand, SchoolSetup, SubjectConfig, TeacherSummary, TermConfig, AcademicYearConfig } from "../domain/types";
+import type { AcademicYearConfig, AssessmentCommand, AttendanceCommand, BootstrapPayload, BootstrapStatus, ClassConfig, CommunitySignal, CredentialIssueResult, EnrollmentPayload, EnrollmentResult, FinanceSummary, LearnerSummary, OperationalSummary, PaymentCommand, PaymentReceipt, SchoolBrand, SchoolSetup, StaffInvitation, SubjectConfig, TeacherSummary, TermConfig } from "../domain/types";
 import { demoBrand, demoFinance, demoLearners, demoSetup, demoSignals, demoTeachers } from "../domain/demo";
 import { requirePositiveAmount, routeSignal } from "../domain/rules";
 import { isSupabaseConfigured, supabase } from "./supabase";
@@ -6,6 +6,7 @@ import { isSupabaseConfigured, supabase } from "./supabase";
 export interface WorkspaceData {
   brand: SchoolBrand;
   setup: SchoolSetup;
+  operations: OperationalSummary;
   learners: LearnerSummary[];
   teachers: TeacherSummary[];
   signals: CommunitySignal[];
@@ -41,7 +42,7 @@ async function activeSchool() {
 
 export async function loadWorkspace(): Promise<WorkspaceData> {
   if (!isSupabaseConfigured || !supabase) {
-    return { brand: demoBrand, setup: demoSetup, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
+    return { brand: demoBrand, setup: demoSetup, operations:{invitations:[],recentAttendance:0,recentAssessments:0}, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
   }
 
   const { data: memberships, error: membershipError } = await supabase
@@ -61,7 +62,7 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   const rawSchool=schoolResult.data;
   const rawBrand=brandResult.data;
 
-  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, profileResult, signalResult, accountResult, paymentResult, reconciliationResult, academicYearResult, termResult, classResult, subjectResult] = await Promise.all([
+  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, profileResult, signalResult, accountResult, paymentResult, reconciliationResult, academicYearResult, termResult, classResult, subjectResult, invitationResult, attendanceResult, assessmentResult] = await Promise.all([
     supabase.from("students").select("id,matricule,full_name,class_name,attendance_rate,risk_level").eq("school_id",schoolId).is("merged_into_student_id",null).limit(100),
     supabase.from("dreem_growth_snapshots").select("*").eq("school_id",schoolId).order("snapshot_date",{ascending:false}).limit(500),
     supabase.from("dreem_interventions").select("student_id,title,owner_user_id,status,review_on").eq("school_id",schoolId).not("status","in","(closed,cancelled)").order("review_on").limit(200),
@@ -76,6 +77,9 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
     supabase.from("dreem_terms").select("*").eq("school_id",schoolId).order("order_index"),
     supabase.from("dreem_classes").select("*").eq("school_id",schoolId).order("name"),
     supabase.from("dreem_subjects").select("*").eq("school_id",schoolId).order("name"),
+    supabase.from("dreem_staff_invitations").select("id,email,full_name,role,status,created_at,expires_at").eq("school_id",schoolId).order("created_at",{ascending:false}).limit(50),
+    supabase.from("dreem_attendance_sessions").select("id").eq("school_id",schoolId).gte("session_date",new Date(Date.now()-7*86400000).toISOString().slice(0,10)),
+    supabase.from("dreem_assessments").select("id").eq("school_id",schoolId).gte("assessment_date",new Date(Date.now()-30*86400000).toISOString().slice(0,10)),
   ]);
   if (studentResult.error) throw studentResult.error;
   if (growthResult.error) throw growthResult.error;
@@ -83,6 +87,9 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   if (credentialResult.error) throw credentialResult.error;
   if (teacherResult.error) throw teacherResult.error;
   if (signalResult.error) throw signalResult.error;
+  if (invitationResult.error) throw invitationResult.error;
+  if (attendanceResult.error) throw attendanceResult.error;
+  if (assessmentResult.error) throw assessmentResult.error;
   const profileNames=new Map((profileResult.data??[]).map(row=>[String(row.id),String(row.full_name)]));
   const latestGrowth=new Map<string,Record<string,unknown>>();
   for(const row of growthResult.data??[]) if(!latestGrowth.has(String(row.student_id))) latestGrowth.set(String(row.student_id),row);
@@ -106,6 +113,11 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
       terms:(termResult.data??[]).map((row):TermConfig=>({id:String(row.id),academicYearId:String(row.academic_year_id),name:String(row.name),startsOn:String(row.starts_on),endsOn:String(row.ends_on),orderIndex:Number(row.order_index)})),
       classes:(classResult.data??[]).map((row):ClassConfig=>({id:String(row.id),academicYearId:row.academic_year_id?String(row.academic_year_id):undefined,name:String(row.name),sectionName:String(row.section_name??""),streamName:String(row.stream_name??""),levelName:String(row.level_name??"")})),
       subjects:(subjectResult.data??[]).map((row):SubjectConfig=>({id:String(row.id),name:String(row.name),code:String(row.code),subsystem:row.subsystem as SubjectConfig["subsystem"],gradingWeight:Number(row.grading_weight)})),
+    },
+    operations:{
+      invitations:(invitationResult.data??[]).map((row):StaffInvitation=>({id:String(row.id),email:String(row.email),fullName:String(row.full_name),role:row.role as StaffInvitation["role"],status:row.status as StaffInvitation["status"],createdAt:String(row.created_at),expiresAt:String(row.expires_at)})),
+      recentAttendance:attendanceResult.data?.length??0,
+      recentAssessments:assessmentResult.data?.length??0,
     },
     learners:(studentResult.data??[]).map(row=>{const growth=latestGrowth.get(String(row.id));const action=interventions.get(String(row.id));const credential=credentials.get(String(row.id));return {
       id:String(row.id),matricule:String(row.matricule),name:String(row.full_name),className:String(row.class_name??"Unassigned"),mastery:Number(growth?.mastery??0),attendance:Number(growth?.attendance??row.attendance_rate??0),engagement:Number(growth?.engagement??0),wellbeing:Number(growth?.wellbeing??0),trend:0,nextAction:String(action?.title??"Review learner OneFile"),interventionOwner:action?.owner_user_id?profileNames.get(String(action.owner_user_id)):undefined,idStatus:(credential?.status??"expired") as LearnerSummary["idStatus"],
@@ -144,6 +156,97 @@ export async function saveSchoolBrand(brand: SchoolBrand): Promise<SchoolBrand> 
   }, { onConflict:"school_id" });
   if (error) throw error;
   return brand;
+}
+
+export async function inviteStaff(input: { email: string; fullName: string; role: StaffInvitation["role"]; idempotencyKey: string }) {
+  if (!input.email.trim()) throw new Error("Staff email is required.");
+  if (!input.fullName.trim()) throw new Error("Staff name is required.");
+  if (!isSupabaseConfigured || !supabase) return { invitationId: crypto.randomUUID(), status: "pending" };
+  const { data, error } = await supabase.rpc("dreem_invite_staff", {
+    p_email: input.email.trim(),
+    p_full_name: input.fullName.trim(),
+    p_role: input.role,
+    p_idempotency_key: input.idempotencyKey,
+  });
+  if (error) throw error;
+  const invitation = Array.isArray(data) ? data[0] : data;
+  return { invitationId:String(invitation.invitation_id), status:String(invitation.invitation_status) };
+}
+
+export async function enrolLearner(input: EnrollmentPayload): Promise<EnrollmentResult> {
+  if (!input.fullName.trim()) throw new Error("Learner name is required.");
+  if (!input.className.trim()) throw new Error("Class is required.");
+  if (!input.guardianName.trim()) throw new Error("Primary guardian is required.");
+  if (input.openingBalance < 0) throw new Error("Opening balance cannot be negative.");
+  if (!isSupabaseConfigured || !supabase) return { studentId:crypto.randomUUID(), matricule:`DEMO-${Date.now()}` };
+  const { data, error } = await supabase.rpc("dreem_enrol_learner", {
+    p_full_name: input.fullName.trim(),
+    p_class_name: input.className.trim(),
+    p_date_of_birth: input.dateOfBirth || null,
+    p_sex: input.sex || null,
+    p_guardian_name: input.guardianName.trim(),
+    p_guardian_phone: input.guardianPhone.trim(),
+    p_guardian_email: input.guardianEmail?.trim() || null,
+    p_relationship: input.relationship.trim(),
+    p_opening_balance: input.openingBalance,
+    p_idempotency_key: input.idempotencyKey,
+  });
+  if (error) throw error;
+  const learner = Array.isArray(data) ? data[0] : data;
+  return { studentId:String(learner.student_id), matricule:String(learner.matricule) };
+}
+
+export async function issueStudentCredential(studentId: string, validUntil: string, idempotencyKey: string): Promise<CredentialIssueResult> {
+  if (!studentId) throw new Error("Choose a learner before issuing a credential.");
+  if (!validUntil) throw new Error("Credential expiry is required.");
+  if (!isSupabaseConfigured || !supabase) return { credentialId:crypto.randomUUID(), verificationToken:`demo-${crypto.randomUUID()}` };
+  const { data, error } = await supabase.rpc("dreem_issue_student_credential", {
+    p_student_id: studentId,
+    p_valid_until: validUntil,
+    p_idempotency_key: idempotencyKey,
+  });
+  if (error) throw error;
+  const credential = Array.isArray(data) ? data[0] : data;
+  return { credentialId:String(credential.credential_id), verificationToken:String(credential.verification_token) };
+}
+
+export async function recordAttendance(command: AttendanceCommand) {
+  if (!command.className.trim()) throw new Error("Class is required.");
+  if (!command.sessionDate) throw new Error("Attendance date is required.");
+  if (!command.marks.length) throw new Error("At least one learner mark is required.");
+  if (!isSupabaseConfigured || !supabase) return { sessionId:crypto.randomUUID(), recordedCount:command.marks.length };
+  const { data, error } = await supabase.rpc("dreem_record_attendance", {
+    p_class_name: command.className.trim(),
+    p_session_date: command.sessionDate,
+    p_period_label: command.periodLabel || "AM",
+    p_marks: command.marks.map((mark) => ({ student_id:mark.studentId, status:mark.status, note:mark.note ?? "" })),
+    p_idempotency_key: command.idempotencyKey,
+  });
+  if (error) throw error;
+  const session = Array.isArray(data) ? data[0] : data;
+  return { sessionId:String(session.session_id), recordedCount:Number(session.recorded_count) };
+}
+
+export async function recordAssessment(command: AssessmentCommand) {
+  if (!command.className.trim()) throw new Error("Class is required.");
+  if (!command.title.trim()) throw new Error("Assessment title is required.");
+  if (command.maxScore <= 0) throw new Error("Maximum score must be positive.");
+  if (!command.assessmentDate) throw new Error("Assessment date is required.");
+  if (!command.marks.length) throw new Error("At least one mark is required.");
+  if (command.marks.some((mark) => mark.score < 0 || mark.score > command.maxScore)) throw new Error("Every score must be between zero and the maximum score.");
+  if (!isSupabaseConfigured || !supabase) return { assessmentId:crypto.randomUUID(), marksCount:command.marks.length };
+  const { data, error } = await supabase.rpc("dreem_record_assessment", {
+    p_subject_id: command.subjectId || null,
+    p_class_name: command.className.trim(),
+    p_title: command.title.trim(),
+    p_max_score: command.maxScore,
+    p_assessment_date: command.assessmentDate,
+    p_marks: command.marks.map((mark) => ({ student_id:mark.studentId, score:mark.score, comment:mark.comment ?? "" })),
+    p_idempotency_key: command.idempotencyKey,
+  });
+  if (error) throw error;
+  const assessment = Array.isArray(data) ? data[0] : data;
+  return { assessmentId:String(assessment.assessment_id), marksCount:Number(assessment.marks_count) };
 }
 
 export async function loadBootstrapStatus(): Promise<BootstrapStatus> {
