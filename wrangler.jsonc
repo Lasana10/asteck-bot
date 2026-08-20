@@ -5,5 +5,29 @@
   "pages_build_output_dir": "dashboard/dist",
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "VITE_API_URL": "https://asteck-bot.onrender.com",
+    "VITE_SUPABASE_URL": "https://rkijcxxryhfrqsgkwtbu.supabase.co",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "PASTE_SB_PUBLISHABLE_KEY",
+    "VITE_TURNSTILE_SITE_KEY": "PASTE_TURNSTILE_SITE_KEY"
+  },
+  "env": {
+    "preview": {
+      "vars": {
+        "VITE_API_URL": "https://asteck-bot.onrender.com",
+        "VITE_SUPABASE_URL": "https://rkijcxxryhfrqsgkwtbu.supabase.co",
+        "VITE_SUPABASE_PUBLISHABLE_KEY": "PASTE_SB_PUBLISHABLE_KEY",
+        "VITE_TURNSTILE_SITE_KEY": "PASTE_TURNSTILE_SITE_KEY"
+      }
+    },
+    "production": {
+      "vars": {
+        "VITE_API_URL": "https://asteck-bot.onrender.com",
+        "VITE_SUPABASE_URL": "https://rkijcxxryhfrqsgkwtbu.supabase.co",
+        "VITE_SUPABASE_PUBLISHABLE_KEY": "PASTE_SB_PUBLISHABLE_KEY",
+        "VITE_TURNSTILE_SITE_KEY": "PASTE_TURNSTILE_SITE_KEY"
+      }
+    }
   }
 }
