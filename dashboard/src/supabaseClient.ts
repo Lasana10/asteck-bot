@@ -1,12 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const REQUIRED_RENDER_API_URL = 'https://asteck-bot.onrender.com';
+const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim() || 'https://placeholder.supabase.co';
 const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim() ||
+  String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim() ||
   'placeholder-key';
 
-const liveApiBaseUrl = 'https://asteck-bot.onrender.com';
+const liveApiBaseUrl = REQUIRED_RENDER_API_URL;
 const apiOverrideStorageKey = 'afat_api_base_override';
 const localRuntimeHosts = new Set(['localhost', '127.0.0.1']);
 
@@ -63,12 +64,16 @@ function isLocalApiUrl(url?: string | null) {
 
 function getStoredApiOverride() {
   if (!canUseWindow()) return null;
+  if (!isLocalAppRuntime()) {
+    localStorage.removeItem(apiOverrideStorageKey);
+    return null;
+  }
   const normalized = normalizeApiUrl(localStorage.getItem(apiOverrideStorageKey));
   if (!normalized) {
     localStorage.removeItem(apiOverrideStorageKey);
     return null;
   }
-  if (isProductionAfatRuntime() && (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized))) {
+  if (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized)) {
     localStorage.removeItem(apiOverrideStorageKey);
     return null;
   }
@@ -76,7 +81,17 @@ function getStoredApiOverride() {
 }
 
 function resolveApiBaseUrl() {
-  return getStoredApiOverride() || normalizeApiUrl(import.meta.env.VITE_API_URL) || liveApiBaseUrl;
+  const envApiBaseUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+  if (envApiBaseUrl === REQUIRED_RENDER_API_URL) {
+    return envApiBaseUrl;
+  }
+
+  const localOverride = getStoredApiOverride();
+  if (localOverride) {
+    return localOverride;
+  }
+
+  return REQUIRED_RENDER_API_URL;
 }
 
 export const apiBaseUrl = resolveApiBaseUrl();
@@ -91,12 +106,17 @@ export function setApiBaseOverride(url: string | null) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
+  if (!isLocalAppRuntime()) {
+    console.warn('Ignoring AFAT API override outside local development.');
+    localStorage.removeItem(apiOverrideStorageKey);
+    return;
+  }
   const normalized = normalizeApiUrl(url);
   if (!normalized) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
-  if (isProductionAfatRuntime() && (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized))) {
+  if (isLocalApiUrl(normalized) || isFrontendHostingUrl(normalized) || normalized !== REQUIRED_RENDER_API_URL) {
     localStorage.removeItem(apiOverrideStorageKey);
     return;
   }
@@ -491,7 +511,7 @@ export async function completeGoogleAuthCallback(options?: {
   }
 }
 
-export async function sendEmailOtp(email: string, options?: { roleIntent?: string }) {
+export async function sendEmailOtp(email: string, options?: { roleIntent?: string; captchaToken?: string }) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
@@ -500,6 +520,7 @@ export async function sendEmailOtp(email: string, options?: { roleIntent?: strin
       options: {
         shouldCreateUser: true,
         emailRedirectTo: redirectTo,
+        captchaToken: options?.captchaToken,
         data: {
           role: options?.roleIntent || 'commuter',
           username: normalizedEmail.split('@')[0],
@@ -540,7 +561,7 @@ export async function verifyEmailOtp(email: string, token: string) {
 export async function signInOrSignUpWithEmailPassword(
   email: string,
   password: string,
-  options?: { roleIntent?: string }
+  options?: { roleIntent?: string; captchaToken?: string }
 ) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -549,6 +570,9 @@ export async function signInOrSignUpWithEmailPassword(
     const signIn = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password: cleanPassword,
+      options: {
+        captchaToken: options?.captchaToken,
+      },
     });
 
     if (!signIn.error) {
@@ -577,6 +601,7 @@ export async function signInOrSignUpWithEmailPassword(
       password: cleanPassword,
       options: {
         emailRedirectTo: redirectTo,
+        captchaToken: options?.captchaToken,
         data: {
           role: options?.roleIntent || 'commuter',
           username: normalizedEmail.split('@')[0],
@@ -802,6 +827,13 @@ async function passageAuthHeaders() {
   return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
+async function onboardingAuthHeaders() {
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}` };
+  const localToken = localStorage.getItem('afat_access_token');
+  return localToken ? { Authorization: `Bearer ${localToken}` } : {};
+}
+
 export async function getCurrentUser() {
   const { data: { session }, error } = await supabase.auth.getSession();
   return { user: session?.user || null, error };
@@ -929,9 +961,10 @@ export async function registerVehicle(vehicleData: any) {
 
 export async function registerPassenger(passengerData: any) {
   try {
+    const authHeaders = await onboardingAuthHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/onboard/passenger/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(passengerData),
     });
     const data = await res.json();
@@ -944,9 +977,10 @@ export async function registerPassenger(passengerData: any) {
 
 export async function registerDriver(driverData: any) {
   try {
+    const authHeaders = await onboardingAuthHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/onboard/driver/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(driverData),
     });
     const data = await res.json();
@@ -959,9 +993,10 @@ export async function registerDriver(driverData: any) {
 
 export async function registerCompany(companyData: any) {
   try {
+    const authHeaders = await onboardingAuthHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/onboard/company/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(companyData),
     });
     const data = await res.json();
@@ -1634,6 +1669,29 @@ export async function updateOperatorLifecycle(
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Operator status update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function updateCompanyLifecycle(
+  companyId: string,
+  payload: {
+    status: 'partial_intake' | 'under_review' | 'approved' | 'documents_pending' | 'rejected' | 'suspended';
+    notes?: string;
+    coordinator_profile_id?: string;
+    grant_planner_access?: boolean;
+  }
+) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/companies/${companyId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Company status update failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };

@@ -37,10 +37,21 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [backendDetail, setBackendDetail] = useState('');
   const [backendDiagnostics, setBackendDiagnostics] = useState('');
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
+  const [authTurnstileToken, setAuthTurnstileToken] = useState('');
 
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
+  const turnstileReady = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
+  const needsAuthTurnstile = turnstileReady && (authChannel === 'email_password' || authChannel === 'email_otp');
+  const envDiagnostics = [
+    `mode: ${import.meta.env.MODE || 'unknown'}`,
+    `supabase url: ${import.meta.env.VITE_SUPABASE_URL ? 'present' : 'missing'}`,
+    `publishable key: ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ? 'present' : 'missing'}`,
+    `anon key: ${import.meta.env.VITE_SUPABASE_ANON_KEY ? 'present' : 'missing'}`,
+    `turnstile site key: ${import.meta.env.VITE_TURNSTILE_SITE_KEY ? 'present' : 'missing'}`,
+    `api url: ${import.meta.env.VITE_API_URL || 'fallback live backend'}`,
+  ];
   const guestAccessEnabled = import.meta.env.VITE_ENABLE_GUEST_ACCESS === 'true';
   const oauthCodeStorageKey = 'afat_oauth_access_code';
   const oauthAdminCodeStorageKey = 'afat_oauth_admin_code';
@@ -83,6 +94,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    setAuthTurnstileToken('');
+  }, [authChannel, normalizedEmail, password]);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -142,8 +157,17 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setInfoText('');
     persistAccessIntent();
 
+    if (authChannel !== 'phone' && !turnstileReady) {
+      setErrorText('Turnstile site key missing in this build. Save VITE_TURNSTILE_SITE_KEY in both Cloudflare Preview and Production, then create a fresh deployment.');
+      setLoading(false);
+      return;
+    }
+
     if (authChannel === 'email_password') {
-      const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, { roleIntent });
+      const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, {
+        roleIntent,
+        captchaToken: authTurnstileToken || undefined,
+      });
       if (error) {
         setErrorText(`${error.message} Check Supabase Email provider settings and redirect URLs if this persists.`);
       } else if (data?.mode === 'confirmation_required') {
@@ -166,7 +190,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     }
 
     const result = authChannel === 'email_otp'
-      ? await sendEmailOtp(normalizedEmail, { roleIntent })
+      ? await sendEmailOtp(normalizedEmail, { roleIntent, captchaToken: authTurnstileToken || undefined })
       : await sendPhoneOtp(normalizedPhone);
     const { error } = result;
     if (error) {
@@ -254,11 +278,27 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-2 gap-2">
+        <div className="mb-6 grid grid-cols-3 gap-2">
           <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
             <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
             <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
               {supabaseReady ? 'Configured' : 'Needs env'}
+            </p>
+            {!supabaseReady && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-amber-100/70">
+                  Env details
+                </summary>
+                <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-amber-200/10 bg-slate-950/60 p-2 text-[9px] leading-relaxed text-amber-50/80">
+                  {envDiagnostics.join('\n')}
+                </pre>
+              </details>
+            )}
+          </div>
+          <div className={`rounded-2xl border px-3 py-3 ${turnstileReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Turnstile</p>
+            <p className={`mt-1 text-xs font-black ${turnstileReady ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {turnstileReady ? 'Configured' : 'Needs env'}
             </p>
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
@@ -447,9 +487,18 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 </div>
               )}
             </div>
+            {needsAuthTurnstile && (
+              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                <TurnstileGate
+                  action="email_auth"
+                  onToken={setAuthTurnstileToken}
+                  onExpire={() => setAuthTurnstileToken('')}
+                />
+              </div>
+            )}
             <button
               type="submit"
-              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
+              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) || (needsAuthTurnstile && !authTurnstileToken) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}

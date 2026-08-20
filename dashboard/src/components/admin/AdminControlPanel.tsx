@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ViewToggle } from '../shared/ViewToggle';
 import { InteractiveMap } from '../shared/InteractiveMap';
 import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle, CreditCard, FileCheck, Globe2, GraduationCap, HandHeart, Landmark, X, Sparkles } from 'lucide-react';
-import { createDispatchAssignment, enrollCheckpoint, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateComplianceStatus, updateOperatorLifecycle } from '../../supabaseClient';
+import { createDispatchAssignment, enrollCheckpoint, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
@@ -17,6 +17,7 @@ interface Props {
 export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   const [uiMode, setUiMode] = useState<'map' | 'grid'>('grid');
   const [profiles, setProfiles] = useState<any[]>([]);
+  const [companyApplications, setCompanyApplications] = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [metrics, setMetrics] = useState({ totalUsers: 0, activeCampaigns: 0, pendingIncidents: 0 });
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -91,6 +92,25 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     // 1. Fetch Users
     const { data: userData } = await supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(25);
     if (userData) setProfiles(userData);
+
+    const { data: companyData } = await supabase
+      .from('companies')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(15);
+    const { data: membershipData } = await supabase
+      .from('company_memberships')
+      .select('company_id, profile_id, role, status, profiles:profile_id(id, full_name, phone, role)');
+    const membershipsByCompany = new Map<string, any[]>();
+    (membershipData || []).forEach((membership: any) => {
+      const list = membershipsByCompany.get(membership.company_id) || [];
+      list.push(membership);
+      membershipsByCompany.set(membership.company_id, list);
+    });
+    setCompanyApplications((companyData || []).map((company: any) => ({
+      ...company,
+      memberships: membershipsByCompany.get(company.id) || [],
+    })));
 
     // 2. Fetch Campaigns
     const { data: campData } = await supabase.from('collection_campaigns').select('*');
@@ -190,6 +210,29 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       return;
     }
     setCommandFeedback(`Operator lifecycle updated to ${status}.`);
+    fetchAdminData();
+  };
+
+  const handleCompanyLifecycle = async (
+    company: any,
+    status: 'partial_intake' | 'under_review' | 'approved' | 'documents_pending' | 'rejected' | 'suspended',
+    grantPlannerAccess = false,
+  ) => {
+    const owner = company?.memberships?.find((membership: any) => membership.role === 'owner') || company?.memberships?.[0];
+    setCommandFeedback(`Updating company lifecycle to ${status}...`);
+    const { error } = await updateCompanyLifecycle(company.id, {
+      status,
+      notes: grantPlannerAccess
+        ? 'Company approved and coordinator planner access granted from AFAT command.'
+        : `Company moved to ${status} from AFAT command.`,
+      coordinator_profile_id: owner?.profile_id,
+      grant_planner_access: grantPlannerAccess,
+    });
+    if (error) {
+      setCommandFeedback(`Company lifecycle update failed: ${error.message}`);
+      return;
+    }
+    setCommandFeedback(`Company lifecycle updated to ${status}.`);
     fetchAdminData();
   };
 
@@ -644,7 +687,9 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                  </button>
               </div>
               <div className="p-4 space-y-2">
-                 {profiles.map((p, i) => (
+                 {profiles.map((p, i) => {
+                   const hasOperatorApplication = Boolean(p.operator_application_status) || p.role === 'operator';
+                   return (
                    <div key={i} className="flex items-center justify-between p-4 hover:bg-slate-800/50 rounded-2xl transition-all border border-transparent hover:border-slate-800">
                       <div className="flex items-center gap-4">
                          <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center font-bold text-slate-500 border border-slate-700">
@@ -653,7 +698,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                          <div>
                             <p className="font-bold text-sm">{p.full_name || p.username || p.phone}</p>
                             <p className="text-[9px] font-mono text-slate-500 uppercase">{p.role} {p.phone ? `(${p.phone})` : ''}</p>
-                            {p.role === 'operator' && (
+                            {hasOperatorApplication && (
                               <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-amber-300/80">
                                 {p.operator_application_status || (p.is_active ? 'APPROVED' : 'UNDER_REVIEW')}
                               </p>
@@ -661,7 +706,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                          </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {p.role === 'operator' && (
+                        {hasOperatorApplication && (
                           <>
                             <button
                               onClick={() => handleOperatorLifecycle(p.id, 'APPROVED', 'Approved from AFAT admin command center.')}
@@ -689,7 +734,74 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                         </button>
                       </div>
                    </div>
-                 ))}
+                 )})}
+              </div>
+           </div>
+
+           <div className="bg-slate-900 border border-slate-800 rounded-[32px] overflow-hidden">
+              <div className="p-8 border-b border-slate-800">
+                 <h3 className="font-bold text-xl flex items-center gap-3">
+                    <Landmark className="w-5 h-5 text-cyan-400" />
+                    Fleet & Company Review
+                 </h3>
+                 <p className="mt-2 text-xs text-slate-500 font-medium">
+                    Company intake is reviewed here. Planner access is granted only after coordinator and organization approval.
+                 </p>
+              </div>
+              <div className="p-4 space-y-2">
+                 {companyApplications.length === 0 && (
+                   <p className="p-4 text-sm text-slate-500">No fleet or company intake is visible yet.</p>
+                 )}
+                 {companyApplications.map((company) => {
+                   const owner = company.memberships?.find((membership: any) => membership.role === 'owner') || company.memberships?.[0];
+                   const coordinator = owner?.profiles;
+                   const status = company.compliance_status || 'partial_intake';
+                   return (
+                    <div key={company.id} className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-black text-white">{company.name}</p>
+                          <p className="mt-1 text-[9px] font-mono uppercase tracking-widest text-slate-500">
+                            {status} {company.fleet_size ? `· ${company.fleet_size} vehicles` : ''}
+                          </p>
+                          <p className="mt-2 text-xs text-slate-400">
+                            Coordinator: {coordinator?.full_name || company.contact_person || 'Not linked yet'}
+                            {coordinator?.phone ? ` (${coordinator.phone})` : ''}
+                          </p>
+                        </div>
+                        <span className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-cyan-200">
+                          Review
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => handleCompanyLifecycle(company, 'under_review')}
+                          className="rounded-xl border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-amber-200 transition hover:bg-amber-500/25"
+                        >
+                          Under review
+                        </button>
+                        <button
+                          onClick={() => handleCompanyLifecycle(company, 'documents_pending')}
+                          className="rounded-xl border border-blue-500/30 bg-blue-500/15 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-blue-200 transition hover:bg-blue-500/25"
+                        >
+                          Need docs
+                        </button>
+                        <button
+                          onClick={() => handleCompanyLifecycle(company, 'approved')}
+                          className="rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/25"
+                        >
+                          Approve company
+                        </button>
+                        <button
+                          onClick={() => handleCompanyLifecycle(company, 'approved', true)}
+                          className="rounded-xl border border-white/10 bg-white/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-white transition hover:bg-white/15"
+                        >
+                          Grant planner
+                        </button>
+                      </div>
+                    </div>
+                   );
+                 })}
               </div>
            </div>
 

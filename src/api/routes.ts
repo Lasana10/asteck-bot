@@ -1734,12 +1734,11 @@ router.patch('/ops/operators/:operatorId/status', async (req: Request, res: Resp
       .from('profiles')
       .select('id, role, full_name, is_active, operator_application_status')
       .eq('id', operatorId)
-      .eq('role', 'operator')
       .maybeSingle();
 
     if (existingError) throw existingError;
-    if (!existing) {
-      return res.status(404).json({ error: 'Operator profile not found.' });
+    if (!existing || (!existing.operator_application_status && existing.role !== 'operator')) {
+      return res.status(404).json({ error: 'Operator application profile not found.' });
     }
 
     const nowIso = new Date().toISOString();
@@ -1751,10 +1750,12 @@ router.patch('/ops/operators/:operatorId/status', async (req: Request, res: Resp
     };
 
     if (nextStatus === 'APPROVED') {
+      updatePayload.role = 'operator';
       updatePayload.operator_approved_at = nowIso;
       updatePayload.verification_status = 'verified';
     } else if (['REJECTED', 'SUSPENDED'].includes(nextStatus)) {
       updatePayload.operator_approved_at = null;
+      if (nextStatus === 'REJECTED') updatePayload.role = 'commuter';
     }
 
     const { data: profile, error } = await supabase
@@ -1774,6 +1775,87 @@ router.patch('/ops/operators/:operatorId/status', async (req: Request, res: Resp
   } catch (error: any) {
     console.error('Operator lifecycle update error:', error);
     return res.status(500).json({ error: error.message || 'Operator lifecycle update failed.' });
+  }
+});
+
+router.patch('/ops/companies/:companyId/status', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin', 'planner']);
+  if (!access) return;
+
+  try {
+    const companyId = String(req.params.companyId || '').trim();
+    const nextStatus = String(req.body?.status || '').trim().toLowerCase();
+    const notes = String(req.body?.notes || '').trim();
+    const coordinatorProfileId = String(req.body?.coordinator_profile_id || '').trim();
+    const grantPlannerAccess = Boolean(req.body?.grant_planner_access);
+    const allowedStatuses = new Set(['partial_intake', 'under_review', 'approved', 'documents_pending', 'rejected', 'suspended']);
+
+    if (!companyId || !allowedStatuses.has(nextStatus)) {
+      return res.status(400).json({ error: 'Valid company id and review status are required.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .update({
+        compliance_status: nextStatus,
+        notes: notes || null,
+        updated_at: nowIso,
+      })
+      .eq('id', companyId)
+      .select('*')
+      .single();
+
+    if (companyError) throw companyError;
+
+    let coordinator = null;
+    if (coordinatorProfileId) {
+      const { data: membership } = await supabase
+        .from('company_memberships')
+        .select('id, profile_id, company_id')
+        .eq('company_id', companyId)
+        .eq('profile_id', coordinatorProfileId)
+        .maybeSingle();
+
+      if (!membership) {
+        return res.status(404).json({ error: 'Coordinator membership not found for this company.' });
+      }
+
+      const profileUpdate: Record<string, any> = {
+        updated_at: nowIso,
+        operator_review_notes: notes || `Company status moved to ${nextStatus}.`,
+      };
+
+      if (nextStatus === 'approved' && grantPlannerAccess) {
+        profileUpdate.role = 'planner';
+        profileUpdate.is_active = true;
+      }
+
+      if (['rejected', 'suspended'].includes(nextStatus)) {
+        profileUpdate.role = 'commuter';
+        profileUpdate.is_active = nextStatus !== 'suspended';
+      }
+
+      const { data: updatedCoordinator, error: coordinatorError } = await supabase
+        .from('profiles')
+        .update(profileUpdate)
+        .eq('id', coordinatorProfileId)
+        .select('id, full_name, role, is_active')
+        .single();
+
+      if (coordinatorError) throw coordinatorError;
+      coordinator = updatedCoordinator;
+    }
+
+    return res.status(200).json({
+      success: true,
+      company,
+      coordinator,
+      message: `${company.name || 'Company'} marked ${nextStatus}.`,
+    });
+  } catch (error: any) {
+    console.error('Company lifecycle update error:', error);
+    return res.status(500).json({ error: error.message || 'Company lifecycle update failed.' });
   }
 });
 

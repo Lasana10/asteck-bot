@@ -206,16 +206,16 @@ async function sendWalletBalance(to: string) {
 async function sendDriverScore(to: string) {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, driver_dna_score, driver_dna_tier')
+    .select('full_name, trust_score, driver_dna_tier')
     .eq('phone', `+${to}`)
     .maybeSingle();
 
-  if (!profile?.driver_dna_score) {
-    return sendText(to, `❌ Score DriverDNA non disponible. Assurez-vous d'être enregistré comme conducteur.\n\nTapez *MENU*.`);
+  if (!profile?.trust_score || profile.driver_dna_tier === 'Insufficient verified evidence') {
+    return sendText(to, `❌ Driver DNA non disponible: AFAT attend encore assez de trajets, notes et preuves terrain verifiees.\n\nTapez *MENU*.`);
   }
 
-  const tier = profile.driver_dna_tier || 'Standard';
-  const score = profile.driver_dna_score || 0;
+  const tier = profile.driver_dna_tier || 'Evidence pending';
+  const score = profile.trust_score || 0;
   const bar = '█'.repeat(Math.floor(score / 10)) + '░'.repeat(10 - Math.floor(score / 10));
 
   await sendText(to,

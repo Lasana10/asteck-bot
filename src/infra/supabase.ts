@@ -5,13 +5,47 @@ import { Incident, User, Coordinates, FuelStation } from '../types';
 dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || '';
+const supabaseKeySource =
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? 'SUPABASE_SERVICE_ROLE_KEY'
+    : process.env.SUPABASE_SECRET_KEY
+      ? 'SUPABASE_SECRET_KEY'
+      : process.env.SUPABASE_SERVICE_KEY
+        ? 'SUPABASE_SERVICE_KEY'
+        : process.env.SUPABASE_KEY
+          ? 'SUPABASE_KEY'
+          : 'missing';
+
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SECRET_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_KEY ||
+  '';
 
 if (!supabaseUrl || !supabaseKey) {
   console.warn('⚠️ Supabase credentials not found. DB features will likely fail.');
 }
 
+if (supabaseKeySource === 'SUPABASE_KEY') {
+  console.warn('⚠️ AFAT backend is using SUPABASE_KEY. Server writes may be blocked by RLS unless this is a service-role key.');
+}
+
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+export function getSupabaseRuntimeDiagnostics() {
+  return {
+    url_configured: Boolean(supabaseUrl),
+    key_configured: Boolean(supabaseKey),
+    key_source: supabaseKeySource,
+    server_write_authority:
+      supabaseKeySource === 'SUPABASE_SERVICE_ROLE_KEY' ||
+      supabaseKeySource === 'SUPABASE_SECRET_KEY' ||
+      supabaseKeySource === 'SUPABASE_SERVICE_KEY'
+        ? 'service_configured'
+        : 'public_or_missing',
+  };
+}
 
 // ========== TRACCAR INTEGRATION ==========
 export async function updateVehicleLocationByTraccar(

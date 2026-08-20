@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "validate:pages-env": "node ./scripts/validate-pages-env.cjs",
+    "test:env:missing": "node ./scripts/validate-pages-env.cjs --mode=missing",
+    "test:env:complete": "node ./scripts/validate-pages-env.cjs --mode=complete",
+    "test:env:cf-no-api": "node ./scripts/validate-pages-env.cjs --mode=cf-no-api",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

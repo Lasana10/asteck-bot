@@ -10,6 +10,7 @@ import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import { CronService } from './services/CronJobs';
 import { apiRateLimiter, requestLogger, sanitizeInput, securityHeaders } from './middleware/security';
+import { getSupabaseRuntimeDiagnostics } from './infra/supabase';
 
 dotenv.config();
 
@@ -171,7 +172,14 @@ async function main() {
   const missing: string[] = [];
   if (!process.env.TELEGRAM_BOT_TOKEN) missing.push('TELEGRAM_BOT_TOKEN');
   if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
-  if (!process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_KEY) missing.push('SUPABASE_SECRET_KEY or SUPABASE_KEY');
+  if (
+    !process.env.SUPABASE_SERVICE_ROLE_KEY &&
+    !process.env.SUPABASE_SECRET_KEY &&
+    !process.env.SUPABASE_SERVICE_KEY &&
+    !process.env.SUPABASE_KEY
+  ) {
+    missing.push('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY');
+  }
   
   if (missing.length > 0) {
     console.error('❌ Missing environment variables:', missing.join(', '));
@@ -236,6 +244,7 @@ async function main() {
       version: apiVersion,
       api_mount: '/api',
       build: buildVersion,
+      database_authority: getSupabaseRuntimeDiagnostics(),
       required_routes: requiredApiRoutes,
       auth_contract: {
         session_authority: 'supabase_jwt',
