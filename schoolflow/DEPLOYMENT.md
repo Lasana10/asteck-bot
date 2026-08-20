@@ -8,7 +8,7 @@ Create a dedicated Cloudflare Pages project:
 
 - Project name: `dreem-school-os`
 - Git repository: `Lasana10/asteck-bot`
-- Production branch: `dreem/operational-foundation`
+- Production branch: `dreem/integration`
 - Root directory: `schoolflow`
 - Build command: `npm ci && npm run build`
 - Build output directory: `dist`
@@ -16,7 +16,7 @@ Create a dedicated Cloudflare Pages project:
 Required environment variables:
 
 ```text
-VITE_SUPABASE_URL=https://vpxtmgpxqlmkkyijuare.supabase.co
+VITE_SUPABASE_URL=https://vlukkucwtfmfgpzvjyvd.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=<rotated-supabase-publishable-key>
 VITE_DREEM_DEMO_MODE=false
 ```
