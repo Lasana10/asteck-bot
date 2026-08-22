@@ -5,8 +5,8 @@ import FeedbackDialog from "./components/FeedbackDialog";
 import OperationalWorkflowsView from "./components/OperationalWorkflows";
 import Shell, { type ViewKey } from "./components/Shell";
 import { CommandView, FinanceView, LearnersView, SchoolStudioView, SignalsView, TeachersView } from "./components/Views";
-import { demoPulse } from "./domain/demo";
 import type { BootstrapStatus, CommunitySignal } from "./domain/types";
+import { buildOperationalPulse } from "./domain/rules";
 import { bootstrapSchool, enrolLearner, inviteStaff, issueStudentCredential, loadBootstrapStatus, loadWorkspace, recordAssessment, recordAttendance, saveSchoolBrand, saveSchoolSetup, updateSignalStatus, type WorkspaceData } from "./lib/repository";
 
 function WorkspaceApp() {
@@ -63,7 +63,7 @@ function WorkspaceApp() {
 
   return <>
     <Shell brand={workspace.brand} view={view} onView={setView} signalCount={workspace.signals.filter((item) => item.status === "new").length} onFeedback={openFeedback}>
-      {view === "command" && <CommandView learners={workspace.learners} finance={workspace.finance} pulse={demoPulse} signals={workspace.signals} />}
+      {view === "command" && <CommandView learners={workspace.learners} finance={workspace.finance} pulse={buildOperationalPulse(workspace.learners,workspace.finance,workspace.signals)} signals={workspace.signals} />}
       {view === "operations" && <OperationalWorkflowsView workspace={workspace} onInviteStaff={inviteStaff} onEnrolLearner={enrolLearner} onIssueCredential={issueStudentCredential} onRecordAttendance={recordAttendance} onRecordAssessment={recordAssessment} onRefresh={refreshWorkspace} />}
       {view === "learners" && <LearnersView learners={workspace.learners} brand={workspace.brand} />}
       {view === "teachers" && <TeachersView teachers={workspace.teachers} />}

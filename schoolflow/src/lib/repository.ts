@@ -1,7 +1,7 @@
 import type { AcademicYearConfig, AssessmentCommand, AttendanceCommand, BootstrapPayload, BootstrapStatus, ClassConfig, CommunitySignal, CredentialIssueResult, EnrollmentPayload, EnrollmentResult, FinanceSummary, LearnerSummary, OperationalSummary, PaymentCommand, PaymentReceipt, SchoolBrand, SchoolSetup, StaffInvitation, SubjectConfig, TeacherSummary, TermConfig } from "../domain/types";
 import { demoBrand, demoFinance, demoLearners, demoSetup, demoSignals, demoTeachers } from "../domain/demo";
 import { requirePositiveAmount, routeSignal } from "../domain/rules";
-import { isSupabaseConfigured, supabase } from "./supabase";
+import { isDemoMode, isSupabaseConfigured, supabase } from "./supabase";
 
 export interface WorkspaceData {
   brand: SchoolBrand;
@@ -42,7 +42,8 @@ async function activeSchool() {
 
 export async function loadWorkspace(): Promise<WorkspaceData> {
   if (!isSupabaseConfigured || !supabase) {
-    return { brand: demoBrand, setup: demoSetup, operations:{invitations:[],recentAttendance:0,recentAssessments:0}, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
+    if (isDemoMode) return { brand: demoBrand, setup: demoSetup, operations:{invitations:[],recentAttendance:0,recentAssessments:0}, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
+    throw new Error("DREEM is not connected to its Supabase project. Production data is unavailable.");
   }
 
   const { data: memberships, error: membershipError } = await supabase
@@ -62,13 +63,12 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   const rawSchool=schoolResult.data;
   const rawBrand=brandResult.data;
 
-  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, profileResult, signalResult, accountResult, paymentResult, reconciliationResult, academicYearResult, termResult, classResult, subjectResult, invitationResult, attendanceResult, assessmentResult] = await Promise.all([
+  const [studentResult, growthResult, interventionResult, credentialResult, teacherResult, signalResult, accountResult, paymentResult, reconciliationResult, academicYearResult, termResult, classResult, subjectResult, invitationResult, attendanceResult, assessmentResult] = await Promise.all([
     supabase.from("students").select("id,matricule,full_name,class_name,attendance_rate,risk_level").eq("school_id",schoolId).is("merged_into_student_id",null).limit(100),
     supabase.from("dreem_growth_snapshots").select("*").eq("school_id",schoolId).order("snapshot_date",{ascending:false}).limit(500),
     supabase.from("dreem_interventions").select("student_id,title,owner_user_id,status,review_on").eq("school_id",schoolId).not("status","in","(closed,cancelled)").order("review_on").limit(200),
     supabase.from("dreem_student_credentials").select("student_id,status,valid_until,issued_at").eq("school_id",schoolId).order("issued_at",{ascending:false}).limit(200),
     supabase.from("dreem_teacher_growth_snapshots").select("*").eq("school_id",schoolId).order("snapshot_date",{ascending:false}).limit(200),
-    supabase.from("profiles").select("id,full_name").eq("school_id",schoolId).limit(300),
     supabase.from("dreem_community_signals").select("*").eq("school_id", schoolId).order("created_at", { ascending: false }).limit(100),
     supabase.from("fee_accounts").select("amount_due").eq("school_id",schoolId),
     supabase.from("dreem_financial_payments").select("amount,received_at").eq("school_id",schoolId),
@@ -77,7 +77,7 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
     supabase.from("dreem_terms").select("*").eq("school_id",schoolId).order("order_index"),
     supabase.from("dreem_classes").select("*").eq("school_id",schoolId).order("name"),
     supabase.from("dreem_subjects").select("*").eq("school_id",schoolId).order("name"),
-    supabase.from("dreem_staff_invitations").select("id,email,full_name,role,status,created_at,expires_at").eq("school_id",schoolId).order("created_at",{ascending:false}).limit(50),
+    supabase.from("dreem_staff_invitations").select("id,email,full_name,role,status,accepted_by,created_at,expires_at").eq("school_id",schoolId).order("created_at",{ascending:false}).limit(50),
     supabase.from("dreem_attendance_sessions").select("id").eq("school_id",schoolId).gte("session_date",new Date(Date.now()-7*86400000).toISOString().slice(0,10)),
     supabase.from("dreem_assessments").select("id").eq("school_id",schoolId).gte("assessment_date",new Date(Date.now()-30*86400000).toISOString().slice(0,10)),
   ]);
@@ -90,7 +90,11 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   if (invitationResult.error) throw invitationResult.error;
   if (attendanceResult.error) throw attendanceResult.error;
   if (assessmentResult.error) throw assessmentResult.error;
-  const profileNames=new Map((profileResult.data??[]).map(row=>[String(row.id),String(row.full_name)]));
+  const profileNames=new Map(
+    (invitationResult.data??[])
+      .filter((row)=>row.accepted_by)
+      .map((row)=>[String(row.accepted_by),String(row.full_name)]),
+  );
   const latestGrowth=new Map<string,Record<string,unknown>>();
   for(const row of growthResult.data??[]) if(!latestGrowth.has(String(row.student_id))) latestGrowth.set(String(row.student_id),row);
   const latestTeacher=new Map<string,Record<string,unknown>>();

@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { isDemoMode, isSupabaseConfigured, supabase } from "../lib/supabase";
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -22,7 +22,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (!ready) return <div className="auth-screen"><div className="auth-card"><strong>DREEM</strong><p>Securing your school workspace…</p></div></div>;
-  if (!isSupabaseConfigured) return <>{children}<div className="demo-banner">Demo workspace · connect Supabase before using real school records</div></>;
+  if (!isSupabaseConfigured && isDemoMode) return <>{children}<div className="demo-banner">Demo workspace · no real school records are being used</div></>;
+  if (!isSupabaseConfigured) return <div className="auth-screen"><div className="auth-card"><strong>DREEM</strong><h1>Configuration required</h1><p>This deployment is not connected to the authorised DREEM Supabase project.</p></div></div>;
   if (!session) return <div className="auth-screen"><form className="auth-card" onSubmit={signIn}><span>D</span><strong>DREEM</strong><h1>Enter your school workspace</h1><p>Use the staff, parent or learner account issued by your school.</p><label>Email<input type="email" name="email" required autoComplete="email" /></label><label>Password<input type="password" name="password" required autoComplete="current-password" /></label>{message && <small>{message}</small>}<button type="submit">Sign in securely</button></form></div>;
   return <>{children}</>;
 }
