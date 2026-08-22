@@ -1,0 +1,11 @@
+.workspace > header > div:last-child { align-items: center; }
+.connectivity { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 999px; letter-spacing: 0; font-size: 10px; }
+.connectivity::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #4a9a70; }
+.connectivity.offline { background: #fff0db; color: #8b5b18; }
+.connectivity.offline::before { background: #d48632; }
+.access-review { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0ed; }
+.access-review span small { margin: 2px 0 0; text-transform: capitalize; }
+
+@media (max-width: 680px) {
+  .workspace > header .connectivity { display: inline-flex; }
+}
