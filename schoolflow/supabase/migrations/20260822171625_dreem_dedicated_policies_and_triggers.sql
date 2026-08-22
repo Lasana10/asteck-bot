@@ -1,0 +1,3 @@
+-- Live migration-history marker.
+-- The clean-install policies and triggers are consolidated in
+-- 20260822171611_dreem_dedicated_helpers.sql for deterministic recovery.

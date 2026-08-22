@@ -1,0 +1,3 @@
+-- Live migration-history marker.
+-- The clean-install domain-table SQL is consolidated in the immediately preceding
+-- 20260822171611_dreem_dedicated_helpers.sql migration for deterministic recovery.
