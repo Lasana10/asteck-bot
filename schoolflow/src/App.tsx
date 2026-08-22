@@ -5,9 +5,14 @@ import FeedbackDialog from "./components/FeedbackDialog";
 import OperationalWorkflowsView from "./components/OperationalWorkflows";
 import Shell, { type ViewKey } from "./components/Shell";
 import { CommandView, FinanceView, LearnersView, SchoolStudioView, SignalsView, TeachersView } from "./components/Views";
-import type { BootstrapStatus, CommunitySignal } from "./domain/types";
+import type { BootstrapStatus, CommunitySignal, Role } from "./domain/types";
 import { buildOperationalPulse } from "./domain/rules";
-import { bootstrapSchool, enrolLearner, inviteStaff, issueStudentCredential, loadBootstrapStatus, loadWorkspace, recordAssessment, recordAttendance, saveSchoolBrand, saveSchoolSetup, updateSignalStatus, type WorkspaceData } from "./lib/repository";
+import { bootstrapSchool, enrolLearner, inviteStaff, issueStudentCredential, loadBootstrapStatus, loadWorkspace, recordAssessment, recordAttendance, saveSchoolBrand, saveSchoolSetup, updateAccessStatus, updateSignalStatus, type WorkspaceData } from "./lib/repository";
+
+const defaultViewByRole: Record<Role, ViewKey> = {
+  platform_founder:"command",school_owner:"command",principal:"command",administrator:"command",academic_head:"command",
+  bursar:"finance",accountant:"finance",teacher:"operations",tutor:"learners",parent:"learners",student:"learners",auditor:"command",
+};
 
 function WorkspaceApp() {
   const [view, setView] = useState<ViewKey>("command");
@@ -21,7 +26,7 @@ function WorkspaceApp() {
     async function hydrate() {
       try{
         const data = await loadWorkspace();
-        if (active) { setWorkspace(data); setBootstrap(null); setError(""); }
+        if (active) { setWorkspace(data); setView(defaultViewByRole[data.viewer.role]); setBootstrap(null); setError(""); }
       }catch(reason){
         const message = reason instanceof Error ? reason.message : "The school workspace could not be loaded.";
         if (/active school membership|attached to an active school/i.test(message)) {
@@ -62,9 +67,9 @@ function WorkspaceApp() {
   const openFeedback = () => setFeedbackOpen(true);
 
   return <>
-    <Shell brand={workspace.brand} view={view} onView={setView} signalCount={workspace.signals.filter((item) => item.status === "new").length} onFeedback={openFeedback}>
+    <Shell brand={workspace.brand} viewer={workspace.viewer} view={view} onView={setView} signalCount={workspace.signals.filter((item) => item.status === "new").length} onFeedback={openFeedback}>
       {view === "command" && <CommandView learners={workspace.learners} finance={workspace.finance} pulse={buildOperationalPulse(workspace.learners,workspace.finance,workspace.signals)} signals={workspace.signals} />}
-      {view === "operations" && <OperationalWorkflowsView workspace={workspace} onInviteStaff={inviteStaff} onEnrolLearner={enrolLearner} onIssueCredential={issueStudentCredential} onRecordAttendance={recordAttendance} onRecordAssessment={recordAssessment} onRefresh={refreshWorkspace} />}
+      {view === "operations" && <OperationalWorkflowsView workspace={workspace} onInviteStaff={inviteStaff} onUpdateAccess={updateAccessStatus} onEnrolLearner={enrolLearner} onIssueCredential={issueStudentCredential} onRecordAttendance={recordAttendance} onRecordAssessment={recordAssessment} onRefresh={refreshWorkspace} />}
       {view === "learners" && <LearnersView learners={workspace.learners} brand={workspace.brand} />}
       {view === "teachers" && <TeachersView teachers={workspace.teachers} />}
       {view === "finance" && <FinanceView finance={workspace.finance} />}

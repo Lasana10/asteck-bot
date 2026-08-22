@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { BadgeCheck, ClipboardCheck, GraduationCap, IdCard, MailPlus, PenLine, QrCode, RefreshCw, UserPlus } from "lucide-react";
-import type { AssessmentCommand, AttendanceCommand, EnrollmentPayload, StaffInvitation } from "../domain/types";
+import type { AccessMembership, AssessmentCommand, AttendanceCommand, EnrollmentPayload, StaffInvitation } from "../domain/types";
 import { createIdempotencyKey } from "../domain/rules";
 import type { WorkspaceData } from "../lib/repository";
 
@@ -9,6 +9,7 @@ type Status = { tone: "idle" | "success" | "error"; message: string };
 export default function OperationalWorkflowsView({
   workspace,
   onInviteStaff,
+  onUpdateAccess,
   onEnrolLearner,
   onIssueCredential,
   onRecordAttendance,
@@ -17,6 +18,7 @@ export default function OperationalWorkflowsView({
 }: {
   workspace: WorkspaceData;
   onInviteStaff: (input: { email: string; fullName: string; role: StaffInvitation["role"]; idempotencyKey: string }) => Promise<unknown>;
+  onUpdateAccess: (membershipId:string,status:AccessMembership["status"]) => Promise<unknown>;
   onEnrolLearner: (input: EnrollmentPayload) => Promise<{ studentId: string; matricule: string }>;
   onIssueCredential: (studentId: string, validUntil: string, idempotencyKey: string) => Promise<{ credentialId: string; verificationToken: string }>;
   onRecordAttendance: (command: AttendanceCommand) => Promise<{ sessionId: string; recordedCount: number }>;
@@ -28,6 +30,7 @@ export default function OperationalWorkflowsView({
   const learners = workspace.learners;
   const classes = workspace.setup.classes.length ? workspace.setup.classes.map((item) => item.name) : Array.from(new Set(learners.map((item) => item.className)));
   const subjects = workspace.setup.subjects;
+  const canManageAccess = ["platform_founder","school_owner","principal","administrator"].includes(workspace.viewer.role);
 
   async function run(action: () => Promise<string>) {
     setStatus({ tone: "idle", message: "Saving..." });
@@ -58,7 +61,7 @@ export default function OperationalWorkflowsView({
         idempotencyKey: createIdempotencyKey("staff-invite"),
       });
       formElement.reset();
-      return "Staff invitation recorded and queued for delivery.";
+      return "Staff invitation recorded and Supabase Auth email requested.";
     });
   }
 
@@ -151,6 +154,7 @@ export default function OperationalWorkflowsView({
         <div className="form-grid"><label>Full name<input name="fullName" required/></label><label>Email<input name="email" type="email" required/></label><label>Role<select name="role" defaultValue="teacher"><option value="principal">Principal</option><option value="administrator">Administrator</option><option value="academic_head">Academic head</option><option value="bursar">Bursar / cashier</option><option value="accountant">Accountant</option><option value="teacher">Teacher</option><option value="tutor">Tutor</option><option value="auditor">Auditor</option></select></label></div>
         <button className="primary" type="submit"><UserPlus/>Create invitation</button>
         <small>{workspace.operations.invitations.filter((item) => item.status === "pending").length} pending invitations</small>
+        {canManageAccess&&workspace.operations.memberships.filter((item)=>item.status==="pending").map((membership)=><div className="access-review" key={membership.id}><span><strong>{membership.name}</strong><small>{membership.role.replaceAll("_"," ")}</small></span><button type="button" onClick={()=>run(async()=>{await onUpdateAccess(membership.id,"approved");return `${membership.name} approved.`})}>Approve</button><button type="button" onClick={()=>run(async()=>{await onUpdateAccess(membership.id,"rejected");return `${membership.name} rejected.`})}>Reject</button></div>)}
       </form>
       <form className="panel settings-form" onSubmit={enrol}>
         <div className="panel-title"><div><span>ONEFILE</span><h3>Enrol learner</h3></div><GraduationCap/></div>

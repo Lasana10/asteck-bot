@@ -1,9 +1,10 @@
-import type { AcademicYearConfig, AssessmentCommand, AttendanceCommand, BootstrapPayload, BootstrapStatus, ClassConfig, CommunitySignal, CredentialIssueResult, EnrollmentPayload, EnrollmentResult, FinanceSummary, LearnerSummary, OperationalSummary, PaymentCommand, PaymentReceipt, SchoolBrand, SchoolSetup, StaffInvitation, SubjectConfig, TeacherSummary, TermConfig } from "../domain/types";
+import type { AccessMembership, AcademicYearConfig, AssessmentCommand, AttendanceCommand, BootstrapPayload, BootstrapStatus, ClassConfig, CommunitySignal, CredentialIssueResult, EnrollmentPayload, EnrollmentResult, FinanceSummary, LearnerSummary, OperationalSummary, PaymentCommand, PaymentReceipt, Role, SchoolBrand, SchoolSetup, StaffInvitation, SubjectConfig, TeacherSummary, TermConfig } from "../domain/types";
 import { demoBrand, demoFinance, demoLearners, demoSetup, demoSignals, demoTeachers } from "../domain/demo";
 import { requirePositiveAmount, routeSignal } from "../domain/rules";
 import { isDemoMode, isSupabaseConfigured, supabase } from "./supabase";
 
 export interface WorkspaceData {
+  viewer: { name: string; email: string; role: Role };
   brand: SchoolBrand;
   setup: SchoolSetup;
   operations: OperationalSummary;
@@ -42,24 +43,26 @@ async function activeSchool() {
 
 export async function loadWorkspace(): Promise<WorkspaceData> {
   if (!isSupabaseConfigured || !supabase) {
-    if (isDemoMode) return { brand: demoBrand, setup: demoSetup, operations:{invitations:[],recentAttendance:0,recentAssessments:0}, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
+    if (isDemoMode) return { viewer:{name:"Demo leader",email:"demo@dreem.local",role:"principal"}, brand: demoBrand, setup: demoSetup, operations:{invitations:[],memberships:[],recentAttendance:0,recentAssessments:0}, learners: demoLearners, teachers: demoTeachers, signals: demoSignals, finance:demoFinance };
     throw new Error("DREEM is not connected to its Supabase project. Production data is unavailable.");
   }
 
   const { data: memberships, error: membershipError } = await supabase
     .from("dreem_school_memberships")
-    .select("school_id")
+    .select("school_id,role")
     .eq("status", "approved")
     .limit(1);
   if (membershipError) throw membershipError;
   const membership = memberships?.[0] as Record<string, unknown> | undefined;
   if (!membership) throw new Error("Your account is not attached to an active school.");
   const schoolId = String(membership.school_id);
-  const [schoolResult,brandResult] = await Promise.all([
+  const [schoolResult,brandResult,userResult] = await Promise.all([
     supabase.from("schools").select("name,slug").eq("id",schoolId).single(),
     supabase.from("dreem_school_brands").select("*").eq("school_id",schoolId).maybeSingle(),
+    supabase.auth.getUser(),
   ]);
   if(schoolResult.error) throw schoolResult.error;
+  if(userResult.error) throw userResult.error;
   const rawSchool=schoolResult.data;
   const rawBrand=brandResult.data;
 
@@ -90,6 +93,8 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   if (invitationResult.error) throw invitationResult.error;
   if (attendanceResult.error) throw attendanceResult.error;
   if (assessmentResult.error) throw assessmentResult.error;
+  const { data: membershipRows, error: membershipRowsError } = await supabase.from("dreem_school_memberships").select("id,profile_id,role,status").eq("school_id",schoolId);
+  if (membershipRowsError) throw membershipRowsError;
   const profileNames=new Map(
     (invitationResult.data??[])
       .filter((row)=>row.accepted_by)
@@ -107,6 +112,11 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
   const openExceptions=(reconciliationResult.data??[]).filter(row=>row.status==="pending"&&Number(row.variance)!==0);
 
   return {
+    viewer:{
+      name:String(userResult.data.user?.user_metadata?.full_name??userResult.data.user?.email??"DREEM user"),
+      email:String(userResult.data.user?.email??""),
+      role:String(membership.role) as Role,
+    },
     brand: {
       name:String(rawSchool.name),shortName:String(rawBrand?.short_name??rawSchool.slug?.slice(0,3).toUpperCase()??"DRM"),motto:String(rawBrand?.motto??""),address:String(rawBrand?.address_line??""),city:String(rawBrand?.city??""),
       subsystem:(rawBrand?.subsystem??"bilingual") as SchoolBrand["subsystem"],primaryColor:String(rawBrand?.primary_color??"#123b2c"),accentColor:String(rawBrand?.accent_color??"#c9df83"),
@@ -120,6 +130,7 @@ export async function loadWorkspace(): Promise<WorkspaceData> {
     },
     operations:{
       invitations:(invitationResult.data??[]).map((row):StaffInvitation=>({id:String(row.id),email:String(row.email),fullName:String(row.full_name),role:row.role as StaffInvitation["role"],status:row.status as StaffInvitation["status"],createdAt:String(row.created_at),expiresAt:String(row.expires_at)})),
+      memberships:(membershipRows??[]).map((row):AccessMembership=>({id:String(row.id),profileId:String(row.profile_id),name:profileNames.get(String(row.profile_id))??(String(row.profile_id)===userResult.data.user?.id?String(userResult.data.user?.user_metadata?.full_name??userResult.data.user?.email??"Current user"):"Invited user"),role:row.role as Role,status:row.status as AccessMembership["status"]})),
       recentAttendance:attendanceResult.data?.length??0,
       recentAssessments:assessmentResult.data?.length??0,
     },
@@ -174,7 +185,17 @@ export async function inviteStaff(input: { email: string; fullName: string; role
   });
   if (error) throw error;
   const invitation = Array.isArray(data) ? data[0] : data;
-  return { invitationId:String(invitation.invitation_id), status:String(invitation.invitation_status) };
+  const invitationId=String(invitation.invitation_id);
+  const { error: provisionError } = await supabase.functions.invoke("provision-access-user", { body:{ invitationId } });
+  if (provisionError) throw new Error(`The invitation was recorded but email provisioning failed: ${provisionError.message}`);
+  return { invitationId, status:String(invitation.invitation_status) };
+}
+
+export async function updateAccessStatus(membershipId:string,status:AccessMembership["status"]) {
+  if (!isSupabaseConfigured || !supabase) return { membershipId, status };
+  const { data, error } = await supabase.functions.invoke("update-access-status", { body:{ membershipId, status } });
+  if (error) throw new Error(error.message);
+  return data as { membershipId:string; status:AccessMembership["status"] };
 }
 
 export async function enrolLearner(input: EnrollmentPayload): Promise<EnrollmentResult> {

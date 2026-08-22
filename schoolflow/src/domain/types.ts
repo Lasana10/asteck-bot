@@ -119,6 +119,14 @@ export interface StaffInvitation {
   expiresAt: string;
 }
 
+export interface AccessMembership {
+  id: string;
+  profileId: string;
+  name: string;
+  role: Role;
+  status: "pending" | "approved" | "suspended" | "rejected";
+}
+
 export interface EnrollmentPayload {
   fullName: string;
   className: string;
@@ -174,6 +182,7 @@ export interface AssessmentCommand {
 
 export interface OperationalSummary {
   invitations: StaffInvitation[];
+  memberships: AccessMembership[];
   recentAttendance: number;
   recentAssessments: number;
 }
