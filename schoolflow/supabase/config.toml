@@ -1,0 +1,8 @@
+project_id = "vlukkucwtfmfgpzvjyvd"
+
+[functions.provision-access-user]
+verify_jwt = true
+
+[functions.update-access-status]
+verify_jwt = true
+
