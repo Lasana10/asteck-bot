@@ -47,4 +47,10 @@ create index dreem_payments_reversal_idx on public.dreem_financial_payments(reve
 create index dreem_payment_events_payment_created_idx on public.dreem_payment_events(payment_id,created_at);
 create index dreem_reconciliation_session_idx on public.dreem_reconciliation_reviews(cashier_session_id);
 
-revoke execute on function public.current_dreem_membership_status() from anon;
+do $$
+begin
+  if to_regprocedure('public.current_dreem_membership_status()') is not null then
+    execute 'revoke execute on function public.current_dreem_membership_status() from anon';
+  end if;
+end
+$$;

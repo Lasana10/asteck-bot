@@ -1,5 +1,14 @@
 -- Founder bootstrap and school-configuration foundations for DREEM.
 
+create table if not exists private.dreem_founder_allowlist (
+  normalized_email text primary key,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  check (normalized_email = lower(trim(normalized_email)))
+);
+
+revoke all on table private.dreem_founder_allowlist from public, anon, authenticated;
+
 alter table public.dreem_school_brands
   add column if not exists address_line text not null default '';
 
@@ -121,6 +130,7 @@ declare
   v_actor uuid := (select auth.uid());
   v_membership record;
   v_founder_exists boolean;
+  v_is_allowlisted boolean := false;
 begin
   if v_actor is null then
     raise exception 'Authentication is required.';
@@ -148,12 +158,19 @@ begin
     where m.status = 'approved' and m.role in ('platform_founder','school_owner')
   ) into v_founder_exists;
 
+  select exists(
+    select 1
+      from private.dreem_founder_allowlist a
+     where a.normalized_email = lower(trim(coalesce(auth.jwt()->>'email','')))
+       and a.enabled
+  ) into v_is_allowlisted;
+
   return jsonb_build_object(
-    'mode', case when v_founder_exists then 'claimed' else 'ready' end,
+    'mode', case when v_founder_exists then 'claimed' when v_is_allowlisted then 'ready' else 'restricted' end,
     'schoolId', null,
     'role', null,
     'status', null,
-    'canBootstrap', not v_founder_exists
+    'canBootstrap', (not v_founder_exists and v_is_allowlisted)
   );
 end;
 $$;

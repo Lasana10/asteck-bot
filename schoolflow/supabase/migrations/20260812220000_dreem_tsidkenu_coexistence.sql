@@ -3,6 +3,15 @@
 
 create schema if not exists private;
 
+-- Dedicated DREEM projects do not have TSIDKENU's public.profiles table.
+-- Link learner self-service accounts directly to auth.users instead.
+alter table public.students
+  add column if not exists profile_id uuid references auth.users(id) on delete set null;
+
+create unique index if not exists dreem_students_school_profile_idx
+  on public.students(school_id, profile_id)
+  where profile_id is not null;
+
 create or replace function private.dreem_is_member(p_school_id uuid)
 returns boolean language sql stable security definer set search_path='' as $$
   select (select auth.uid()) is not null and exists(
@@ -24,7 +33,7 @@ returns boolean language sql stable security definer set search_path='' as $$
   select (select auth.uid()) is not null and (
     private.dreem_has_role(p_school_id,array['leadership','support','bursar','teacher'])
     or exists(select 1 from public.students s where s.id=p_student_id and s.school_id=p_school_id
-      and ((select auth.uid())=any(coalesce(s.parent_user_ids,array[]::uuid[])) or s.matricule=(select p.matricule from public.profiles p where p.id=(select auth.uid()))) )
+      and (s.profile_id=(select auth.uid()) or (select auth.uid())=any(coalesce(s.parent_user_ids,array[]::uuid[]))) )
   );
 $$;
 
