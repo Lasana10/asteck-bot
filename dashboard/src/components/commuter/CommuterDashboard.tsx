@@ -114,6 +114,21 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [missionInFlight, setMissionInFlight] = useState<string | null>(null);
 
   useEffect(() => {
+    if (activeTab === 'home') setView('home');
+    if (activeTab === 'book' || activeTab === 'bookings') setView('departures');
+    if (activeTab === 'notifications') setView('alerts');
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!isReportModalOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsReportModalOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [isReportModalOpen]);
+
+  useEffect(() => {
     const fetchSentiment = async () => {
       const language = profile?.language || 'fr';
       const sentiment = await IntelligenceEngine.predict('Yaoundé Sector 4', language);
@@ -641,7 +656,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
                 <p className="text-[7px] font-black text-white/40 uppercase tracking-widest">Grid Nodes Active</p>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-black text-blue-400 uppercase tracking-tight">{activeVehicles.length} Sentinels</span>
-                  <span className="text-[9px] font-black text-emerald-400 uppercase tracking-tight">412 Guardians</span>
+                  <span className="text-[9px] font-black text-emerald-400 uppercase tracking-tight">{activeCheckpoints.length} Checkpoints</span>
                 </div>
              </div>
              <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
@@ -669,10 +684,12 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             </div>
             <div className="flex-1 overflow-hidden whitespace-nowrap">
                <div className="inline-block animate-marquee hover:pause-marquee cursor-default">
-                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🛰️ Satellite link established via Starlink • Signal: 98%</span>
-                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🤖 AFAT Intelligence: Scanning for road hazards...</span>
-                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🚕 Node 442 verified at Carrefour Bastos • Status: Punctual</span>
-                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">🛡️ Sentinel Protocols: ACTIVE. All citizens safely tracked.</span>
+                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">{activeVehicles.length} verified transport nodes currently visible</span>
+                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">{incidents.length} recent safety reports in the active feed</span>
+                  <span className="text-[10px] font-bold text-white/70 italic tracking-tight mr-12">{activeCheckpoints.length} active checkpoints received from live data</span>
+                  {!activeVehicles.length && !incidents.length && !activeCheckpoints.length && (
+                    <span className="text-[10px] font-bold text-amber-200/80 italic tracking-tight mr-12">No verified live mobility signals available yet</span>
+                  )}
                </div>
             </div>
             <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-slate-900 to-transparent pointer-events-none" />
@@ -689,11 +706,11 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             </div>
             <div>
               <h3 className="text-[13px] font-black text-white uppercase tracking-tight italic leading-tight">No Internet? No Problem.</h3>
-              <p className="text-[10px] text-emerald-400 font-bold tracking-widest uppercase mt-0.5">Dial *121# for AFAT Intelligence</p>
+              <p className="text-[10px] text-emerald-400 font-bold tracking-widest uppercase mt-0.5">USSD access pilot — availability varies by network</p>
             </div>
           </div>
           <div className="relative z-10 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase tracking-widest whitespace-nowrap">
-            FREE DIAL
+            PILOT
           </div>
         </div>
       </div>
@@ -782,7 +799,9 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         <div className="absolute top-4 right-4 z-[1000] pointer-events-none">
            <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl animate-in slide-in-from-right duration-500 pointer-events-auto text-right">
               <p className="text-[8px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Grid Security</p>
-              <p className="font-black text-emerald-400 text-[10px] italic uppercase">LEVEL: STABLE</p>
+              <p className={`font-black text-[10px] italic uppercase ${incidents.length || activeVehicles.length ? 'text-emerald-400' : 'text-amber-300'}`}>
+                {incidents.length || activeVehicles.length ? 'VERIFIED FEED ACTIVE' : 'NO VERIFIED SIGNALS'}
+              </p>
            </div>
         </div>
 
@@ -806,7 +825,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
               </div>
               <div>
                 <p className="text-[12px] font-black text-white uppercase tracking-tight">Your Route Intelligence</p>
-                <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest">Personalized • Live</p>
+                <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest">{activeVehicles.length || incidents.length ? 'Personalized • Live data' : 'Waiting for verified data'}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
@@ -893,7 +912,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           </div>
 
           {/* AI Sentiment Analysis */}
-          {aiSentiment && (
+          {aiSentiment && (activeVehicles.length > 0 || incidents.length > 0) && (
             <div className="mt-4 pt-4 border-t border-white/5">
               <div className="flex items-center gap-2 mb-2">
                 <Radio className="w-3 h-3 text-blue-400 animate-pulse" />
@@ -911,8 +930,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       <div className="px-5 py-3 flex items-center gap-3 overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-2 bg-white/4 border border-white/6 px-3 py-2 rounded-xl shrink-0">
           <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-          <span className="text-[11px] font-bold text-white/70">Safety Score</span>
-          <span className="text-[11px] font-black text-green-400">92%</span>
+          <span className="text-[11px] font-bold text-white/70">Safety status</span>
+          <span className="text-[11px] font-black text-green-400">{incidents.length || activeVehicles.length ? `${Math.max(0, 100 - incidents.filter((incident) => incident.severity >= 4).length * 20)}%` : 'No data'}</span>
         </div>
         <div className="flex items-center gap-2 bg-white/4 border border-white/6 px-3 py-2 rounded-xl shrink-0">
           <Star className="w-3.5 h-3.5 text-amber-400" />
@@ -1565,12 +1584,17 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
       {/* ── Report Modal ──────────────────────────────── */}
       {isReportModalOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200">
-          <div className="bg-[#0f1520] border border-white/10 w-full max-w-md rounded-3xl p-6 relative">
-            <button onClick={() => setIsReportModalOpen(false)} className="absolute top-5 right-5 text-white/30 hover:text-white transition-colors">
+        <div
+          className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsReportModalOpen(false);
+          }}
+        >
+          <div role="dialog" aria-modal="true" aria-labelledby="incident-report-title" className="bg-[#0f1520] border border-white/10 w-full max-w-md rounded-3xl p-6 relative">
+            <button type="button" aria-label="Close incident report" onClick={() => setIsReportModalOpen(false)} className="absolute top-5 right-5 text-white/50 hover:text-white transition-colors">
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-black text-white mb-1">Signaler un Incident</h3>
+            <h3 id="incident-report-title" className="text-lg font-black text-white mb-1">Signaler un Incident</h3>
             <p className="text-[11px] text-white/30 mb-5">Partagé sur App + Telegram + SMS</p>
             <form onSubmit={submitReport} className="space-y-4">
               <select

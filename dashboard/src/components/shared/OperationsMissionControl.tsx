@@ -18,6 +18,7 @@ import {
   fetchLiveMapOps,
   fetchPaymentProviderReadiness
 } from '../../supabaseClient';
+import { calculateOperationalReadiness } from '../../utils/productionTruth';
 
 type Role = 'commuter' | 'operator' | 'planner' | 'admin';
 type Action = 'book' | 'report' | 'drive' | 'compliance' | 'dispatch' | 'onboard';
@@ -93,11 +94,10 @@ export function OperationsMissionControl({ role, profile, city, compact = false,
     const checks = [
       apiStatus === 'live',
       Boolean(ops),
-      paymentLive || paymentMode === 'stub',
+      paymentLive,
       role === 'commuter' || role === 'operator' || complianceScore !== null
     ];
-    const score = Math.round((checks.filter(Boolean).length / checks.length) * 100);
-    return Math.max(25, score);
+    return calculateOperationalReadiness(checks);
   }, [apiStatus, ops, paymentLive, paymentMode, role, complianceScore]);
 
   const refresh = async () => {

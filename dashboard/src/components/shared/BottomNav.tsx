@@ -75,6 +75,9 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
           return (
             <button
               key={tab.id}
+              type="button"
+              aria-label={tab.label}
+              aria-current={isActive ? 'page' : undefined}
               onClick={() => onTabChange(tab.id)}
               className={`flex-1 flex flex-col items-center gap-1.5 transition-all duration-300 relative group py-2 rounded-2xl ${
                 isActive ? accentText : 'text-slate-500 hover:text-cyan-200'
