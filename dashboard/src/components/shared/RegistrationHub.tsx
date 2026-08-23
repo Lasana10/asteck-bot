@@ -248,6 +248,28 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
     }
   }, [initialTrack, isVisible, prefillPhone]);
 
+  const openTrack = (nextTrack: RegistrationTrack) => {
+    setDriverName('');
+    setGovId('');
+    setPlateNumber('');
+    setEmergencyContact('');
+    setCommuterCity('');
+    setCommuterZone('');
+    setDriverNationalId('');
+    setDriverLicenseNumber('');
+    setDriverCapacity('');
+    setBaseCity('');
+    setOperatingZone('');
+    setAffiliationName('');
+    setCompanyName('');
+    setContactPerson('');
+    setFleetSize('');
+    setServiceCoverage('');
+    setCompanyNotes('');
+    setErrorText('');
+    setTrack(nextTrack);
+  };
+
   if (!isVisible) return null;
 
   const serviceProfile = SERVICE_PLAYBOOK[vehicleType] || SERVICE_PLAYBOOK.taxi;
@@ -435,7 +457,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                'Node Registration'}
             </p>
           </div>
-          <button onClick={onClose} className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+          <button type="button" aria-label="Close registration" onClick={onClose} className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -456,7 +478,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </p>
 
               <button 
-                onClick={() => setTrack('commuter')}
+                onClick={() => openTrack('commuter')}
                 className="w-full bg-emerald-950/30 border border-emerald-500/30 rounded-3xl p-6 text-left hover:bg-emerald-900/40 hover:border-emerald-400/50 transition-all group"
               >
                 <Users className="w-8 h-8 text-emerald-400 mb-4" />
@@ -465,7 +487,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </button>
 
               <button 
-                onClick={() => setTrack('gov_link')}
+                onClick={() => openTrack('gov_link')}
                 className="w-full bg-blue-950/30 border border-blue-500/30 rounded-3xl p-6 text-left hover:bg-blue-900/40 hover:border-blue-400/50 transition-all group relative overflow-hidden"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-transparent translate-x-[-100%] group-hover:translate-x-[0%] transition-transform duration-500"></div>
@@ -475,7 +497,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </button>
 
               <button 
-                onClick={() => setTrack('citizen_reg')}
+                onClick={() => openTrack('citizen_reg')}
                 className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 text-left hover:bg-white/10 hover:border-white/20 transition-all group"
               >
                 <Compass className="w-8 h-8 text-slate-300 mb-4" />
@@ -484,7 +506,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </button>
 
               <button 
-                onClick={() => setTrack('company')}
+                onClick={() => openTrack('company')}
                 className="w-full bg-amber-950/30 border border-amber-500/30 rounded-3xl p-6 text-left hover:bg-amber-900/40 hover:border-amber-400/50 transition-all group"
               >
                 <FileText className="w-8 h-8 text-amber-400 mb-4" />

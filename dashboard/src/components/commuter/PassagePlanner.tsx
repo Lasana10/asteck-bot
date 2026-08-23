@@ -6,6 +6,7 @@ import {
   resolveAfatPlace,
 } from '../../supabaseClient';
 import type { AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
+import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 
 type Props = {
   profile: any;
@@ -52,8 +53,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       return;
     }
 
-    setCandidates(data?.candidates || []);
-    setStatusText(data?.message || 'Place candidates loaded.');
+    const relevantCandidates = filterRelevantPlaceCandidates(destination, data?.candidates || []);
+
+    setCandidates(relevantCandidates);
+    setStatusText(relevantCandidates.length
+      ? (data?.message || 'Relevant place candidates loaded.')
+      : 'No sufficiently relevant verified match was found. AFAT will not guess; refine the landmark or submit it for mapping review.');
   };
 
   const selectCandidate = (candidate: AfatPlaceCandidate) => {
