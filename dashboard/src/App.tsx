@@ -13,6 +13,7 @@ import { telemetry } from './services/telemetryService';
 import { AICopilot } from './components/shared/AICopilot';
 import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 import { TurnstileGate } from './components/shared/TurnstileGate';
+import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
 
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
@@ -922,8 +923,12 @@ export default function App() {
 }
 
 function AppShell() {
-  const showDevOverride = new URLSearchParams(window.location.search).get('devOverride') === '1';
-  const isLocalReview = ['localhost', '127.0.0.1'].includes(window.location.hostname) || new URLSearchParams(window.location.search).get('review') === '1';
+  const isLocalHost = isLoopbackHost(window.location.hostname);
+  // Never allow URL parameters to unlock roles in a deployed build. Local review
+  // is deliberately restricted to loopback hosts and remains protected by the
+  // backend/RLS boundary for every persisted operation.
+  const showDevOverride = isLocalHost && new URLSearchParams(window.location.search).get('devOverride') === '1';
+  const isLocalReview = isLocalReviewAllowed(window.location.hostname, window.location.search);
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);

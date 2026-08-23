@@ -10,6 +10,7 @@
     "test:env:complete": "node ./scripts/validate-pages-env.cjs --mode=complete",
     "test:env:cf-no-api": "node ./scripts/validate-pages-env.cjs --mode=cf-no-api",
     "build": "vite build",
+    "test": "vitest run",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -17,6 +18,7 @@
     "@supabase/supabase-js": "^2.100.1",
     "@tailwindcss/postcss": "^4.2.1",
     "@types/leaflet": "^1.9.21",
+    "framer-motion": "^12.0.0",
     "html5-qrcode": "^2.3.8",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
@@ -25,7 +27,6 @@
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "framer-motion": "^12.0.0",
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.13.1"
   },
@@ -43,6 +44,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "vite": "^7.3.1",
-    "vite-plugin-pwa": "^1.2.0"
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.0.18"
   }
 }
