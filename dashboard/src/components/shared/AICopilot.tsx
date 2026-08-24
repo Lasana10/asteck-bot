@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Loader2, Bot, Sparkles, Camera, Cpu, Mic } from 'lucide-react';
-import { getApiBaseUrl } from '../../supabaseClient';
+import { afatAuthHeaders, getApiBaseUrl } from '../../supabaseClient';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -68,7 +68,7 @@ Use phrases like "heads-up", "usually at this hour", "from what we see" instead 
   const callBackendAI = async (payload: Record<string, any>): Promise<string> => {
     const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify(payload),
     });
 
@@ -111,7 +111,7 @@ User input: "${userText}"`;
   const callLlamaVision = async (base64Image: string): Promise<string> => {
     const response = await fetch(`${getApiBaseUrl()}/api/ai/vision`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify({
         image: base64Image,
         prompt: systemPrompt + '\n\nAnalyze this traffic photo. Describe what you see, identify any incidents, hazards, or notable conditions. Be concise.'
