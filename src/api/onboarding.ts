@@ -7,6 +7,7 @@
 import express, { Request, Response } from 'express';
 import { supabase } from '../infra/supabase';
 import { aiRouter } from '../services/AIRouter';
+import { getAuthProfileByToken, requireAuthRole } from './routes';
 
 const router = express.Router();
 
@@ -33,14 +34,14 @@ function isOperatorApproved(profile: any) {
   return String(profile?.operator_application_status || '').toUpperCase() === 'APPROVED';
 }
 
-async function getOptionalSupabaseUser(req: Request) {
-  const header = String(req.headers.authorization || '');
-  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7) : '';
-  if (!token) return null;
+async function getOptionalAuthUser(req: Request) {
+  const { auth } = await getAuthProfileByToken(req);
+  if (!auth?.sub) return null;
+  return { id: String(auth.sub), email: auth.email ? String(auth.email) : null };
+}
 
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data?.user?.id) return null;
-  return data.user;
+function canResumeProfile(existing: any, authUser: { id: string } | null) {
+  return Boolean(existing && authUser?.id && existing.id === authUser.id);
 }
 
 async function findExistingProfile(params: { authUserId?: string; phone?: string }) {
@@ -150,7 +151,7 @@ function buildCompanyComplianceRecords(params: {
 // ── DRIVER ONBOARDING ────────────────────────────────────────────────────────
 router.post('/driver/register', async (req: Request, res: Response) => {
   try {
-    const authUser = await getOptionalSupabaseUser(req);
+    const authUser = await getOptionalAuthUser(req);
     const {
       full_name, phone, national_id, license_number,
       vehicle_type, vehicle_plate, vehicle_capacity,
@@ -182,6 +183,9 @@ router.post('/driver/register', async (req: Request, res: Response) => {
     const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
     if (existing) {
+      if (!canResumeProfile(existing, authUser)) {
+        return res.status(409).json({ error: 'This operator profile already exists. Sign in to resume it.' });
+      }
       const contractorCode = existing.contractor_code || `AFAT-D-${Date.now().toString(36).toUpperCase()}`;
       const applicationStatus = isOperatorApproved(existing)
         ? 'APPROVED'
@@ -388,16 +392,19 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 // ── VEHICLE REGISTRATION ─────────────────────────────────────────────────────
 router.post('/vehicle/register', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
+    if (!access) return;
     const { driver_id, plate_number, vehicle_type, capacity, brand, model, year, color } = req.body;
+    const resolvedDriverId = access.profile.role === 'operator' ? access.profile.id : driver_id;
 
-    if (!driver_id || !plate_number || !vehicle_type) {
+    if (!resolvedDriverId || !plate_number || !vehicle_type) {
       return res.status(400).json({ error: 'Missing: driver_id, plate_number, vehicle_type' });
     }
 
     const { data, error } = await supabase
       .from('vehicles')
       .insert({
-        operator_id: driver_id,
+        operator_id: resolvedDriverId,
         plate_number,
         type: vehicle_type,
         capacity: capacity || 4,
@@ -421,7 +428,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
 // ── PASSENGER REGISTRATION ───────────────────────────────────────────────────
 router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
-    const authUser = await getOptionalSupabaseUser(req);
+    const authUser = await getOptionalAuthUser(req);
     const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
     const resolvedName = normalizeOptionalText(full_name);
@@ -435,6 +442,9 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
     const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
     if (existing) {
+      if (!canResumeProfile(existing, authUser)) {
+        return res.status(409).json({ error: 'This commuter profile already exists. Sign in to resume it.' });
+      }
       const { data, error } = await supabase
         .from('profiles')
         .update({
@@ -502,7 +512,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
 // ── COMPANY / FLEET REGISTRATION ────────────────────────────────────────────
 router.post('/company/register', async (req: Request, res: Response) => {
   try {
-    const authUser = await getOptionalSupabaseUser(req);
+    const authUser = await getOptionalAuthUser(req);
     const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
 
@@ -516,6 +526,9 @@ router.post('/company/register', async (req: Request, res: Response) => {
     }
 
     const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
+    if (existing && !canResumeProfile(existing, authUser)) {
+      return res.status(409).json({ error: 'This fleet profile already exists. Sign in to resume it.' });
+    }
 
     const profilePayload = existing
       ? supabase
@@ -641,10 +654,13 @@ router.post('/company/register', async (req: Request, res: Response) => {
 // ── CLIENT FARE POSTING (Passengers post their prices) ───────────────────────
 router.post('/fare/post', async (req: Request, res: Response) => {
   try {
-    const { passenger_id, origin, destination, proposed_price, vehicle_type, departure_time, notes } = req.body;
+    const access = await requireAuthRole(req, res, ['commuter']);
+    if (!access) return;
+    const { origin, destination, proposed_price, vehicle_type, departure_time, notes } = req.body;
+    const resolvedPassengerId = access.profile.id;
 
-    if (!passenger_id || !origin || !destination || !proposed_price) {
-      return res.status(400).json({ error: 'Missing: passenger_id, origin, destination, proposed_price' });
+    if (!origin || !destination || !proposed_price) {
+      return res.status(400).json({ error: 'Missing: origin, destination, proposed_price' });
     }
 
     // Generate a meeting code for the checkpoint
@@ -653,7 +669,7 @@ router.post('/fare/post', async (req: Request, res: Response) => {
     const { data, error } = await supabase
       .from('fare_requests')
       .insert({
-        passenger_id,
+        passenger_id: resolvedPassengerId,
         origin,
         destination,
         proposed_price,
@@ -684,6 +700,8 @@ router.post('/fare/post', async (req: Request, res: Response) => {
 // ── DRIVERS BROWSE OPEN FARES ────────────────────────────────────────────────
 router.get('/fare/browse', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
+    if (!access) return;
     const { origin, destination, vehicle_type } = req.query;
 
     let query = supabase
@@ -710,11 +728,14 @@ router.get('/fare/browse', async (req: Request, res: Response) => {
 // ── DRIVER ACCEPTS / NEGOTIATES FARE ─────────────────────────────────────────
 router.post('/fare/respond', async (req: Request, res: Response) => {
   try {
-    const { fare_id, driver_id, action, counter_price } = req.body;
+    const access = await requireAuthRole(req, res, ['operator']);
+    if (!access) return;
+    const { fare_id, action, counter_price } = req.body;
+    const resolvedDriverId = access.profile.id;
     // action: 'accept' | 'counter' | 'reject'
 
-    if (!fare_id || !driver_id || !action) {
-      return res.status(400).json({ error: 'Missing: fare_id, driver_id, action' });
+    if (!fare_id || !action) {
+      return res.status(400).json({ error: 'Missing: fare_id, action' });
     }
 
     if (action === 'accept') {
@@ -730,7 +751,7 @@ router.post('/fare/respond', async (req: Request, res: Response) => {
       }
 
       // Update fare status
-      await supabase.from('fare_requests').update({ status: 'confirmed', matched_driver_id: driver_id }).eq('id', fare_id);
+      await supabase.from('fare_requests').update({ status: 'confirmed', matched_driver_id: resolvedDriverId }).eq('id', fare_id);
 
       res.status(200).json({
         success: true,
@@ -768,16 +789,19 @@ router.post('/fare/respond', async (req: Request, res: Response) => {
 // ── DRIVER POSTS AVAILABILITY/PRICE ──────────────────────────────────────────
 router.post('/fare/driver-post', async (req: Request, res: Response) => {
   try {
-    const { driver_id, origin, destination, price, vehicle_type, departure_time } = req.body;
+    const access = await requireAuthRole(req, res, ['operator']);
+    if (!access) return;
+    const { origin, destination, price, vehicle_type, departure_time } = req.body;
+    const resolvedDriverId = access.profile.id;
 
-    if (!driver_id || !origin || !destination || !price) {
-      return res.status(400).json({ error: 'Missing: driver_id, origin, destination, price' });
+    if (!origin || !destination || !price) {
+      return res.status(400).json({ error: 'Missing: origin, destination, price' });
     }
 
     const { data, error } = await supabase
       .from('driver_offers')
       .insert({
-        driver_id,
+        driver_id: resolvedDriverId,
         origin,
         destination,
         price,
@@ -805,6 +829,8 @@ router.post('/fare/driver-post', async (req: Request, res: Response) => {
 // ── MARKET INTELLIGENCE (Get Average & Suggested Price) ──────────────────────
 router.get('/fare/market-stats', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { origin, destination } = req.query;
 
     if (!origin || !destination) {
@@ -848,7 +874,11 @@ router.get('/fare/market-stats', async (req: Request, res: Response) => {
 // ── FATIGUE CHECK ────────────────────────────────────────────────────────────
 router.get('/driver/fatigue/:driver_id', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { driver_id } = req.params;
+    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    if (!isStaff && access.profile.id !== driver_id) return res.status(403).json({ error: 'Forbidden' });
 
     const { data: profile } = await supabase
       .from('profiles')
@@ -890,22 +920,29 @@ router.get('/driver/fatigue/:driver_id', async (req: Request, res: Response) => 
 // ── LOG DRIVE TIME ───────────────────────────────────────────────────────────
 router.post('/driver/log-time', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
+    if (!access) return;
     const { driver_id, hours } = req.body;
+    const resolvedDriverId = access.profile.role === 'operator' ? access.profile.id : driver_id;
+    const parsedHours = Number(hours);
+    if (!resolvedDriverId || !Number.isFinite(parsedHours) || parsedHours <= 0 || parsedHours > 24) {
+      return res.status(400).json({ error: 'Valid driver_id and hours between 0 and 24 are required' });
+    }
 
     const { data: profile } = await supabase
       .from('profiles')
       .select('fatigue_hours_today')
-      .eq('id', driver_id)
+      .eq('id', resolvedDriverId)
       .single();
 
     if (!profile) return res.status(404).json({ error: 'Driver not found' });
 
-    const newHours = (profile.fatigue_hours_today || 0) + (hours || 0);
+    const newHours = Math.min(24, (profile.fatigue_hours_today || 0) + parsedHours);
 
     await supabase
       .from('profiles')
       .update({ fatigue_hours_today: newHours })
-      .eq('id', driver_id);
+      .eq('id', resolvedDriverId);
 
     res.status(200).json({ success: true, total_hours_today: newHours });
   } catch (error: any) {
@@ -916,7 +953,11 @@ router.post('/driver/log-time', async (req: Request, res: Response) => {
 // ── CONTRACTOR AGREEMENT INFO ────────────────────────────────────────────────
 router.get('/driver/contract/:driver_id', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { driver_id } = req.params;
+    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    if (!isStaff && access.profile.id !== driver_id) return res.status(403).json({ error: 'Forbidden' });
 
     const { data: profile } = await supabase
       .from('profiles')
