@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CreditCard, Check, Loader2, Shield } from 'lucide-react';
-import { fetchPaymentProviderReadiness, finalizeBookingPayment, getApiBaseUrl } from '../../supabaseClient';
+import { fetchBookingStatus, fetchPaymentProviderReadiness, finalizeBookingPayment, startBookingMobilePayment } from '../../supabaseClient';
 
 interface Props {
   amount: number;
@@ -19,6 +19,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
   const [completed, setCompleted] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [providerReadiness, setProviderReadiness] = useState<any>(null);
+  const [pendingTransactionId, setPendingTransactionId] = useState('');
 
   useEffect(() => {
     fetchPaymentProviderReadiness().then(({ data }) => {
@@ -45,45 +46,22 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
     setProcessing(true);
     setErrorText('');
 
-    const txId = selectedMethod === 'cash'
-      ? `CASH-${Date.now().toString(36).toUpperCase()}`
-      : `TX-${Date.now().toString(36).toUpperCase()}`;
-
     try {
       if (selectedMethod !== 'cash') {
-        const response = await fetch(`${getApiBaseUrl()}/api/payment/checkout`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount,
-            phone,
-            booking_id: bookingId,
-            provider: 'pawapay',
-            mobile_network: selectedMethod,
-          })
+        const { data: checkout, error: checkoutError } = await startBookingMobilePayment({
+          bookingId,
+          phone,
+          mobileNetwork: selectedMethod,
         });
-
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || result.message || 'Le paiement mobile money a echoue.');
+        if (checkoutError || !checkout?.transactionId) {
+          throw new Error(checkoutError?.message || 'Le paiement mobile money n’a pas pu demarrer.');
         }
-
-        const { error } = await finalizeBookingPayment(bookingId, selectedMethod, result.transactionId);
-        if (error) {
-          throw new Error(error?.message || 'Impossible de lier le paiement a la reservation.');
-        }
-
-        setProcessing(false);
-        setCompleted(true);
-
-        setTimeout(() => {
-          onPaymentComplete(selectedMethod, result.transactionId);
-        }, 1500);
+        setPendingTransactionId(checkout.transactionId);
+        await checkPendingPayment(checkout.transactionId, true);
         return;
       }
 
-      const { data: finalizeData, error } = await finalizeBookingPayment(bookingId, selectedMethod, txId);
+      const { data: finalizeData, error } = await finalizeBookingPayment(bookingId, selectedMethod);
       if (error || !finalizeData?.success) {
         throw new Error(error?.message || 'Impossible de finaliser le paiement.');
       }
@@ -99,6 +77,36 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
       setProcessing(false);
       setErrorText(err.message || 'Impossible de finaliser le paiement.');
     }
+  };
+
+  const checkPendingPayment = async (transactionId: string, keepPolling = false) => {
+    if (!bookingId || !selectedMethod || selectedMethod === 'cash') return;
+    setProcessing(true);
+    setErrorText('');
+
+    const attempts = keepPolling ? 30 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const { data, error } = await fetchBookingStatus(bookingId);
+      const booking = data?.booking;
+      if (!error && ['paid', 'paid_momo'].includes(String(booking?.payment_status))) {
+        setProcessing(false);
+        setCompleted(true);
+        setTimeout(() => onPaymentComplete(selectedMethod, transactionId), 900);
+        return;
+      }
+      if (!error && booking?.payment_status === 'failed') {
+        setProcessing(false);
+        setPendingTransactionId('');
+        setErrorText('Le fournisseur a refuse le paiement. Aucun billet n’a ete emis.');
+        return;
+      }
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      }
+    }
+
+    setProcessing(false);
+    setErrorText('La demande a ete envoyee, mais AFAT attend encore la confirmation du fournisseur. Ne payez pas une seconde fois; utilisez “Verifier le paiement”.');
   };
 
   if (completed) {
@@ -156,6 +164,21 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         {errorText && (
           <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {errorText}
+          </div>
+        )}
+
+        {pendingTransactionId && (
+          <div className="mb-4 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-sm text-blue-100">
+            <p className="font-black">Confirmation du fournisseur en attente</p>
+            <p className="mt-1 text-xs text-blue-100/70">Reference: {pendingTransactionId}</p>
+            <button
+              type="button"
+              disabled={processing}
+              onClick={() => checkPendingPayment(pendingTransactionId)}
+              className="mt-3 rounded-xl border border-blue-300/20 bg-blue-400/10 px-4 py-2 text-xs font-black uppercase tracking-widest"
+            >
+              Verifier le paiement
+            </button>
           </div>
         )}
         
@@ -235,7 +258,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         {/* Pay Button */}
         <button
           onClick={handlePay}
-          disabled={!selectedMethod || processing || (selectedMethod !== 'cash' && phone.length < 8)}
+          disabled={!selectedMethod || processing || Boolean(pendingTransactionId) || (selectedMethod !== 'cash' && phone.length < 8)}
           className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${
             selectedMethod && !processing
               ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]'

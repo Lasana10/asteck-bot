@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, MapPin, Users, ChevronRight, Search, Filter, ArrowLeft, RefreshCw } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { fetchPublishedDepartures, supabase } from '../../supabaseClient';
 
 interface Departure {
   id: string;
@@ -17,6 +17,7 @@ interface Departure {
   operator_name: string;
   plate_number: string;
   rating: number;
+  occupied_seats?: string[];
 }
 
 interface Props {
@@ -49,16 +50,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
     setLoading(true);
     setFeedHealthy(true);
     
-    // Query routes with operator info
-    const { data: routes, error: routesError } = await supabase
-      .from('routes')
-      .select(`
-        id, name, origin, destination, price_per_seat, vehicle_type, departure_time,
-        capacity, operator_id,
-        profiles:operator_id ( full_name )
-      `)
-      .eq('is_active', true)
-      .limit(20);
+    const { data, error: routesError } = await fetchPublishedDepartures();
 
     if (routesError) {
       console.error('[AFAT] Failed to load departures', routesError);
@@ -68,35 +60,8 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
       return;
     }
 
-    if (routes && routes.length > 0) {
-      // Fetch booked seats for these routes to calculate availability
-      const routeIds = routes.map((r: any) => r.id);
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select('route_id')
-        .in('route_id', routeIds)
-        .in('status', ['pending', 'confirmed', 'completed']);
-
-      const mapped: Departure[] = routes.map((r: any) => {
-        const routeBookings = bookings?.filter((b: any) => b.route_id === r.id).length || 0;
-        return {
-          id: r.id,
-          vehicle_id: r.id, // Using route id as surrogate if no vehicle link
-          route_name: r.name,
-          origin: r.origin,
-          destination: r.destination,
-          departure_time: r.departure_time,
-          price_xaf: r.price_per_seat,
-          total_seats: r.capacity || 4,
-          booked_seats: routeBookings,
-          vehicle_type: r.vehicle_type || 'taxi',
-          operator_id: r.operator_id,
-          operator_name: r.profiles?.full_name || 'Chauffeur',
-          plate_number: 'CE XXXX', // Plate number could be added to routes or linked vehicles
-          rating: 4.5,
-        };
-      });
-      setDepartures(mapped);
+    if (data?.departures?.length) {
+      setDepartures(data.departures);
     } else {
       setDepartures([]);
     }

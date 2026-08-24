@@ -5,7 +5,7 @@ import {
   MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio, Megaphone,
   Database, Download, CheckCircle, Activity, Layout, Layers, Box, Cloud, Wifi, RefreshCw, ArrowUpRight
 } from 'lucide-react';
-import { fetchLiveMapOps, fetchPassageIntents, getOperatorWalletLedger, reportPassageOutcome, requestOperatorWithdrawal, submitNegotiationOffer, supabase, updatePassageIntentStatus } from '../../supabaseClient';
+import { completeOperatorTrip, fetchLiveMapOps, fetchPassageIntents, getOperatorWalletLedger, reportPassageOutcome, requestOperatorWithdrawal, submitNegotiationOffer, supabase, updatePassageIntentStatus } from '../../supabaseClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { VoiceReporter } from '../shared/VoiceReporter';
 import { QRCodeGenerator } from '../shared/QRCodeGenerator';
@@ -232,7 +232,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     const [{ data }, openPassages, assignedPassages] = await Promise.all([
       supabase
         .from('bookings').select('*, routes(name, price_per_seat)')
-        .eq('operator_id', profile.id).eq('status', 'pending').order('created_at', { ascending: false }),
+        .eq('operator_id', profile.id).in('status', ['confirmed', 'boarded', 'in_progress']).order('created_at', { ascending: false }),
       fetchPassageIntents({ open: true }),
       fetchPassageIntents({ operator_id: profile.id }),
     ]);
@@ -333,6 +333,17 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
       : 'cancelled' }).eq('id', bookingId);
     setOperatorNotice('Signal declined. AFAT released that seat request back to the marketplace.');
     fetchRequests();
+  };
+
+  const completeTrip = async (bookingId: string) => {
+    const { error } = await completeOperatorTrip(bookingId);
+    if (error) {
+      setOperatorNotice(`Trip could not be completed: ${error.message}`);
+      return;
+    }
+    setOperatorNotice('Trip completed. Dispatch, receipt, wallet ledger, and audit history are synchronized.');
+    setLastBoardedBookingId(null);
+    await Promise.all([fetchRequests(), fetchWallet(), fetchWalletLedger()]);
   };
 
   const handleCounterOffer = async (price: number) => {
@@ -599,34 +610,22 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                 </div>
               </div>
               
-              <div className="flex gap-3 relative z-10 mb-3">
-                <button
-                  onClick={() => {
-                    setNegotiatingRequest(req);
-                    setOperatorNotice('Negotiation channel opened. Counter offers here are tied to the live booking thread.');
-                  }}
-                  className="flex-1 bg-white/5 border border-blue-500/30 text-blue-400 font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em]"
-                >
-                  <TrendingUp className="w-4 h-4" /> Negocier
-                </button>
-              </div>
-
               <div className="flex gap-3 relative z-10">
-                <button
-                  onClick={() => {
-                    acceptRequest(req.id, req.routes?.price_per_seat || 0);
-                    setOperatorNotice(`Passenger request confirmed at ${(req.routes?.price_per_seat || 0).toLocaleString()} XAF.`);
-                  }}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-                >
-                  <Check className="w-4 h-4" /> Confirm Node
-                </button>
-                <button
-                  onClick={() => cancelRequest(req.id)}
-                  className="bg-white/5 border border-white/10 text-white/30 hover:text-red-400 hover:border-red-500/30 px-5 rounded-2xl flex items-center justify-center transition-all active:scale-[0.98] group/cancel"
-                >
-                  <X className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-                </button>
+                {req.status === 'confirmed' ? (
+                  <button
+                    onClick={() => setIsQRScannerOpen(true)}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                  >
+                    <QrCode className="w-4 h-4" /> Scan to board
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => completeTrip(req.id)}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black text-[11px] py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-[0.2em]"
+                  >
+                    <CheckCircle className="w-4 h-4" /> Complete trip
+                  </button>
+                )}
               </div>
             </div>
           ))}

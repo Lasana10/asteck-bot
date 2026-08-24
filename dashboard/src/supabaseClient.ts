@@ -820,6 +820,13 @@ export function afatAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export async function authenticatedApiHeaders() {
+  const localToken = localStorage.getItem('afat_access_token');
+  if (localToken) return { Authorization: `Bearer ${localToken}` };
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
+}
+
 async function passageAuthHeaders() {
   const localToken = localStorage.getItem('afat_access_token');
   if (localToken) return { Authorization: `Bearer ${localToken}` };
@@ -1068,6 +1075,17 @@ export async function getOperatorRoutes(operatorId: string) {
   return { data, error };
 }
 
+export async function fetchPublishedDepartures() {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/mobility/departures`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Departure feed failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 // ==============================================================================
 // 📅 BOOKINGS (Commuters & Operators)
 // ==============================================================================
@@ -1083,9 +1101,10 @@ export async function createBooking(bookingData: any) {
 
 export async function createSeatHold(holdData: any) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/booking/seat-hold`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(holdData),
     });
     const data = await res.json();
@@ -1098,9 +1117,10 @@ export async function createSeatHold(holdData: any) {
 
 export async function releaseSeatHold(holdId: string) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/booking/seat-hold/release`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ hold_id: holdId }),
     });
     const data = await res.json();
@@ -1113,9 +1133,10 @@ export async function releaseSeatHold(holdId: string) {
 
 export async function createBookingFromHold(bookingData: any) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/booking/create-from-hold`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(bookingData),
     });
     const data = await res.json();
@@ -1188,9 +1209,10 @@ export async function getCompanyMembership(profileId: string) {
 
 export async function issueSecureTicket(bookingId: string) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ticket/issue`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ booking_id: bookingId }),
     });
     const data = await res.json();
@@ -1203,9 +1225,10 @@ export async function issueSecureTicket(bookingId: string) {
 
 export async function createGuardianToken(bookingId: string, expiresInMinutes: number = 180) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/guardian/token`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
         booking_id: bookingId,
         expires_in_minutes: expiresInMinutes,
@@ -1232,9 +1255,10 @@ export async function fetchGuardianWatch(token: string) {
 
 export async function finalizeBookingPayment(bookingId: string, method: string, transactionId?: string) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/payment/finalize`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
         booking_id: bookingId,
         transaction_id: transactionId,
@@ -1243,6 +1267,43 @@ export async function finalizeBookingPayment(bookingId: string, method: string, 
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Payment finalization failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function startBookingMobilePayment(payload: {
+  bookingId: string;
+  phone: string;
+  mobileNetwork: 'mtn_momo' | 'orange_money';
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/payment/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({
+        booking_id: payload.bookingId,
+        phone: payload.phone,
+        provider: 'pawapay',
+        mobile_network: payload.mobileNetwork,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || data.message || 'Payment initiation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchBookingStatus(bookingId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/booking/${bookingId}`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Booking lookup failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -1907,16 +1968,32 @@ export async function verifyBoarding(bookingId: string, operatorId: string) {
 
 export async function verifyBoardingToken(ticket: any, operatorId: string) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ticket/verify-boarding`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
         ticket,
-        operator_id: operatorId,
       }),
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Ticket verification failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function completeOperatorTrip(bookingId: string, rating?: number, feedback?: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/booking/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ booking_id: bookingId, rating, feedback }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Trip completion failed.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };

@@ -63,7 +63,9 @@ export class PaymentService {
     payerPhone: string,
     amount: number,
     recipientDescription: string,
-    preferredProvider?: 'africastalking' | 'pawapay'
+    preferredProvider?: 'africastalking' | 'pawapay',
+    requestedNetwork?: string,
+    idempotencyKey?: string,
   ): Promise<PaymentResult> {
     const providerOrder: ('pawapay' | 'africastalking')[] = preferredProvider 
       ? [preferredProvider] 
@@ -72,7 +74,7 @@ export class PaymentService {
     let lastError = '';
 
     for (const providerToTry of providerOrder) {
-      const result = await this.tryProviderPayment(providerToTry, payerPhone, amount, recipientDescription);
+      const result = await this.tryProviderPayment(providerToTry, payerPhone, amount, recipientDescription, requestedNetwork, idempotencyKey);
       if (result.success) return result;
       lastError = result.message;
       console.warn(`⚠️ [Payment] Provider ${providerToTry} failed, trying fallback...`);
@@ -88,17 +90,19 @@ export class PaymentService {
     provider: 'africastalking' | 'pawapay',
     payerPhone: string,
     amount: number,
-    recipientDescription: string
+    recipientDescription: string,
+    requestedNetwork?: string,
+    idempotencyKey?: string,
   ): Promise<PaymentResult> {
     const formattedPhone = this.normalizeCameroonPhone(payerPhone);
-    const transactionId = nodeCrypto.randomUUID();
+    const transactionId = idempotencyKey || nodeCrypto.randomUUID();
     
     console.log(`💰 [Payment] ${provider.toUpperCase()} Push: ${amount} XAF from ${formattedPhone}`);
 
     // ── PROVIDER: PawaPay (Elite/QR/Modern) ───────────────────────────────
     if (provider === 'pawapay' && this.apiKey) {
       try {
-        const mobileProvider = this.inferCameroonProvider(formattedPhone);
+        const mobileProvider = this.inferCameroonProvider(formattedPhone, requestedNetwork);
 
         const response = await fetch(`${this.pawaPayBaseUrl}/deposits`, {
           method: 'POST',
@@ -171,13 +175,23 @@ export class PaymentService {
       }
     }
 
-    // ── STUB MODE ──────────────────────────────────────────────────────
+    // Never fabricate a successful financial transaction. A local-only
+    // simulator can be enabled deliberately for automated development tests.
+    if (process.env.NODE_ENV !== 'production' && process.env.AFAT_ENABLE_PAYMENT_SIMULATOR === 'true') {
+      return {
+        success: true,
+        transactionId: `sim_${Date.now()}`,
+        provider: 'simulator',
+        rawStatus: 'SIMULATED_PENDING',
+        message: `[SIMULATOR] ${amount} XAF collection initiated.`,
+      };
+    }
+
     return {
-      success: true,
-      transactionId: `stub_${Date.now()}`,
-      provider: 'stub',
-      rawStatus: 'STUB_ACCEPTED',
-      message: `[STUB] ${amount} XAF processed.`,
+      success: false,
+      provider,
+      rawStatus: 'PROVIDER_NOT_CONFIGURED',
+      message: 'No live mobile-money provider is configured.',
     };
   }
 
@@ -270,10 +284,21 @@ export class PaymentService {
       }
     }
 
+    if (process.env.NODE_ENV !== 'production' && process.env.AFAT_ENABLE_PAYMENT_SIMULATOR === 'true') {
+      return {
+        success: true,
+        transactionId: `sim_b2c_${Date.now()}`,
+        provider: 'simulator',
+        rawStatus: 'SIMULATED_PENDING',
+        message: `[SIMULATOR] ${amount} XAF cash-out initiated.`,
+      };
+    }
+
     return {
-      success: true,
-      transactionId: `stub_b2c_${Date.now()}`,
-      message: `[STUB] ${amount} XAF cash-out successful.`,
+      success: false,
+      provider: this.provider,
+      rawStatus: 'PROVIDER_NOT_CONFIGURED',
+      message: 'No live payout provider is configured.',
     };
   }
 
