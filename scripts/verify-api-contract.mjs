@@ -17,6 +17,10 @@ const activeDispatchClient = files.frontend.slice(
   files.frontend.indexOf('export async function fetchActiveDispatches()'),
   files.frontend.indexOf('export async function createDispatchAssignment')
 );
+const privilegedRoute = (start, end) => files.routes.slice(
+  files.routes.indexOf(start),
+  files.routes.indexOf(end)
+);
 
 const checks = [
   ['mounts core API under /api', files.index, "app.use('/api', apiRoutes)"],
@@ -39,6 +43,16 @@ const checks = [
   ['dispatch: active feed requires staff auth', activeDispatchRoute, "requireAuthRole(req, res, ['admin', 'planner'])"],
   ['wallet: withdrawal requires operator auth', files.routes, "requireAuthRole(req, res, ['operator'])"],
   ['wallet: withdrawal derives operator from session', files.routes, 'const operator_id = session.profile.id'],
+  ['admin: broadcast requires staff auth', privilegedRoute("router.post('/broadcast'", "router.post('/intelligence/voice-report'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['admin: checkpoint enrollment requires staff auth', privilegedRoute("router.post('/ops/checkpoints/enroll'", "router.patch('/ops/operators"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['AI: chat requires authenticated profile', privilegedRoute("router.post('/ai/chat'", "router.post('/ai/vision'"), 'requireAuthRole(req, res)'],
+  ['AI: vision requires authenticated profile', privilegedRoute("router.post('/ai/vision'", "router.post('/ai/analyze'"), 'requireAuthRole(req, res)'],
+  ['admin: live map requires staff auth', privilegedRoute("router.get('/ops/live-map'", "router.get('/ops/report-center'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['admin: report center requires staff auth', privilegedRoute("router.get('/ops/report-center'", "router.patch('/ops/reports"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['admin: demand radar requires staff auth', privilegedRoute("router.get('/ops/demand-radar'", "router.get('/ops/compliance-radar'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['admin: compliance radar requires staff auth', privilegedRoute("router.get('/ops/compliance-radar'", "router.get('/dispatch/active'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['compliance: summary verifies authenticated ownership', privilegedRoute("router.get('/compliance/summary", "router.patch('/compliance"), "access.profile.id !== profileId"],
+  ['dispatch: assignment is staff-only', privilegedRoute("router.post('/dispatch/assign'", "router.post('/service/request'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
   ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],

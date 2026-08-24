@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Camera, ShieldCheck, CheckCircle2, Loader2, AlertTriangle, Upload } from 'lucide-react';
-import { getApiBaseUrl, supabase } from '../../supabaseClient';
+import { afatAuthHeaders, getApiBaseUrl, supabase } from '../../supabaseClient';
 
 export function DriverVerification() {
   const [step, setStep] = useState(1);
@@ -21,7 +21,7 @@ export function DriverVerification() {
 
       const response = await fetch(`${getApiBaseUrl()}/api/ai/vision`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
         body: JSON.stringify({
           image: base64,
           prompt: 'Extract the following from this Cameroonian ID or Driver License: 1) Is it a valid ID? 2) Name, 3) Document Number, 4) Expiration Date. Return ONLY JSON.'
