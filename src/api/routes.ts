@@ -55,6 +55,11 @@ function authPayloadFromRequest(req: Request) {
   return verifyLocalAuth(token);
 }
 
+function bearerTokenFromRequest(req: Request) {
+  const header = String(req.headers.authorization || '');
+  return header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+}
+
 function normalizeAuthPhone(phone: string) {
   const digits = String(phone || '').replace(/[^\d]/g, '');
   if (digits.startsWith('237')) return `+${digits}`;
@@ -191,14 +196,34 @@ async function issueRefreshSession(profile: any, phone: string, req: Request) {
 }
 
 async function getAuthProfileByToken(req: Request) {
-  const auth = authPayloadFromRequest(req);
-  if (!auth?.sub) return { auth: null, profile: null };
+  const token = bearerTokenFromRequest(req);
+  if (!token) return { auth: null, profile: null };
+
+  let auth = verifyLocalAuth(token);
+  if (!auth?.sub) {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user?.id) return { auth: null, profile: null };
+    auth = {
+      sub: data.user.id,
+      email: data.user.email || null,
+      provider: 'supabase',
+    };
+  }
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', auth.sub)
     .maybeSingle();
   return { auth, profile };
+}
+
+function mobilityErrorStatus(error: any) {
+  const message = String(error?.message || '');
+  if (/NOT_FOUND/.test(message)) return 404;
+  if (/REQUIRED|INVALID/.test(message)) return 400;
+  if (/NOT_AVAILABLE|NOT_BOOKABLE|ALREADY|HELD|EXPIRED|STATE|BOARDABLE|IN_PROGRESS/.test(message)) return 409;
+  return 500;
 }
 
 async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
@@ -1180,55 +1205,84 @@ router.post('/intelligence/voice-report', async (req: Request, res: Response) =>
 // ── PAYMENT CHECKOUT (PawaPay / MoMo / Orange Money) ──────────────────────
 router.post('/payment/checkout', async (req: Request, res: Response) => {
   try {
-    const { amount, phone, booking_id, provider, mobile_network } = req.body;
+    const session = await requireAuthRole(req, res, ['commuter']);
+    if (!session) return;
 
-    if (!amount || !phone) {
-      return res.status(400).json({ error: 'Amount and phone required' });
+    const { phone, booking_id, provider, mobile_network } = req.body;
+
+    if (!booking_id || !phone) {
+      return res.status(400).json({ error: 'booking_id and phone are required' });
     }
 
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid amount' });
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id, passenger_id, price_paid, status, payment_status')
+      .eq('id', booking_id)
+      .eq('passenger_id', session.profile.id)
+      .maybeSingle();
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+    if (booking.status !== 'pending' || !['unpaid', 'failed'].includes(String(booking.payment_status))) {
+      return res.status(409).json({ error: 'Booking is not ready for payment' });
+    }
+
+    const parsedAmount = Number(booking.price_paid);
+    if (!Number.isInteger(parsedAmount) || parsedAmount <= 0) {
+      return res.status(409).json({ error: 'Booking has no valid server-side fare' });
     }
 
     const normalizedProvider = provider === 'africastalking' || provider === 'pawapay' || provider === 'mtn_momo' || provider === 'orange_money'
       ? (provider === 'africastalking' ? 'africastalking' : 'pawapay')
       : undefined;
 
+    const transactionId = crypto.randomUUID();
+    const { data: reservedBooking, error: reservationError } = await supabase
+      .from('bookings')
+      .update({
+        transaction_id: transactionId,
+        payment_status: 'collection_pending',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', booking_id)
+      .eq('passenger_id', session.profile.id)
+      .eq('status', 'pending')
+      .in('payment_status', ['unpaid', 'failed'])
+      .select('id')
+      .maybeSingle();
+    if (reservationError) throw reservationError;
+    if (!reservedBooking) {
+      return res.status(409).json({ error: 'A payment attempt is already active for this booking' });
+    }
+
     console.log(`💳 Payment checkout: ${parsedAmount} XAF from ${phone} via ${normalizedProvider || 'auto-fallback'}`);
     const payment = await paymentService.initiateMomoPayment(
       phone,
       parsedAmount,
       `Booking ${booking_id || 'direct'}`,
-      normalizedProvider
+      normalizedProvider,
+      mobile_network,
+      transactionId,
     );
 
     if (!payment.success || !payment.transactionId) {
+      await supabase
+        .from('bookings')
+        .update({ payment_status: 'failed', updated_at: new Date().toISOString() })
+        .eq('id', booking_id)
+        .eq('transaction_id', transactionId)
+        .eq('payment_status', 'collection_pending');
       return res.status(502).json({
         success: false,
         error: payment.message || 'Payment provider unavailable'
       });
     }
 
-    const transactionId = payment.transactionId;
-
-    if (booking_id) {
-      const { error: bookingError } = await supabase
-        .from('bookings')
-        .update({
-          transaction_id: transactionId,
-          payment_status: 'collection_pending',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', booking_id);
-
-      if (bookingError) throw bookingError;
-    }
-
     await appendPaymentEvent({
       booking_id: booking_id || null,
       provider: payment.provider || normalizedProvider || 'unknown',
-      external_id: transactionId,
+      external_id: payment.transactionId,
       event_type: 'checkout_initiated',
       event_status: 'pending',
       amount_xaf: parsedAmount,
@@ -1242,7 +1296,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      transactionId,
+      transactionId: payment.transactionId,
       status: 'pending',
       provider: payment.provider,
       rawStatus: payment.rawStatus,
@@ -1276,6 +1330,75 @@ router.get('/payment/provider-readiness', (_req: Request, res: Response) => {
   });
 });
 
+router.get('/mobility/departures', async (_req: Request, res: Response) => {
+  try {
+    const { data: routes, error } = await supabase
+      .from('routes')
+      .select('id, operator_id, vehicle_id, name, origin, destination, departure_time, price_per_seat, capacity, vehicle_type')
+      .eq('is_active', true)
+      .order('departure_time', { ascending: true, nullsFirst: false })
+      .limit(50);
+    if (error) throw error;
+
+    const routeIds = (routes || []).map((route: any) => route.id);
+    const operatorIds = Array.from(new Set((routes || []).map((route: any) => route.operator_id).filter(Boolean)));
+    const vehicleIds = Array.from(new Set((routes || []).map((route: any) => route.vehicle_id).filter(Boolean)));
+
+    const [bookingsResult, operatorsResult, vehiclesResult] = await Promise.all([
+      routeIds.length
+        ? supabase.from('bookings').select('route_id, seat_label').in('route_id', routeIds).in('status', ['pending', 'accepted', 'confirmed', 'boarded', 'in_progress'])
+        : Promise.resolve({ data: [], error: null }),
+      operatorIds.length
+        ? supabase.from('profiles').select('id, full_name, verification_status, operator_application_status').in('id', operatorIds)
+        : Promise.resolve({ data: [], error: null }),
+      vehicleIds.length
+        ? supabase.from('vehicles').select('id, plate_number, type, capacity, rating, clearance_status').in('id', vehicleIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (bookingsResult.error) throw bookingsResult.error;
+    if (operatorsResult.error) throw operatorsResult.error;
+    if (vehiclesResult.error) throw vehiclesResult.error;
+
+    const operators = new Map((operatorsResult.data || []).map((profile: any) => [profile.id, profile]));
+    const vehicles = new Map((vehiclesResult.data || []).map((vehicle: any) => [vehicle.id, vehicle]));
+    const occupiedByRoute = new Map<string, Set<string>>();
+    for (const booking of bookingsResult.data || []) {
+      if (!occupiedByRoute.has(booking.route_id)) occupiedByRoute.set(booking.route_id, new Set());
+      if (booking.seat_label) occupiedByRoute.get(booking.route_id)?.add(booking.seat_label);
+    }
+
+    const departures = (routes || []).flatMap((route: any) => {
+      const operator: any = operators.get(route.operator_id);
+      const vehicle: any = vehicles.get(route.vehicle_id);
+      const operatorApproved = operator?.operator_application_status === 'APPROVED' && operator?.verification_status === 'verified';
+      const vehicleApproved = vehicle?.clearance_status === 'verified';
+      if (!operatorApproved || !vehicleApproved) return [];
+      return [{
+        id: route.id,
+        vehicle_id: route.vehicle_id,
+        route_name: route.name,
+        origin: route.origin,
+        destination: route.destination,
+        departure_time: route.departure_time,
+        price_xaf: route.price_per_seat,
+        total_seats: vehicle?.capacity || route.capacity || 4,
+        booked_seats: occupiedByRoute.get(route.id)?.size || 0,
+        occupied_seats: Array.from(occupiedByRoute.get(route.id) || []),
+        vehicle_type: vehicle?.type || route.vehicle_type || 'taxi',
+        operator_id: route.operator_id,
+        operator_name: operator?.full_name || 'Operateur AFAT verifie',
+        plate_number: vehicle?.plate_number || null,
+        rating: vehicle?.rating || null,
+      }];
+    });
+
+    res.status(200).json({ success: true, departures });
+  } catch (error: any) {
+    console.error('Departure feed error:', error);
+    res.status(500).json({ error: error.message || 'Departure feed failed' });
+  }
+});
+
 // ── PAYMENT WEBHOOK (PawaPay callback) ────────────────────────────────────
 router.post('/webhook/pawapay', async (req: Request, res: Response) => {
   try {
@@ -1307,21 +1430,15 @@ router.post('/webhook/pawapay', async (req: Request, res: Response) => {
 
     // Update booking status in Supabase if transaction is completed
     if (status === 'COMPLETED' && transactionId) {
-      const { error } = await supabase
-        .from('bookings')
-        .update({
-          status: 'confirmed',
-          payment_status: 'paid',
-          transaction_id: transactionId,
-          updated_at: new Date().toISOString()
-        })
-        .eq(externalId ? 'id' : 'transaction_id', externalId || transactionId);
-
-      if (error) console.error('Error updating booking:', error);
-
-      if (booking?.operator_id) {
-        await applyRideCredit(booking, transactionId);
+      if (!booking?.id) {
+        return res.status(404).json({ error: 'Payment callback booking not found' });
       }
+      const { error } = await supabase.rpc('afat_confirm_mobile_payment', {
+        p_booking_id: booking.id,
+        p_transaction_id: transactionId,
+        p_provider: 'pawapay',
+      });
+      if (error) throw error;
     } else if (['FAILED', 'REJECTED', 'CANCELLED'].includes(status) && transactionId) {
       await supabase
         .from('bookings')
@@ -1357,9 +1474,23 @@ router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
 // ── GUARDIAN MODE (Token-based Live Watch) ────────────────────────────────
 router.post('/guardian/token', async (req: Request, res: Response) => {
   try {
+    const session = await requireAuthRole(req, res);
+    if (!session) return;
     const { booking_id, expires_in_minutes } = req.body;
-    
+
     if (!booking_id) return res.status(400).json({ error: 'booking_id required' });
+
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id, passenger_id, operator_id')
+      .eq('id', booking_id)
+      .maybeSingle();
+    if (bookingError) throw bookingError;
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    const isStaff = ['planner', 'admin'].includes(String(session.profile.role));
+    if (!isStaff && booking.passenger_id !== session.profile.id && booking.operator_id !== session.profile.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     const frontendBaseUrl = process.env.FRONTEND_URL || 'https://asteck-bot.pages.dev';
 
@@ -2750,207 +2881,125 @@ router.get('/guardian/watch/:token', async (req: Request, res: Response) => {
 
 router.post('/payment/finalize', async (req: Request, res: Response) => {
   try {
-    const { booking_id, transaction_id, method } = req.body;
+    const session = await requireAuthRole(req, res, ['commuter']);
+    if (!session) return;
+    const { booking_id, method } = req.body;
 
     if (!booking_id || !method) {
       return res.status(400).json({ error: 'booking_id and method are required' });
     }
-
-    const paymentStatus = method === 'cash' ? 'cash_due' : 'collection_pending';
-    const bookingStatus = method === 'cash' ? 'confirmed' : 'pending';
-    const txRef = transaction_id || `AFAT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    const { data: booking, error: bookingFetchError } = await supabase
-      .from('bookings')
-      .select('id, operator_id, price_paid, payment_status')
-      .eq('id', booking_id)
-      .single();
-
-    if (bookingFetchError || !booking) {
-      return res.status(404).json({ error: 'Booking not found' });
+    if (method !== 'cash') {
+      return res.status(409).json({ error: 'Mobile-money payments are confirmed only by the provider callback' });
     }
 
-    const { error: bookingUpdateError } = await supabase
-      .from('bookings')
-      .update({
-        status: bookingStatus,
-        payment_status: paymentStatus,
-        transaction_id: txRef,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', booking_id);
-
-    if (bookingUpdateError) throw bookingUpdateError;
+    const { data: booking, error } = await supabase.rpc('afat_select_cash_payment', {
+      p_passenger_id: session.profile.id,
+      p_booking_id: booking_id,
+    });
+    if (error) throw error;
 
     res.status(200).json({
       success: true,
       booking_id,
-      transaction_id: txRef,
-      payment_status: paymentStatus,
-      status: bookingStatus,
-      awaiting_callback: method !== 'cash'
+      transaction_id: booking.transaction_id,
+      payment_status: booking.payment_status,
+      status: booking.status,
+      awaiting_callback: false,
     });
   } catch (error: any) {
     console.error('Payment finalize error:', error);
-    res.status(500).json({ error: error.message || 'Payment finalization failed' });
+    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Payment finalization failed' });
+  }
+});
+
+router.get('/booking/:bookingId', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAuthRole(req, res);
+    if (!session) return;
+    const { data: booking, error } = await supabase
+      .from('bookings')
+      .select('id, passenger_id, operator_id, vehicle_id, route_id, status, payment_status, price_paid, seat_label, transaction_id, boarded_at, started_at, completed_at, created_at, updated_at')
+      .eq('id', req.params.bookingId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    const isStaff = ['planner', 'admin'].includes(String(session.profile.role));
+    if (!isStaff && booking.passenger_id !== session.profile.id && booking.operator_id !== session.profile.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    res.status(200).json({ success: true, booking });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Booking lookup failed' });
   }
 });
 
 // ── SEAT HOLDS ───────────────────────────────────────────────────────────────
 router.post('/booking/seat-hold', async (req: Request, res: Response) => {
   try {
-    const { passenger_id, operator_id, route_id, seat_label, hold_minutes } = req.body;
+    const session = await requireAuthRole(req, res, ['commuter']);
+    if (!session) return;
+    const { route_id, seat_label, hold_minutes } = req.body;
 
-    if (!passenger_id || !route_id || !seat_label) {
-      return res.status(400).json({ error: 'passenger_id, route_id and seat_label are required' });
+    if (!route_id || !seat_label) {
+      return res.status(400).json({ error: 'route_id and seat_label are required' });
     }
-
-    await expireSeatHolds(route_id, seat_label);
-
-    const { data: existingBooking } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('route_id', route_id)
-      .eq('seat_label', seat_label)
-      .in('status', ['pending', 'accepted', 'confirmed', 'completed'])
-      .maybeSingle();
-
-    if (existingBooking) {
-      return res.status(409).json({ error: 'Seat is already booked' });
-    }
-
-    const { data: activeHold } = await supabase
-      .from('seat_holds')
-      .select('id, passenger_id, expires_at')
-      .eq('route_id', route_id)
-      .eq('seat_label', seat_label)
-      .eq('status', 'active')
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
-
-    if (activeHold && activeHold.passenger_id !== passenger_id) {
-      return res.status(409).json({ error: 'Seat is temporarily held by another commuter' });
-    }
-
-    if (activeHold && activeHold.passenger_id === passenger_id) {
-      return res.status(200).json({ success: true, hold: activeHold });
-    }
-
-    const expiresAt = new Date(Date.now() + (hold_minutes || 8) * 60 * 1000).toISOString();
-    const { data: hold, error } = await supabase
-      .from('seat_holds')
-      .insert({
-        passenger_id,
-        operator_id: operator_id || null,
-        route_id,
-        seat_label,
-        status: 'active',
-        expires_at: expiresAt,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
+    const { data: hold, error } = await supabase.rpc('afat_hold_seat', {
+      p_passenger_id: session.profile.id,
+      p_route_id: route_id,
+      p_seat_label: seat_label,
+      p_hold_minutes: hold_minutes || 8,
+    });
     if (error) throw error;
 
     res.status(201).json({ success: true, hold });
   } catch (error: any) {
     console.error('Seat hold error:', error);
-    res.status(500).json({ error: error.message || 'Seat hold failed' });
+    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Seat hold failed' });
   }
 });
 
 router.post('/booking/seat-hold/release', async (req: Request, res: Response) => {
   try {
+    const session = await requireAuthRole(req, res, ['commuter']);
+    if (!session) return;
     const { hold_id } = req.body;
 
     if (!hold_id) {
       return res.status(400).json({ error: 'hold_id required' });
     }
 
-    const { error } = await supabase
-      .from('seat_holds')
-      .update({ status: 'released', updated_at: new Date().toISOString() })
-      .eq('id', hold_id)
-      .eq('status', 'active');
-
+    const { data: hold, error } = await supabase.rpc('afat_release_seat_hold', {
+      p_passenger_id: session.profile.id,
+      p_hold_id: hold_id,
+    });
     if (error) throw error;
 
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, hold });
   } catch (error: any) {
     console.error('Seat hold release error:', error);
-    res.status(500).json({ error: error.message || 'Seat hold release failed' });
+    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Seat hold release failed' });
   }
 });
 
 router.post('/booking/create-from-hold', async (req: Request, res: Response) => {
   try {
-    const { hold_id, passenger_id, final_price } = req.body;
+    const session = await requireAuthRole(req, res, ['commuter']);
+    if (!session) return;
+    const { hold_id } = req.body;
 
-    if (!hold_id || !passenger_id || !final_price) {
-      return res.status(400).json({ error: 'hold_id, passenger_id and final_price are required' });
+    if (!hold_id) {
+      return res.status(400).json({ error: 'hold_id is required' });
     }
-
-    const { data: hold, error: holdError } = await supabase
-      .from('seat_holds')
-      .select('*')
-      .eq('id', hold_id)
-      .eq('passenger_id', passenger_id)
-      .eq('status', 'active')
-      .single();
-
-    if (holdError || !hold) {
-      return res.status(404).json({ error: 'Seat hold not found' });
-    }
-
-    if (new Date(hold.expires_at).getTime() <= Date.now()) {
-      await supabase
-        .from('seat_holds')
-        .update({ status: 'expired', updated_at: new Date().toISOString() })
-        .eq('id', hold_id);
-      return res.status(409).json({ error: 'Seat hold expired' });
-    }
-
-    const { data: existingBooking } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('route_id', hold.route_id)
-      .eq('seat_label', hold.seat_label)
-      .in('status', ['pending', 'accepted', 'confirmed', 'completed'])
-      .maybeSingle();
-
-    if (existingBooking) {
-      return res.status(409).json({ error: 'Seat was booked while hold was being processed' });
-    }
-
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .insert({
-        passenger_id,
-        operator_id: hold.operator_id || null,
-        route_id: hold.route_id,
-        seat_label: hold.seat_label,
-        status: 'pending',
-        payment_status: 'unpaid',
-        price_paid: final_price,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-
-    if (bookingError) throw bookingError;
-
-    await supabase
-      .from('seat_holds')
-      .update({ status: 'converted', booking_id: booking.id, updated_at: new Date().toISOString() })
-      .eq('id', hold_id);
+    const { data: booking, error } = await supabase.rpc('afat_create_booking_from_hold', {
+      p_passenger_id: session.profile.id,
+      p_hold_id: hold_id,
+    });
+    if (error) throw error;
 
     res.status(201).json({ success: true, booking });
   } catch (error: any) {
     console.error('Create booking from hold error:', error);
-    res.status(500).json({ error: error.message || 'Booking creation from seat hold failed' });
+    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Booking creation from seat hold failed' });
   }
 });
 
@@ -3018,10 +3067,23 @@ router.post('/wallet/withdraw', async (req: Request, res: Response) => {
 // ── SECURE TICKET ISSUE ─────────────────────────────────────────────────────
 router.post('/ticket/issue', async (req: Request, res: Response) => {
   try {
+    const session = await requireAuthRole(req, res);
+    if (!session) return;
     const { booking_id } = req.body;
 
     if (!booking_id) {
       return res.status(400).json({ error: 'booking_id required' });
+    }
+
+    const { data: ownedBooking } = await supabase
+      .from('bookings')
+      .select('id, passenger_id, operator_id')
+      .eq('id', booking_id)
+      .maybeSingle();
+    if (!ownedBooking) return res.status(404).json({ error: 'Booking not found' });
+    const isStaff = ['planner', 'admin'].includes(String(session.profile.role));
+    if (!isStaff && ownedBooking.passenger_id !== session.profile.id && ownedBooking.operator_id !== session.profile.id) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     const { data: booking, error } = await supabase
@@ -3066,10 +3128,13 @@ router.post('/ticket/issue', async (req: Request, res: Response) => {
 // ── SECURE BOARDING VERIFICATION ────────────────────────────────────────────
 router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
   try {
-    const { ticket, operator_id } = req.body;
+    const session = await requireAuthRole(req, res, ['operator']);
+    if (!session) return;
+    const { ticket } = req.body;
+    const operator_id = session.profile.id;
 
-    if (!ticket?.t || !ticket?.s || !operator_id) {
-      return res.status(400).json({ error: 'ticket and operator_id required' });
+    if (!ticket?.t || !ticket?.s) {
+      return res.status(400).json({ error: 'ticket is required' });
     }
 
     const expectedSignature = signTicketPayload(ticket.t);
@@ -3105,19 +3170,16 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Booking is not boardable' });
     }
 
-    const { error: updateError } = await supabase
-      .from('bookings')
-      .update({ status: 'boarded', updated_at: new Date().toISOString() })
-      .eq('id', decoded.bid)
-      .eq('operator_id', operator_id);
-
-    if (updateError) {
-      throw updateError;
-    }
+    const { data: boardedBooking, error: updateError } = await supabase.rpc('afat_board_booking', {
+      p_operator_id: operator_id,
+      p_booking_id: decoded.bid,
+    });
+    if (updateError) throw updateError;
 
     res.status(200).json({
       success: true,
       booking_id: decoded.bid,
+      booking: boardedBooking,
       message: 'Boarding verified'
     });
   } catch (error: any) {
@@ -3129,34 +3191,31 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
 // ── TRIP COMPLETION (Triggers DNA Update) ────────────────────────────────
 router.post('/booking/complete', async (req: Request, res: Response) => {
   try {
-    const { booking_id, driver_id, rating, feedback } = req.body;
+    const session = await requireAuthRole(req, res, ['operator']);
+    if (!session) return;
+    const { booking_id, rating, feedback } = req.body;
 
-    if (!booking_id || !driver_id) {
-      return res.status(400).json({ error: 'booking_id and driver_id required' });
+    if (!booking_id) {
+      return res.status(400).json({ error: 'booking_id required' });
     }
 
-    // 1. Update booking status
-    const { error: updateError } = await supabase
-      .from('bookings')
-      .update({ 
-        status: 'completed', 
-        rating, 
-        feedback,
-        completed_at: new Date().toISOString() 
-      })
-      .eq('id', booking_id);
-
+    const { data: booking, error: updateError } = await supabase.rpc('afat_complete_booking', {
+      p_operator_id: session.profile.id,
+      p_booking_id: booking_id,
+      p_rating: rating || null,
+      p_feedback: feedback || null,
+    });
     if (updateError) throw updateError;
 
-    // 2. Trigger Async DNA Pipeline
-    await dnaQueue.add(`dna-update-${booking_id}`, { driverId: driver_id, tripId: booking_id });
+    await dnaQueue.add(`dna-update-${booking_id}`, { driverId: session.profile.id, tripId: booking_id });
 
     res.status(200).json({
       success: true,
+      booking,
       message: 'Trip completed. DriverDNA evidence review queued.'
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(mobilityErrorStatus(error)).json({ error: error.message });
   }
 });
 

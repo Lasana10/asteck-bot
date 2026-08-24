@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Check, Clock, Lock, Zap, Loader2 } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { fetchPublishedDepartures, supabase } from '../../supabaseClient';
 
 interface SeatData {
   id: string;
@@ -23,6 +23,7 @@ interface Props {
     operator_name: string;
     plate_number: string;
     departure_time: string;
+    occupied_seats?: string[];
   };
   onBack: () => void;
   onConfirmSeat: (seatId: string) => void;
@@ -110,13 +111,9 @@ export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
 
   const fetchOccupancy = async () => {
     setLoading(true);
-    const { data: booked } = await supabase
-      .from('bookings')
-      .select('seat_label')
-      .eq('route_id', departure.id)
-      .in('status', ['pending', 'confirmed', 'completed']);
-
-    const bookedLabels = booked?.map(b => b.seat_label).filter(Boolean) as string[] || [];
+    const { data } = await fetchPublishedDepartures();
+    const current = data?.departures?.find((item: any) => item.id === departure.id);
+    const bookedLabels = (current?.occupied_seats || departure.occupied_seats || []) as string[];
     const layout = generateBlueprint(departure.vehicle_type, bookedLabels);
     setSeats(layout.seats);
     setLayoutRows(layout.layoutRows);
