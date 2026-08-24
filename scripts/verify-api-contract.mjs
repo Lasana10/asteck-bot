@@ -37,6 +37,8 @@ const checks = [
   ['mobility: operator boarding', files.routes, "router.post('/ticket/verify-boarding'"],
   ['mobility: operator completion', files.routes, "router.post('/booking/complete'"],
   ['dispatch: active feed requires staff auth', activeDispatchRoute, "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['wallet: withdrawal requires operator auth', files.routes, "requireAuthRole(req, res, ['operator'])"],
+  ['wallet: withdrawal derives operator from session', files.routes, 'const operator_id = session.profile.id'],
   ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
