@@ -9,6 +9,7 @@
     "build:backend": "tsc",
     "build:dashboard": "cd dashboard && npm install && npm run build",
     "test:api-contract": "node scripts/verify-api-contract.mjs",
+    "test:smoke:production-auth": "node scripts/smoke-production-auth.mjs",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -21,7 +22,7 @@
     "@sentry/profiling-node": "^8.0.0",
     "@supabase/supabase-js": "^2.90.1",
     "@types/node": "^25.0.3",
-    "@types/uuid": "^10.0.0",
+    "@types/uuid": "^10.0.3",
     "africastalking": "^0.7.9",
     "axios": "^1.13.2",
     "bullmq": "^5.0.0",
@@ -31,19 +32,18 @@
     "groq-sdk": "^0.37.0",
     "ioredis": "^5.0.0",
     "multer": "^2.1.1",
-    "node-cron": "^3.0.3",
+    "node-cron": "^3.0.0",
     "qrcode-terminal": "^0.12.0",
     "telegraf": "^4.16.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "uuid": "^13.0.0",
-    "whatsapp-web.js": "^1.26.1",
-    "zod": "^4.3.5"
+    "whatsapp-web.js": "^1.26.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/ioredis": "^4.28.10",
-    "@types/multer": "^2.1.0",
-    "@types/node-cron": "^3.0.11"
+    "@types/multer": "^2.1.1",
+    "@types/node-cron": "^3.0.3"
   }
 }
