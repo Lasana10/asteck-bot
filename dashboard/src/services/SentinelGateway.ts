@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from '../supabaseClient';
+import { afatAuthHeaders, getApiBaseUrl } from '../supabaseClient';
 
 /**
  * AFAT Sentinel AI Gateway
@@ -17,7 +17,8 @@ class SentinelGateway {
       const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...afatAuthHeaders(),
         },
         body: JSON.stringify({
           task: 'predict',
@@ -45,7 +46,7 @@ class SentinelGateway {
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
         body: JSON.stringify({
           task: 'summarize',
           prompt,
