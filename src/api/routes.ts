@@ -2494,7 +2494,10 @@ router.get('/ops/compliance-radar', async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/dispatch/active', async (_req: Request, res: Response) => {
+router.get('/dispatch/active', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin', 'planner']);
+  if (!access) return;
+
   try {
     const { data, error } = await supabase
       .from('dispatch_assignments')
