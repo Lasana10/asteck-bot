@@ -248,6 +248,22 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
     }
   }, [initialTrack, isVisible, prefillPhone]);
 
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !loading) onClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [isVisible, loading, onClose]);
+
   const openTrack = (nextTrack: RegistrationTrack) => {
     setDriverName('');
     setGovId('');
@@ -442,13 +458,23 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
   };
 
   return (
-    <div className="fixed inset-0 z-[6000] bg-slate-950/90 backdrop-blur-2xl flex items-center justify-center p-6 animate-in fade-in duration-300">
-      <div className="bg-slate-900 border border-white/5 rounded-[40px] w-full max-w-md shadow-2xl relative overflow-hidden ring-1 ring-white/10 flex flex-col max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-[6000] flex items-end justify-center bg-slate-950/95 p-0 backdrop-blur-md animate-in fade-in duration-200 sm:items-center sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !loading) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="afat-registration-title"
+        className="relative flex h-[100dvh] w-full max-w-md flex-col overflow-hidden border border-white/10 bg-slate-900 shadow-2xl ring-1 ring-white/10 sm:h-auto sm:max-h-[90dvh] sm:rounded-[32px]"
+      >
         
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-white/5 flex items-center justify-between sticky top-0 bg-slate-900/80 backdrop-blur z-10">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-slate-900 px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))] sm:p-6 sm:pb-4">
           <div>
-            <h2 className="text-xl font-black uppercase italic tracking-tighter text-white">AFAT Sentinel Hub</h2>
+            <h2 id="afat-registration-title" className="text-xl font-black uppercase italic tracking-tighter text-white">AFAT Sentinel Hub</h2>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">
               {track === 'select' ? 'Identity Gateway' :
                track === 'gov_link' ? 'Strategic Clearance' :
@@ -457,12 +483,12 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
                'Node Registration'}
             </p>
           </div>
-          <button type="button" aria-label="Close registration" onClick={onClose} className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+          <button type="button" aria-label="Close registration" onClick={onClose} disabled={loading} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto no-scrollbar flex-1">
+        <div className="flex-1 overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6">
           {success ? (
             <div className="flex flex-col items-center justify-center py-10 animate-in zoom-in duration-500">
               <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center border border-green-500/20 mb-6 shadow-[0_0_40px_rgba(34,197,94,0.2)]">
