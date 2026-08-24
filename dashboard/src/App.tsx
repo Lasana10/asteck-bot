@@ -260,12 +260,12 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   };
 
   return (
-    <div className="flex flex-col items-center justify-center font-sans text-on-surface">
-      <div className="w-full max-w-sm glass-panel p-8 rounded-[32px] shadow-ambient-float relative overflow-hidden">
+    <div className="w-full font-sans text-on-surface">
+      <div className="relative w-full overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/80 p-5 shadow-ambient-float sm:p-7">
         <div className="absolute top-0 left-0 w-full h-1 bg-signature-gradient opacity-50"></div>
 
-        <h1 className="text-3xl font-black text-center mb-1 tracking-tighter text-white uppercase italic">AFAT</h1>
-        <p className="text-slate-500 text-center mb-6 text-[10px] font-bold uppercase tracking-[0.4em] opacity-80 italic">Intelligent Safe Passage</p>
+        <h2 className="text-2xl font-black tracking-tighter text-white uppercase italic">Secure access</h2>
+        <p className="mb-6 mt-1 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">Choose your lane and identity method</p>
 
         {errorText && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl text-xs mb-6 font-bold">
@@ -657,9 +657,9 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <button
               type="button"
               onClick={() => onRegisterRequest(roleIntent)}
-              className="mt-4 text-[10px] text-white/60 hover:text-white font-bold uppercase tracking-widest transition-colors"
+              className="mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
             >
-              Register this lane instead
+              New here? Register {roleIntent}
             </button>
           )}
         </div>
@@ -1189,8 +1189,10 @@ function AppShell() {
       return (
         <div className="min-h-screen sentinel-bg text-white">
           <div className="mesh-gradient" />
-          <div className="relative z-10 flex min-h-screen items-center justify-center p-6">
-            <div className="w-full max-w-xl rounded-[2.5rem] border border-white/10 bg-slate-950/70 p-8 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+          <div className="relative z-10 flex min-h-screen items-start justify-center px-4 py-6 sm:px-6 sm:py-10 lg:items-center">
+            <main className="grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/82 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl lg:grid-cols-[0.85fr_1.15fr]">
+              <section className="flex flex-col justify-between border-b border-white/10 bg-gradient-to-br from-blue-950/50 via-slate-950 to-slate-950 p-6 sm:p-8 lg:border-b-0 lg:border-r">
+              <div>
               <div className="mb-8 flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
                   <AFATLogo className="h-8 w-8 text-white" />
@@ -1201,10 +1203,11 @@ function AppShell() {
                 </div>
               </div>
 
-              <div className="mb-8 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/60">Why you’re here</p>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-white/75">
-                  AFAT now opens through a real access flow instead of the old guest shell. Email and password is the recommended pilot path now; phone OTP remains available for approved provider lanes. Register your commuter, operator, or fleet identity if no profile exists yet.
+              <div className="mb-8">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/60">One identity. The right workspace.</p>
+                <h2 className="mt-3 text-3xl font-black uppercase tracking-tight text-white sm:text-4xl">Move safely. Operate clearly.</h2>
+                <p className="mt-4 max-w-md text-sm font-medium leading-relaxed text-white/65">
+                  Commuters book and travel. Operators manage verified service. Planners and admins enter through controlled staff access.
                 </p>
               </div>
 
@@ -1244,6 +1247,23 @@ function AppShell() {
                 </div>
               )}
 
+              </div>
+              <div className="rounded-3xl border border-blue-400/20 bg-blue-500/10 p-5">
+                <p className="text-xs font-black uppercase tracking-wider text-blue-100">No AFAT profile?</p>
+                <p className="mt-2 text-xs leading-relaxed text-white/55">Start a commuter, operator, government-linked, or fleet intake. Approval controls remain separate.</p>
+                <button
+                  onClick={() => {
+                    setRegistrationTrack('select');
+                    setIsRegistrationHubOpen(true);
+                  }}
+                  className="mt-4 min-h-11 w-full rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]"
+                >
+                  Start registration
+                </button>
+              </div>
+              </section>
+
+              <section className="p-4 sm:p-8">
               <Login
                 onRegisterRequest={(role) => {
                   setRegistrationTrack(getRegistrationTrackForRole(role));
@@ -1257,24 +1277,8 @@ function AppShell() {
                 </div>
               )}
 
-              <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-black uppercase tracking-tight text-white">No AFAT profile yet?</p>
-                    <p className="mt-1 text-xs text-white/45">Create commuter, operator, government-linked, or fleet onboarding before sign-in.</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setRegistrationTrack('select');
-                      setIsRegistrationHubOpen(true);
-                    }}
-                    className="rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]"
-                  >
-                    Register
-                  </button>
-                </div>
-              </div>
-            </div>
+              </section>
+            </main>
           </div>
           <RegistrationHub
             isVisible={isRegistrationHubOpen}
