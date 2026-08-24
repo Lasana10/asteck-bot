@@ -1421,7 +1421,9 @@ export async function reviewMapSignal(reviewData: {
 
 export async function fetchActiveDispatches() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/active`);
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/active`, {
+      headers: afatAuthHeaders(),
+    });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch fetch failed.' } };
     return { data, error: null };
