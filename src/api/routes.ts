@@ -195,7 +195,7 @@ async function issueRefreshSession(profile: any, phone: string, req: Request) {
   return { refreshToken, session };
 }
 
-async function getAuthProfileByToken(req: Request) {
+export async function getAuthProfileByToken(req: Request) {
   const token = bearerTokenFromRequest(req);
   if (!token) return { auth: null, profile: null };
 
@@ -226,7 +226,7 @@ function mobilityErrorStatus(error: any) {
   return 500;
 }
 
-async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
+export async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
   const { auth, profile } = await getAuthProfileByToken(req);
   if (!auth?.sub || !profile) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -2133,1138 +2133,1315 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
 
     const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }, { data: missionSignals }] = await Promise.all([
       supabase
-        .from('vehicles')
-        .select('id, operator_id, plate_number, type, is_available, current_lat, current_lng, last_ping_at, rating')
-        .eq('is_available', true)
-        .limit(200),
-      supabase
-        .from('incidents')
-        .select('id, type, description, severity, status, verification_status, latitude, longitude, location, created_at, reporter_username')
-        .gte('created_at', since)
-        .neq('status', 'false')
-        .order('created_at', { ascending: false })
-        .limit(160),
-      supabase
-        .from('dispatch_assignments')
-        .select('id, booking_id, operator_id, vehicle_id, status, priority, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at')
-        .in('status', ['queued', 'assigned', 'en_route', 'arrived'])
-        .order('created_at', { ascending: false })
-        .limit(120),
-      supabase
-        .from('checkpoints')
-        .select('id, name, city, zone_label, latitude, longitude, status, checkpoint_type, trust_score, coverage_radius_meters')
-        .eq('status', 'active')
-        .limit(120),
-      supabase
-        .from('movement_logs')
-        .select('id, user_id, campaign_id, latitude, longitude, speed, heading, accuracy, timestamp')
-        .gte('timestamp', since)
-        .order('timestamp', { ascending: false })
-        .limit(180),
-    ]);
+       …12340 tokens truncated… setLoading(false);
+      return;
+    }
+    window.location.reload();
+  };
 
-    const scopedVehicles = (vehicles || []).filter((vehicle: any) =>
-      withinRegion(Number(vehicle.current_lat), Number(vehicle.current_lng), regionKey)
-    );
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorText('');
+    setInfoText('');
+    persistAccessIntent();
 
-    const scopedIncidents = (incidents || []).filter((incident: any) => {
-      const point = {
-        latitude: Number(incident.latitude ?? parsePointText(incident.location)?.latitude),
-        longitude: Number(incident.longitude ?? parsePointText(incident.location)?.longitude),
-      };
-      return withinRegion(point.latitude, point.longitude, regionKey);
-    });
-
-    const scopedDispatches = (dispatches || []).filter((dispatch: any) => {
-      const pickupLat = Number(dispatch.pickup_lat);
-      const pickupLng = Number(dispatch.pickup_lng);
-      const dropoffLat = Number(dispatch.dropoff_lat);
-      const dropoffLng = Number(dispatch.dropoff_lng);
-      return (
-        withinRegion(pickupLat, pickupLng, regionKey) ||
-        withinRegion(dropoffLat, dropoffLng, regionKey) ||
-        (!Number.isFinite(pickupLat) && !Number.isFinite(dropoffLat))
-      );
-    });
-
-    const scopedCheckpoints = (checkpoints || []).filter((checkpoint: any) =>
-      withinRegion(Number(checkpoint.latitude), Number(checkpoint.longitude), regionKey)
-    );
-
-    const scopedMissionSignals = (missionSignals || []).filter((signal: any) =>
-      withinRegion(Number(signal.latitude), Number(signal.longitude), regionKey)
-    );
-
-    const urgentAlerts = scopedIncidents
-      .filter((incident: any) => Number(incident.severity || 0) >= 4)
-      .slice(0, 6)
-      .map((incident: any) => ({
-        id: incident.id,
-        title: incident.type || 'incident',
-        severity: incident.severity || 3,
-        description: incident.description || 'Live terrain signal',
-        created_at: incident.created_at,
-        source: incident.reporter_username || 'AFAT field grid',
-      }));
-
-    const signalFreshness = scopedVehicles.map((vehicle: any) => {
-      const lastPing = vehicle.last_ping_at ? new Date(vehicle.last_ping_at).getTime() : 0;
-      return lastPing ? Math.max(0, Math.round((Date.now() - lastPing) / 1000)) : null;
-    }).filter((age: number | null) => age !== null) as number[];
-
-    const averageSignalAgeSeconds = signalFreshness.length
-      ? Math.round(signalFreshness.reduce((sum, age) => sum + age, 0) / signalFreshness.length)
-      : null;
-
-    const enrichedVehicles = scopedVehicles.map((vehicle: any) => {
-      const ageSeconds = vehicle.last_ping_at
-        ? Math.max(0, Math.round((Date.now() - new Date(vehicle.last_ping_at).getTime()) / 1000))
-        : null;
-      return {
-        ...vehicle,
-        vehicle_type: vehicle.type,
-        signal_age_seconds: ageSeconds,
-        signal_quality: ageSeconds === null ? 'unknown' : ageSeconds <= 60 ? 'fresh' : ageSeconds <= 300 ? 'aging' : 'stale',
-        publish_channel: 'vehicles',
-      };
-    });
-
-    const enrichedIncidents = scopedIncidents.map((incident: any) => ({
-      ...incident,
-      publish_channel: 'incidents',
-      trust_state: ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
-        ? 'verified'
-        : Number(incident.severity || 0) >= 4
-          ? 'needs_human_review'
-          : 'field_signal',
-    }));
-
-    const verifiedIncidents = scopedIncidents.filter((incident: any) =>
-      ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
-    );
-
-    const missionSignalIds = scopedMissionSignals.map((signal: any) => signal.id).filter(Boolean);
-    const { data: signalReviews } = missionSignalIds.length
-      ? await supabase
-        .from('map_signal_reviews')
-        .select('movement_log_id, status, confidence_score, reward_points, reviewed_at, decision_notes')
-        .in('movement_log_id', missionSignalIds)
-      : { data: [] as any[] };
-    const reviewBySignal = new Map((signalReviews || []).map((review: any) => [review.movement_log_id, review]));
-
-    res.status(200).json({
-      success: true,
-      city: regionKey,
-      label: region.label,
-      generated_at: new Date().toISOString(),
-      center: region.center,
-      summary: {
-        active_vehicles: scopedVehicles.length,
-        active_incidents: scopedIncidents.length,
-        urgent_alerts: urgentAlerts.length,
-        verified_incidents: verifiedIncidents.length,
-        active_dispatches: scopedDispatches.length,
-        average_signal_age_seconds: averageSignalAgeSeconds,
-        publish_channels: ['vehicles', 'movement_logs', 'incidents', 'dispatch_assignments', 'checkpoints'],
-        data_contract: 'AFAT live-map v2',
-        recommended_mode:
-          urgentAlerts.length >= 3 ? 'alert' : scopedDispatches.length > scopedVehicles.length ? 'demand_pressure' : 'stable',
-        city_scale_ready: ['yaounde', 'douala', 'bafoussam', 'garoua', 'cameroon'],
-      },
-      geodata: {
-        foundation: 'local_open_data_packs',
-        live_overlay: true,
-        region_radius_km: region.radiusKm,
-        center: region.center,
-      },
-      transmission: {
-        receives: ['app telemetry', 'operator vehicle pings', 'citizen reports', 'dispatch assignments', 'checkpoint stewards'],
-        publishes: ['live map feed', 'safety score', 'demand radar', 'operator guidance', 'admin review queue', 'checkpoint network'],
-        ingest_endpoint: '/api/ops/map-signal',
-      },
-      alerts: urgentAlerts,
-      vehicles: enrichedVehicles,
-      incidents: enrichedIncidents,
-      dispatches: scopedDispatches,
-      checkpoints: scopedCheckpoints.map((checkpoint: any) => ({
-        ...checkpoint,
-        publish_channel: 'checkpoints',
-      })),
-      campaign_signals: scopedMissionSignals.map((signal: any) => ({
-        ...signal,
-        publish_channel: 'movement_logs',
-        review: reviewBySignal.get(signal.id) || null,
-        review_status: reviewBySignal.get(signal.id)?.status || 'new',
-        signal_age_seconds: signal.timestamp ? Math.max(0, Math.round((Date.now() - new Date(signal.timestamp).getTime()) / 1000)) : null,
-      })),
-    });
-  } catch (error: any) {
-    console.error('Live map feed error:', error);
-    res.status(500).json({ error: error.message || 'Live map feed failed' });
-  }
-});
-
-router.get('/ops/report-center', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner']);
-    if (!access) return;
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: reports, error } = await supabase
-      .from('incidents')
-      .select('*')
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(80);
-
-    if (error) throw error;
-
-    const items = reports || [];
-    const active = items.filter((report: any) => !['resolved', 'dismissed', 'expired', 'false'].includes(report.status));
-    const severe = active.filter((report: any) => Number(report.severity || 0) >= 4);
-    const verified = items.filter((report: any) => ['verified', 'confirmed'].includes(report.status) || report.verification_status === 'verified');
-
-    res.status(200).json({
-      success: true,
-      summary: {
-        total_24h: items.length,
-        active: active.length,
-        severe: severe.length,
-        verified: verified.length,
-        safety_score: scoreFromIncidentLoad(active.length, severe.length),
-      },
-      reports: items,
-    });
-  } catch (error: any) {
-    console.error('Report center error:', error);
-    res.status(500).json({ error: error.message || 'Report center fetch failed' });
-  }
-});
-
-router.patch('/ops/reports/:id/status', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner']);
-    if (!access) return;
-    const { id } = req.params;
-    const { status, resolver_id } = req.body;
-    const allowed = ['new', 'pending', 'verified', 'resolved', 'dismissed', 'expired'];
-
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ error: 'Invalid report status' });
+    if (authChannel !== 'phone' && !turnstileReady) {
+      setErrorText('Turnstile site key missing in this build. Save VITE_TURNSTILE_SITE_KEY in both Cloudflare Preview and Production, then create a fresh deployment.');
+      setLoading(false);
+      return;
     }
 
-    const update: any = {
-      status,
-      verification_status: status,
-      updated_at: new Date().toISOString(),
+    if (authChannel === 'email_password') {
+      const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, {
+        roleIntent,
+        captchaToken: authTurnstileToken || undefined,
+      });
+      if (error) {
+        setErrorText(`${error.message} Check Supabase Email provider settings and redirect URLs if this persists.`);
+      } else if (data?.mode === 'confirmation_required') {
+        setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
+      } else {
+        const profileResult = await ensureSupabaseEmailProfile({
+          roleIntent,
+          accessCode: accessCode.trim() || undefined,
+          adminCode: adminCode.trim() || undefined,
+        });
+        if (profileResult.error) {
+          setErrorText(profileResult.error.message);
+          setLoading(false);
+          return;
+        }
+        window.location.reload();
+      }
+      setLoading(false);
+      return;
+    }
+
+    const result = authChannel === 'email_otp'
+      ? await sendEmailOtp(normalizedEmail, { roleIntent, captchaToken: authTurnstileToken || undefined })
+      : await sendPhoneOtp(normalizedPhone);
+    const { error } = result;
+    if (error) {
+      setErrorText(authChannel === 'email_otp'
+        ? `${error.message} Check Supabase Auth email settings, redirect URLs, and SMTP if no email arrives.`
+        : `${error.message} Phone OTP depends on the AFAT backend and the active SMS provider.`);
+    } else {
+      setStep('verify');
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorText('');
+    setInfoText('');
+    persistAccessIntent();
+    const { error } = authChannel === 'email_otp'
+      ? await verifyEmailOtp(normalizedEmail, otp)
+      : await verifyPhoneOtp(normalizedPhone, otp, {
+          roleIntent,
+          adminCode: roleIntent === 'admin' ? adminCode.trim() : undefined,
+          accessCode: accessCode.trim() || undefined,
+        });
+    if (error) {
+      setErrorText(error.message);
+    } else {
+      if (authChannel === 'email_otp') {
+        const profileResult = await ensureSupabaseEmailProfile({
+          roleIntent,
+          accessCode: accessCode.trim() || undefined,
+          adminCode: adminCode.trim() || undefined,
+        });
+        if (profileResult.error) {
+          setErrorText(profileResult.error.message);
+          setLoading(false);
+          return;
+        }
+      }
+      window.location.reload();
+    }
+    setLoading(false);
+  };
+
+  const handleBypassLogin = async (role: string) => {
+    setLoading(true);
+    setErrorText('');
+    try {
+      const { data, error } = await bypassAfatRole(role);
+      if (error) throw error;
+
+      if (data?.userId) {
+        if (!localStorage.getItem('afat_local_phone')) {
+          localStorage.setItem('afat_local_phone', '237699999001');
+        }
+        window.location.reload();
+      } else {
+        setErrorText(`No seeded ${role} profile exists yet. Use email auth with the AFAT bootstrap code, or create a real ${role} account through onboarding.`);
+      }
+    } catch (err: any) {
+      setErrorText(`Bypass failed: ${err.message || 'database connection issue'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="w-full font-sans text-on-surface">
+      <div className="relative w-full overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/80 p-5 shadow-ambient-float sm:p-7">
+        <div className="absolute top-0 left-0 w-full h-1 bg-signature-gradient opacity-50"></div>
+
+        <h2 className="text-2xl font-black tracking-tighter text-white uppercase italic">Secure access</h2>
+        <p className="mb-6 mt-1 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">Choose your lane and identity method</p>
+
+        {errorText && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl text-xs mb-6 font-bold">
+            {errorText}
+          </div>
+        )}
+
+        {infoText && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 p-4 rounded-2xl text-xs mb-6 font-bold">
+            {infoText}
+          </div>
+        )}
+
+        <div className="mb-6 grid grid-cols-3 gap-2">
+          <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
+            <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {supabaseReady ? 'Configured' : 'Needs env'}
+            </p>
+            {!supabaseReady && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-amber-100/70">
+                  Env details
+                </summary>
+                <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-amber-200/10 bg-slate-950/60 p-2 text-[9px] leading-relaxed text-amber-50/80">
+                  {envDiagnostics.join('\n')}
+                </pre>
+              </details>
+            )}
+          </div>
+          <div className={`rounded-2xl border px-3 py-3 ${turnstileReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Turnstile</p>
+            <p className={`mt-1 text-xs font-black ${turnstileReady ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {turnstileReady ? 'Configured' : 'Needs env'}
+            </p>
+          </div>
+          <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT backend</p>
+            <p className={`mt-1 text-xs font-black ${backendStatus === 'live' ? 'text-emerald-200' : backendStatus === 'checking' ? 'text-blue-200' : 'text-red-200'}`}>
+              {backendStatus === 'live' ? 'Live' : backendStatus === 'checking' ? 'Checking' : 'Offline'}
+            </p>
+            <p className="mt-1 truncate text-[9px] font-semibold text-white/35">{apiTarget.replace(/^https?:\/\//, '')}</p>
+          </div>
+        </div>
+
+        {backendStatus === 'offline' && (
+          <div className="mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
+            <p className="text-xs font-bold leading-relaxed text-red-100/80">
+              AFAT cannot confirm the API target from this browser yet. This is often a Render wake-up or routing issue, not a full backend outage.
+            </p>
+            {backendDetail && (
+              <p className="mt-2 text-[11px] leading-relaxed text-red-100/60">
+                {backendDetail}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setErrorText('');
+                  setInfoText('');
+                  setBackendStatus('checking');
+                  const { url, healthy, corrected, contractHealthy, detail } = await ensureReachableApiBaseUrl();
+                  setApiTarget(url);
+                  setBackendStatus(healthy ? 'live' : 'offline');
+                  setBackendDetail(detail || '');
+                  if (corrected) {
+                    setInfoText('AFAT restored the live backend automatically for this device.');
+                  } else if (healthy && !contractHealthy && detail) {
+                    setInfoText(detail);
+                  }
+                }}
+                className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+              >
+                Retry check
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setBackendDiagnostics('Running AFAT backend diagnostics...');
+                  try {
+                    const report = await runAfatBackendDiagnostics();
+                    const lines = report.entries.flatMap((entry) => [
+                      entry.candidate.replace(/^https?:\/\//, ''),
+                      `contract ${entry.contract.status || 0}: ${entry.contract.reason}`,
+                      `health ${entry.health.status || 0}: ${entry.health.reason}`,
+                      `auth ${entry.authContract.status || 0}: ${entry.authContract.reason}`,
+                    ]);
+                    setBackendDiagnostics(lines.join('\n'));
+                  } catch (err: any) {
+                    setBackendDiagnostics(err?.message || 'AFAT diagnostics failed.');
+                  }
+                }}
+                className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+              >
+                Run diagnostics
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setApiBaseOverride('https://asteck-bot.onrender.com');
+                  window.location.reload();
+                }}
+                className="rounded-xl border border-red-200/20 bg-red-100/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-100"
+              >
+                Use live backend
+              </button>
+            </div>
+            {backendDiagnostics && (
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-slate-950/60 p-3 text-[10px] leading-relaxed text-red-50/85">
+                {backendDiagnostics}
+              </pre>
+            )}
+          </div>
+        )}
+
+        {step === 'identity' ? (
+          <form onSubmit={handleSendOtp} className="space-y-6">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access lane</label>
+              <div className="grid grid-cols-2 gap-2">
+                {accessLanes.map((item) => (
+                  <button
+                    key={item.role}
+                    type="button"
+                    onClick={() => setRoleIntent(item.role as typeof roleIntent)}
+                    className={`rounded-2xl border px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                      roleIntent === item.role
+                        ? 'border-blue-400/50 bg-blue-500/15 text-blue-100'
+                        : 'border-white/10 bg-slate-950 text-white/55 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              {!isStaffAccess && (
+                <button
+                  type="button"
+                  onClick={() => window.location.assign('/staff/access')}
+                  className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/35 hover:text-white"
+                >
+                  Staff access
+                </button>
+              )}
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
+              <div className="mb-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Recommended now: Email password</p>
+                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Email/password is the stable pilot lane. Email link/code and phone access remain available where providers are configured.</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { channel: 'phone', label: 'Phone OTP' },
+                  { channel: 'email_password', label: 'Email Pass' },
+                  { channel: 'email_otp', label: 'Email Link' },
+                ].map((item) => (
+                  <button
+                    key={item.channel}
+                    type="button"
+                    onClick={() => setAuthChannel(item.channel as typeof authChannel)}
+                    className={`rounded-2xl border px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                      authChannel === item.channel
+                        ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100'
+                        : 'border-white/10 bg-slate-950 text-white/55 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
+                {authChannel === 'phone' ? 'Secure phone line' : 'Secure email identity'}
+              </label>
+              {authChannel !== 'phone' ? (
+                <div className="space-y-3">
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-semibold"
+                    required
+                  />
+                  {authChannel === 'email_password' && (
+                    <input
+                      type="password"
+                      placeholder="Password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-semibold"
+                      minLength={6}
+                      required
+                    />
+                  )}
+                  {['planner', 'admin'].includes(roleIntent) && (
+                    <input
+                      type="password"
+                      placeholder={roleIntent === 'admin' ? 'Admin bootstrap code' : 'Temporary access code'}
+                      value={roleIntent === 'admin' ? adminCode : accessCode}
+                      onChange={e => roleIntent === 'admin' ? setAdminCode(e.target.value) : setAccessCode(e.target.value)}
+                      className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="flex bg-slate-900 rounded-2xl overflow-hidden focus-within:ring-2 ring-blue-500/50 transition-all border border-white/10">
+                  <span className="flex items-center justify-center px-5 bg-slate-950 text-slate-400 border-r border-white/10 font-mono font-bold">+237</span>
+                  <input
+                    type="tel"
+                    placeholder="6XX XXX XXX"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    className="w-full bg-transparent px-5 py-4 text-white placeholder:text-white/20 focus:outline-none font-mono font-bold text-lg"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+            {needsAuthTurnstile && (
+              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                <TurnstileGate
+                  action="email_auth"
+                  onToken={setAuthTurnstileToken}
+                  onExpire={() => setAuthTurnstileToken('')}
+                />
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) || (needsAuthTurnstile && !authTurnstileToken) : normalizedPhone.length < 8)}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+            >
+              {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
+              {!loading && <ChevronRight className="w-4 h-4" />}
+            </button>
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-white/10" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-slate-950 px-3 text-[9px] font-black uppercase tracking-widest text-white/35">or verified identity</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading || !supabaseReady}
+              className="w-full border border-white/15 bg-white text-slate-950 hover:bg-slate-100 font-black py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+            >
+              <Chrome className="h-4 w-4" />
+              Continue with Google
+            </button>
+            <p className="text-[10px] font-semibold leading-relaxed text-white/40">
+              Google confirms your identity. AFAT still controls driver, planner and admin approval separately.
+            </p>
+            {guestAccessEnabled && (
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                <TurnstileGate
+                  action="guest_access"
+                  onToken={setGuestTurnstileToken}
+                  onExpire={() => setGuestTurnstileToken('')}
+                />
+                <button
+                  type="button"
+                  onClick={handleGuestAccess}
+                  disabled={loading || !supabaseReady || !guestTurnstileToken}
+                  className="w-full border border-white/10 bg-slate-950 text-white/75 hover:text-white font-black py-3.5 rounded-2xl transition-all disabled:opacity-50 uppercase tracking-widest text-[10px]"
+                >
+                  Continue as guest, limited
+                </button>
+              </div>
+            )}
+          </form>
+        ) : (
+          <form onSubmit={handleVerifyOtp} className="space-y-6">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Verification Identity</label>
+              <input
+                type="text"
+                placeholder="000000"
+                value={otp}
+                onChange={e => setOtp(e.target.value)}
+                className="w-full bg-slate-900 px-5 py-5 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono tracking-[0.5em] text-center text-3xl font-bold"
+                maxLength={6}
+                required={authChannel === 'email_otp' || roleIntent !== 'admin' || (!adminCode.trim() && !accessCode.trim())}
+              />
+              <p className="mt-2 text-[10px] font-semibold text-white/40">
+                {authChannel === 'email_otp'
+                  ? 'Use the code from the Supabase email, or open the secure email link in this browser.'
+                  : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
+              </p>
+            </div>
+            {(authChannel === 'phone' || (authChannel === 'email_otp' && roleIntent === 'planner')) && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Temporary Access Code</label>
+                <input
+                  type="password"
+                  placeholder="Temporary access code"
+                  value={accessCode}
+                  onChange={e => setAccessCode(e.target.value)}
+                  className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                />
+                <p className="mt-2 text-[10px] font-semibold text-white/40">
+                  Optional temporary lane access for allowlisted phones while full provider auth is being finalized.
+                </p>
+              </div>
+            )}
+            {(authChannel === 'phone' || authChannel === 'email_otp') && roleIntent === 'admin' && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Admin Bootstrap Code</label>
+                <input
+                  type="password"
+                  placeholder="Temporary admin code"
+                  value={adminCode}
+                  onChange={e => setAdminCode(e.target.value)}
+                  className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                />
+                <p className="mt-2 text-[10px] font-semibold text-white/40">
+                  This only works when your phone is allowlisted in backend env and a bootstrap code is configured.
+                </p>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || (otp.length < 6 && authChannel === 'email_otp') || (authChannel === 'phone' && otp.length < 6 && !adminCode.trim() && !accessCode.trim())}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+            >
+            {loading ? 'Verifying...' : authChannel === 'email_otp' ? 'Verify Email Code' : accessCode.trim() ? 'Use Temporary Access Code' : roleIntent === 'admin' && adminCode.trim() ? 'Use Admin Access Code' : 'Verify Phone Access'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStep('identity'); setOtp(''); setAdminCode(''); setAccessCode(''); }}
+              className="w-full text-slate-400 hover:text-white text-[10px] font-bold py-2 uppercase tracking-widest transition-colors"
+            >
+              Change access method
+            </button>
+          </form>
+        )}
+
+        <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center">
+          {isStaffAccess && import.meta.env.DEV && (
+            <button
+              type="button"
+              onClick={() => setShowBypass(!showBypass)}
+              className="text-[10px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors"
+            >
+              {showBypass ? 'Hide QA Bypass' : 'Use QA Bypass'}
+            </button>
+          )}
+
+          {showBypass && isStaffAccess && import.meta.env.DEV && (
+            <div className="mt-4 grid grid-cols-2 gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('commuter')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-all"
+              >
+                👤 Commuter
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('operator')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 transition-all"
+              >
+                🚕 Operator
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('planner')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20 transition-all"
+              >
+                📊 Planner
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('admin')}
+                className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 transition-all"
+              >
+                🕵️ Admin
+              </button>
+            </div>
+          )}
+
+          {!isStaffAccess && (
+            <button
+              type="button"
+              onClick={() => onRegisterRequest(roleIntent)}
+              className="mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+            >
+              New here? Register {roleIntent}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuthCallback() {
+  const [status, setStatus] = useState<'loading' | 'error'>('loading');
+  const [message, setMessage] = useState('Completing secure Google access...');
+  const [phase, setPhase] = useState<'redirect' | 'session' | 'profile' | 'ready'>('redirect');
+
+  useEffect(() => {
+    let mounted = true;
+    const roleIntent = localStorage.getItem('afat_access_intent_role') || 'commuter';
+    const accessCode = sessionStorage.getItem('afat_oauth_access_code') || '';
+    const adminCode = sessionStorage.getItem('afat_oauth_admin_code') || '';
+
+    setPhase('session');
+    completeGoogleAuthCallback({ roleIntent, accessCode, adminCode })
+      .then(({ error }) => {
+        sessionStorage.removeItem('afat_oauth_access_code');
+        sessionStorage.removeItem('afat_oauth_admin_code');
+
+        if (!mounted) return;
+        if (error) {
+          setStatus('error');
+          setMessage(error.message || 'AFAT could not complete Google sign-in.');
+          return;
+        }
+
+        setPhase('profile');
+        window.history.replaceState({}, '', '/');
+        window.location.replace('/');
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        setStatus('error');
+        setMessage(err?.message || 'AFAT could not complete Google sign-in.');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+      <div className="w-full max-w-md glass-panel rounded-[32px] border border-white/10 p-8 text-center shadow-ambient-float">
+        <AFATLogo className="mx-auto h-12 w-12" />
+        <h1 className="mt-6 text-2xl font-black uppercase tracking-tight">AFAT Google Access</h1>
+        <p className={`mt-4 text-sm font-bold leading-relaxed ${status === 'error' ? 'text-red-200' : 'text-white/55'}`}>
+          {message}
+        </p>
+        {status === 'loading' ? (
+          <div className="mt-6 grid gap-3 text-left">
+            <div className={`rounded-2xl border px-4 py-3 ${phase === 'redirect' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 1</p>
+              <p className="mt-1 text-xs font-bold text-white">Google redirected back to AFAT.</p>
+            </div>
+            <div className={`rounded-2xl border px-4 py-3 ${phase === 'session' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 2</p>
+              <p className="mt-1 text-xs font-bold text-white">Restoring your Supabase session.</p>
+            </div>
+            <div className={`rounded-2xl border px-4 py-3 ${phase === 'profile' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 3</p>
+              <p className="mt-1 text-xs font-bold text-white">Loading your AFAT profile and access lane.</p>
+            </div>
+            <div className="mx-auto mt-1 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-blue-400" />
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-3">
+            <button
+              type="button"
+              onClick={() => window.location.replace('/')}
+              className="rounded-2xl bg-blue-600 px-5 py-4 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-500"
+            >
+              Return to AFAT access
+            </button>
+            <p className="text-[10px] font-semibold leading-relaxed text-white/40">
+              Check Supabase Google provider settings, callback redirect URLs, and AFAT backend reachability if this repeats.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type AfatRole = 'commuter' | 'operator' | 'planner' | 'admin';
+type AccessLevel = 'public' | 'guest' | 'verified' | 'operator' | 'planner' | 'admin';
+
+function normalizeAfatRole(role?: string | null): AfatRole {
+  return ['operator', 'planner', 'admin'].includes(String(role || '').toLowerCase())
+    ? String(role).toLowerCase() as AfatRole
+    : 'commuter';
+}
+
+function getAccessLevel(profile: any, sessionUser: any): AccessLevel {
+  if (!sessionUser?.id) return 'public';
+  const role = normalizeAfatRole(profile?.role);
+  if (role === 'admin') return 'admin';
+  if (role === 'planner') return 'planner';
+  if (role === 'operator') return 'operator';
+  return profile?.access_level === 'guest' || localStorage.getItem('afat_access_level') === 'guest' ? 'guest' : 'verified';
+}
+
+function canUseOperatorConsole(profile: any) {
+  if (!profile) return false;
+  const status = String(profile.operator_application_status || '').toUpperCase();
+  return normalizeAfatRole(profile.role) === 'operator' && profile.is_active !== false && (!status || status === 'APPROVED');
+}
+
+function hasOperatorApplication(profile: any) {
+  return Boolean(profile?.operator_application_status);
+}
+
+function OperatorAccessPending({ profile, onRegister, onUseCommuter }: { profile: any; onRegister: () => void; onUseCommuter: () => void }) {
+  const status = String(profile?.operator_application_status || 'APPLICATION_STARTED').replace(/_/g, ' ');
+  return (
+    <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
+      <div className="mesh-gradient" />
+      <div className="relative z-10 mx-auto max-w-3xl">
+        <div className="rounded-[2rem] border border-amber-400/20 bg-slate-950/80 p-7 shadow-ambient-float backdrop-blur-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/70">Controlled operator access</p>
+          <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">Operator approval required</h1>
+          <p className="mt-4 text-sm font-semibold leading-relaxed text-white/65">
+            Your Google or email account is valid, but AFAT has not approved this profile for live driver/operator operations yet.
+            This protects passengers, operators, payments and city intelligence from fake role elevation.
+          </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Current role</p>
+              <p className="mt-2 text-sm font-black uppercase text-white">{normalizeAfatRole(profile?.role)}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Application</p>
+              <p className="mt-2 text-sm font-black uppercase text-amber-100">{status}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Live console</p>
+              <p className="mt-2 text-sm font-black uppercase text-red-200">Locked</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRegister}
+            className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
+          >
+            Complete operator application
+          </button>
+          <button
+            type="button"
+            onClick={onUseCommuter}
+            className="ml-3 mt-7 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
+          >
+            Continue as commuter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RestrictedAccessPending({
+  requestedRole,
+  onRegister,
+  onUseCommuter,
+}: {
+  requestedRole: 'planner' | 'admin';
+  onRegister: () => void;
+  onUseCommuter: () => void;
+}) {
+  const label = requestedRole === 'admin' ? 'Admin command' : 'Planner access';
+  return (
+    <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
+      <div className="mesh-gradient" />
+      <div className="relative z-10 mx-auto max-w-3xl">
+        <div className="rounded-[2rem] border border-blue-400/20 bg-slate-950/80 p-7 shadow-ambient-float backdrop-blur-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-200/70">Invite controlled access</p>
+          <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">{label} requires approval</h1>
+          <p className="mt-4 text-sm font-semibold leading-relaxed text-white/65">
+            Your Google account is valid. AFAT keeps this lane locked until an approved bootstrap code, organization profile,
+            or admin invitation confirms that this account should manage people, operators, city data, or platform controls.
+          </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Identity</p>
+              <p className="mt-2 text-sm font-black uppercase text-emerald-100">Verified</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Requested lane</p>
+              <p className="mt-2 text-sm font-black uppercase text-blue-100">{requestedRole}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Console</p>
+              <p className="mt-2 text-sm font-black uppercase text-amber-100">Invite needed</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRegister}
+            className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
+          >
+            Complete organization intake
+          </button>
+          <button
+            type="button"
+            onClick={onUseCommuter}
+            className="ml-3 mt-7 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
+          >
+            Continue as commuter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessLevelStrip({ accessLevel, profile }: { accessLevel: AccessLevel; profile: any }) {
+  const label: Record<AccessLevel, string> = {
+    public: 'Public visitor',
+    guest: 'Guest session',
+    verified: 'Verified passenger',
+    operator: 'Approved operator',
+    planner: 'Planner / authority',
+    admin: 'AFAT command',
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+      <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-xs font-bold text-white/60 backdrop-blur-xl">
+        <span className="text-[9px] font-black uppercase tracking-[0.24em] text-cyan-200/60">Access level</span>
+        <span className="ml-3 text-white">{label[accessLevel]}</span>
+        {profile?.operator_application_status && normalizeAfatRole(profile?.role) !== 'operator' && (
+          <span className="ml-3 text-amber-200">Operator application: {String(profile.operator_application_status).replace(/_/g, ' ')}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==============================================================================
+// 🚪 MAIN APP ROUTER (Gatekeeper)
+// ==============================================================================
+
+export default function App() {
+  const pathname = window.location.pathname || '/';
+  const watchMatch = pathname.match(/^\/watch\/([^/]+)$/);
+
+  if (pathname === '/auth/callback') {
+    return <AuthCallback />;
+  }
+
+  if (watchMatch?.[1]) {
+    return <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />;
+  }
+
+  return <AppShell />;
+}
+
+function AppShell() {
+  const isLocalHost = isLoopbackHost(window.location.hostname);
+  // Never allow URL parameters to unlock roles in a deployed build. Local review
+  // is deliberately restricted to loopback hosts and remains protected by the
+  // backend/RLS boundary for every persisted operation.
+  const showDevOverride = isLocalHost && new URLSearchParams(window.location.search).get('devOverride') === '1';
+  const isLocalReview = isLocalReviewAllowed(window.location.hostname, window.location.search);
+  const [sessionUser, setSessionUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false); // Changed to false: NEVER block UI on boot
+  const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'notifications' | 'profile'>('home');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
+  const [isRegistrationHubOpen, setIsRegistrationHubOpen] = useState(false);
+  const [registrationTrack, setRegistrationTrack] = useState<'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company'>('select');
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [localAuthUserId, setLocalAuthUserId] = useState<string | null>(() => localStorage.getItem('afat_local_user_id'));
+  const roleAccessConfig: Record<string, { label: string; icon: React.ElementType; iconWrapClass: string; iconClass: string }> = {
+    commuter: {
+      label: 'Commuter / passenger',
+      icon: MapIcon,
+      iconWrapClass: 'bg-blue-500/10 border-blue-400/20',
+      iconClass: 'text-blue-300',
+    },
+    operator: {
+      label: 'Driver / operator node',
+      icon: Car,
+      iconWrapClass: 'bg-emerald-500/10 border-emerald-400/20',
+      iconClass: 'text-emerald-300',
+    },
+    planner: {
+      label: 'Company / agency / city planner',
+      icon: BarChart3,
+      iconWrapClass: 'bg-purple-500/10 border-purple-400/20',
+      iconClass: 'text-purple-300',
+    },
+    admin: {
+      label: 'AFAT admin command',
+      icon: ShieldAlert,
+      iconWrapClass: 'bg-red-500/10 border-red-400/20',
+      iconClass: 'text-red-300',
+    }
+  };
+
+  try {
+    const getRegistrationTrackForRole = (role?: string) => {
+      if (role === 'commuter') return 'commuter';
+      if (role === 'operator') return 'citizen_reg';
+      if (role === 'planner') return 'company';
+      if (role === 'admin') return 'gov_link';
+      return 'select';
     };
 
-    if (['resolved', 'dismissed', 'expired'].includes(status)) {
-      update.resolved_at = new Date().toISOString();
-      update.resolver_id = resolver_id || access.profile.id;
-    }
+    const forceRole = (role: string, vehicleType?: string, idData?: any) => {
+      setUserRole(role);
+      setActiveTab('home');
+      setShowOnboarding(false);
+      const resolvedId = idData?.id || `afat-local-${role}`;
+      const resolvedPhone = idData?.phone || localStorage.getItem('afat_local_phone') || '237000000';
+      localStorage.setItem('afat_local_user_id', resolvedId);
+      localStorage.setItem('afat_local_phone', resolvedPhone);
+      localStorage.setItem('afat_user_id', resolvedId);
+      localStorage.setItem('afat_access_intent_role', role);
+      setLocalAuthUserId(resolvedId);
+      setSessionUser({ id: resolvedId, phone: resolvedPhone });
+      setUserProfile({
+        id: resolvedId,
+        full_name: idData?.full_name || (idData?.ids_number ? `Sentinel ${idData.ids_number.split('-').pop()}` : `${vehicleType ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1) + ' ' : ''}Test ${role.charAt(0).toUpperCase() + role.slice(1)}`),
+        role: role,
+        trust_points: 500,
+        subscription_tier: role === 'commuter' ? 'free' : 'guardian',
+        vehicle_type: vehicleType || null,
+        preferred_city: idData?.preferred_city || idData?.base_city || null,
+        preferred_zone: idData?.preferred_zone || idData?.operating_zone || null,
+        ids_number: idData?.ids_number || null,
+        cni_number: idData?.cni_number || null,
+        plate_number: idData?.plate_number || null,
+        company_name: idData?.company_name || null,
+        is_verified: !!idData?.ids_number,
+        is_active: typeof idData?.is_active === 'boolean' ? idData.is_active : role !== 'operator',
+        operator_application_status: idData?.operator_application_status || (role === 'operator' ? 'UNDER_REVIEW' : null)
+      });
+      setLoading(false);
+    };
 
-    const { data, error } = await supabase
-      .from('incidents')
-      .update(update)
-      .eq('id', id)
-      .select()
-      .single();
+    useEffect(() => {
+      const localProfileId = localStorage.getItem('afat_local_user_id');
+      const bootAuth = async () => {
+        const me = await fetchAfatSessionProfile();
+        const authProfile = me.data?.profile;
 
-    if (error) throw error;
-    res.status(200).json({ success: true, report: data });
-  } catch (error: any) {
-    console.error('Report status update error:', error);
-    res.status(500).json({ error: error.message || 'Report status update failed' });
-  }
-});
-
-router.get('/ops/safety-score', async (req: Request, res: Response) => {
-  try {
-    const lat = Number(req.query.lat || 3.866);
-    const lng = Number(req.query.lng || 11.514);
-    const radiusKm = Number(req.query.radius_km || 5);
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: incidents, error } = await supabase
-      .from('incidents')
-      .select('id, type, severity, status, latitude, longitude, location, created_at')
-      .gte('created_at', since)
-      .neq('status', 'false');
-
-    if (error) throw error;
-
-    const radiusDegrees = radiusKm / 111;
-    const nearby = (incidents || []).filter((incident: any) => {
-      const point = {
-        latitude: Number(incident.latitude ?? parsePointText(incident.location)?.latitude),
-        longitude: Number(incident.longitude ?? parsePointText(incident.location)?.longitude),
-      };
-      if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return false;
-      return Math.abs(point.latitude - lat) <= radiusDegrees && Math.abs(point.longitude - lng) <= radiusDegrees;
-    });
-
-    const severe = nearby.filter((incident: any) => Number(incident.severity || 0) >= 4);
-    const score = scoreFromIncidentLoad(nearby.length, severe.length);
-
-    res.status(200).json({
-      success: true,
-      score,
-      level: score >= 80 ? 'stable' : score >= 55 ? 'caution' : 'high-risk',
-      radius_km: radiusKm,
-      incident_count: nearby.length,
-      severe_count: severe.length,
-      top_signals: nearby.slice(0, 5),
-    });
-  } catch (error: any) {
-    console.error('Safety score error:', error);
-    res.status(500).json({ error: error.message || 'Safety score failed' });
-  }
-});
-
-router.get('/ops/demand-radar', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner']);
-    if (!access) return;
-    const since = new Date(Date.now() - 90 * 60 * 1000).toISOString();
-    const [{ data: bookings }, { data: vehicles }, { data: movements }] = await Promise.all([
-      supabase.from('bookings').select('id, status, route_id, created_at, routes(name, origin, destination)').gte('created_at', since),
-      supabase.from('vehicles').select('id, operator_id, type, is_available, current_lat, current_lng, last_ping_at').eq('is_available', true),
-      supabase.from('movement_logs').select('id, latitude, longitude, created_at').gte('created_at', since).limit(200),
-    ]);
-
-    const bookingCount = (bookings || []).length;
-    const vehicleCount = (vehicles || []).length;
-    const pulseCount = (movements || []).length;
-    const pressure = bookingCount * 2 + pulseCount * 0.25 - vehicleCount;
-
-    res.status(200).json({
-      success: true,
-      summary: {
-        booking_count: bookingCount,
-        active_vehicles: vehicleCount,
-        telemetry_pulses: pulseCount,
-        pressure: Math.round(pressure),
-        recommendation: pressure > 20 ? 'add_supply' : pressure < 4 ? 'hold_supply' : 'balanced',
-      },
-      routes: bookings || [],
-      vehicles: vehicles || [],
-      pulses: movements || [],
-    });
-  } catch (error: any) {
-    console.error('Demand radar error:', error);
-    res.status(500).json({ error: error.message || 'Demand radar failed' });
-  }
-});
-
-router.get('/ops/compliance-radar', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner']);
-    if (!access) return;
-    const lookback = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: records, error } = await supabase
-      .from('compliance_records')
-      .select('*')
-      .gte('created_at', lookback)
-      .order('updated_at', { ascending: false })
-      .limit(200);
-
-    if (error) throw error;
-
-    const items = records || [];
-    const active = items.filter((record: any) => !['verified', 'missing'].includes(record.status));
-    const verified = items.filter((record: any) => record.status === 'verified');
-    const dueSoon = items.filter((record: any) => {
-      if (!record.due_at) return false;
-      const remaining = new Date(record.due_at).getTime() - Date.now();
-      return remaining > 0 && remaining <= 30 * 24 * 60 * 60 * 1000;
-    });
-    const overdue = items.filter((record: any) => {
-      if (!record.due_at) return false;
-      return new Date(record.due_at).getTime() <= Date.now() && record.status !== 'verified';
-    });
-
-    const byRole = items.reduce((acc: Record<string, number>, record: any) => {
-      acc[record.role] = (acc[record.role] || 0) + 1;
-      return acc;
-    }, {});
-
-    res.status(200).json({
-      success: true,
-      summary: {
-        total: items.length,
-        active: active.length,
-        verified: verified.length,
-        due_soon: dueSoon.length,
-        overdue: overdue.length,
-        score: scoreFromCompliance(items),
-      },
-      by_role: byRole,
-      records: items,
-    });
-  } catch (error: any) {
-    console.error('Compliance radar error:', error);
-    res.status(500).json({ error: error.message || 'Compliance radar failed' });
-  }
-});
-
-router.get('/dispatch/active', async (req: Request, res: Response) => {
-  const access = await requireAuthRole(req, res, ['admin', 'planner']);
-  if (!access) return;
-
-  try {
-    const { data, error } = await supabase
-      .from('dispatch_assignments')
-      .select('*')
-      .in('status', ['queued', 'assigned', 'en_route', 'arrived'])
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (error) throw error;
-    res.status(200).json({ success: true, dispatches: data || [] });
-  } catch (error: any) {
-    console.error('Active dispatch fetch error:', error);
-    res.status(500).json({ error: error.message || 'Active dispatch fetch failed' });
-  }
-});
-
-router.get('/compliance/summary/:profileId', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res);
-    if (!access) return;
-    const { profileId } = req.params;
-    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
-    if (!isStaff && access.profile.id !== profileId) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const { data: profileRecords, error: profileError } = await supabase
-      .from('compliance_records')
-      .select('*')
-      .eq('profile_id', profileId)
-      .order('updated_at', { ascending: false });
-
-    if (profileError) throw profileError;
-
-    const { data: memberships, error: membershipError } = await supabase
-      .from('company_memberships')
-      .select('company_id, role, status, companies:company_id(id, name, fleet_size)')
-      .eq('profile_id', profileId)
-      .eq('status', 'active');
-
-    if (membershipError) throw membershipError;
-
-    const companyIds = (memberships || []).map((membership: any) => membership.company_id).filter(Boolean);
-    const { data: companyRecords, error: companyRecordsError } = companyIds.length
-      ? await supabase
-          .from('compliance_records')
-          .select('*')
-          .in('company_id', companyIds)
-          .order('updated_at', { ascending: false })
-      : { data: [], error: null as any };
-
-    if (companyRecordsError) throw companyRecordsError;
-
-    const records = [...(profileRecords || []), ...(companyRecords || [])];
-    const score = scoreFromCompliance(records);
-    const overdue = records.filter((record: any) => {
-      if (!record.due_at) return false;
-      return new Date(record.due_at).getTime() <= Date.now() && record.status !== 'verified';
-    }).length;
-
-    res.status(200).json({
-      success: true,
-      summary: {
-        total: records.length,
-        verified: records.filter((record: any) => record.status === 'verified').length,
-        due_soon: records.filter((record: any) => {
-          if (!record.due_at) return false;
-          const remaining = new Date(record.due_at).getTime() - Date.now();
-          return remaining > 0 && remaining <= 30 * 24 * 60 * 60 * 1000;
-        }).length,
-        overdue,
-        score,
-      },
-      memberships: memberships || [],
-      records,
-    });
-  } catch (error: any) {
-    console.error('Compliance summary error:', error);
-    res.status(500).json({ error: error.message || 'Compliance summary failed' });
-  }
-});
-
-router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner']);
-    if (!access) return;
-    const { id } = req.params;
-    const { status, notes } = req.body;
-    const allowed = ['missing', 'pending', 'submitted', 'verified', 'expired', 'rejected', 'needs_followup'];
-
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ error: 'Invalid compliance status' });
-    }
-
-    const { data, error } = await supabase
-      .from('compliance_records')
-      .update({
-        status,
-        notes: notes || null,
-        verified_at: status === 'verified' ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    if (data?.profile_id) {
-      await notifyRecipients(
-        { user_ids: [data.profile_id] },
-        {
-          type: 'compliance_update',
-          title: `Compliance ${status.replace(/_/g, ' ')}`,
-          body: notes
-            ? `AFAT updated your compliance record to ${status.replace(/_/g, ' ')}. ${notes}`
-            : `AFAT updated your compliance record to ${status.replace(/_/g, ' ')}.`,
-          referenceId: data.id,
-          channels: ['in_app', 'whatsapp'],
+        if (authProfile?.id) {
+          setSessionUser({ id: authProfile.id, phone: authProfile.phone || localStorage.getItem('afat_local_phone') || '' });
+          localStorage.setItem('afat_local_user_id', authProfile.id);
+          localStorage.setItem('afat_user_id', authProfile.id);
+          if (authProfile.phone) localStorage.setItem('afat_local_phone', authProfile.phone);
+          telemetry.start(authProfile.id);
+          await fetchRole(authProfile.id);
+          return;
         }
+
+        const refreshed = await refreshAfatSession();
+        const refreshedProfile = refreshed.data?.profile;
+        if (refreshedProfile?.id) {
+          setSessionUser({ id: refreshedProfile.id, phone: refreshedProfile.phone || localStorage.getItem('afat_local_phone') || '' });
+          localStorage.setItem('afat_local_user_id', refreshedProfile.id);
+          localStorage.setItem('afat_user_id', refreshedProfile.id);
+          if (refreshedProfile.phone) localStorage.setItem('afat_local_phone', refreshedProfile.phone);
+          telemetry.start(refreshedProfile.id);
+          await fetchRole(refreshedProfile.id);
+          return;
+        }
+
+        const supabaseSession = await getCurrentUser();
+        if (supabaseSession.user?.id) {
+          const profileResult = await ensureSupabaseEmailProfile({
+            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
+          });
+          if (profileResult.error) {
+            setBootError(profileResult.error.message);
+          }
+          setSessionUser({
+            id: supabaseSession.user.id,
+            phone: supabaseSession.user.phone || localStorage.getItem('afat_local_phone') || '',
+          });
+          localStorage.setItem('afat_local_user_id', supabaseSession.user.id);
+          localStorage.setItem('afat_user_id', supabaseSession.user.id);
+          telemetry.start(supabaseSession.user.id);
+          await fetchRole(supabaseSession.user.id);
+          return;
+        }
+
+        if (isLocalReview && localProfileId) {
+          setSessionUser({ id: localProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
+          localStorage.setItem('afat_user_id', localProfileId);
+          await fetchRole(localProfileId);
+          return;
+        }
+
+        setSessionUser(null);
+        setUserRole(null);
+        telemetry.stop();
+      };
+
+      bootAuth().catch((err) => {
+        console.error('[AFAT] Auth boot error:', err);
+      });
+
+      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' && session?.user?.id) {
+          localStorage.setItem('afat_local_user_id', session.user.id);
+          localStorage.setItem('afat_user_id', session.user.id);
+          if (session.user.phone) localStorage.setItem('afat_local_phone', session.user.phone);
+          setSessionUser({
+            id: session.user.id,
+            phone: session.user.phone || localStorage.getItem('afat_local_phone') || '',
+          });
+          telemetry.start(session.user.id);
+          ensureSupabaseEmailProfile({
+            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
+          }).finally(() => fetchRole(session.user.id));
+        }
+
+        if (event === 'SIGNED_OUT') {
+          setSessionUser(null);
+          setUserProfile(null);
+          setUserRole(null);
+          telemetry.stop();
+        }
+      });
+
+      return () => {
+        authListener.subscription.unsubscribe();
+      };
+    }, []);
+
+    const fetchRole = async (userId: string) => {
+      try {
+        const { data, error } = await getProfile(userId);
+        if (!error && data) {
+          setUserProfile(data);
+          setUserRole(normalizeAfatRole(data.role));
+          setBootError(null);
+
+          const hasOnboarded = localStorage.getItem(`onboarded_${userId}`);
+          if (!hasOnboarded) {
+            setShowOnboarding(true);
+          }
+        } else {
+          const intendedRole = localStorage.getItem('afat_access_intent_role') || 'commuter';
+          setUserRole(null);
+          setUserProfile(null);
+          setRegistrationTrack(getRegistrationTrackForRole(intendedRole));
+          setIsRegistrationHubOpen(true);
+          setBootError('AFAT recognized the phone session, but no mobility profile is attached yet.');
+        }
+      } catch (err) {
+        setBootError('AFAT could not load the role profile. Reconnect or finish registration.');
+      }
+    };
+
+    const handleSignOut = async () => {
+      localStorage.removeItem('afat_local_user_id');
+      localStorage.removeItem('afat_local_phone');
+      localStorage.removeItem('afat_user_id');
+      localStorage.removeItem('afat_access_level');
+      setLocalAuthUserId(null);
+      setUserProfile(null);
+      setUserRole(null);
+      await signOut();
+    };
+
+    const handleOnboardingComplete = () => {
+      if (sessionUser) {
+        localStorage.setItem(`onboarded_${sessionUser.id}`, 'true');
+      }
+      setShowOnboarding(false);
+    };
+
+    const renderRoleToggle = () => (
+      <div className="fixed top-4 right-4 z-[9999] flex flex-col items-end gap-2">
+        <button
+          onClick={() => setIsProtocolHubOpen(!isProtocolHubOpen)}
+          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-2xl border ${isProtocolHubOpen ? 'bg-red-500 border-red-400 rotate-90' : 'bg-[#0f1520]/90 backdrop-blur-xl border-white/10 hover:border-blue-400/50 hover:scale-110'}`}
+        >
+          <ShieldAlert className={`w-5 h-5 ${isProtocolHubOpen ? 'text-white' : 'text-blue-400'}`} />
+        </button>
+
+        {isProtocolHubOpen && (
+          <div className="flex flex-col gap-1.5 p-3 bg-[#0f1520]/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl animate-in slide-in-from-top-2 fade-in duration-200" style={{maxWidth: '160px'}}>
+            <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest mb-1 px-1">Grid Protocol Override</p>
+            <div className="space-y-1">
+              <button
+                onClick={() => { forceRole('commuter'); setIsProtocolHubOpen(false); }}
+                className="w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-blue-500 text-white"
+              >
+                👤 Commuter
+              </button>
+              <button
+                onClick={() => { forceRole('operator', 'taxi'); setIsProtocolHubOpen(false); }}
+                className="w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-green-500 text-white"
+              >
+                🚕 Taxi Node
+              </button>
+              <button
+                onClick={() => { forceRole('planner'); setIsProtocolHubOpen(false); }}
+                className="w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-cyan-500 text-white"
+              >
+                Planner
+              </button>
+              <button
+                onClick={() => { forceRole('admin'); setIsProtocolHubOpen(false); }}
+                className="w-full px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider bg-purple-500 text-white"
+              >
+                🕵️ Admin
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+
+    if (!sessionUser) {
+      return (
+        <div className="min-h-screen sentinel-bg text-white">
+          <div className="mesh-gradient" />
+          <div className="relative z-10 flex min-h-screen items-start justify-center px-4 py-6 sm:px-6 sm:py-10 lg:items-center">
+            <main className="grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/82 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl lg:grid-cols-[0.85fr_1.15fr]">
+              <section className="flex flex-col justify-between border-b border-white/10 bg-gradient-to-br from-blue-950/50 via-slate-950 to-slate-950 p-6 sm:p-8 lg:border-b-0 lg:border-r">
+              <div>
+              <div className="mb-8 flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+                  <AFATLogo className="h-8 w-8 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black uppercase italic tracking-tight text-white">AFAT Access</h1>
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Real onboarding. Real route intelligence.</p>
+                </div>
+              </div>
+
+              <div className="mb-8">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/60">One identity. The right workspace.</p>
+                <h2 className="mt-3 text-3xl font-black uppercase tracking-tight text-white sm:text-4xl">Move safely. Operate clearly.</h2>
+                <p className="mt-4 max-w-md text-sm font-medium leading-relaxed text-white/65">
+                  Commuters book and travel. Operators manage verified service. Planners and admins enter through controlled staff access.
+                </p>
+              </div>
+
+              {isLocalReview && (
+                <div className="mb-8 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-200/70">Local review mode</p>
+                      <p className="mt-1 text-xs font-semibold text-white/55">Browse AFAT surfaces without waiting on SMS or production sessions.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setRegistrationTrack('select');
+                        setIsRegistrationHubOpen(true);
+                      }}
+                      className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-white/15"
+                    >
+                      Onboard
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      { role: 'commuter', label: 'Commuter', vehicle: undefined },
+                      { role: 'operator', label: 'Operator', vehicle: 'taxi' },
+                      { role: 'planner', label: 'Planner', vehicle: undefined },
+                      { role: 'admin', label: 'Admin', vehicle: undefined },
+                    ].map((item) => (
+                      <button
+                        key={item.role}
+                        onClick={() => forceRole(item.role, item.vehicle)}
+                        className="min-h-12 rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white/70 transition hover:border-emerald-300/50 hover:text-white"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              </div>
+              <div className="rounded-3xl border border-blue-400/20 bg-blue-500/10 p-5">
+                <p className="text-xs font-black uppercase tracking-wider text-blue-100">No AFAT profile?</p>
+                <p className="mt-2 text-xs leading-relaxed text-white/55">Start a commuter, operator, government-linked, or fleet intake. Approval controls remain separate.</p>
+                <button
+                  onClick={() => {
+                    setRegistrationTrack('select');
+                    setIsRegistrationHubOpen(true);
+                  }}
+                  className="mt-4 min-h-11 w-full rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-widest text-slate-950 transition active:scale-[0.98]"
+                >
+                  Start registration
+                </button>
+              </div>
+              </section>
+
+              <section className="p-4 sm:p-8">
+              <Login
+                onRegisterRequest={(role) => {
+                  setRegistrationTrack(getRegistrationTrackForRole(role));
+                  setIsRegistrationHubOpen(true);
+                }}
+              />
+
+              {bootError && (
+                <div className="mt-6 rounded-3xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100/80">
+                  {bootError}
+                </div>
+              )}
+
+              </section>
+            </main>
+          </div>
+          <RegistrationHub
+            isVisible={isRegistrationHubOpen}
+            onClose={() => setIsRegistrationHubOpen(false)}
+            initialTrack={registrationTrack}
+            prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
+            onRegisterCustom={(data) => {
+              if (data?.id) {
+                localStorage.setItem('afat_local_user_id', data.id);
+                setLocalAuthUserId(data.id);
+              }
+              forceRole(data.role, data.vehicleType, data);
+            }}
+          />
+        </div>
       );
     }
 
-    res.status(200).json({ success: true, record: data });
-  } catch (error: any) {
-    console.error('Compliance status update error:', error);
-    res.status(500).json({ error: error.message || 'Compliance status update failed' });
-  }
-});
+    const renderDashboard = () => {
+      const accessLevel = getAccessLevel(userProfile, sessionUser);
+      const effectiveRole = normalizeAfatRole(userRole);
+      const intendedRole = localStorage.getItem('afat_access_intent_role') || effectiveRole;
+      const wantsOperatorConsole = effectiveRole === 'operator' || intendedRole === 'operator';
+      if (wantsOperatorConsole && ((effectiveRole === 'operator' && !canUseOperatorConsole(userProfile)) || hasOperatorApplication(userProfile))) {
+        return (
+          <OperatorAccessPending
+            profile={userProfile}
+            onRegister={() => {
+              setRegistrationTrack('citizen_reg');
+              setIsRegistrationHubOpen(true);
+            }}
+            onUseCommuter={() => {
+              localStorage.setItem('afat_access_intent_role', 'commuter');
+              setUserRole('commuter');
+              setActiveTab('home');
+            }}
+          />
+        );
+      }
+      if (effectiveRole === 'commuter' && (intendedRole === 'planner' || intendedRole === 'admin')) {
+        return (
+          <RestrictedAccessPending
+            requestedRole={intendedRole as 'planner' | 'admin'}
+            onRegister={() => {
+              setRegistrationTrack(getRegistrationTrackForRole(intendedRole));
+              setIsRegistrationHubOpen(true);
+            }}
+            onUseCommuter={() => {
+              localStorage.setItem('afat_access_intent_role', 'commuter');
+              setUserRole('commuter');
+              setActiveTab('home');
+            }}
+          />
+        );
+      }
 
-router.post('/dispatch/assign', async (req: Request, res: Response) => {
-  try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner']);
-    if (!access) return;
-    const {
-      booking_id,
-      route_id,
-      operator_id,
-      vehicle_id,
-      dispatcher_id,
-      origin,
-      destination,
-      priority,
-      notes,
-      pickup_lat,
-      pickup_lng,
-      dropoff_lat,
-      dropoff_lng,
-    } = req.body;
+      switch (effectiveRole) {
+        case 'admin':
+          return <AdminControlPanel onSignOut={handleSignOut} activeTab={activeTab} />;
+        case 'planner':
+          return <PlannerDashboard onSignOut={handleSignOut} activeTab={activeTab} />;
+        case 'operator':
+          return <OperatorDashboard onSignOut={handleSignOut} activeTab={activeTab} profile={userProfile} />;
+        case 'commuter':
+        default:
+          return <CommuterDashboard onSignOut={handleSignOut} profile={userProfile} activeTab={activeTab} />;
+      }
+    };
 
-    if (!operator_id && !vehicle_id && !booking_id) {
-      return res.status(400).json({ error: 'operator_id, vehicle_id, or booking_id required' });
-    }
+    const renderRoleFrame = () => {
+      if (!isLocalReview) {
+        return null;
+      }
 
-    const { data, error } = await supabase
-      .from('dispatch_assignments')
-      .insert({
-        booking_id: booking_id || null,
-        route_id: route_id || null,
-        operator_id: operator_id || null,
-        vehicle_id: vehicle_id || null,
-        dispatcher_id: dispatcher_id || access.profile.id,
-        origin: origin || null,
-        destination: destination || null,
-        priority: priority || 'normal',
-        status: 'assigned',
-        notes: notes || null,
-        pickup_lat: pickup_lat || null,
-        pickup_lng: pickup_lng || null,
-        dropoff_lat: dropoff_lat || null,
-        dropoff_lng: dropoff_lng || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+      const config = roleAccessConfig[userRole || 'commuter'] || roleAccessConfig.commuter;
+      const Icon = config.icon;
+      const isCompanyCoordinator = userRole === 'planner' && userProfile?.company_name;
+      const reviewRoles = [
+        { role: 'commuter', label: 'Commuter', vehicle: undefined },
+        { role: 'operator', label: 'Operator', vehicle: userProfile?.vehicle_type || 'taxi' },
+        { role: 'planner', label: 'Planner', vehicle: undefined },
+        { role: 'admin', label: 'Admin', vehicle: undefined },
+      ];
+      return (
+        <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 px-4 py-3 shadow-xl backdrop-blur-2xl">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${config.iconWrapClass}`}>
+                  <Icon className={`h-4 w-4 ${config.iconClass}`} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">QA workspace</p>
+                  <p className="truncate text-sm font-black uppercase tracking-tight text-white">
+                    {isCompanyCoordinator ? 'Company / fleet coordinator' : config.label}
+                  </p>
+                </div>
+              </div>
 
-    if (error) throw error;
-
-    if (booking_id) {
-      await supabase
-        .from('bookings')
-        .update({ status: 'accepted', updated_at: new Date().toISOString() })
-        .eq('id', booking_id);
-    }
-
-    if (data?.operator_id) {
-      await notifyRecipients(
-        { user_ids: [data.operator_id] },
-        {
-          type: 'dispatch_assignment',
-          title: `New ${data.priority || 'normal'} dispatch`,
-          body: `${data.origin || 'AFAT command'} -> ${data.destination || 'assigned destination'}${data.notes ? `\n${data.notes}` : ''}`,
-          referenceId: data.id,
-          channels: ['in_app', 'whatsapp', 'telegram'],
-        }
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-[9px] font-black uppercase tracking-[0.22em] text-cyan-200/70">Role switch</span>
+                {reviewRoles.map((item) => (
+                  <button
+                    key={item.role}
+                    onClick={() => forceRole(item.role, item.vehicle)}
+                    className={`min-h-10 rounded-2xl border px-3 py-2 text-[9px] font-black uppercase tracking-widest transition ${
+                      userRole === item.role
+                        ? 'border-cyan-300/50 bg-cyan-500/15 text-cyan-100'
+                        : 'border-white/10 bg-white/[0.03] text-white/45 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <button
+                  onClick={() => {
+                    setRegistrationTrack('select');
+                    setIsRegistrationHubOpen(true);
+                  }}
+                  className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
+                >
+                  Register
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       );
-    }
+    };
 
-    res.status(201).json({ success: true, dispatch: data });
-  } catch (error: any) {
-    console.error('Dispatch assignment error:', error);
-    res.status(500).json({ error: error.message || 'Dispatch assignment failed' });
+    return (
+      <div className="min-h-screen flex flex-col sentinel-bg text-white selection:bg-blue-500/30">
+        <div className="mesh-gradient" />
+        <div className="relative z-10 flex-1 flex flex-col">
+          <AccessLevelStrip accessLevel={getAccessLevel(userProfile, sessionUser)} profile={userProfile} />
+          {renderRoleFrame()}
+          {renderDashboard()}
+        </div>
+        <BottomNav role={normalizeAfatRole(userRole) as any} activeTab={activeTab} onTabChange={setActiveTab} />
+        {showDevOverride && renderRoleToggle()}
+        <RoleOnboarding
+          role={normalizeAfatRole(userRole) as any}
+          profile={userProfile}
+          isVisible={showOnboarding}
+          onClose={handleOnboardingComplete}
+        />
+        <RegistrationHub
+          isVisible={isRegistrationHubOpen}
+          onClose={() => setIsRegistrationHubOpen(false)}
+          initialTrack={registrationTrack}
+          prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
+          onRegisterCustom={(data) => {
+            if (data?.id) {
+              localStorage.setItem('afat_local_user_id', data.id);
+              setLocalAuthUserId(data.id);
+            }
+            forceRole(data.role, data.vehicleType, data);
+          }}
+        />
+        <AICopilot userName={userProfile?.full_name || 'User'} userRole={normalizeAfatRole(userRole)} />
+      </div>
+    );
+  } catch (err: any) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-white">
+        <ShieldAlert className="w-16 h-16 text-red-500 mb-6 animate-pulse" />
+        <h2 className="text-2xl font-black uppercase italic mb-2">Protocol Recovery Mode</h2>
+        <p className="text-slate-400 text-sm text-center mb-8">The AFAT OS encountered a boot failure. Diagnostic info below:</p>
+        <div className="bg-slate-900 border border-red-500/30 p-6 rounded-2xl w-full max-w-md font-mono text-[10px] text-red-400 overflow-auto">
+          {err?.message || 'Unknown Boot Error'}
+        </div>
+        <button onClick={() => window.location.reload()} className="mt-8 bg-blue-600 px-8 py-4 rounded-2xl font-black uppercase text-xs">
+          Force Restart
+        </button>
+      </div>
+    );
   }
-});
-
-router.post('/service/request', async (req: Request, res: Response) => {
-  try {
-    const {
-      requester_id,
-      company_id,
-      operator_id,
-      vehicle_id,
-      service_type,
-      origin,
-      destination,
-      pickup_lat,
-      pickup_lng,
-      dropoff_lat,
-      dropoff_lng,
-      scheduled_at,
-      passenger_count,
-      package_count,
-      priority,
-      price_quote_xaf,
-      notes,
-      contact_name,
-      contact_phone,
-      metadata,
-    } = req.body;
-
-    const normalizedType = normalizeServiceType(service_type);
-    if (!normalizedType) {
-      return res.status(400).json({ error: 'Valid service_type is required' });
-    }
-
-    if (!requester_id && !company_id && !contact_phone) {
-      return res.status(400).json({ error: 'requester_id, company_id, or contact_phone is required' });
-    }
-
-    const pickupLat = pickup_lat === undefined || pickup_lat === null ? null : Number(pickup_lat);
-    const pickupLng = pickup_lng === undefined || pickup_lng === null ? null : Number(pickup_lng);
-    const dropoffLat = dropoff_lat === undefined || dropoff_lat === null ? null : Number(dropoff_lat);
-    const dropoffLng = dropoff_lng === undefined || dropoff_lng === null ? null : Number(dropoff_lng);
-
-    const requestPriority = servicePriority(normalizedType, priority);
-    const shouldDispatch = !NON_DISPATCH_SERVICE_TYPES.has(normalizedType);
-
-    const { data: request, error: requestError } = await supabase
-      .from('service_requests')
-      .insert({
-        requester_id: requester_id || null,
-        company_id: company_id || null,
-        operator_id: operator_id || null,
-        vehicle_id: vehicle_id || null,
-        service_type: normalizedType,
-        origin: origin || null,
-        destination: destination || null,
-        pickup_lat: Number.isFinite(pickupLat) ? pickupLat : null,
-        pickup_lng: Number.isFinite(pickupLng) ? pickupLng : null,
-        dropoff_lat: Number.isFinite(dropoffLat) ? dropoffLat : null,
-        dropoff_lng: Number.isFinite(dropoffLng) ? dropoffLng : null,
-        scheduled_at: scheduled_at || null,
-        passenger_count: Number(passenger_count || 1),
-        package_count: Number(package_count || 0),
-        priority: requestPriority,
-        status: shouldDispatch ? (operator_id || vehicle_id ? 'assigned' : 'queued') : 'needs_review',
-        price_quote_xaf: price_quote_xaf ? Number(price_quote_xaf) : null,
-        notes: notes || null,
-        contact_name: contact_name || null,
-        contact_phone: contact_phone || null,
-        metadata: metadata || {},
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-
-    if (requestError) {
-      throw requestError;
-    }
-
-    let dispatch = null;
-    if (shouldDispatch) {
-      const dispatchPayload = {
-        service_request_id: request.id,
-        operator_id: operator_id || null,
-        vehicle_id: vehicle_id || null,
-        origin: origin || `${normalizedType} request`,
-        destination: destination || null,
-        priority: requestPriority,
-        status: operator_id || vehicle_id ? 'assigned' : 'queued',
-        notes: [notes, `service_request=${request.id}`, `service_type=${normalizedType}`].filter(Boolean).join(' | '),
-        pickup_lat: Number.isFinite(pickupLat) ? pickupLat : null,
-        pickup_lng: Number.isFinite(pickupLng) ? pickupLng : null,
-        dropoff_lat: Number.isFinite(dropoffLat) ? dropoffLat : null,
-        dropoff_lng: Number.isFinite(dropoffLng) ? dropoffLng : null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data: dispatchData, error: dispatchError } = await supabase
-        .from('dispatch_assignments')
-        .insert(dispatchPayload)
-        .select()
-        .single();
-
-      if (dispatchError) {
-        console.warn('Service request created without dispatch assignment:', dispatchError.message);
-      } else {
-        dispatch = dispatchData;
-        await supabase
-          .from('service_requests')
-          .update({
-            dispatch_assignment_id: dispatchData.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', request.id);
-      }
-    }
-
-    res.status(201).json({
-      success: true,
-      service_request: request,
-      dispatch,
-      status: request.status,
-      next_action: shouldDispatch
-        ? (dispatch ? 'dispatch_queued' : 'manual_dispatch_review')
-        : 'ops_review',
-    });
-  } catch (error: any) {
-    console.error('Service request error:', error);
-    res.status(500).json({ error: error.message || 'Service request failed' });
-  }
-});
-
-router.get('/guardian/watch/:token', async (req: Request, res: Response) => {
-  try {
-    const { token } = req.params;
-
-    const { data: guardianToken, error: tokenError } = await supabase
-      .from('guardian_tokens')
-      .select('token, booking_id, expires_at, created_at')
-      .eq('token', token)
-      .maybeSingle();
-
-    if (tokenError) throw tokenError;
-    if (!guardianToken) {
-      return res.status(404).json({ error: 'Guardian watch link not found' });
-    }
-
-    if (new Date(guardianToken.expires_at).getTime() <= Date.now()) {
-      return res.status(410).json({ error: 'Guardian watch link expired' });
-    }
-
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select('id, passenger_id, operator_id, route_id, status, payment_status, seat_label, price_paid, created_at, updated_at, completed_at')
-      .eq('id', guardianToken.booking_id)
-      .single();
-
-    if (bookingError || !booking) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-
-    const [passengerRes, operatorRes, routeRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, phone').eq('id', booking.passenger_id).maybeSingle(),
-      supabase.from('profiles').select('id, full_name, phone').eq('id', booking.operator_id).maybeSingle(),
-      supabase.from('routes').select('id, name, origin, destination, departure_time').eq('id', booking.route_id).maybeSingle(),
-    ]);
-
-    res.status(200).json({
-      success: true,
-      watch: {
-        token: guardianToken.token,
-        expires_at: guardianToken.expires_at,
-        booking: {
-          ...booking,
-          passenger: passengerRes.data || null,
-          operator: operatorRes.data || null,
-          route: routeRes.data || null,
-        }
-      }
-    });
-  } catch (error: any) {
-    console.error('Guardian watch fetch error:', error);
-    res.status(500).json({ error: error.message || 'Guardian watch lookup failed' });
-  }
-});
-
-router.post('/payment/finalize', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['commuter']);
-    if (!session) return;
-    const { booking_id, method } = req.body;
-
-    if (!booking_id || !method) {
-      return res.status(400).json({ error: 'booking_id and method are required' });
-    }
-    if (method !== 'cash') {
-      return res.status(409).json({ error: 'Mobile-money payments are confirmed only by the provider callback' });
-    }
-
-    const { data: booking, error } = await supabase.rpc('afat_select_cash_payment', {
-      p_passenger_id: session.profile.id,
-      p_booking_id: booking_id,
-    });
-    if (error) throw error;
-
-    res.status(200).json({
-      success: true,
-      booking_id,
-      transaction_id: booking.transaction_id,
-      payment_status: booking.payment_status,
-      status: booking.status,
-      awaiting_callback: false,
-    });
-  } catch (error: any) {
-    console.error('Payment finalize error:', error);
-    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Payment finalization failed' });
-  }
-});
-
-router.get('/booking/:bookingId', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res);
-    if (!session) return;
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('id, passenger_id, operator_id, vehicle_id, route_id, status, payment_status, price_paid, seat_label, transaction_id, boarded_at, started_at, completed_at, created_at, updated_at')
-      .eq('id', req.params.bookingId)
-      .maybeSingle();
-    if (error) throw error;
-    if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    const isStaff = ['planner', 'admin'].includes(String(session.profile.role));
-    if (!isStaff && booking.passenger_id !== session.profile.id && booking.operator_id !== session.profile.id) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    res.status(200).json({ success: true, booking });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Booking lookup failed' });
-  }
-});
-
-// ── SEAT HOLDS ───────────────────────────────────────────────────────────────
-router.post('/booking/seat-hold', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['commuter']);
-    if (!session) return;
-    const { route_id, seat_label, hold_minutes } = req.body;
-
-    if (!route_id || !seat_label) {
-      return res.status(400).json({ error: 'route_id and seat_label are required' });
-    }
-    const { data: hold, error } = await supabase.rpc('afat_hold_seat', {
-      p_passenger_id: session.profile.id,
-      p_route_id: route_id,
-      p_seat_label: seat_label,
-      p_hold_minutes: hold_minutes || 8,
-    });
-    if (error) throw error;
-
-    res.status(201).json({ success: true, hold });
-  } catch (error: any) {
-    console.error('Seat hold error:', error);
-    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Seat hold failed' });
-  }
-});
-
-router.post('/booking/seat-hold/release', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['commuter']);
-    if (!session) return;
-    const { hold_id } = req.body;
-
-    if (!hold_id) {
-      return res.status(400).json({ error: 'hold_id required' });
-    }
-
-    const { data: hold, error } = await supabase.rpc('afat_release_seat_hold', {
-      p_passenger_id: session.profile.id,
-      p_hold_id: hold_id,
-    });
-    if (error) throw error;
-
-    res.status(200).json({ success: true, hold });
-  } catch (error: any) {
-    console.error('Seat hold release error:', error);
-    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Seat hold release failed' });
-  }
-});
-
-router.post('/booking/create-from-hold', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['commuter']);
-    if (!session) return;
-    const { hold_id } = req.body;
-
-    if (!hold_id) {
-      return res.status(400).json({ error: 'hold_id is required' });
-    }
-    const { data: booking, error } = await supabase.rpc('afat_create_booking_from_hold', {
-      p_passenger_id: session.profile.id,
-      p_hold_id: hold_id,
-    });
-    if (error) throw error;
-
-    res.status(201).json({ success: true, booking });
-  } catch (error: any) {
-    console.error('Create booking from hold error:', error);
-    res.status(mobilityErrorStatus(error)).json({ error: error.message || 'Booking creation from seat hold failed' });
-  }
-});
-
-// ── WALLET WITHDRAWAL REQUESTS ──────────────────────────────────────────────
-router.post('/wallet/withdraw', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['operator']);
-    if (!session) return;
-    const operator_id = session.profile.id;
-    const { amount } = req.body;
-
-    if (!amount) {
-      return res.status(400).json({ error: 'amount is required' });
-    }
-
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid withdrawal amount' });
-    }
-
-    const { data: wallet, error: walletError } = await supabase
-      .from('operator_wallets')
-      .select('balance_xaf')
-      .eq('operator_id', operator_id)
-      .single();
-
-    if (walletError || !wallet) {
-      return res.status(404).json({ error: 'Operator wallet not found' });
-    }
-
-    if (Number(wallet.balance_xaf || 0) < parsedAmount) {
-      return res.status(400).json({ error: 'Insufficient wallet balance' });
-    }
-
-    const reference = `WD-${Date.now().toString(36).toUpperCase()}`;
-
-    await appendWalletLedgerEntry({
-      operator_id,
-      entry_type: 'withdrawal',
-      direction: 'debit',
-      gross_amount: parsedAmount,
-      commission_amount: 0,
-      net_amount: parsedAmount,
-      status: 'requested',
-      reference,
-    });
-
-    const { error: updateError } = await supabase
-      .from('operator_wallets')
-      .update({
-        balance_xaf: Number(wallet.balance_xaf || 0) - parsedAmount,
-        updated_at: new Date().toISOString()
-      })
-      .eq('operator_id', operator_id);
-
-    if (updateError) throw updateError;
-
-    res.status(200).json({
-      success: true,
-      withdrawal: { amount: parsedAmount, reference, status: 'requested' }
-    });
-  } catch (error: any) {
-    console.error('Wallet withdrawal error:', error);
-    res.status(500).json({ error: error.message || 'Withdrawal request failed' });
-  }
-});
-
-// ── SECURE TICKET ISSUE ─────────────────────────────────────────────────────
-router.post('/ticket/issue', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res);
-    if (!session) return;
-    const { booking_id } = req.body;
-
-    if (!booking_id) {
-      return res.status(400).json({ error: 'booking_id required' });
-    }
-
-    const { data: ownedBooking } = await supabase
-      .from('bookings')
-      .select('id, passenger_id, operator_id')
-      .eq('id', booking_id)
-      .maybeSingle();
-    if (!ownedBooking) return res.status(404).json({ error: 'Booking not found' });
-    const isStaff = ['planner', 'admin'].includes(String(session.profile.role));
-    if (!isStaff && ownedBooking.passenger_id !== session.profile.id && ownedBooking.operator_id !== session.profile.id) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('id, operator_id, route_id, seat_label, transaction_id, payment_status, status')
-      .eq('id', booking_id)
-      .single();
-
-    if (error || !booking) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-
-    if (!isBoardablePaymentStatus(booking.payment_status) || booking.status !== 'confirmed') {
-      return res.status(400).json({ error: 'Booking is not ready for ticket issuance' });
-    }
-
-    const payload = Buffer.from(JSON.stringify({
-      bid: booking.id,
-      oid: booking.operator_id,
-      rid: booking.route_id,
-      seat: booking.seat_label,
-      txid: booking.transaction_id,
-      pm: booking.payment_status,
-      iat: Date.now()
-    })).toString('base64url');
-
-    const signature = signTicketPayload(payload);
-
-    res.status(200).json({
-      success: true,
-      ticket: {
-        t: payload,
-        s: signature,
-      }
-    });
-  } catch (error: any) {
-    console.error('Ticket issue error:', error);
-    res.status(500).json({ error: error.message || 'Ticket issue failed' });
-  }
-});
-
-// ── SECURE BOARDING VERIFICATION ────────────────────────────────────────────
-router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['operator']);
-    if (!session) return;
-    const { ticket } = req.body;
-    const operator_id = session.profile.id;
-
-    if (!ticket?.t || !ticket?.s) {
-      return res.status(400).json({ error: 'ticket is required' });
-    }
-
-    const expectedSignature = signTicketPayload(ticket.t);
-    if (expectedSignature !== ticket.s) {
-      return res.status(403).json({ error: 'Invalid ticket signature' });
-    }
-
-    const decoded = JSON.parse(Buffer.from(ticket.t, 'base64url').toString('utf8'));
-    if (!decoded?.bid || !decoded?.oid) {
-      return res.status(400).json({ error: 'Malformed ticket payload' });
-    }
-
-    if (decoded.oid !== operator_id) {
-      return res.status(403).json({ error: 'Ticket does not belong to this operator' });
-    }
-
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select('id, operator_id, status, payment_status')
-      .eq('id', decoded.bid)
-      .eq('operator_id', operator_id)
-      .single();
-
-    if (bookingError || !booking) {
-      return res.status(404).json({ error: 'Booking not found for this operator' });
-    }
-
-    if (!isBoardablePaymentStatus(booking.payment_status)) {
-      return res.status(400).json({ error: 'Booking is unpaid' });
-    }
-
-    if (!['confirmed', 'accepted'].includes(booking.status)) {
-      return res.status(400).json({ error: 'Booking is not boardable' });
-    }
-
-    const { data: boardedBooking, error: updateError } = await supabase.rpc('afat_board_booking', {
-      p_operator_id: operator_id,
-      p_booking_id: decoded.bid,
-    });
-    if (updateError) throw updateError;
-
-    res.status(200).json({
-      success: true,
-      booking_id: decoded.bid,
-      booking: boardedBooking,
-      message: 'Boarding verified'
-    });
-  } catch (error: any) {
-    console.error('Ticket verify error:', error);
-    res.status(500).json({ error: error.message || 'Ticket verification failed' });
-  }
-});
-
-// ── TRIP COMPLETION (Triggers DNA Update) ────────────────────────────────
-router.post('/booking/complete', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['operator']);
-    if (!session) return;
-    const { booking_id, rating, feedback } = req.body;
-
-    if (!booking_id) {
-      return res.status(400).json({ error: 'booking_id required' });
-    }
-
-    const { data: booking, error: updateError } = await supabase.rpc('afat_complete_booking', {
-      p_operator_id: session.profile.id,
-      p_booking_id: booking_id,
-      p_rating: rating || null,
-      p_feedback: feedback || null,
-    });
-    if (updateError) throw updateError;
-
-    await dnaQueue.add(`dna-update-${booking_id}`, { driverId: session.profile.id, tripId: booking_id });
-
-    res.status(200).json({
-      success: true,
-      booking,
-      message: 'Trip completed. DriverDNA evidence review queued.'
-    });
-  } catch (error: any) {
-    res.status(mobilityErrorStatus(error)).json({ error: error.message });
-  }
-});
-
-// ── WHATSAPP WEBHOOK (Twilio Integration) ──────────────────────────────
-router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
-  try {
-    const reply = await waBridge.handleWebhook(req.body);
-    
-    // Twilio expects TwiML response
-    res.set('Content-Type', 'text/xml');
-    res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`);
-  } catch (error: any) {
-    console.error('❌ WhatsApp Webhook Error:', error);
-    res.status(500).send('Webhook Error');
-  }
-});
-
-// ── HEALTH CHECK ─────────────────────────────────────────────────────────
-router.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ 
-    status: 'online', 
-    service: 'AFAT OS Sentinel', 
-    timestamp: new Date().toISOString() 
-  });
-});
-
-export default router;
+}
