@@ -1312,7 +1312,7 @@ export async function fetchBookingStatus(bookingId: string) {
 
 export async function fetchOpsReportCenter() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/report-center`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/report-center`, { headers: afatAuthHeaders() });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Report center fetch failed.' } };
     return { data, error: null };
@@ -1325,7 +1325,7 @@ export async function updateOpsReportStatus(reportId: string, status: string, re
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/ops/reports/${reportId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
       body: JSON.stringify({ status, resolver_id: resolverId }),
     });
     const data = await res.json();
@@ -1353,7 +1353,7 @@ export async function fetchSafetyScore(lat?: number, lng?: number, radiusKm: num
 
 export async function fetchDemandRadar() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/demand-radar`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/demand-radar`, { headers: afatAuthHeaders() });
     const parsed = await readApiJson(res, 'Demand radar fetch failed.');
     if (parsed.error) return { data: null, error: parsed.error };
     const data = parsed.data;
@@ -1384,7 +1384,7 @@ export async function publishMapSignal(signalData: any) {
 export async function fetchLiveMapOps(city: string = 'cameroon') {
   try {
     const params = new URLSearchParams({ city });
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/live-map?${params.toString()}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/live-map?${params.toString()}`, { headers: afatAuthHeaders() });
     const parsed = await readApiJson(res, 'Live map feed failed.');
     if (parsed.error) return { data: null, error: parsed.error };
     const data = parsed.data;
@@ -1631,7 +1631,7 @@ export async function fetchPaymentProviderReadiness() {
 
 export async function fetchComplianceRadar() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/compliance-radar`);
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/compliance-radar`, { headers: afatAuthHeaders() });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance radar fetch failed.' } };
     return { data, error: null };
@@ -1642,7 +1642,7 @@ export async function fetchComplianceRadar() {
 
 export async function fetchComplianceSummary(profileId: string) {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/compliance/summary/${profileId}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/compliance/summary/${profileId}`, { headers: afatAuthHeaders() });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance summary fetch failed.' } };
     return { data, error: null };
