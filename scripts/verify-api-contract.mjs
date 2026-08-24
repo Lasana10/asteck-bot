@@ -9,6 +9,15 @@ const files = {
   frontend: readFileSync(join(root, 'dashboard', 'src', 'supabaseClient.ts'), 'utf8'),
 };
 
+const activeDispatchRoute = files.routes.slice(
+  files.routes.indexOf("router.get('/dispatch/active'"),
+  files.routes.indexOf("router.get('/compliance/summary")
+);
+const activeDispatchClient = files.frontend.slice(
+  files.frontend.indexOf('export async function fetchActiveDispatches()'),
+  files.frontend.indexOf('export async function createDispatchAssignment')
+);
+
 const checks = [
   ['mounts core API under /api', files.index, "app.use('/api', apiRoutes)"],
   ['mounts onboarding API under /api/onboard', files.index, "app.use('/api/onboard', onboardingRoutes)"],
@@ -27,6 +36,8 @@ const checks = [
   ['mobility: payment checkout', files.routes, "router.post('/payment/checkout'"],
   ['mobility: operator boarding', files.routes, "router.post('/ticket/verify-boarding'"],
   ['mobility: operator completion', files.routes, "router.post('/booking/complete'"],
+  ['dispatch: active feed requires staff auth', activeDispatchRoute, "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
   ['frontend calls passenger onboarding API', files.frontend, '/api/onboard/passenger/register'],
