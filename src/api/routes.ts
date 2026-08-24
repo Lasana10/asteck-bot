@@ -3009,10 +3009,13 @@ router.post('/booking/create-from-hold', async (req: Request, res: Response) => 
 // ── WALLET WITHDRAWAL REQUESTS ──────────────────────────────────────────────
 router.post('/wallet/withdraw', async (req: Request, res: Response) => {
   try {
-    const { operator_id, amount } = req.body;
+    const session = await requireAuthRole(req, res, ['operator']);
+    if (!session) return;
+    const operator_id = session.profile.id;
+    const { amount } = req.body;
 
-    if (!operator_id || !amount) {
-      return res.status(400).json({ error: 'operator_id and amount are required' });
+    if (!amount) {
+      return res.status(400).json({ error: 'amount is required' });
     }
 
     const parsedAmount = Number(amount);
