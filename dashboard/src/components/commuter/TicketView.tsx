@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Download, Share2, Clock, MapPin, User, QrCode, Shield } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { createGuardianToken, issueSecureTicket } from '../../supabaseClient';
@@ -24,14 +24,7 @@ export function TicketView({ booking, onBack }: Props) {
   const [ticketPayload, setTicketPayload] = useState('');
   const [guardianUrl, setGuardianUrl] = useState('');
   const [guardianBusy, setGuardianBusy] = useState(false);
-
-  const fallbackPayload = useMemo(() => JSON.stringify({
-    bid: booking.id,
-    txid: booking.transactionId,
-    seat: booking.seatLabel,
-    route: booking.routeName,
-    ts: Date.now(),
-  }), [booking.id, booking.transactionId, booking.seatLabel, booking.routeName]);
+  const [ticketError, setTicketError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -44,14 +37,15 @@ export function TicketView({ booking, onBack }: Props) {
         return;
       }
 
-      console.warn('[AFAT] Secure ticket issuance failed, falling back to local payload.', error);
-      setTicketPayload(fallbackPayload);
+      console.error('[AFAT] Secure ticket issuance failed.', error);
+      setTicketPayload('');
+      setTicketError(error?.message || 'AFAT could not issue a signed boarding ticket.');
     });
 
     return () => {
       active = false;
     };
-  }, [booking.id, fallbackPayload]);
+  }, [booking.id]);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -160,9 +154,15 @@ export function TicketView({ booking, onBack }: Props) {
         <div className="bg-slate-900 border border-white/5 border-t-0 rounded-b-3xl p-6 pt-8">
           {/* QR Code */}
           <div className="flex justify-center mb-6">
-            <div className="bg-white p-4 rounded-2xl">
-              <QRCodeSVG value={ticketPayload || fallbackPayload} size={160} />
-            </div>
+            {ticketPayload ? (
+              <div className="bg-white p-4 rounded-2xl">
+                <QRCodeSVG value={ticketPayload} size={160} />
+              </div>
+            ) : (
+              <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-center text-sm font-bold text-red-200">
+                {ticketError || 'Emission du billet signe en cours…'}
+              </div>
+            )}
           </div>
           <p className="text-center text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-6">
             Présentez ce code au chauffeur

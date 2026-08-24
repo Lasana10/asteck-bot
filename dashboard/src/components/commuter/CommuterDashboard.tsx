@@ -342,7 +342,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   const handleBookingConfirm = (result: any) => { setBookingResult(result); setCurrentBookingId(result?.booking?.id); setView('ticket'); };
 
-  const handleNegotiationAccept = async (finalPrice: number) => {
+  const handleNegotiationAccept = async (_finalPrice: number) => {
     if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId) {
       return;
     }
@@ -350,13 +350,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setBookingError(null);
     setBookingInFlight(true);
 
-    const seatLabel = selectedSeatId.split('-').pop() || selectedSeatId;
-    const departureWithNegotiatedPrice = { ...selectedDeparture, price_xaf: finalPrice };
-
     const { data, error } = await createBookingFromHold({
       hold_id: currentSeatHoldId,
-      passenger_id: profile.id,
-      final_price: finalPrice,
     });
 
     setBookingInFlight(false);
@@ -368,7 +363,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       return;
     }
 
-    setSelectedDeparture(departureWithNegotiatedPrice);
+    const serverFare = Number(data.booking.price_paid || data.booking.price_xaf || selectedDeparture.price_xaf);
+    setSelectedDeparture({ ...selectedDeparture, price_xaf: serverFare });
     setCurrentBookingId(data.booking.id);
     setView('payment');
   };
