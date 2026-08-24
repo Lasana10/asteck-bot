@@ -1119,6 +1119,8 @@ router.get('/incidents', async (req: Request, res: Response) => {
 
 router.post('/broadcast', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const { message, directive, target_role, source, tier, severity, metadata } = req.body;
     const finalDirective = String(directive || message || '').trim();
 
@@ -1769,9 +1771,9 @@ router.get('/ops/checkpoints', async (req: Request, res: Response) => {
 
 router.post('/ops/checkpoints/enroll', async (req: Request, res: Response) => {
   try {
-    const auth = authPayloadFromRequest(req);
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const {
-      profile_id,
       checkpoint_name,
       city,
       zone_label,
@@ -1781,10 +1783,7 @@ router.post('/ops/checkpoints/enroll', async (req: Request, res: Response) => {
       notes,
     } = req.body;
 
-    const actorId = auth?.sub || profile_id;
-    if (!actorId) {
-      return res.status(401).json({ error: 'Authenticated actor required' });
-    }
+    const actorId = access.profile.id;
 
     const lat = Number(latitude);
     const lng = Number(longitude);
@@ -2044,6 +2043,8 @@ router.post('/ops/notifications/send', async (req: Request, res: Response) => {
 
 router.post('/ai/chat', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { prompt, user_name, user_role, context, language, task } = req.body;
 
     if (!prompt) {
@@ -2077,6 +2078,8 @@ router.post('/ai/chat', async (req: Request, res: Response) => {
 
 router.post('/ai/vision', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { image, prompt } = req.body;
     if (!image) {
       return res.status(400).json({ error: 'image required' });
@@ -2100,6 +2103,8 @@ router.post('/ai/vision', async (req: Request, res: Response) => {
 
 router.post('/ai/analyze', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { text, language } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'text required' });
@@ -2120,6 +2125,8 @@ router.post('/ai/analyze', async (req: Request, res: Response) => {
 // ── OPS COMMAND CENTER (Reports, Dispatch, Safety, Demand) ────────────────
 router.get('/ops/live-map', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const regionKey = normalizeRegion(req.query.city as string | undefined);
     const region = LIVE_MAP_REGIONS[regionKey];
     const since = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
@@ -2297,8 +2304,10 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/ops/report-center', async (_req: Request, res: Response) => {
+router.get('/ops/report-center', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: reports, error } = await supabase
       .from('incidents')
@@ -2412,8 +2421,10 @@ router.get('/ops/safety-score', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/ops/demand-radar', async (_req: Request, res: Response) => {
+router.get('/ops/demand-radar', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const since = new Date(Date.now() - 90 * 60 * 1000).toISOString();
     const [{ data: bookings }, { data: vehicles }, { data: movements }] = await Promise.all([
       supabase.from('bookings').select('id, status, route_id, created_at, routes(name, origin, destination)').gte('created_at', since),
@@ -2445,8 +2456,10 @@ router.get('/ops/demand-radar', async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/ops/compliance-radar', async (_req: Request, res: Response) => {
+router.get('/ops/compliance-radar', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
+    if (!access) return;
     const lookback = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     const { data: records, error } = await supabase
       .from('compliance_records')
@@ -2516,7 +2529,13 @@ router.get('/dispatch/active', async (req: Request, res: Response) => {
 
 router.get('/compliance/summary/:profileId', async (req: Request, res: Response) => {
   try {
+    const access = await requireAuthRole(req, res);
+    if (!access) return;
     const { profileId } = req.params;
+    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    if (!isStaff && access.profile.id !== profileId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     const { data: profileRecords, error: profileError } = await supabase
       .from('compliance_records')
@@ -2624,7 +2643,7 @@ router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
 
 router.post('/dispatch/assign', async (req: Request, res: Response) => {
   try {
-    const access = await requireAuthRole(req, res, ['admin', 'planner', 'operator']);
+    const access = await requireAuthRole(req, res, ['admin', 'planner']);
     if (!access) return;
     const {
       booking_id,
