@@ -21,6 +21,10 @@ const privilegedRoute = (start, end) => files.routes.slice(
   files.routes.indexOf(start),
   files.routes.indexOf(end)
 );
+const onboardingRoute = (start, end) => files.onboarding.slice(
+  files.onboarding.indexOf(start),
+  end ? files.onboarding.indexOf(end) : files.onboarding.length
+);
 
 const checks = [
   ['mounts core API under /api', files.index, "app.use('/api', apiRoutes)"],
@@ -53,6 +57,17 @@ const checks = [
   ['admin: compliance radar requires staff auth', privilegedRoute("router.get('/ops/compliance-radar'", "router.get('/dispatch/active'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
   ['compliance: summary verifies authenticated ownership', privilegedRoute("router.get('/compliance/summary", "router.patch('/compliance"), "access.profile.id !== profileId"],
   ['dispatch: assignment is staff-only', privilegedRoute("router.post('/dispatch/assign'", "router.post('/service/request'"), "requireAuthRole(req, res, ['admin', 'planner'])"],
+  ['identity: shared backend session resolver is exported', files.routes, 'export async function getAuthProfileByToken'],
+  ['registration: existing operator requires ownership', onboardingRoute("router.post('/driver/register'", "router.post('/vehicle/register'"), 'canResumeProfile(existing, authUser)'],
+  ['registration: existing commuter requires ownership', onboardingRoute("router.post('/passenger/register'", "router.post('/company/register'"), 'canResumeProfile(existing, authUser)'],
+  ['registration: existing fleet requires ownership', onboardingRoute("router.post('/company/register'", "router.post('/fare/post'"), 'canResumeProfile(existing, authUser)'],
+  ['onboarding: vehicle registration requires role auth', onboardingRoute("router.post('/vehicle/register'", "router.post('/passenger/register'"), "requireAuthRole(req, res, ['operator', 'admin', 'planner'])"],
+  ['fare: passenger identity derives from session', onboardingRoute("router.post('/fare/post'", "router.get('/fare/browse'"), 'const resolvedPassengerId = access.profile.id'],
+  ['fare: response requires operator auth', onboardingRoute("router.post('/fare/respond'", "router.post('/fare/driver-post'"), "requireAuthRole(req, res, ['operator'])"],
+  ['fare: driver offer derives identity from session', onboardingRoute("router.post('/fare/driver-post'", "router.get('/fare/market-stats'"), 'const resolvedDriverId = access.profile.id'],
+  ['driver: fatigue enforces self or staff', onboardingRoute("router.get('/driver/fatigue", "router.post('/driver/log-time'"), "access.profile.id !== driver_id"],
+  ['driver: time logging requires role auth', onboardingRoute("router.post('/driver/log-time'", "router.get('/driver/contract"), "requireAuthRole(req, res, ['operator', 'admin', 'planner'])"],
+  ['driver: contract enforces self or staff', onboardingRoute("router.get('/driver/contract", ''), "access.profile.id !== driver_id"],
   ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
