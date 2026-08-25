@@ -7,6 +7,9 @@ const files = {
   routes: readFileSync(join(root, 'src', 'api', 'routes.ts'), 'utf8'),
   onboarding: readFileSync(join(root, 'src', 'api', 'onboarding.ts'), 'utf8'),
   frontend: readFileSync(join(root, 'dashboard', 'src', 'supabaseClient.ts'), 'utf8'),
+  app: readFileSync(join(root, 'dashboard', 'src', 'App.tsx'), 'utf8'),
+  registration: readFileSync(join(root, 'dashboard', 'src', 'components', 'shared', 'RegistrationHub.tsx'), 'utf8'),
+  releaseSecurity: readFileSync(join(root, 'db', '20260825_release_security_clearance.sql'), 'utf8'),
 };
 
 const activeDispatchRoute = files.routes.slice(
@@ -16,6 +19,10 @@ const activeDispatchRoute = files.routes.slice(
 const activeDispatchClient = files.frontend.slice(
   files.frontend.indexOf('export async function fetchActiveDispatches()'),
   files.frontend.indexOf('export async function createDispatchAssignment')
+);
+const phoneOtpClient = files.frontend.slice(
+  files.frontend.indexOf('export async function sendPhoneOtp'),
+  files.frontend.indexOf('export async function refreshAfatSession')
 );
 const privilegedRoute = (start, end) => files.routes.slice(
   files.routes.indexOf(start),
@@ -71,19 +78,38 @@ const checks = [
   ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
+  ['phone auth sends OTP through Supabase identity', phoneOtpClient, 'supabase.auth.signInWithOtp'],
+  ['phone auth sends captcha token', phoneOtpClient, 'captchaToken: options?.captchaToken'],
+  ['phone auth verifies SMS through Supabase identity', phoneOtpClient, 'supabase.auth.verifyOtp'],
+  ['phone auth creates a Supabase session before AFAT profile bootstrap', phoneOtpClient, 'verified.session?.access_token'],
+  ['phone auth bootstraps AFAT profile after verification', phoneOtpClient, 'ensureSupabaseEmailProfile(options)'],
+  ['phone auth is deployment-gated until an SMS provider exists', files.app, "VITE_ENABLE_PHONE_AUTH === 'true'"],
+  ['disabled phone auth is absent from the channel selector', files.app, "...(phoneAuthEnabled ? [{ channel: 'phone', label: 'Phone OTP' }] : [])"],
+  ['signed-out registration requires an authenticated identity', files.registration, "track !== 'select' && !hasAuthenticatedSession"],
+  ['registration explains that phone is a contact until SMS activation', files.registration, 'It is not used as a login until AFAT activates an approved SMS provider.'],
+  ['legacy Telegram users are removed from browser privileges', files.releaseSecurity, 'revoke all privileges on table public.users from anon, authenticated'],
+  ['managed PostGIS objects are excluded from the app migration', files.releaseSecurity, "permission-managed by\n-- Supabase's PostGIS extension"],
   ['frontend calls passenger onboarding API', files.frontend, '/api/onboard/passenger/register'],
   ['frontend calls driver onboarding API', files.frontend, '/api/onboard/driver/register'],
   ['frontend calls company onboarding API', files.frontend, '/api/onboard/company/register'],
 ];
 
 const failures = checks.filter(([, content, needle]) => !content.includes(needle));
+const forbiddenChecks = [
+  ['phone auth bypasses legacy AFAT OTP routes', phoneOtpClient, "/api/auth/send-otp"],
+  ['phone auth bypasses legacy AFAT OTP verification', phoneOtpClient, "/api/auth/verify-otp"],
+];
+const forbiddenFailures = forbiddenChecks.filter(([, content, needle]) => content.includes(needle));
 
-if (failures.length) {
+if (failures.length || forbiddenFailures.length) {
   console.error('AFAT API contract check failed:');
   for (const [label, , needle] of failures) {
     console.error(`- ${label}: missing ${needle}`);
   }
+  for (const [label, , needle] of forbiddenFailures) {
+    console.error(`- ${label}: forbidden ${needle}`);
+  }
   process.exit(1);
 }
 
-console.log(`AFAT API contract check passed (${checks.length} checks).`);
+console.log(`AFAT API contract check passed (${checks.length + forbiddenChecks.length} checks).`);

@@ -8,6 +8,7 @@ interface Props {
   onRegisterCustom: (data: any) => void;
   initialTrack?: RegistrationTrack;
   prefillPhone?: string;
+  hasAuthenticatedSession?: boolean;
 }
 
 type RegistrationTrack = 'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company';
@@ -133,6 +134,10 @@ function explainRegistrationError(message?: string) {
     return 'This identity already exists. AFAT will try to resume the existing profile when the updated backend is deployed; if this persists, sign in with the same phone/email or ask admin to merge the profile.';
   }
 
+  if (lower.includes('auth_required_for_onboarding') || lower.includes('sign in before registration')) {
+    return 'Sign in with email or Google first, then reopen registration. AFAT needs the account session to attach commuter, operator, and company intake safely.';
+  }
+
   if (lower.includes('row-level security') || lower.includes('permission') || lower.includes('unauthorized')) {
     return 'The request reached AFAT, but database permissions blocked it. Check Supabase RLS/API grants for this registration table before retrying.';
   }
@@ -207,7 +212,7 @@ function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: str
   return getCompletionCopy(track);
 }
 
-export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '' }: Props) {
+export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '', hasAuthenticatedSession = false }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
   const [govId, setGovId] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
@@ -291,6 +296,23 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
   const serviceProfile = SERVICE_PLAYBOOK[vehicleType] || SERVICE_PLAYBOOK.taxi;
   const companyProfile = COMPANY_PLAYBOOK[companyType] || COMPANY_PLAYBOOK['Transport agency'];
   const completionCopy = completionState || getCompletionCopy(track);
+  const requestedRole = track === 'commuter'
+    ? 'commuter'
+    : track === 'citizen_reg'
+      ? 'operator'
+      : track === 'company'
+        ? 'planner'
+        : track === 'gov_link'
+          ? 'admin'
+          : 'commuter';
+
+  const returnToSecureAccess = () => {
+    localStorage.setItem('afat_access_intent_role', requestedRole);
+    onClose();
+    window.setTimeout(() => {
+      document.getElementById('afat-secure-access')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
 
   const handleGovLinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -497,6 +519,29 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               <h3 className="text-2xl font-black text-white uppercase italic tracking-tight mb-2">{completionCopy.title}</h3>
               <p className="text-sm text-slate-400 text-center font-bold">{completionCopy.body}</p>
             </div>
+          ) : track !== 'select' && !hasAuthenticatedSession ? (
+            <div className="flex min-h-[28rem] flex-col justify-center animate-in slide-in-from-right-4 duration-300">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-blue-400/25 bg-blue-500/10">
+                <Shield className="h-8 w-8 text-blue-300" />
+              </div>
+              <p className="mt-7 text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Secure identity required</p>
+              <h3 className="mt-2 text-2xl font-black uppercase italic tracking-tight text-white">Sign in before registration</h3>
+              <p className="mt-4 text-sm font-medium leading-relaxed text-white/60">
+                AFAT attaches every commuter, operator, fleet, and staff intake to a verified Supabase identity. Continue with email or Google, then this registration lane will reopen for your profile.
+              </p>
+              <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-semibold leading-relaxed text-emerald-100/75">
+                Your phone remains a contact and safety detail. It is not used as a login until AFAT activates an approved SMS provider.
+              </div>
+              <div className="mt-8 flex gap-3">
+                <button type="button" onClick={() => setTrack('select')} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 text-slate-300 transition hover:bg-white/5 hover:text-white" aria-label="Choose another registration lane">
+                  <X className="h-5 w-5" />
+                </button>
+                <button type="button" onClick={returnToSecureAccess} className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-500 px-5 text-sm font-black uppercase tracking-wide text-white transition hover:bg-blue-400">
+                  Continue to secure access
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
           ) : track === 'select' ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">
@@ -572,7 +617,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </div>
 
               <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-emerald-100/80">
-                Phone is enough to open a commuter intake. Name, zone, and guardian details can be completed later.
+                Your verified AFAT identity owns this commuter profile. The phone number is stored as a contact and can be updated later.
               </div>
 
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}

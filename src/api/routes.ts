@@ -744,6 +744,8 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     const user = userResult.user;
     const isAnonymousSession = Boolean((user as any).is_anonymous);
     const email = String(user.email || '').trim().toLowerCase();
+    const phone = normalizeAuthPhone(String(user.phone || ''));
+    const hasPhoneIdentity = Boolean(user.phone && phone);
     const requestedRole = isAnonymousSession
       ? 'commuter'
       : String(req.body?.roleIntent || user.user_metadata?.role || 'commuter').trim().toLowerCase();
@@ -753,24 +755,32 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Unsupported role intent.' });
     }
 
-    const { generalCode, adminCode, allowlist, adminAllowlist, roles } = emailBootstrapConfig();
+    const emailBootstrap = emailBootstrapConfig();
+    const phoneBootstrap = generalBootstrapConfig();
+    const phoneAdminBootstrap = adminBootstrapConfig();
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
-    const generalBootstrapAllowed =
-      Boolean(generalCode) &&
-      accessCode === generalCode &&
-      allowlist.includes(email) &&
-      roles.includes(requestedRole);
-    const adminBootstrapAllowed =
-      requestedRole === 'admin' &&
-      Boolean(adminCode) &&
-      providedAdminCode === adminCode &&
-      adminAllowlist.includes(email);
+    const generalBootstrapAllowed = hasPhoneIdentity
+      ? Boolean(phoneBootstrap.code) &&
+        accessCode === phoneBootstrap.code &&
+        phoneBootstrap.allowlist.includes(phone) &&
+        phoneBootstrap.roles.includes(requestedRole)
+      : Boolean(emailBootstrap.generalCode) &&
+        accessCode === emailBootstrap.generalCode &&
+        emailBootstrap.allowlist.includes(email) &&
+        emailBootstrap.roles.includes(requestedRole);
+    const adminBootstrapAllowed = requestedRole === 'admin' && (hasPhoneIdentity
+      ? Boolean(phoneAdminBootstrap.code) &&
+        providedAdminCode === phoneAdminBootstrap.code &&
+        phoneAdminBootstrap.allowlist.includes(phone)
+      : Boolean(emailBootstrap.adminCode) &&
+        providedAdminCode === emailBootstrap.adminCode &&
+        emailBootstrap.adminAllowlist.includes(email));
 
     const operatorApplicationRequested = requestedRole === 'operator' && !generalBootstrapAllowed && !adminBootstrapAllowed;
     if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !generalBootstrapAllowed && !adminBootstrapAllowed) {
       return res.status(403).json({
-        error: 'This role needs AFAT email bootstrap approval. Add the email to AFAT_BOOTSTRAP_ALLOW_EMAILS or use commuter access.',
+        error: 'This role needs AFAT bootstrap approval for the verified email or phone. Use commuter access if you are not allowlisted.',
       });
     }
 
@@ -793,6 +803,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .from('profiles')
         .insert({
           id: user.id,
+          phone: hasPhoneIdentity ? phone : null,
           full_name: fullName,
           username,
           role: finalRole,
@@ -800,13 +811,22 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
           preferred_city: 'yaounde',
           is_active: true,
           operator_application_status: operatorApplicationRequested ? 'APPLICATION_STARTED' : null,
-          attribution_source: 'supabase_email_auth',
+          attribution_source: hasPhoneIdentity ? 'supabase_phone_auth' : 'supabase_email_auth',
           created_at: new Date().toISOString(),
         })
         .select('*')
         .single();
       if (createError) throw createError;
       profile = createdProfile;
+    } else if (hasPhoneIdentity && profile.phone !== phone) {
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('profiles')
+        .update({ phone, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+        .select('*')
+        .single();
+      if (updateError) throw updateError;
+      profile = updatedProfile;
     } else if (operatorApplicationRequested) {
       const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
@@ -833,7 +853,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       profile = updatedProfile;
     }
 
-    const accessIdentity = email || profile.phone || user.id;
+    const accessIdentity = email || phone || profile.phone || user.id;
     const accessToken = issueAccessToken(profile, accessIdentity);
     const { refreshToken, session } = await issueRefreshSession(profile, accessIdentity, req);
 
@@ -841,6 +861,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       success: true,
       userId: profile.id,
       email,
+      phone: hasPhoneIdentity ? phone : profile.phone || null,
       profile,
       accessToken,
       refreshToken,
@@ -850,8 +871,8 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error('Supabase email profile bootstrap error:', error);
-    res.status(500).json({ error: error.message || 'Email profile bootstrap failed.' });
+    console.error('Supabase identity profile bootstrap error:', error);
+    res.status(500).json({ error: error.message || 'Identity profile bootstrap failed.' });
   }
 });
 

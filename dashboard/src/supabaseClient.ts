@@ -641,7 +641,7 @@ export async function ensureSupabaseEmailProfile(options?: {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      return { data: null, error: { message: 'No Supabase email session is active yet.' } };
+      return { data: null, error: { message: 'No verified Supabase identity session is active yet.' } };
     }
 
     const result = await requestAfatApi('/api/auth/supabase-profile', {
@@ -655,10 +655,10 @@ export async function ensureSupabaseEmailProfile(options?: {
         accessCode: options?.accessCode || '',
         adminCode: options?.adminCode || '',
       }),
-    }, 'Email profile bootstrap failed');
+    }, 'Identity profile bootstrap failed');
     if (result.parsed.error) return result.parsed;
     const data = result.parsed.data;
-    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
+    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Identity profile bootstrap failed.' } };
 
     if (data?.userId) {
       localStorage.setItem('afat_local_user_id', data.userId);
@@ -705,19 +705,39 @@ export async function bypassAfatRole(role: string) {
   }
 }
 
+function normalizeSupabasePhone(phone: string) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('237')) return `+${digits}`;
+  if (digits.length === 9 && digits.startsWith('6')) return `+237${digits}`;
+  return String(phone || '').trim();
+}
+
 /**
- * Step 1: Send SMS OTP via Africa's Talking (through our Express backend)
+ * Step 1: Send an SMS OTP through Supabase Auth. This ensures every phone
+ * identity receives an auth.users row before AFAT creates its profile.
  */
-export async function sendPhoneOtp(phone: string) {
+export async function sendPhoneOtp(phone: string, options?: { captchaToken?: string }) {
   try {
-    const result = await requestAfatApi('/api/auth/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    }, 'Failed to send OTP');
-    if (result.parsed.error) return result.parsed;
-    const data = result.parsed.data;
-    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Failed to send OTP.' } };
+    const normalizedPhone = normalizeSupabasePhone(phone);
+    if (!normalizedPhone) return { data: null, error: { message: 'Enter a valid phone number.' } };
+
+    const { data, error } = await supabase.auth.signInWithOtp({
+      phone: normalizedPhone,
+      options: {
+        shouldCreateUser: true,
+        captchaToken: options?.captchaToken,
+        data: {
+          role: 'commuter',
+          username: `phone-${normalizedPhone.replace(/\D/g, '').slice(-9)}`,
+          full_name: `AFAT commuter ${normalizedPhone.slice(-4)}`,
+          utm_source: 'afat_phone_access',
+        },
+      },
+    });
+
+    if (error) return { data: null, error: { message: error.message || 'Failed to send phone OTP.' } };
+    localStorage.setItem('afat_access_phone', normalizedPhone);
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -725,38 +745,36 @@ export async function sendPhoneOtp(phone: string) {
 }
 
 /**
- * Step 2: Verify OTP code via our Express backend
- * On success, sign the user into Supabase with the returned userId.
+ * Step 2: Verify the SMS OTP with Supabase, then let the AFAT API create or
+ * resume the matching profile using the verified Supabase access token.
  */
 export async function verifyPhoneOtp(phone: string, token: string, options?: { roleIntent?: string; adminCode?: string; accessCode?: string }) {
   try {
-    const result = await requestAfatApi('/api/auth/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone,
-        code: token,
-        roleIntent: options?.roleIntent,
-        adminCode: options?.adminCode,
-        accessCode: options?.accessCode,
-      }),
-    }, 'Phone verification failed');
-    if (result.parsed.error) return result.parsed;
-    const data = result.parsed.data;
-    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Verification failed.' } };
+    const normalizedPhone = normalizeSupabasePhone(phone);
+    const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
+      phone: normalizedPhone,
+      token: String(token || '').trim(),
+      type: 'sms',
+    });
 
-    if (data?.userId) {
-      localStorage.setItem('afat_local_user_id', data.userId);
-      localStorage.setItem('afat_local_phone', phone);
-    }
-    if (data?.accessToken) {
-      localStorage.setItem('afat_access_token', data.accessToken);
-    }
-    if (data?.refreshToken) {
-      localStorage.setItem('afat_refresh_token', data.refreshToken);
+    if (verifyError) return { data: null, error: { message: verifyError.message || 'Phone verification failed.' } };
+    if (!verified.session?.access_token || !verified.user?.id) {
+      return { data: null, error: { message: 'Phone verification returned without an active session.' } };
     }
 
-    return { data, error: null };
+    localStorage.setItem('afat_access_phone', normalizedPhone);
+    localStorage.setItem('afat_local_phone', normalizedPhone);
+    const profileResult = await ensureSupabaseEmailProfile(options);
+    if (profileResult.error) return profileResult;
+
+    return {
+      data: {
+        ...profileResult.data,
+        session: verified.session,
+        user: verified.user,
+      },
+      error: null,
+    };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
   }

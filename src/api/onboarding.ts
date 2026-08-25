@@ -40,6 +40,15 @@ async function getOptionalAuthUser(req: Request) {
   return { id: String(auth.sub), email: auth.email ? String(auth.email) : null };
 }
 
+function requireOnboardingAuth(authUser: { id: string; email: string | null } | null, res: Response) {
+  if (authUser?.id) return true;
+  res.status(401).json({
+    error: 'Sign in before registration so AFAT can attach this intake to your verified account.',
+    code: 'AUTH_REQUIRED_FOR_ONBOARDING',
+  });
+  return false;
+}
+
 function canResumeProfile(existing: any, authUser: { id: string } | null) {
   return Boolean(existing && authUser?.id && existing.id === authUser.id);
 }
@@ -152,6 +161,7 @@ function buildCompanyComplianceRecords(params: {
 router.post('/driver/register', async (req: Request, res: Response) => {
   try {
     const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
     const {
       full_name, phone, national_id, license_number,
       vehicle_type, vehicle_plate, vehicle_capacity,
@@ -429,6 +439,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
 router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
     const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
     const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
     const resolvedName = normalizeOptionalText(full_name);
@@ -513,6 +524,7 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
 router.post('/company/register', async (req: Request, res: Response) => {
   try {
     const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
     const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
 

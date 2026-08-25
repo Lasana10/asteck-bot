@@ -2,18 +2,33 @@ import React, { useState, useEffect } from 'react';
 import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole, runAfatBackendDiagnostics } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight, Chrome } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
-import { CommuterDashboard } from './components/commuter/CommuterDashboard';
-import { OperatorDashboard } from './components/operator/OperatorDashboard';
-import { PlannerDashboard } from './components/planner/PlannerDashboard';
-import { AdminControlPanel } from './components/admin/AdminControlPanel';
 import { BottomNav } from './components/shared/BottomNav';
 import { RoleOnboarding } from './components/shared/RoleOnboarding';
 import { RegistrationHub } from './components/shared/RegistrationHub';
 import { telemetry } from './services/telemetryService';
-import { AICopilot } from './components/shared/AICopilot';
-import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 import { TurnstileGate } from './components/shared/TurnstileGate';
 import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
+
+const CommuterDashboard = React.lazy(() => import('./components/commuter/CommuterDashboard').then(module => ({ default: module.CommuterDashboard })));
+const OperatorDashboard = React.lazy(() => import('./components/operator/OperatorDashboard').then(module => ({ default: module.OperatorDashboard })));
+const PlannerDashboard = React.lazy(() => import('./components/planner/PlannerDashboard').then(module => ({ default: module.PlannerDashboard })));
+const AdminControlPanel = React.lazy(() => import('./components/admin/AdminControlPanel').then(module => ({ default: module.AdminControlPanel })));
+const AICopilot = React.lazy(() => import('./components/shared/AICopilot').then(module => ({ default: module.AICopilot })));
+const GuardianWatchPage = React.lazy(() => import('./components/shared/GuardianWatchPage').then(module => ({ default: module.GuardianWatchPage })));
+
+function WorkspaceLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#050813] px-6 text-white">
+      <div className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-slate-950/80 p-7 text-center shadow-2xl">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-400/25 bg-blue-500/10">
+          <AFATLogo className="h-7 w-7 text-blue-100" />
+        </div>
+        <p className="mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">AFAT workspace</p>
+        <p className="mt-2 text-sm font-semibold text-white/65">Loading the right mobility controls for your access level…</p>
+      </div>
+    </div>
+  );
+}
 
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
@@ -44,7 +59,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
   const turnstileReady = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
-  const needsAuthTurnstile = turnstileReady && (authChannel === 'email_password' || authChannel === 'email_otp');
+  const phoneAuthEnabled = import.meta.env.VITE_ENABLE_PHONE_AUTH === 'true';
+  const needsAuthTurnstile = turnstileReady;
   const envDiagnostics = [
     `mode: ${import.meta.env.MODE || 'unknown'}`,
     `supabase url: ${import.meta.env.VITE_SUPABASE_URL ? 'present' : 'missing'}`,
@@ -98,7 +114,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
   useEffect(() => {
     setAuthTurnstileToken('');
-  }, [authChannel, normalizedEmail, password]);
+  }, [authChannel, normalizedEmail, normalizedPhone, password]);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -158,8 +174,14 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setInfoText('');
     persistAccessIntent();
 
-    if (authChannel !== 'phone' && !turnstileReady) {
+    if (!turnstileReady) {
       setErrorText('Turnstile site key missing in this build. Save VITE_TURNSTILE_SITE_KEY in both Cloudflare Preview and Production, then create a fresh deployment.');
+      setLoading(false);
+      return;
+    }
+
+    if (authChannel === 'phone' && !phoneAuthEnabled) {
+      setErrorText('Phone sign-in is not active yet. Use email/password, an email link, or Google while AFAT completes its SMS provider setup.');
       setLoading(false);
       return;
     }
@@ -192,12 +214,12 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
     const result = authChannel === 'email_otp'
       ? await sendEmailOtp(normalizedEmail, { roleIntent, captchaToken: authTurnstileToken || undefined })
-      : await sendPhoneOtp(normalizedPhone);
+      : await sendPhoneOtp(normalizedPhone, { captchaToken: authTurnstileToken || undefined });
     const { error } = result;
     if (error) {
       setErrorText(authChannel === 'email_otp'
         ? `${error.message} Check Supabase Auth email settings, redirect URLs, and SMTP if no email arrives.`
-        : `${error.message} Phone OTP depends on the AFAT backend and the active SMS provider.`);
+        : `${error.message} Check that Phone Auth and an SMS provider are enabled in Supabase.`);
     } else {
       setStep('verify');
     }
@@ -210,6 +232,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setErrorText('');
     setInfoText('');
     persistAccessIntent();
+    if (authChannel === 'phone' && !phoneAuthEnabled) {
+      setErrorText('Phone verification is not active in this deployment. Return to secure email or Google access.');
+      setLoading(false);
+      return;
+    }
     const { error } = authChannel === 'email_otp'
       ? await verifyEmailOtp(normalizedEmail, otp)
       : await verifyPhoneOtp(normalizedPhone, otp, {
@@ -260,7 +287,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   };
 
   return (
-    <div className="w-full font-sans text-on-surface">
+    <div id="afat-secure-access" className="w-full font-sans text-on-surface">
       <div className="relative w-full overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/80 p-5 shadow-ambient-float sm:p-7">
         <div className="absolute top-0 left-0 w-full h-1 bg-signature-gradient opacity-50"></div>
 
@@ -416,11 +443,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
               <div className="mb-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Recommended now: Email password</p>
-                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Email/password is the stable pilot lane. Email link/code and phone access remain available where providers are configured.</p>
+                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Use email/password, an email link, or Google. Phone sign-in is prepared but remains paused until AFAT activates verified SMS delivery.</p>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid gap-2 ${phoneAuthEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 {[
-                  { channel: 'phone', label: 'Phone OTP' },
+                  ...(phoneAuthEnabled ? [{ channel: 'phone', label: 'Phone OTP' }] : []),
                   { channel: 'email_password', label: 'Email Pass' },
                   { channel: 'email_otp', label: 'Email Link' },
                 ].map((item) => (
@@ -438,6 +465,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   </button>
                 ))}
               </div>
+              {!phoneAuthEnabled && (
+                <p className="mt-3 rounded-xl border border-amber-400/15 bg-amber-500/[0.07] px-3 py-2 text-[10px] font-semibold leading-relaxed text-amber-100/65">
+                  Phone OTP coming later. Your phone can still be saved as a contact after secure email or Google sign-in.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
@@ -491,7 +523,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             {needsAuthTurnstile && (
               <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
                 <TurnstileGate
-                  action="email_auth"
+                  action="identity_auth"
                   onToken={setAuthTurnstileToken}
                   onExpire={() => setAuthTurnstileToken('')}
                 />
@@ -499,7 +531,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
             <button
               type="submit"
-              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) || (needsAuthTurnstile && !authTurnstileToken) : normalizedPhone.length < 8)}
+              disabled={loading || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
@@ -916,10 +948,18 @@ export default function App() {
   }
 
   if (watchMatch?.[1]) {
-    return <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />;
+    return (
+      <React.Suspense fallback={<WorkspaceLoading />}>
+        <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />
+      </React.Suspense>
+    );
   }
 
-  return <AppShell />;
+  return (
+    <React.Suspense fallback={<WorkspaceLoading />}>
+      <AppShell />
+    </React.Suspense>
+  );
 }
 
 function AppShell() {
@@ -1285,6 +1325,7 @@ function AppShell() {
             onClose={() => setIsRegistrationHubOpen(false)}
             initialTrack={registrationTrack}
             prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
+            hasAuthenticatedSession={false}
             onRegisterCustom={(data) => {
               if (data?.id) {
                 localStorage.setItem('afat_local_user_id', data.id);
@@ -1430,6 +1471,7 @@ function AppShell() {
           onClose={() => setIsRegistrationHubOpen(false)}
           initialTrack={registrationTrack}
           prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
+          hasAuthenticatedSession={Boolean(sessionUser)}
           onRegisterCustom={(data) => {
             if (data?.id) {
               localStorage.setItem('afat_local_user_id', data.id);
