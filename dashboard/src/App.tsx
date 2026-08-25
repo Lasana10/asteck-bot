@@ -47,6 +47,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [errorText, setErrorText] = useState('');
   const [infoText, setInfoText] = useState('');
   const [showBypass, setShowBypass] = useState(false);
+  const [needsAccountCreation, setNeedsAccountCreation] = useState(false);
+  const [authChallengeKey, setAuthChallengeKey] = useState(0);
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>(isStaffAccess ? 'planner' : 'commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
@@ -116,6 +118,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   useEffect(() => {
     setAuthTurnstileToken('');
   }, [authChannel, roleIntent]);
+
+  useEffect(() => {
+    setNeedsAccountCreation(false);
+  }, [normalizedEmail, authChannel, roleIntent]);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -191,9 +197,15 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, {
         roleIntent,
         captchaToken: authTurnstileToken || undefined,
+        createAccount: needsAccountCreation,
       });
       if (error) {
         setErrorText('AFAT could not complete secure access. Check your email and password, or try Google.');
+      } else if (data?.mode === 'signup_required') {
+        setNeedsAccountCreation(true);
+        setAuthTurnstileToken('');
+        setAuthChallengeKey((value) => value + 1);
+        setInfoText('No AFAT account was found for this email. Complete the fresh security check, then press Create AFAT account.');
       } else if (data?.mode === 'confirmation_required') {
         setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
       } else {
@@ -528,7 +540,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             {needsAuthTurnstile && (
               <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
                 <TurnstileGate
-                  key={`${authChannel}:${roleIntent}`}
+                  key={`${authChannel}:${roleIntent}:${authChallengeKey}`}
                   action="identity_auth"
                   onToken={setAuthTurnstileToken}
                   onExpire={() => setAuthTurnstileToken('')}
@@ -540,7 +552,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               disabled={loading || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
+              {loading ? 'Transmitting...' : authChannel === 'email_password' ? (needsAccountCreation ? 'Create AFAT account' : 'Enter AFAT') : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
               {!loading && <ChevronRight className="w-4 h-4" />}
             </button>
             <div className="relative py-1">

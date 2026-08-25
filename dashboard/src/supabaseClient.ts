@@ -571,38 +571,41 @@ export async function verifyEmailOtp(email: string, token: string) {
 export async function signInOrSignUpWithEmailPassword(
   email: string,
   password: string,
-  options?: { roleIntent?: string; captchaToken?: string }
+  options?: { roleIntent?: string; captchaToken?: string; createAccount?: boolean }
 ) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const cleanPassword = String(password || '');
 
-    const signIn = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password: cleanPassword,
-      options: {
-        captchaToken: options?.captchaToken,
-      },
-    });
+    if (!options?.createAccount) {
+      const signIn = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: cleanPassword,
+        options: { captchaToken: options?.captchaToken },
+      });
 
-    if (!signIn.error) {
-      if (signIn.data?.user?.id) {
-        localStorage.setItem('afat_local_user_id', signIn.data.user.id);
-        localStorage.setItem('afat_user_id', signIn.data.user.id);
+      if (!signIn.error) {
+        if (signIn.data?.user?.id) {
+          localStorage.setItem('afat_local_user_id', signIn.data.user.id);
+          localStorage.setItem('afat_user_id', signIn.data.user.id);
+        }
+        localStorage.setItem('afat_access_email', normalizedEmail);
+        return { data: { ...signIn.data, mode: 'signed_in' }, error: null };
       }
+
+      const message = signIn.error.message || '';
+      const canCreate =
+        message.toLowerCase().includes('invalid login') ||
+        message.toLowerCase().includes('invalid credentials') ||
+        message.toLowerCase().includes('email not confirmed') ||
+        message.toLowerCase().includes('user not found');
+
+      if (!canCreate) {
+        return { data: null, error: { message } };
+      }
+
       localStorage.setItem('afat_access_email', normalizedEmail);
-      return { data: { ...signIn.data, mode: 'signed_in' }, error: null };
-    }
-
-    const message = signIn.error.message || '';
-    const canCreate =
-      message.toLowerCase().includes('invalid login') ||
-      message.toLowerCase().includes('invalid credentials') ||
-      message.toLowerCase().includes('email not confirmed') ||
-      message.toLowerCase().includes('user not found');
-
-    if (!canCreate) {
-      return { data: null, error: { message } };
+      return { data: { mode: 'signup_required' }, error: null };
     }
 
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
