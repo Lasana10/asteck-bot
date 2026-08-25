@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type Session } from '@supabase/supabase-js';
 
 const REQUIRED_RENDER_API_URL = 'https://asteck-bot.onrender.com';
 const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim() || 'https://placeholder.supabase.co';
@@ -403,7 +403,14 @@ if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLIS
   console.warn('⚠️ Supabase env vars missing. Running in mock mode.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    flowType: 'pkce',
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
 
 // ==============================================================================
 // 🔐 AUTH & ROLES (Phone OTP Focus)
@@ -476,9 +483,11 @@ export async function completeGoogleAuthCallback(options?: {
       return { data: null, error: { message: errorDescription || hashError || 'Google sign-in failed.' } };
     }
 
+    let exchangedSession: Session | null = null;
     if (authCode) {
-      const { error } = await supabase.auth.exchangeCodeForSession(authCode);
+      const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
       if (error) return { data: null, error: { message: error.message || 'Could not complete Google sign-in.' } };
+      exchangedSession = data.session;
     }
 
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -486,7 +495,8 @@ export async function completeGoogleAuthCallback(options?: {
       return { data: null, error: { message: sessionError.message || 'Could not restore the Google session.' } };
     }
 
-    if (!sessionData.session?.user?.id) {
+    const activeSession = exchangedSession || sessionData.session;
+    if (!activeSession?.user?.id) {
       return { data: null, error: { message: 'Google sign-in returned without an active AFAT session.' } };
     }
 
@@ -500,9 +510,9 @@ export async function completeGoogleAuthCallback(options?: {
 
     return {
       data: {
-        session: sessionData.session,
+        session: activeSession,
         profile: profileResult.data?.profile || null,
-        userId: profileResult.data?.userId || sessionData.session.user.id,
+        userId: profileResult.data?.userId || activeSession.user.id,
       },
       error: null,
     };

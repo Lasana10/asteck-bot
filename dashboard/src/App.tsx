@@ -115,7 +115,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
   useEffect(() => {
     setAuthTurnstileToken('');
-  }, [authChannel, normalizedEmail, normalizedPhone, password]);
+  }, [authChannel, roleIntent]);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -528,6 +528,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             {needsAuthTurnstile && (
               <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
                 <TurnstileGate
+                  key={`${authChannel}:${roleIntent}`}
                   action="identity_auth"
                   onToken={setAuthTurnstileToken}
                   onExpire={() => setAuthTurnstileToken('')}
