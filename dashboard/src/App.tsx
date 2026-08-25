@@ -61,6 +61,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const turnstileReady = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
   const phoneAuthEnabled = import.meta.env.VITE_ENABLE_PHONE_AUTH === 'true';
   const needsAuthTurnstile = turnstileReady;
+  const showTechnicalDiagnostics = import.meta.env.DEV || isLoopbackHost(window.location.hostname);
   const envDiagnostics = [
     `mode: ${import.meta.env.MODE || 'unknown'}`,
     `supabase url: ${import.meta.env.VITE_SUPABASE_URL ? 'present' : 'missing'}`,
@@ -147,7 +148,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
     const { error } = await signInWithGoogle({ roleIntent });
     if (error) {
-      setErrorText(`${error.message} Check that Google is enabled in Supabase Auth and the callback URL is allowed.`);
+      setErrorText('AFAT could not complete Google access. Please retry or use email access.');
       setLoading(false);
     }
   };
@@ -159,7 +160,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     localStorage.setItem('afat_access_intent_role', 'commuter');
     const { error } = await signInAsGuest(guestTurnstileToken);
     if (error) {
-      setErrorText(`${error.message} Guest access requires Supabase Anonymous Sign-ins and AFAT guest RLS to be enabled.`);
+      setErrorText('Limited guest access is temporarily unavailable. Please sign in with email or Google.');
       setGuestTurnstileToken('');
       setLoading(false);
       return;
@@ -175,13 +176,13 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     persistAccessIntent();
 
     if (!turnstileReady) {
-      setErrorText('Turnstile site key missing in this build. Save VITE_TURNSTILE_SITE_KEY in both Cloudflare Preview and Production, then create a fresh deployment.');
+      setErrorText('Secure human verification is temporarily unavailable. Please try again shortly.');
       setLoading(false);
       return;
     }
 
     if (authChannel === 'phone' && !phoneAuthEnabled) {
-      setErrorText('Phone sign-in is not active yet. Use email/password, an email link, or Google while AFAT completes its SMS provider setup.');
+      setErrorText('Phone sign-in is not active yet. Use email/password, an email link, or Google.');
       setLoading(false);
       return;
     }
@@ -192,7 +193,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         captchaToken: authTurnstileToken || undefined,
       });
       if (error) {
-        setErrorText(`${error.message} Check Supabase Email provider settings and redirect URLs if this persists.`);
+        setErrorText('AFAT could not complete secure access. Check your email and password, or try Google.');
       } else if (data?.mode === 'confirmation_required') {
         setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
       } else {
@@ -218,8 +219,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     const { error } = result;
     if (error) {
       setErrorText(authChannel === 'email_otp'
-        ? `${error.message} Check Supabase Auth email settings, redirect URLs, and SMTP if no email arrives.`
-        : `${error.message} Check that Phone Auth and an SMS provider are enabled in Supabase.`);
+        ? 'AFAT could not send the secure email code. Check the address and try again shortly.'
+        : 'Phone sign-in is temporarily unavailable. Use email or Google.');
     } else {
       setStep('verify');
     }
@@ -308,11 +309,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
         <div className="mb-6 grid grid-cols-3 gap-2">
           <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Identity protection</p>
             <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
-              {supabaseReady ? 'Configured' : 'Needs env'}
+              {supabaseReady ? 'Ready' : 'Unavailable'}
             </p>
-            {!supabaseReady && (
+            {!supabaseReady && showTechnicalDiagnostics && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-amber-100/70">
                   Env details
@@ -324,26 +325,26 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${turnstileReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Turnstile</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Human verification</p>
             <p className={`mt-1 text-xs font-black ${turnstileReady ? 'text-emerald-200' : 'text-amber-200'}`}>
-              {turnstileReady ? 'Configured' : 'Needs env'}
+              {turnstileReady ? 'Ready' : 'Unavailable'}
             </p>
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT backend</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT network</p>
             <p className={`mt-1 text-xs font-black ${backendStatus === 'live' ? 'text-emerald-200' : backendStatus === 'checking' ? 'text-blue-200' : 'text-red-200'}`}>
-              {backendStatus === 'live' ? 'Live' : backendStatus === 'checking' ? 'Checking' : 'Offline'}
+              {backendStatus === 'live' ? 'Online' : backendStatus === 'checking' ? 'Connecting' : 'Unavailable'}
             </p>
-            <p className="mt-1 truncate text-[9px] font-semibold text-white/35">{apiTarget.replace(/^https?:\/\//, '')}</p>
+            {showTechnicalDiagnostics && <p className="mt-1 truncate text-[9px] font-semibold text-white/35">{apiTarget.replace(/^https?:\/\//, '')}</p>}
           </div>
         </div>
 
         {backendStatus === 'offline' && (
           <div className="mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
             <p className="text-xs font-bold leading-relaxed text-red-100/80">
-              AFAT cannot confirm the API target from this browser yet. This is often a Render wake-up or routing issue, not a full backend outage.
+              AFAT is reconnecting to the mobility network. Please retry in a moment.
             </p>
-            {backendDetail && (
+            {backendDetail && showTechnicalDiagnostics && (
               <p className="mt-2 text-[11px] leading-relaxed text-red-100/60">
                 {backendDetail}
               </p>
@@ -367,8 +368,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 }}
                 className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
               >
-                Retry check
+                Retry connection
               </button>
+              {showTechnicalDiagnostics && (
+                <>
               <button
                 type="button"
                 onClick={async () => {
@@ -400,8 +403,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               >
                 Use live backend
               </button>
+                </>
+              )}
             </div>
-            {backendDiagnostics && (
+            {backendDiagnostics && showTechnicalDiagnostics && (
               <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-slate-950/60 p-3 text-[10px] leading-relaxed text-red-50/85">
                 {backendDiagnostics}
               </pre>
@@ -590,7 +595,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               />
               <p className="mt-2 text-[10px] font-semibold text-white/40">
                 {authChannel === 'email_otp'
-                  ? 'Use the code from the Supabase email, or open the secure email link in this browser.'
+                  ? 'Use the code from your AFAT email, or open the secure email link in this browser.'
                   : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
               </p>
             </div>
@@ -605,7 +610,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
                 />
                 <p className="mt-2 text-[10px] font-semibold text-white/40">
-                  Optional temporary lane access for allowlisted phones while full provider auth is being finalized.
+                  Optional temporary lane access for approved staff during controlled rollout.
                 </p>
               </div>
             )}
@@ -620,7 +625,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
                 />
                 <p className="mt-2 text-[10px] font-semibold text-white/40">
-                  This only works when your phone is allowlisted in backend env and a bootstrap code is configured.
+                  This restricted path is available only to approved AFAT administrators.
                 </p>
               </div>
             )}
@@ -755,7 +760,7 @@ function AuthCallback() {
             </div>
             <div className={`rounded-2xl border px-4 py-3 ${phase === 'session' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
               <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 2</p>
-              <p className="mt-1 text-xs font-bold text-white">Restoring your Supabase session.</p>
+              <p className="mt-1 text-xs font-bold text-white">Restoring your secure AFAT identity.</p>
             </div>
             <div className={`rounded-2xl border px-4 py-3 ${phase === 'profile' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
               <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 3</p>
@@ -773,7 +778,7 @@ function AuthCallback() {
               Return to AFAT access
             </button>
             <p className="text-[10px] font-semibold leading-relaxed text-white/40">
-              Check Supabase Google provider settings, callback redirect URLs, and AFAT backend reachability if this repeats.
+              If this repeats, return to AFAT access and use email sign-in or contact support.
             </p>
           </div>
         )}

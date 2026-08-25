@@ -86,7 +86,7 @@ const checks = [
   ['phone auth is deployment-gated until an SMS provider exists', files.app, "VITE_ENABLE_PHONE_AUTH === 'true'"],
   ['disabled phone auth is absent from the channel selector', files.app, "...(phoneAuthEnabled ? [{ channel: 'phone', label: 'Phone OTP' }] : [])"],
   ['signed-out registration requires an authenticated identity', files.registration, "track !== 'select' && !hasAuthenticatedSession"],
-  ['registration explains that phone is a contact until SMS activation', files.registration, 'It is not used as a login until AFAT activates an approved SMS provider.'],
+  ['registration explains that phone remains a contact until reliable sign-in is ready', files.registration, 'Phone sign-in will appear only when it is ready for reliable use.'],
   ['legacy Telegram users are removed from browser privileges', files.releaseSecurity, 'revoke all privileges on table public.users from anon, authenticated'],
   ['managed PostGIS objects are excluded from the app migration', files.releaseSecurity, "permission-managed by\n-- Supabase's PostGIS extension"],
   ['frontend calls passenger onboarding API', files.frontend, '/api/onboard/passenger/register'],

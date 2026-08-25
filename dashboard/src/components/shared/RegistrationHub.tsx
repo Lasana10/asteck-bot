@@ -127,11 +127,11 @@ function explainRegistrationError(message?: string) {
   const lower = raw.toLowerCase();
 
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
-    return 'AFAT backend is not reachable from this browser. Check the Render service, VITE_API_URL, and whether the local preview is pointing to the correct API target.';
+    return 'AFAT cannot reach the mobility service right now. Please retry shortly.';
   }
 
   if (lower.includes('duplicate') || lower.includes('already') || lower.includes('unique')) {
-    return 'This identity already exists. AFAT will try to resume the existing profile when the updated backend is deployed; if this persists, sign in with the same phone/email or ask admin to merge the profile.';
+    return 'This identity already exists. Sign in with the same email, or ask AFAT support to recover the profile.';
   }
 
   if (lower.includes('auth_required_for_onboarding') || lower.includes('sign in before registration')) {
@@ -139,7 +139,7 @@ function explainRegistrationError(message?: string) {
   }
 
   if (lower.includes('row-level security') || lower.includes('permission') || lower.includes('unauthorized')) {
-    return 'The request reached AFAT, but database permissions blocked it. Check Supabase RLS/API grants for this registration table before retrying.';
+    return 'AFAT could not complete this protected action. Sign in again or contact support.';
   }
 
   return raw;
@@ -527,10 +527,10 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               <p className="mt-7 text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Secure identity required</p>
               <h3 className="mt-2 text-2xl font-black uppercase italic tracking-tight text-white">Sign in before registration</h3>
               <p className="mt-4 text-sm font-medium leading-relaxed text-white/60">
-                AFAT attaches every commuter, operator, fleet, and staff intake to a verified Supabase identity. Continue with email or Google, then this registration lane will reopen for your profile.
+                AFAT attaches every commuter, operator, fleet, and staff intake to a verified AFAT identity. Continue with email or Google, then this registration lane will reopen for your profile.
               </p>
               <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-semibold leading-relaxed text-emerald-100/75">
-                Your phone remains a contact and safety detail. It is not used as a login until AFAT activates an approved SMS provider.
+                Your phone remains a contact and safety detail. Phone sign-in will appear only when it is ready for reliable use.
               </div>
               <div className="mt-8 flex gap-3">
                 <button type="button" onClick={() => setTrack('select')} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 text-slate-300 transition hover:bg-white/5 hover:text-white" aria-label="Choose another registration lane">
