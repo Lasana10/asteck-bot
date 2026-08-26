@@ -39,6 +39,8 @@ const checks = [
   ['returns JSON API 404', files.index, "app.use('/api', (req: Request, res: Response)"],
   ['exposes health contract', files.index, "app.get('/health/contract'"],
   ['auth: Supabase profile bootstrap', files.routes, "router.post('/auth/supabase-profile'"],
+  ['auth: general staff bootstrap defaults to operator and planner only', files.routes, "AFAT_BOOTSTRAP_ALLOW_ROLES || 'operator,planner'"],
+  ['auth: general staff code can never grant admin', files.routes, "requestedRole !== 'admin' && (hasPhoneIdentity"],
   ['auth: QA bypass', files.routes, "router.post('/auth/qa-bypass'"],
   ['auth: send OTP', files.routes, "router.post('/auth/send-otp'"],
   ['auth: verify OTP', files.routes, "router.post('/auth/verify-otp'"],
@@ -78,6 +80,7 @@ const checks = [
   ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
+  ['frontend exposes staff approval code to operator and planner', files.app, "roleIntent === 'operator' || roleIntent === 'planner'"],
   ['phone auth sends OTP through Supabase identity', phoneOtpClient, 'supabase.auth.signInWithOtp'],
   ['phone auth sends captcha token', phoneOtpClient, 'captchaToken: options?.captchaToken'],
   ['phone auth verifies SMS through Supabase identity', phoneOtpClient, 'supabase.auth.verifyOtp'],
@@ -96,6 +99,7 @@ const checks = [
 
 const failures = checks.filter(([, content, needle]) => !content.includes(needle));
 const forbiddenChecks = [
+  ['commuter lane cannot silently downgrade existing staff', files.routes, 'publicRoles.has(finalRole) || generalBootstrapAllowed'],
   ['phone auth bypasses legacy AFAT OTP routes', phoneOtpClient, "/api/auth/send-otp"],
   ['phone auth bypasses legacy AFAT OTP verification', phoneOtpClient, "/api/auth/verify-otp"],
 ];

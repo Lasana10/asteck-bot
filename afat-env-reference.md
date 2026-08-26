@@ -20,6 +20,16 @@ Strongly recommended:
 - `NODE_ENV=production`
 - `PORT=3000`
 
+Controlled staff onboarding (backend only; never expose these as `VITE_*` values):
+
+- `AFAT_BOOTSTRAP_ALLOW_EMAILS=<comma-separated approved operator/planner emails>`
+- `AFAT_BOOTSTRAP_ACCESS_CODE=<rotatable operator/planner approval code>`
+- `AFAT_BOOTSTRAP_ALLOW_ROLES=operator,planner`
+- `AFAT_ADMIN_BOOTSTRAP_EMAILS=<comma-separated approved administrator emails>`
+- `AFAT_ADMIN_BOOTSTRAP_CODE=<separate rotatable administrator approval code>`
+
+The general staff code cannot grant administrator access. Changing a code blocks future grants but does not revoke an already granted role; suspend the staff profile and revoke its sessions for offboarding.
+
 Optional / feature-specific:
 
 - `WEBHOOK_DOMAIN`

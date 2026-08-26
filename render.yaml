@@ -52,6 +52,16 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
+      - key: AFAT_BOOTSTRAP_ALLOW_EMAILS
+        sync: false
+      - key: AFAT_BOOTSTRAP_ACCESS_CODE
+        sync: false
+      - key: AFAT_BOOTSTRAP_ALLOW_ROLES
+        value: operator,planner
+      - key: AFAT_ADMIN_BOOTSTRAP_EMAILS
+        sync: false
+      - key: AFAT_ADMIN_BOOTSTRAP_CODE
+        sync: false
       - key: PAYMENT_API_KEY
         sync: false
       - key: PAYMENT_PROVIDER

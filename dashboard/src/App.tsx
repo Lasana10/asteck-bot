@@ -115,6 +115,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         { role: 'commuter', label: 'Commuter' },
         { role: 'operator', label: 'Operator' },
       ];
+  const isGeneralStaffLane = roleIntent === 'operator' || roleIntent === 'planner';
+  const requiresApprovalCode = roleIntent === 'planner' || roleIntent === 'admin';
 
   useEffect(() => {
     let mounted = true;
@@ -591,14 +593,25 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                       required
                     />
                   )}
-                  {['planner', 'admin'].includes(roleIntent) && (
-                    <input
-                      type="password"
-                      placeholder={roleIntent === 'admin' ? 'Admin bootstrap code' : 'Temporary access code'}
-                      value={roleIntent === 'admin' ? adminCode : accessCode}
-                      onChange={e => roleIntent === 'admin' ? setAdminCode(e.target.value) : setAccessCode(e.target.value)}
-                      className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
-                    />
+                  {(isGeneralStaffLane || roleIntent === 'admin') && (
+                    <div className="space-y-2">
+                      <input
+                        type="password"
+                        placeholder={roleIntent === 'admin' ? 'Admin approval code' : 'Staff approval code'}
+                        value={roleIntent === 'admin' ? adminCode : accessCode}
+                        onChange={e => roleIntent === 'admin' ? setAdminCode(e.target.value) : setAccessCode(e.target.value)}
+                        className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
+                        required={requiresApprovalCode}
+                        autoComplete="one-time-code"
+                      />
+                      <p className="px-1 text-[10px] font-semibold leading-relaxed text-white/45">
+                        {roleIntent === 'operator'
+                          ? 'Approved AFAT operators enter their staff code. Leave it blank to start a controlled operator application as a passenger.'
+                          : roleIntent === 'planner'
+                            ? 'Planner access requires an allowlisted email and the current AFAT staff approval code.'
+                            : 'Administrator access requires an allowlisted email and the separate AFAT admin approval code.'}
+                      </p>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -627,7 +640,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
             <button
               type="submit"
-              disabled={loading || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
+              disabled={loading || requiresApprovalCode && !(roleIntent === 'admin' ? adminCode.trim() : accessCode.trim()) || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               {loading ? 'Transmitting...' : authChannel === 'email_password' ? (needsAccountCreation ? 'Create AFAT account' : 'Enter AFAT') : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
@@ -644,7 +657,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <button
               type="button"
               onClick={handleGoogleLogin}
-              disabled={loading || !supabaseReady}
+              disabled={loading || !supabaseReady || requiresApprovalCode && !(roleIntent === 'admin' ? adminCode.trim() : accessCode.trim())}
               className="w-full border border-white/15 bg-white text-slate-950 hover:bg-slate-100 font-black py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               <Chrome className="h-4 w-4" />
@@ -690,7 +703,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
               </p>
             </div>
-            {(authChannel === 'phone' || (authChannel === 'email_otp' && roleIntent === 'planner')) && (
+            {(authChannel === 'phone' || authChannel === 'email_otp') && isGeneralStaffLane && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Temporary Access Code</label>
                 <input
@@ -701,7 +714,9 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
                 />
                 <p className="mt-2 text-[10px] font-semibold text-white/40">
-                  Optional temporary lane access for approved staff during controlled rollout.
+                  {roleIntent === 'operator'
+                    ? 'Approved operators enter the current staff code. Leave it blank to start an operator application.'
+                    : 'Required together with an allowlisted planner identity.'}
                 </p>
               </div>
             )}

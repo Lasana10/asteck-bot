@@ -92,7 +92,7 @@ function generalBootstrapConfig() {
     .map((item) => item.trim())
     .filter(Boolean)
     .map(normalizeAuthPhone);
-  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'commuter,operator,planner,admin')
+  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'operator,planner')
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
@@ -110,7 +110,7 @@ function emailBootstrapConfig() {
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'commuter,operator,planner,admin')
+  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'operator,planner')
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
@@ -760,7 +760,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     const phoneAdminBootstrap = adminBootstrapConfig();
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
-    const generalBootstrapAllowed = hasPhoneIdentity
+    const generalBootstrapAllowed = requestedRole !== 'admin' && (hasPhoneIdentity
       ? Boolean(phoneBootstrap.code) &&
         accessCode === phoneBootstrap.code &&
         phoneBootstrap.allowlist.includes(phone) &&
@@ -768,7 +768,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       : Boolean(emailBootstrap.generalCode) &&
         accessCode === emailBootstrap.generalCode &&
         emailBootstrap.allowlist.includes(email) &&
-        emailBootstrap.roles.includes(requestedRole);
+        emailBootstrap.roles.includes(requestedRole));
     const adminBootstrapAllowed = requestedRole === 'admin' && (hasPhoneIdentity
       ? Boolean(phoneAdminBootstrap.code) &&
         providedAdminCode === phoneAdminBootstrap.code &&
@@ -839,7 +839,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .single();
       if (updateError) throw updateError;
       profile = updatedProfile;
-    } else if (profile.role !== finalRole && (publicRoles.has(finalRole) || generalBootstrapAllowed || adminBootstrapAllowed)) {
+    } else if (profile.role !== finalRole && (generalBootstrapAllowed || adminBootstrapAllowed)) {
       const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
         .update({
