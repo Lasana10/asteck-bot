@@ -593,19 +593,12 @@ export async function signInOrSignUpWithEmailPassword(
         return { data: { ...signIn.data, mode: 'signed_in' }, error: null };
       }
 
-      const message = signIn.error.message || '';
-      const canCreate =
-        message.toLowerCase().includes('invalid login') ||
-        message.toLowerCase().includes('invalid credentials') ||
-        message.toLowerCase().includes('email not confirmed') ||
-        message.toLowerCase().includes('user not found');
-
-      if (!canCreate) {
-        return { data: null, error: { message } };
-      }
-
-      localStorage.setItem('afat_access_email', normalizedEmail);
-      return { data: { mode: 'signup_required' }, error: null };
+      // Supabase deliberately does not reveal whether an address exists. An
+      // invalid-credentials response can therefore mean either a wrong
+      // password or an unknown email. Never turn that ambiguous response into
+      // an automatic sign-up attempt; the user chooses Create account
+      // explicitly in the AFAT access UI.
+      return { data: null, error: { message: signIn.error.message || 'Invalid login credentials.' } };
     }
 
     const redirectTo = `${window.location.origin}${window.location.pathname}`;

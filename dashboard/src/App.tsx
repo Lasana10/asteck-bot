@@ -30,6 +30,32 @@ function WorkspaceLoading() {
   );
 }
 
+function explainAuthError(message?: string) {
+  const raw = String(message || '').trim();
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('timeout-or-duplicate') || lower.includes('captcha')) {
+    return 'The security check expired or was already used. Complete the new check below, then submit once.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'This account exists but its email is not confirmed yet. Open the latest AFAT confirmation email, then sign in again.';
+  }
+  if (lower.includes('invalid login') || lower.includes('invalid credentials')) {
+    return 'That email and AFAT password do not match. Retry the password, or choose Create account if this email is new.';
+  }
+  if (lower.includes('already registered') || lower.includes('already been registered')) {
+    return 'This email already has an AFAT account. Switch to Sign in and use the password created for AFAT.';
+  }
+  if (lower.includes('rate limit') || lower.includes('too many')) {
+    return 'Too many access attempts were made. Wait briefly, complete a fresh security check, and submit once.';
+  }
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
+    return 'AFAT could not reach the identity service. Check your connection and retry.';
+  }
+
+  return raw || 'AFAT could not complete secure access. Please retry with a fresh security check.';
+}
+
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
 // ==============================================================================
@@ -56,6 +82,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [backendDiagnostics, setBackendDiagnostics] = useState('');
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
   const [authTurnstileToken, setAuthTurnstileToken] = useState('');
+
+  const resetAuthChallenge = () => {
+    setAuthTurnstileToken('');
+    setAuthChallengeKey((value) => value + 1);
+  };
 
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
@@ -200,14 +231,16 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         createAccount: needsAccountCreation,
       });
       if (error) {
-        setErrorText('AFAT could not complete secure access. Check your email and password, or try Google.');
+        setErrorText(explainAuthError(error.message));
+        resetAuthChallenge();
       } else if (data?.mode === 'signup_required') {
         setNeedsAccountCreation(true);
-        setAuthTurnstileToken('');
-        setAuthChallengeKey((value) => value + 1);
+        resetAuthChallenge();
         setInfoText('No AFAT account was found for this email. Complete the fresh security check, then press Create AFAT account.');
       } else if (data?.mode === 'confirmation_required') {
-        setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
+        setNeedsAccountCreation(false);
+        resetAuthChallenge();
+        setInfoText('Account created. Confirm the latest AFAT email, return to this page, then sign in with the same AFAT password.');
       } else {
         const profileResult = await ensureSupabaseEmailProfile({
           roleIntent,
@@ -230,12 +263,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       : await sendPhoneOtp(normalizedPhone, { captchaToken: authTurnstileToken || undefined });
     const { error } = result;
     if (error) {
-      setErrorText(authChannel === 'email_otp'
-        ? 'AFAT could not send the secure email code. Check the address and try again shortly.'
-        : 'Phone sign-in is temporarily unavailable. Use email or Google.');
+      setErrorText(explainAuthError(error.message));
     } else {
       setStep('verify');
     }
+    resetAuthChallenge();
     setLoading(false);
   };
 
@@ -704,13 +736,29 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           )}
 
           {!isStaffAccess && (
-            <button
-              type="button"
-              onClick={() => onRegisterRequest(roleIntent)}
-              className="mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
-            >
-              New here? Register {roleIntent}
-            </button>
+            <div className="mt-4 w-full space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNeedsAccountCreation((current) => !current);
+                  setErrorText('');
+                  setInfoText(needsAccountCreation
+                    ? 'Sign in with an existing AFAT account.'
+                    : `Create the secure identity first. After email confirmation, sign in and complete the ${roleIntent} profile.`);
+                  resetAuthChallenge();
+                }}
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              >
+                {needsAccountCreation ? 'Already registered? Sign in' : 'New here? Create AFAT account'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onRegisterRequest(roleIntent)}
+                className="w-full px-4 py-2 text-[9px] font-black uppercase tracking-widest text-blue-200/65 transition-colors hover:text-blue-100"
+              >
+                View {roleIntent} registration requirements
+              </button>
+            </div>
           )}
         </div>
       </div>
