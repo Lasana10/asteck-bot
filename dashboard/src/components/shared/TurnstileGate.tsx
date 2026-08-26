@@ -78,6 +78,10 @@ export function TurnstileGate({ action, onToken, onExpire, className = '' }: Pro
             setMessage('Security check expired. Please retry.');
             onExpireRef.current?.();
           },
+          'timeout-callback': () => {
+            setMessage('Security check timed out. Please retry.');
+            onExpireRef.current?.();
+          },
           'error-callback': () => {
             setMessage('Security check failed to load. Check connection and retry.');
             onExpireRef.current?.();

@@ -2,18 +2,59 @@ import React, { useState, useEffect } from 'react';
 import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole, runAfatBackendDiagnostics } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight, Chrome } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
-import { CommuterDashboard } from './components/commuter/CommuterDashboard';
-import { OperatorDashboard } from './components/operator/OperatorDashboard';
-import { PlannerDashboard } from './components/planner/PlannerDashboard';
-import { AdminControlPanel } from './components/admin/AdminControlPanel';
 import { BottomNav } from './components/shared/BottomNav';
 import { RoleOnboarding } from './components/shared/RoleOnboarding';
 import { RegistrationHub } from './components/shared/RegistrationHub';
 import { telemetry } from './services/telemetryService';
-import { AICopilot } from './components/shared/AICopilot';
-import { GuardianWatchPage } from './components/shared/GuardianWatchPage';
 import { TurnstileGate } from './components/shared/TurnstileGate';
 import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
+
+const CommuterDashboard = React.lazy(() => import('./components/commuter/CommuterDashboard').then(module => ({ default: module.CommuterDashboard })));
+const OperatorDashboard = React.lazy(() => import('./components/operator/OperatorDashboard').then(module => ({ default: module.OperatorDashboard })));
+const PlannerDashboard = React.lazy(() => import('./components/planner/PlannerDashboard').then(module => ({ default: module.PlannerDashboard })));
+const AdminControlPanel = React.lazy(() => import('./components/admin/AdminControlPanel').then(module => ({ default: module.AdminControlPanel })));
+const AICopilot = React.lazy(() => import('./components/shared/AICopilot').then(module => ({ default: module.AICopilot })));
+const GuardianWatchPage = React.lazy(() => import('./components/shared/GuardianWatchPage').then(module => ({ default: module.GuardianWatchPage })));
+
+function WorkspaceLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#050813] px-6 text-white">
+      <div className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-slate-950/80 p-7 text-center shadow-2xl">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-400/25 bg-blue-500/10">
+          <AFATLogo className="h-7 w-7 text-blue-100" />
+        </div>
+        <p className="mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">AFAT workspace</p>
+        <p className="mt-2 text-sm font-semibold text-white/65">Loading the right mobility controls for your access level…</p>
+      </div>
+    </div>
+  );
+}
+
+function explainAuthError(message?: string) {
+  const raw = String(message || '').trim();
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('timeout-or-duplicate') || lower.includes('captcha')) {
+    return 'The security check expired or was already used. Complete the new check below, then submit once.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'This account exists but its email is not confirmed yet. Open the latest AFAT confirmation email, then sign in again.';
+  }
+  if (lower.includes('invalid login') || lower.includes('invalid credentials')) {
+    return 'That email and AFAT password do not match. Retry the password, or choose Create account if this email is new.';
+  }
+  if (lower.includes('already registered') || lower.includes('already been registered')) {
+    return 'This email already has an AFAT account. Switch to Sign in and use the password created for AFAT.';
+  }
+  if (lower.includes('rate limit') || lower.includes('too many')) {
+    return 'Too many access attempts were made. Wait briefly, complete a fresh security check, and submit once.';
+  }
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
+    return 'AFAT could not reach the identity service. Check your connection and retry.';
+  }
+
+  return raw || 'AFAT could not complete secure access. Please retry with a fresh security check.';
+}
 
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
@@ -32,6 +73,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [errorText, setErrorText] = useState('');
   const [infoText, setInfoText] = useState('');
   const [showBypass, setShowBypass] = useState(false);
+  const [needsAccountCreation, setNeedsAccountCreation] = useState(false);
+  const [authChallengeKey, setAuthChallengeKey] = useState(0);
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>(isStaffAccess ? 'planner' : 'commuter');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
@@ -40,11 +83,18 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
   const [authTurnstileToken, setAuthTurnstileToken] = useState('');
 
+  const resetAuthChallenge = () => {
+    setAuthTurnstileToken('');
+    setAuthChallengeKey((value) => value + 1);
+  };
+
   const normalizedPhone = phone.replace(/\s+/g, '');
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseReady = Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
   const turnstileReady = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
-  const needsAuthTurnstile = turnstileReady && (authChannel === 'email_password' || authChannel === 'email_otp');
+  const phoneAuthEnabled = import.meta.env.VITE_ENABLE_PHONE_AUTH === 'true';
+  const needsAuthTurnstile = turnstileReady;
+  const showTechnicalDiagnostics = import.meta.env.DEV || isLoopbackHost(window.location.hostname);
   const envDiagnostics = [
     `mode: ${import.meta.env.MODE || 'unknown'}`,
     `supabase url: ${import.meta.env.VITE_SUPABASE_URL ? 'present' : 'missing'}`,
@@ -98,7 +148,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
   useEffect(() => {
     setAuthTurnstileToken('');
-  }, [authChannel, normalizedEmail, password]);
+  }, [authChannel, roleIntent]);
+
+  useEffect(() => {
+    setNeedsAccountCreation(false);
+  }, [normalizedEmail, authChannel, roleIntent]);
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
@@ -131,7 +185,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
     const { error } = await signInWithGoogle({ roleIntent });
     if (error) {
-      setErrorText(`${error.message} Check that Google is enabled in Supabase Auth and the callback URL is allowed.`);
+      setErrorText('AFAT could not complete Google access. Please retry or use email access.');
       setLoading(false);
     }
   };
@@ -143,7 +197,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     localStorage.setItem('afat_access_intent_role', 'commuter');
     const { error } = await signInAsGuest(guestTurnstileToken);
     if (error) {
-      setErrorText(`${error.message} Guest access requires Supabase Anonymous Sign-ins and AFAT guest RLS to be enabled.`);
+      setErrorText('Limited guest access is temporarily unavailable. Please sign in with email or Google.');
       setGuestTurnstileToken('');
       setLoading(false);
       return;
@@ -158,8 +212,14 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setInfoText('');
     persistAccessIntent();
 
-    if (authChannel !== 'phone' && !turnstileReady) {
-      setErrorText('Turnstile site key missing in this build. Save VITE_TURNSTILE_SITE_KEY in both Cloudflare Preview and Production, then create a fresh deployment.');
+    if (!turnstileReady) {
+      setErrorText('Secure human verification is temporarily unavailable. Please try again shortly.');
+      setLoading(false);
+      return;
+    }
+
+    if (authChannel === 'phone' && !phoneAuthEnabled) {
+      setErrorText('Phone sign-in is not active yet. Use email/password, an email link, or Google.');
       setLoading(false);
       return;
     }
@@ -168,11 +228,19 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
       const { data, error } = await signInOrSignUpWithEmailPassword(normalizedEmail, password, {
         roleIntent,
         captchaToken: authTurnstileToken || undefined,
+        createAccount: needsAccountCreation,
       });
       if (error) {
-        setErrorText(`${error.message} Check Supabase Email provider settings and redirect URLs if this persists.`);
+        setErrorText(explainAuthError(error.message));
+        resetAuthChallenge();
+      } else if (data?.mode === 'signup_required') {
+        setNeedsAccountCreation(true);
+        resetAuthChallenge();
+        setInfoText('No AFAT account was found for this email. Complete the fresh security check, then press Create AFAT account.');
       } else if (data?.mode === 'confirmation_required') {
-        setInfoText('AFAT created the account. Open the confirmation email once, then return here and sign in with the same password.');
+        setNeedsAccountCreation(false);
+        resetAuthChallenge();
+        setInfoText('Account created. Confirm the latest AFAT email, return to this page, then sign in with the same AFAT password.');
       } else {
         const profileResult = await ensureSupabaseEmailProfile({
           roleIntent,
@@ -192,15 +260,14 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
     const result = authChannel === 'email_otp'
       ? await sendEmailOtp(normalizedEmail, { roleIntent, captchaToken: authTurnstileToken || undefined })
-      : await sendPhoneOtp(normalizedPhone);
+      : await sendPhoneOtp(normalizedPhone, { captchaToken: authTurnstileToken || undefined });
     const { error } = result;
     if (error) {
-      setErrorText(authChannel === 'email_otp'
-        ? `${error.message} Check Supabase Auth email settings, redirect URLs, and SMTP if no email arrives.`
-        : `${error.message} Phone OTP depends on the AFAT backend and the active SMS provider.`);
+      setErrorText(explainAuthError(error.message));
     } else {
       setStep('verify');
     }
+    resetAuthChallenge();
     setLoading(false);
   };
 
@@ -210,6 +277,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setErrorText('');
     setInfoText('');
     persistAccessIntent();
+    if (authChannel === 'phone' && !phoneAuthEnabled) {
+      setErrorText('Phone verification is not active in this deployment. Return to secure email or Google access.');
+      setLoading(false);
+      return;
+    }
     const { error } = authChannel === 'email_otp'
       ? await verifyEmailOtp(normalizedEmail, otp)
       : await verifyPhoneOtp(normalizedPhone, otp, {
@@ -260,7 +332,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   };
 
   return (
-    <div className="w-full font-sans text-on-surface">
+    <div id="afat-secure-access" className="w-full font-sans text-on-surface">
       <div className="relative w-full overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/80 p-5 shadow-ambient-float sm:p-7">
         <div className="absolute top-0 left-0 w-full h-1 bg-signature-gradient opacity-50"></div>
 
@@ -281,11 +353,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
         <div className="mb-6 grid grid-cols-3 gap-2">
           <div className={`rounded-2xl border px-3 py-3 ${supabaseReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Email auth</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Identity protection</p>
             <p className={`mt-1 text-xs font-black ${supabaseReady ? 'text-emerald-200' : 'text-amber-200'}`}>
-              {supabaseReady ? 'Configured' : 'Needs env'}
+              {supabaseReady ? 'Ready' : 'Unavailable'}
             </p>
-            {!supabaseReady && (
+            {!supabaseReady && showTechnicalDiagnostics && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-amber-100/70">
                   Env details
@@ -297,26 +369,26 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${turnstileReady ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'}`}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Turnstile</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Human verification</p>
             <p className={`mt-1 text-xs font-black ${turnstileReady ? 'text-emerald-200' : 'text-amber-200'}`}>
-              {turnstileReady ? 'Configured' : 'Needs env'}
+              {turnstileReady ? 'Ready' : 'Unavailable'}
             </p>
           </div>
           <div className={`rounded-2xl border px-3 py-3 ${backendStatus === 'live' ? 'border-emerald-400/25 bg-emerald-500/10' : backendStatus === 'checking' ? 'border-blue-400/25 bg-blue-500/10' : 'border-red-400/25 bg-red-500/10'}`}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT backend</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/45">AFAT network</p>
             <p className={`mt-1 text-xs font-black ${backendStatus === 'live' ? 'text-emerald-200' : backendStatus === 'checking' ? 'text-blue-200' : 'text-red-200'}`}>
-              {backendStatus === 'live' ? 'Live' : backendStatus === 'checking' ? 'Checking' : 'Offline'}
+              {backendStatus === 'live' ? 'Online' : backendStatus === 'checking' ? 'Connecting' : 'Unavailable'}
             </p>
-            <p className="mt-1 truncate text-[9px] font-semibold text-white/35">{apiTarget.replace(/^https?:\/\//, '')}</p>
+            {showTechnicalDiagnostics && <p className="mt-1 truncate text-[9px] font-semibold text-white/35">{apiTarget.replace(/^https?:\/\//, '')}</p>}
           </div>
         </div>
 
         {backendStatus === 'offline' && (
           <div className="mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
             <p className="text-xs font-bold leading-relaxed text-red-100/80">
-              AFAT cannot confirm the API target from this browser yet. This is often a Render wake-up or routing issue, not a full backend outage.
+              AFAT is reconnecting to the mobility network. Please retry in a moment.
             </p>
-            {backendDetail && (
+            {backendDetail && showTechnicalDiagnostics && (
               <p className="mt-2 text-[11px] leading-relaxed text-red-100/60">
                 {backendDetail}
               </p>
@@ -340,8 +412,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                 }}
                 className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
               >
-                Retry check
+                Retry connection
               </button>
+              {showTechnicalDiagnostics && (
+                <>
               <button
                 type="button"
                 onClick={async () => {
@@ -373,8 +447,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               >
                 Use live backend
               </button>
+                </>
+              )}
             </div>
-            {backendDiagnostics && (
+            {backendDiagnostics && showTechnicalDiagnostics && (
               <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-slate-950/60 p-3 text-[10px] leading-relaxed text-red-50/85">
                 {backendDiagnostics}
               </pre>
@@ -416,11 +492,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Access channel</label>
               <div className="mb-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Recommended now: Email password</p>
-                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Email/password is the stable pilot lane. Email link/code and phone access remain available where providers are configured.</p>
+                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-white/50">Use email/password, an email link, or Google. Phone sign-in is prepared but remains paused until AFAT activates verified SMS delivery.</p>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid gap-2 ${phoneAuthEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 {[
-                  { channel: 'phone', label: 'Phone OTP' },
+                  ...(phoneAuthEnabled ? [{ channel: 'phone', label: 'Phone OTP' }] : []),
                   { channel: 'email_password', label: 'Email Pass' },
                   { channel: 'email_otp', label: 'Email Link' },
                 ].map((item) => (
@@ -438,8 +514,59 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   </button>
                 ))}
               </div>
+              {!phoneAuthEnabled && (
+                <p className="mt-3 rounded-xl border border-amber-400/15 bg-amber-500/[0.07] px-3 py-2 text-[10px] font-semibold leading-relaxed text-amber-100/65">
+                  Phone OTP coming later. Your phone can still be saved as a contact after secure email or Google sign-in.
+                </p>
+              )}
             </div>
             <div>
+              {authChannel === 'email_password' && (
+                <div className="mb-6">
+                  <label className="mb-3 ml-1 block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Account action</label>
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-slate-950/70 p-1.5">
+                    <button
+                      type="button"
+                      aria-pressed={!needsAccountCreation}
+                      onClick={() => {
+                        setNeedsAccountCreation(false);
+                        setErrorText('');
+                        setInfoText('Sign in with an existing AFAT email and its AFAT password.');
+                        resetAuthChallenge();
+                      }}
+                      className={`min-h-12 rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                        !needsAccountCreation
+                          ? 'border border-blue-400/50 bg-blue-500/20 text-blue-100'
+                          : 'border border-transparent text-white/45 hover:text-white'
+                      }`}
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={needsAccountCreation}
+                      onClick={() => {
+                        setNeedsAccountCreation(true);
+                        setErrorText('');
+                        setInfoText(`Create the secure identity first. After email confirmation, sign in and complete the ${roleIntent} profile.`);
+                        resetAuthChallenge();
+                      }}
+                      className={`min-h-12 rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                        needsAccountCreation
+                          ? 'border border-emerald-400/50 bg-emerald-500/20 text-emerald-100'
+                          : 'border border-transparent text-white/45 hover:text-white'
+                      }`}
+                    >
+                      Create account
+                    </button>
+                  </div>
+                  <p className="mt-2 px-1 text-[10px] font-semibold leading-relaxed text-white/45">
+                    {needsAccountCreation
+                      ? 'New identity mode: AFAT will create an account and send a confirmation email.'
+                      : 'Existing identity mode: AFAT will not send a new email; it will verify the password.'}
+                  </p>
+                </div>
+              )}
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
                 {authChannel === 'phone' ? 'Secure phone line' : 'Secure email identity'}
               </label>
@@ -491,7 +618,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             {needsAuthTurnstile && (
               <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
                 <TurnstileGate
-                  action="email_auth"
+                  key={`${authChannel}:${roleIntent}:${authChallengeKey}`}
+                  action="identity_auth"
                   onToken={setAuthTurnstileToken}
                   onExpire={() => setAuthTurnstileToken('')}
                 />
@@ -499,10 +627,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
             <button
               type="submit"
-              disabled={loading || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) || (needsAuthTurnstile && !authTurnstileToken) : normalizedPhone.length < 8)}
+              disabled={loading || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
-              {loading ? 'Transmitting...' : authChannel === 'email_password' ? 'Enter AFAT' : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
+              {loading ? 'Transmitting...' : authChannel === 'email_password' ? (needsAccountCreation ? 'Create AFAT account' : 'Enter AFAT') : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
               {!loading && <ChevronRight className="w-4 h-4" />}
             </button>
             <div className="relative py-1">
@@ -558,7 +686,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               />
               <p className="mt-2 text-[10px] font-semibold text-white/40">
                 {authChannel === 'email_otp'
-                  ? 'Use the code from the Supabase email, or open the secure email link in this browser.'
+                  ? 'Use the code from your AFAT email, or open the secure email link in this browser.'
                   : 'Enter the phone OTP or use the temporary access path if your lane is allowlisted.'}
               </p>
             </div>
@@ -573,7 +701,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
                 />
                 <p className="mt-2 text-[10px] font-semibold text-white/40">
-                  Optional temporary lane access for allowlisted phones while full provider auth is being finalized.
+                  Optional temporary lane access for approved staff during controlled rollout.
                 </p>
               </div>
             )}
@@ -588,7 +716,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
                 />
                 <p className="mt-2 text-[10px] font-semibold text-white/40">
-                  This only works when your phone is allowlisted in backend env and a bootstrap code is configured.
+                  This restricted path is available only to approved AFAT administrators.
                 </p>
               </div>
             )}
@@ -654,13 +782,29 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           )}
 
           {!isStaffAccess && (
-            <button
-              type="button"
-              onClick={() => onRegisterRequest(roleIntent)}
-              className="mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
-            >
-              New here? Register {roleIntent}
-            </button>
+            <div className="mt-4 w-full space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNeedsAccountCreation((current) => !current);
+                  setErrorText('');
+                  setInfoText(needsAccountCreation
+                    ? 'Sign in with an existing AFAT account.'
+                    : `Create the secure identity first. After email confirmation, sign in and complete the ${roleIntent} profile.`);
+                  resetAuthChallenge();
+                }}
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              >
+                {needsAccountCreation ? 'Already registered? Sign in' : 'New here? Create AFAT account'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onRegisterRequest(roleIntent)}
+                className="w-full px-4 py-2 text-[9px] font-black uppercase tracking-widest text-blue-200/65 transition-colors hover:text-blue-100"
+              >
+                View {roleIntent} registration requirements
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -723,7 +867,7 @@ function AuthCallback() {
             </div>
             <div className={`rounded-2xl border px-4 py-3 ${phase === 'session' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
               <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 2</p>
-              <p className="mt-1 text-xs font-bold text-white">Restoring your Supabase session.</p>
+              <p className="mt-1 text-xs font-bold text-white">Restoring your secure AFAT identity.</p>
             </div>
             <div className={`rounded-2xl border px-4 py-3 ${phase === 'profile' ? 'border-blue-400/30 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}>
               <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">Step 3</p>
@@ -741,7 +885,7 @@ function AuthCallback() {
               Return to AFAT access
             </button>
             <p className="text-[10px] font-semibold leading-relaxed text-white/40">
-              Check Supabase Google provider settings, callback redirect URLs, and AFAT backend reachability if this repeats.
+              If this repeats, return to AFAT access and use email sign-in or contact support.
             </p>
           </div>
         )}
@@ -916,10 +1060,18 @@ export default function App() {
   }
 
   if (watchMatch?.[1]) {
-    return <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />;
+    return (
+      <React.Suspense fallback={<WorkspaceLoading />}>
+        <GuardianWatchPage token={decodeURIComponent(watchMatch[1])} />
+      </React.Suspense>
+    );
   }
 
-  return <AppShell />;
+  return (
+    <React.Suspense fallback={<WorkspaceLoading />}>
+      <AppShell />
+    </React.Suspense>
+  );
 }
 
 function AppShell() {
@@ -1285,6 +1437,7 @@ function AppShell() {
             onClose={() => setIsRegistrationHubOpen(false)}
             initialTrack={registrationTrack}
             prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
+            hasAuthenticatedSession={false}
             onRegisterCustom={(data) => {
               if (data?.id) {
                 localStorage.setItem('afat_local_user_id', data.id);
@@ -1430,6 +1583,7 @@ function AppShell() {
           onClose={() => setIsRegistrationHubOpen(false)}
           initialTrack={registrationTrack}
           prefillPhone={localStorage.getItem('afat_access_phone') || localStorage.getItem('afat_local_phone') || ''}
+          hasAuthenticatedSession={Boolean(sessionUser)}
           onRegisterCustom={(data) => {
             if (data?.id) {
               localStorage.setItem('afat_local_user_id', data.id);

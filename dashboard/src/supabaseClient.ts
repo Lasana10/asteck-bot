@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type Session } from '@supabase/supabase-js';
 
 const REQUIRED_RENDER_API_URL = 'https://asteck-bot.onrender.com';
 const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim() || 'https://placeholder.supabase.co';
@@ -403,7 +403,14 @@ if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLIS
   console.warn('⚠️ Supabase env vars missing. Running in mock mode.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    flowType: 'pkce',
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
 
 // ==============================================================================
 // 🔐 AUTH & ROLES (Phone OTP Focus)
@@ -476,9 +483,11 @@ export async function completeGoogleAuthCallback(options?: {
       return { data: null, error: { message: errorDescription || hashError || 'Google sign-in failed.' } };
     }
 
+    let exchangedSession: Session | null = null;
     if (authCode) {
-      const { error } = await supabase.auth.exchangeCodeForSession(authCode);
+      const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
       if (error) return { data: null, error: { message: error.message || 'Could not complete Google sign-in.' } };
+      exchangedSession = data.session;
     }
 
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -486,7 +495,8 @@ export async function completeGoogleAuthCallback(options?: {
       return { data: null, error: { message: sessionError.message || 'Could not restore the Google session.' } };
     }
 
-    if (!sessionData.session?.user?.id) {
+    const activeSession = exchangedSession || sessionData.session;
+    if (!activeSession?.user?.id) {
       return { data: null, error: { message: 'Google sign-in returned without an active AFAT session.' } };
     }
 
@@ -500,9 +510,9 @@ export async function completeGoogleAuthCallback(options?: {
 
     return {
       data: {
-        session: sessionData.session,
+        session: activeSession,
         profile: profileResult.data?.profile || null,
-        userId: profileResult.data?.userId || sessionData.session.user.id,
+        userId: profileResult.data?.userId || activeSession.user.id,
       },
       error: null,
     };
@@ -561,38 +571,34 @@ export async function verifyEmailOtp(email: string, token: string) {
 export async function signInOrSignUpWithEmailPassword(
   email: string,
   password: string,
-  options?: { roleIntent?: string; captchaToken?: string }
+  options?: { roleIntent?: string; captchaToken?: string; createAccount?: boolean }
 ) {
   try {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const cleanPassword = String(password || '');
 
-    const signIn = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password: cleanPassword,
-      options: {
-        captchaToken: options?.captchaToken,
-      },
-    });
+    if (!options?.createAccount) {
+      const signIn = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: cleanPassword,
+        options: { captchaToken: options?.captchaToken },
+      });
 
-    if (!signIn.error) {
-      if (signIn.data?.user?.id) {
-        localStorage.setItem('afat_local_user_id', signIn.data.user.id);
-        localStorage.setItem('afat_user_id', signIn.data.user.id);
+      if (!signIn.error) {
+        if (signIn.data?.user?.id) {
+          localStorage.setItem('afat_local_user_id', signIn.data.user.id);
+          localStorage.setItem('afat_user_id', signIn.data.user.id);
+        }
+        localStorage.setItem('afat_access_email', normalizedEmail);
+        return { data: { ...signIn.data, mode: 'signed_in' }, error: null };
       }
-      localStorage.setItem('afat_access_email', normalizedEmail);
-      return { data: { ...signIn.data, mode: 'signed_in' }, error: null };
-    }
 
-    const message = signIn.error.message || '';
-    const canCreate =
-      message.toLowerCase().includes('invalid login') ||
-      message.toLowerCase().includes('invalid credentials') ||
-      message.toLowerCase().includes('email not confirmed') ||
-      message.toLowerCase().includes('user not found');
-
-    if (!canCreate) {
-      return { data: null, error: { message } };
+      // Supabase deliberately does not reveal whether an address exists. An
+      // invalid-credentials response can therefore mean either a wrong
+      // password or an unknown email. Never turn that ambiguous response into
+      // an automatic sign-up attempt; the user chooses Create account
+      // explicitly in the AFAT access UI.
+      return { data: null, error: { message: signIn.error.message || 'Invalid login credentials.' } };
     }
 
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
@@ -641,7 +647,7 @@ export async function ensureSupabaseEmailProfile(options?: {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      return { data: null, error: { message: 'No Supabase email session is active yet.' } };
+      return { data: null, error: { message: 'No verified Supabase identity session is active yet.' } };
     }
 
     const result = await requestAfatApi('/api/auth/supabase-profile', {
@@ -655,10 +661,10 @@ export async function ensureSupabaseEmailProfile(options?: {
         accessCode: options?.accessCode || '',
         adminCode: options?.adminCode || '',
       }),
-    }, 'Email profile bootstrap failed');
+    }, 'Identity profile bootstrap failed');
     if (result.parsed.error) return result.parsed;
     const data = result.parsed.data;
-    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Email profile bootstrap failed.' } };
+    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Identity profile bootstrap failed.' } };
 
     if (data?.userId) {
       localStorage.setItem('afat_local_user_id', data.userId);
@@ -705,19 +711,39 @@ export async function bypassAfatRole(role: string) {
   }
 }
 
+function normalizeSupabasePhone(phone: string) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('237')) return `+${digits}`;
+  if (digits.length === 9 && digits.startsWith('6')) return `+237${digits}`;
+  return String(phone || '').trim();
+}
+
 /**
- * Step 1: Send SMS OTP via Africa's Talking (through our Express backend)
+ * Step 1: Send an SMS OTP through Supabase Auth. This ensures every phone
+ * identity receives an auth.users row before AFAT creates its profile.
  */
-export async function sendPhoneOtp(phone: string) {
+export async function sendPhoneOtp(phone: string, options?: { captchaToken?: string }) {
   try {
-    const result = await requestAfatApi('/api/auth/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    }, 'Failed to send OTP');
-    if (result.parsed.error) return result.parsed;
-    const data = result.parsed.data;
-    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Failed to send OTP.' } };
+    const normalizedPhone = normalizeSupabasePhone(phone);
+    if (!normalizedPhone) return { data: null, error: { message: 'Enter a valid phone number.' } };
+
+    const { data, error } = await supabase.auth.signInWithOtp({
+      phone: normalizedPhone,
+      options: {
+        shouldCreateUser: true,
+        captchaToken: options?.captchaToken,
+        data: {
+          role: 'commuter',
+          username: `phone-${normalizedPhone.replace(/\D/g, '').slice(-9)}`,
+          full_name: `AFAT commuter ${normalizedPhone.slice(-4)}`,
+          utm_source: 'afat_phone_access',
+        },
+      },
+    });
+
+    if (error) return { data: null, error: { message: error.message || 'Failed to send phone OTP.' } };
+    localStorage.setItem('afat_access_phone', normalizedPhone);
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -725,38 +751,36 @@ export async function sendPhoneOtp(phone: string) {
 }
 
 /**
- * Step 2: Verify OTP code via our Express backend
- * On success, sign the user into Supabase with the returned userId.
+ * Step 2: Verify the SMS OTP with Supabase, then let the AFAT API create or
+ * resume the matching profile using the verified Supabase access token.
  */
 export async function verifyPhoneOtp(phone: string, token: string, options?: { roleIntent?: string; adminCode?: string; accessCode?: string }) {
   try {
-    const result = await requestAfatApi('/api/auth/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone,
-        code: token,
-        roleIntent: options?.roleIntent,
-        adminCode: options?.adminCode,
-        accessCode: options?.accessCode,
-      }),
-    }, 'Phone verification failed');
-    if (result.parsed.error) return result.parsed;
-    const data = result.parsed.data;
-    if (!result.res?.ok) return { data: null, error: { message: data.error || 'Verification failed.' } };
+    const normalizedPhone = normalizeSupabasePhone(phone);
+    const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
+      phone: normalizedPhone,
+      token: String(token || '').trim(),
+      type: 'sms',
+    });
 
-    if (data?.userId) {
-      localStorage.setItem('afat_local_user_id', data.userId);
-      localStorage.setItem('afat_local_phone', phone);
-    }
-    if (data?.accessToken) {
-      localStorage.setItem('afat_access_token', data.accessToken);
-    }
-    if (data?.refreshToken) {
-      localStorage.setItem('afat_refresh_token', data.refreshToken);
+    if (verifyError) return { data: null, error: { message: verifyError.message || 'Phone verification failed.' } };
+    if (!verified.session?.access_token || !verified.user?.id) {
+      return { data: null, error: { message: 'Phone verification returned without an active session.' } };
     }
 
-    return { data, error: null };
+    localStorage.setItem('afat_access_phone', normalizedPhone);
+    localStorage.setItem('afat_local_phone', normalizedPhone);
+    const profileResult = await ensureSupabaseEmailProfile(options);
+    if (profileResult.error) return profileResult;
+
+    return {
+      data: {
+        ...profileResult.data,
+        session: verified.session,
+        user: verified.user,
+      },
+      error: null,
+    };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
   }
