@@ -104,8 +104,8 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     `api url: ${import.meta.env.VITE_API_URL || 'fallback live backend'}`,
   ];
   const guestAccessEnabled = import.meta.env.VITE_ENABLE_GUEST_ACCESS === 'true';
-  const oauthCodeStorageKey = 'afat_oauth_access_code';
-  const oauthAdminCodeStorageKey = 'afat_oauth_admin_code';
+  const pendingAccessCodeStorageKey = 'afat_pending_access_code';
+  const pendingAdminCodeStorageKey = 'afat_pending_admin_code';
   const accessLanes = isStaffAccess
     ? [
         { role: 'planner', label: 'Planner' },
@@ -167,14 +167,14 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     }
   };
 
-  const persistOAuthBootstrapCodes = () => {
-    sessionStorage.removeItem(oauthCodeStorageKey);
-    sessionStorage.removeItem(oauthAdminCodeStorageKey);
+  const persistPendingAccessCodes = () => {
+    sessionStorage.removeItem(pendingAccessCodeStorageKey);
+    sessionStorage.removeItem(pendingAdminCodeStorageKey);
     if (accessCode.trim()) {
-      sessionStorage.setItem(oauthCodeStorageKey, accessCode.trim());
+      sessionStorage.setItem(pendingAccessCodeStorageKey, accessCode.trim());
     }
     if (adminCode.trim()) {
-      sessionStorage.setItem(oauthAdminCodeStorageKey, adminCode.trim());
+      sessionStorage.setItem(pendingAdminCodeStorageKey, adminCode.trim());
     }
   };
 
@@ -183,7 +183,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setErrorText('');
     setInfoText('');
     persistAccessIntent();
-    persistOAuthBootstrapCodes();
+    persistPendingAccessCodes();
 
     const { error } = await signInWithGoogle({ roleIntent });
     if (error) {
@@ -213,6 +213,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setErrorText('');
     setInfoText('');
     persistAccessIntent();
+    persistPendingAccessCodes();
 
     if (!turnstileReady) {
       setErrorText('Secure human verification is temporarily unavailable. Please try again shortly.');
@@ -279,6 +280,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     setErrorText('');
     setInfoText('');
     persistAccessIntent();
+    persistPendingAccessCodes();
     if (authChannel === 'phone' && !phoneAuthEnabled) {
       setErrorText('Phone verification is not active in this deployment. Return to secure email or Google access.');
       setLoading(false);
@@ -598,7 +600,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                       <input
                         type="password"
                         placeholder={roleIntent === 'admin'
-                          ? 'Administrator bootstrap code'
+                          ? 'Administrator activation code'
                           : roleIntent === 'planner'
                             ? 'Planner invitation code'
                             : 'Operator invitation code'}
@@ -613,7 +615,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                           ? 'Already approved by AFAT? Enter your operator invitation code. Otherwise leave it blank to begin a reviewed operator application.'
                           : roleIntent === 'planner'
                             ? 'Planner is an internal AFAT operations role. Access requires an invited email and its current planner invitation code.'
-                            : 'Administrator is a restricted platform-control role. Access requires an approved root-admin email and the separate bootstrap code.'}
+                            : 'Administrator is a restricted platform-control role. Access requires an approved root-admin email and its separate activation code.'}
                       </p>
                     </div>
                   )}
@@ -841,14 +843,14 @@ function AuthCallback() {
   useEffect(() => {
     let mounted = true;
     const roleIntent = localStorage.getItem('afat_access_intent_role') || 'commuter';
-    const accessCode = sessionStorage.getItem('afat_oauth_access_code') || '';
-    const adminCode = sessionStorage.getItem('afat_oauth_admin_code') || '';
+    const accessCode = sessionStorage.getItem('afat_pending_access_code') || '';
+    const adminCode = sessionStorage.getItem('afat_pending_admin_code') || '';
 
     setPhase('session');
     completeGoogleAuthCallback({ roleIntent, accessCode, adminCode })
       .then(({ error }) => {
-        sessionStorage.removeItem('afat_oauth_access_code');
-        sessionStorage.removeItem('afat_oauth_admin_code');
+        sessionStorage.removeItem('afat_pending_access_code');
+        sessionStorage.removeItem('afat_pending_admin_code');
 
         if (!mounted) return;
         if (error) {
@@ -943,8 +945,30 @@ function hasOperatorApplication(profile: any) {
   return Boolean(profile?.operator_application_status);
 }
 
-function OperatorAccessPending({ profile, onRegister, onUseCommuter }: { profile: any; onRegister: () => void; onUseCommuter: () => void }) {
+function OperatorAccessPending({
+  profile,
+  onRegister,
+  onRedeem,
+  onUseCommuter,
+}: {
+  profile: any;
+  onRegister: () => void;
+  onRedeem: (code: string) => Promise<string | null>;
+  onUseCommuter: () => void;
+}) {
   const status = String(profile?.operator_application_status || 'APPLICATION_STARTED').replace(/_/g, ' ');
+  const [invitationCode, setInvitationCode] = useState('');
+  const [activationError, setActivationError] = useState('');
+  const [activating, setActivating] = useState(false);
+
+  const redeemInvitation = async () => {
+    setActivating(true);
+    setActivationError('');
+    const error = await onRedeem(invitationCode.trim());
+    if (error) setActivationError(error);
+    setActivating(false);
+  };
+
   return (
     <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
       <div className="mesh-gradient" />
@@ -970,20 +994,45 @@ function OperatorAccessPending({ profile, onRegister, onUseCommuter }: { profile
               <p className="mt-2 text-sm font-black uppercase text-red-200">Locked</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onRegister}
-            className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
-          >
-            Complete operator application
-          </button>
-          <button
-            type="button"
-            onClick={onUseCommuter}
-            className="ml-3 mt-7 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
-          >
-            Continue as commuter
-          </button>
+          <div className="mt-7 rounded-3xl border border-emerald-400/20 bg-emerald-500/[0.07] p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-100">Already invited by AFAT?</p>
+            <p className="mt-1 text-xs font-semibold leading-relaxed text-white/50">Redeem the operator invitation issued specifically to this signed-in email.</p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="password"
+                value={invitationCode}
+                onChange={(event) => setInvitationCode(event.target.value)}
+                placeholder="Operator invitation code"
+                autoComplete="one-time-code"
+                className="min-h-12 flex-1 rounded-2xl border border-white/10 bg-slate-950 px-4 text-sm font-bold text-white outline-none focus:border-emerald-300/50"
+              />
+              <button
+                type="button"
+                disabled={!invitationCode.trim() || activating}
+                onClick={redeemInvitation}
+                className="min-h-12 rounded-2xl bg-emerald-400 px-5 text-xs font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"
+              >
+                {activating ? 'Activating…' : 'Activate operator access'}
+              </button>
+            </div>
+            {activationError && <p role="alert" className="mt-3 text-xs font-bold leading-relaxed text-red-200">{activationError}</p>}
+          </div>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={onRegister}
+              className="rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
+            >
+              Continue operator application
+            </button>
+            <button
+              type="button"
+              onClick={onUseCommuter}
+              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
+            >
+              Use passenger workspace
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -992,14 +1041,26 @@ function OperatorAccessPending({ profile, onRegister, onUseCommuter }: { profile
 
 function RestrictedAccessPending({
   requestedRole,
-  onRegister,
+  onActivate,
   onUseCommuter,
 }: {
   requestedRole: 'planner' | 'admin';
-  onRegister: () => void;
+  onActivate: (code: string) => Promise<string | null>;
   onUseCommuter: () => void;
 }) {
   const label = requestedRole === 'admin' ? 'Admin command' : 'Planner access';
+  const [invitationCode, setInvitationCode] = useState('');
+  const [activationError, setActivationError] = useState('');
+  const [activating, setActivating] = useState(false);
+
+  const activate = async () => {
+    setActivating(true);
+    setActivationError('');
+    const error = await onActivate(invitationCode.trim());
+    if (error) setActivationError(error);
+    setActivating(false);
+  };
+
   return (
     <div className="min-h-screen sentinel-bg text-white px-5 py-8 pb-28">
       <div className="mesh-gradient" />
@@ -1008,8 +1069,8 @@ function RestrictedAccessPending({
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-200/70">Invite controlled access</p>
           <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">{label} requires approval</h1>
           <p className="mt-4 text-sm font-semibold leading-relaxed text-white/65">
-            Your Google account is valid. AFAT keeps this lane locked until an approved bootstrap code, organization profile,
-            or admin invitation confirms that this account should manage people, operators, city data, or platform controls.
+            Your identity is verified, but your server profile has not received {requestedRole === 'admin' ? 'administrator' : 'AFAT operations planner'} authority.
+            Enter the activation issued to this exact email. Company, fleet, and government registrations do not grant this platform role.
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -1025,19 +1086,36 @@ function RestrictedAccessPending({
               <p className="mt-2 text-sm font-black uppercase text-amber-100">Invite needed</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onRegister}
-            className="mt-7 rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
-          >
-            Complete organization intake
-          </button>
+          <div className="mt-7 rounded-3xl border border-blue-400/20 bg-blue-500/[0.07] p-4">
+            <label className="text-[10px] font-black uppercase tracking-widest text-blue-100">
+              {requestedRole === 'admin' ? 'Administrator activation code' : 'Planner invitation code'}
+            </label>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="password"
+                value={invitationCode}
+                onChange={(event) => setInvitationCode(event.target.value)}
+                placeholder={requestedRole === 'admin' ? 'Administrator activation code' : 'Planner invitation code'}
+                autoComplete="one-time-code"
+                className="min-h-12 flex-1 rounded-2xl border border-white/10 bg-slate-950 px-4 text-sm font-bold text-white outline-none focus:border-blue-300/50"
+              />
+              <button
+                type="button"
+                disabled={!invitationCode.trim() || activating}
+                onClick={activate}
+                className="min-h-12 rounded-2xl bg-blue-500 px-5 text-xs font-black uppercase tracking-widest text-white disabled:opacity-50"
+              >
+                {activating ? 'Verifying…' : `Activate ${requestedRole}`}
+              </button>
+            </div>
+            {activationError && <p role="alert" className="mt-3 text-xs font-bold leading-relaxed text-red-200">{activationError}</p>}
+          </div>
           <button
             type="button"
             onClick={onUseCommuter}
-            className="ml-3 mt-7 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
+            className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-xs font-black uppercase tracking-widest text-white/70"
           >
-            Continue as commuter
+            Use passenger workspace instead
           </button>
         </div>
       </div>
@@ -1127,7 +1205,7 @@ function AppShell() {
       iconClass: 'text-emerald-300',
     },
     planner: {
-      label: 'Company / agency / city planner',
+      label: 'AFAT operations planner',
       icon: BarChart3,
       iconWrapClass: 'bg-purple-500/10 border-purple-400/20',
       iconClass: 'text-purple-300',
@@ -1144,8 +1222,6 @@ function AppShell() {
     const getRegistrationTrackForRole = (role?: string) => {
       if (role === 'commuter') return 'commuter';
       if (role === 'operator') return 'citizen_reg';
-      if (role === 'planner') return 'company';
-      if (role === 'admin') return 'gov_link';
       return 'select';
     };
 
@@ -1184,6 +1260,25 @@ function AppShell() {
     useEffect(() => {
       const localProfileId = localStorage.getItem('afat_local_user_id');
       const bootAuth = async () => {
+        const supabaseSession = await getCurrentUser();
+        if (supabaseSession.user?.id) {
+          const profileResult = await ensureSupabaseEmailProfile({
+            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
+          });
+          if (profileResult.error) {
+            setBootError(profileResult.error.message);
+          }
+          setSessionUser({
+            id: supabaseSession.user.id,
+            phone: supabaseSession.user.phone || localStorage.getItem('afat_local_phone') || '',
+          });
+          localStorage.setItem('afat_local_user_id', supabaseSession.user.id);
+          localStorage.setItem('afat_user_id', supabaseSession.user.id);
+          telemetry.start(supabaseSession.user.id);
+          await fetchRole(supabaseSession.user.id);
+          return;
+        }
+
         const me = await fetchAfatSessionProfile();
         const authProfile = me.data?.profile;
 
@@ -1209,25 +1304,6 @@ function AppShell() {
           return;
         }
 
-        const supabaseSession = await getCurrentUser();
-        if (supabaseSession.user?.id) {
-          const profileResult = await ensureSupabaseEmailProfile({
-            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
-          });
-          if (profileResult.error) {
-            setBootError(profileResult.error.message);
-          }
-          setSessionUser({
-            id: supabaseSession.user.id,
-            phone: supabaseSession.user.phone || localStorage.getItem('afat_local_phone') || '',
-          });
-          localStorage.setItem('afat_local_user_id', supabaseSession.user.id);
-          localStorage.setItem('afat_user_id', supabaseSession.user.id);
-          telemetry.start(supabaseSession.user.id);
-          await fetchRole(supabaseSession.user.id);
-          return;
-        }
-
         if (isLocalReview && localProfileId) {
           setSessionUser({ id: localProfileId, phone: localStorage.getItem('afat_local_phone') || '' });
           localStorage.setItem('afat_user_id', localProfileId);
@@ -1249,14 +1325,6 @@ function AppShell() {
           localStorage.setItem('afat_local_user_id', session.user.id);
           localStorage.setItem('afat_user_id', session.user.id);
           if (session.user.phone) localStorage.setItem('afat_local_phone', session.user.phone);
-          setSessionUser({
-            id: session.user.id,
-            phone: session.user.phone || localStorage.getItem('afat_local_phone') || '',
-          });
-          telemetry.start(session.user.id);
-          ensureSupabaseEmailProfile({
-            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
-          }).finally(() => fetchRole(session.user.id));
         }
 
         if (event === 'SIGNED_OUT') {
@@ -1280,17 +1348,15 @@ function AppShell() {
           setUserRole(normalizeAfatRole(data.role));
           setBootError(null);
 
-          const hasOnboarded = localStorage.getItem(`onboarded_${userId}`);
+          const profileRole = normalizeAfatRole(data.role);
+          const hasOnboarded = localStorage.getItem(`onboarded_${userId}_${profileRole}`);
           if (!hasOnboarded) {
             setShowOnboarding(true);
           }
         } else {
-          const intendedRole = localStorage.getItem('afat_access_intent_role') || 'commuter';
           setUserRole(null);
           setUserProfile(null);
-          setRegistrationTrack(getRegistrationTrackForRole(intendedRole));
-          setIsRegistrationHubOpen(true);
-          setBootError('AFAT recognized the phone session, but no mobility profile is attached yet.');
+          setBootError('AFAT verified the identity, but no server-authorized mobility profile could be loaded. Retry the requested access below.');
         }
       } catch (err) {
         setBootError('AFAT could not load the role profile. Reconnect or finish registration.');
@@ -1302,6 +1368,9 @@ function AppShell() {
       localStorage.removeItem('afat_local_phone');
       localStorage.removeItem('afat_user_id');
       localStorage.removeItem('afat_access_level');
+      localStorage.removeItem('afat_access_intent_role');
+      sessionStorage.removeItem('afat_pending_access_code');
+      sessionStorage.removeItem('afat_pending_admin_code');
       setLocalAuthUserId(null);
       setUserProfile(null);
       setUserRole(null);
@@ -1310,9 +1379,40 @@ function AppShell() {
 
     const handleOnboardingComplete = () => {
       if (sessionUser) {
-        localStorage.setItem(`onboarded_${sessionUser.id}`, 'true');
+        localStorage.setItem(`onboarded_${sessionUser.id}_${normalizeAfatRole(userProfile?.role)}`, 'true');
       }
       setShowOnboarding(false);
+    };
+
+    const activateControlledRole = async (role: 'operator' | 'planner' | 'admin', code: string) => {
+      if (!code.trim()) return `Enter the ${role === 'admin' ? 'administrator activation' : `${role} invitation`} code.`;
+      localStorage.setItem('afat_access_intent_role', role);
+      sessionStorage.removeItem('afat_pending_access_code');
+      sessionStorage.removeItem('afat_pending_admin_code');
+      if (role === 'admin') {
+        sessionStorage.setItem('afat_pending_admin_code', code.trim());
+      } else {
+        sessionStorage.setItem('afat_pending_access_code', code.trim());
+      }
+
+      const result = await ensureSupabaseEmailProfile({
+        roleIntent: role,
+        accessCode: role === 'admin' ? undefined : code.trim(),
+        adminCode: role === 'admin' ? code.trim() : undefined,
+      });
+      if (result.error) return result.error.message;
+
+      const activatedProfile = result.data?.profile;
+      if (!activatedProfile || normalizeAfatRole(activatedProfile.role) !== role) {
+        return `AFAT verified the identity but did not grant ${role} authority. Check that this exact email is on the ${role} invitation list.`;
+      }
+
+      setUserProfile(activatedProfile);
+      setUserRole(role);
+      setBootError(null);
+      setActiveTab('home');
+      setShowOnboarding(!localStorage.getItem(`onboarded_${activatedProfile.id}_${role}`));
+      return null;
     };
 
     const renderRoleToggle = () => (
@@ -1484,6 +1584,7 @@ function AppShell() {
               setRegistrationTrack('citizen_reg');
               setIsRegistrationHubOpen(true);
             }}
+            onRedeem={(code) => activateControlledRole('operator', code)}
             onUseCommuter={() => {
               localStorage.setItem('afat_access_intent_role', 'commuter');
               setUserRole('commuter');
@@ -1496,10 +1597,7 @@ function AppShell() {
         return (
           <RestrictedAccessPending
             requestedRole={intendedRole as 'planner' | 'admin'}
-            onRegister={() => {
-              setRegistrationTrack(getRegistrationTrackForRole(intendedRole));
-              setIsRegistrationHubOpen(true);
-            }}
+            onActivate={(code) => activateControlledRole(intendedRole as 'planner' | 'admin', code)}
             onUseCommuter={() => {
               localStorage.setItem('afat_access_intent_role', 'commuter');
               setUserRole('commuter');

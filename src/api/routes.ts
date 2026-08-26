@@ -782,10 +782,19 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       requestedRole === 'admin' &&
       controlledRoleApproval('admin', identity, providedAdminCode);
 
+    if (requestedRole === 'operator' && accessCode && !invitedRoleAllowed) {
+      return res.status(403).json({
+        code: 'OPERATOR_INVITATION_INVALID',
+        error: 'This operator invitation is not valid for the signed-in email. Remove the code to start a public operator application, or use the invitation issued to this account.',
+      });
+    }
+
     const operatorApplicationRequested = requestedRole === 'operator' && !invitedRoleAllowed;
     if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !invitedRoleAllowed && !adminBootstrapAllowed) {
+      const invitationLabel = requestedRole === 'admin' ? 'administrator activation' : `${requestedRole} invitation`;
       return res.status(403).json({
-        error: 'This role needs AFAT bootstrap approval for the verified email or phone. Use commuter access if you are not allowlisted.',
+        code: 'CONTROLLED_ACCESS_DENIED',
+        error: `The ${invitationLabel} was not accepted for this signed-in account. Check the invited email and code, or continue as a commuter.`,
       });
     }
 

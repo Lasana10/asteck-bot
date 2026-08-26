@@ -10,6 +10,8 @@ const supabaseAnonKey =
 const liveApiBaseUrl = REQUIRED_RENDER_API_URL;
 const apiOverrideStorageKey = 'afat_api_base_override';
 const localRuntimeHosts = new Set(['localhost', '127.0.0.1']);
+const pendingAccessCodeStorageKey = 'afat_pending_access_code';
+const pendingAdminCodeStorageKey = 'afat_pending_admin_code';
 
 function normalizeApiUrl(url?: string | null) {
   const raw = String(url || '').trim();
@@ -658,8 +660,8 @@ export async function ensureSupabaseEmailProfile(options?: {
       },
       body: JSON.stringify({
         roleIntent: options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter',
-        accessCode: options?.accessCode || '',
-        adminCode: options?.adminCode || '',
+        accessCode: options?.accessCode || sessionStorage.getItem(pendingAccessCodeStorageKey) || '',
+        adminCode: options?.adminCode || sessionStorage.getItem(pendingAdminCodeStorageKey) || '',
       }),
     }, 'Identity profile bootstrap failed');
     if (result.parsed.error) return result.parsed;
@@ -672,6 +674,8 @@ export async function ensureSupabaseEmailProfile(options?: {
     }
     if (data?.accessToken) localStorage.setItem('afat_access_token', data.accessToken);
     if (data?.refreshToken) localStorage.setItem('afat_refresh_token', data.refreshToken);
+    sessionStorage.removeItem(pendingAccessCodeStorageKey);
+    sessionStorage.removeItem(pendingAdminCodeStorageKey);
 
     return { data, error: null };
   } catch (err: any) {
@@ -827,6 +831,8 @@ export async function signOut() {
   localStorage.removeItem('afat_access_token');
   const refreshToken = localStorage.getItem('afat_refresh_token');
   localStorage.removeItem('afat_refresh_token');
+  sessionStorage.removeItem(pendingAccessCodeStorageKey);
+  sessionStorage.removeItem(pendingAdminCodeStorageKey);
   if (refreshToken) {
     try {
       await fetch(`${getApiBaseUrl()}/api/auth/logout`, {
