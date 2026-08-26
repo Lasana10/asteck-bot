@@ -521,6 +521,52 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
               )}
             </div>
             <div>
+              {authChannel === 'email_password' && (
+                <div className="mb-6">
+                  <label className="mb-3 ml-1 block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Account action</label>
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-slate-950/70 p-1.5">
+                    <button
+                      type="button"
+                      aria-pressed={!needsAccountCreation}
+                      onClick={() => {
+                        setNeedsAccountCreation(false);
+                        setErrorText('');
+                        setInfoText('Sign in with an existing AFAT email and its AFAT password.');
+                        resetAuthChallenge();
+                      }}
+                      className={`min-h-12 rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                        !needsAccountCreation
+                          ? 'border border-blue-400/50 bg-blue-500/20 text-blue-100'
+                          : 'border border-transparent text-white/45 hover:text-white'
+                      }`}
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={needsAccountCreation}
+                      onClick={() => {
+                        setNeedsAccountCreation(true);
+                        setErrorText('');
+                        setInfoText(`Create the secure identity first. After email confirmation, sign in and complete the ${roleIntent} profile.`);
+                        resetAuthChallenge();
+                      }}
+                      className={`min-h-12 rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
+                        needsAccountCreation
+                          ? 'border border-emerald-400/50 bg-emerald-500/20 text-emerald-100'
+                          : 'border border-transparent text-white/45 hover:text-white'
+                      }`}
+                    >
+                      Create account
+                    </button>
+                  </div>
+                  <p className="mt-2 px-1 text-[10px] font-semibold leading-relaxed text-white/45">
+                    {needsAccountCreation
+                      ? 'New identity mode: AFAT will create an account and send a confirmation email.'
+                      : 'Existing identity mode: AFAT will not send a new email; it will verify the password.'}
+                  </p>
+                </div>
+              )}
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
                 {authChannel === 'phone' ? 'Secure phone line' : 'Secure email identity'}
               </label>
