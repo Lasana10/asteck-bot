@@ -1762,13 +1762,30 @@ export async function updateOperatorLifecycle(
   }
 }
 
+export async function updateStaffLifecycle(
+  profileId: string,
+  status: 'ACTIVE' | 'SUSPENDED',
+) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/staff/${profileId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Staff status update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function updateCompanyLifecycle(
   companyId: string,
   payload: {
     status: 'partial_intake' | 'under_review' | 'approved' | 'documents_pending' | 'rejected' | 'suspended';
     notes?: string;
     coordinator_profile_id?: string;
-    grant_planner_access?: boolean;
   }
 ) {
   try {

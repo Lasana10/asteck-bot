@@ -75,46 +75,34 @@ function otpProviderMode() {
   return 'development';
 }
 
-function adminBootstrapConfig() {
-  const code = String(process.env.AFAT_ADMIN_BOOTSTRAP_CODE || '').trim();
-  const allowlist = String(process.env.AFAT_ADMIN_BOOTSTRAP_PHONES || '')
+type ControlledAccessRole = 'operator' | 'planner' | 'admin';
+
+function controlledAccessConfig(role: ControlledAccessRole) {
+  const prefix = role === 'operator'
+    ? 'AFAT_OPERATOR_INVITE'
+    : role === 'planner'
+      ? 'AFAT_PLANNER_INVITE'
+      : 'AFAT_ADMIN_BOOTSTRAP';
+  const code = String(process.env[`${prefix}_CODE`] || '').trim();
+  const emails = String(process.env[`${prefix}_EMAILS`] || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const phones = String(process.env[`${prefix}_PHONES`] || '')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
     .map(normalizeAuthPhone);
-  return { code, allowlist };
+  return { code, emails, phones };
 }
 
-function generalBootstrapConfig() {
-  const code = String(process.env.AFAT_BOOTSTRAP_ACCESS_CODE || '').trim();
-  const allowlist = String(process.env.AFAT_BOOTSTRAP_ALLOW_PHONES || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map(normalizeAuthPhone);
-  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'operator,planner')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  return { code, allowlist, roles };
-}
-
-function emailBootstrapConfig() {
-  const generalCode = String(process.env.AFAT_BOOTSTRAP_ACCESS_CODE || '').trim();
-  const adminCode = String(process.env.AFAT_ADMIN_BOOTSTRAP_CODE || '').trim();
-  const allowlist = String(process.env.AFAT_BOOTSTRAP_ALLOW_EMAILS || '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  const adminAllowlist = String(process.env.AFAT_ADMIN_BOOTSTRAP_EMAILS || '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  const roles = String(process.env.AFAT_BOOTSTRAP_ALLOW_ROLES || 'operator,planner')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  return { generalCode, adminCode, allowlist, adminAllowlist, roles };
+function controlledRoleApproval(role: string, identity: { email?: string; phone?: string }, providedCode: string) {
+  if (!['operator', 'planner', 'admin'].includes(role)) return false;
+  const config = controlledAccessConfig(role as ControlledAccessRole);
+  if (!config.code || providedCode !== config.code) return false;
+  if (identity.email) return config.emails.includes(identity.email.trim().toLowerCase());
+  if (identity.phone) return config.phones.includes(normalizeAuthPhone(identity.phone));
+  return false;
 }
 
 function qaBypassAllowed(req: Request) {
@@ -230,6 +218,19 @@ export async function requireAuthRole(req: Request, res: Response, roles?: strin
   const { auth, profile } = await getAuthProfileByToken(req);
   if (!auth?.sub || !profile) {
     res.status(401).json({ error: 'Unauthorized' });
+    return null;
+  }
+
+  if (profile.is_active === false || String(profile.approval_status || '').toLowerCase() === 'suspended') {
+    res.status(403).json({ error: 'Access suspended' });
+    return null;
+  }
+
+  if (
+    String(profile.role || '').toLowerCase() === 'operator' &&
+    String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED'
+  ) {
+    res.status(403).json({ error: 'Operator approval required' });
     return null;
   }
 
@@ -609,20 +610,13 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
     const hasSmsProvider = provider !== 'development';
     const devMode = process.env.NODE_ENV !== 'production';
     const isDevCode = !hasSmsProvider && devMode && code === '123456';
-    const { code: bootstrapCode, allowlist } = adminBootstrapConfig();
-    const { code: generalBootstrapCode, allowlist: generalAllowlist, roles: generalRoles } = generalBootstrapConfig();
     const wantsAdminBootstrap = String(roleIntent || '').trim().toLowerCase() === 'admin' && Boolean(adminCode);
     const adminBootstrapAllowed =
       wantsAdminBootstrap &&
-      Boolean(bootstrapCode) &&
-      String(adminCode).trim() === bootstrapCode &&
-      allowlist.includes(normalizedPhone);
-    const generalBootstrapAllowed =
-      Boolean(accessCode) &&
-      Boolean(generalBootstrapCode) &&
-      String(accessCode).trim() === generalBootstrapCode &&
-      generalAllowlist.includes(normalizedPhone) &&
-      generalRoles.includes(desiredRole);
+      controlledRoleApproval('admin', { phone: normalizedPhone }, String(adminCode).trim());
+    const invitedRoleAllowed =
+      ['operator', 'planner'].includes(desiredRole) &&
+      controlledRoleApproval(desiredRole, { phone: normalizedPhone }, String(accessCode || '').trim());
     let challengeVerified = false;
 
     const { data: challenge, error: challengeLookupError } = await supabase
@@ -652,7 +646,7 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
         .eq('id', challenge.id);
     }
 
-    const isVerified = adminBootstrapAllowed || generalBootstrapAllowed || challengeVerified || ArkeselClient.verifyOTP(normalizedPhone, code) || isDevCode;
+    const isVerified = adminBootstrapAllowed || invitedRoleAllowed || challengeVerified || ArkeselClient.verifyOTP(normalizedPhone, code) || isDevCode;
 
     if (isVerified) {
       const { data: existingProfile, error: lookupError } = await supabase
@@ -671,7 +665,12 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
           .insert({
             full_name: `AFAT User ${normalizedPhone.slice(-4)}`,
             phone: normalizedPhone,
-            role: adminBootstrapAllowed ? 'admin' : generalBootstrapAllowed ? desiredRole : 'commuter',
+            role: adminBootstrapAllowed ? 'admin' : invitedRoleAllowed ? desiredRole : 'commuter',
+            access_level: adminBootstrapAllowed ? 'admin' : invitedRoleAllowed ? desiredRole : 'verified',
+            approval_status: adminBootstrapAllowed || invitedRoleAllowed ? 'approved' : 'self_service',
+            operator_application_status: invitedRoleAllowed && desiredRole === 'operator' ? 'APPROVED' : null,
+            operator_approved_at: invitedRoleAllowed && desiredRole === 'operator' ? new Date().toISOString() : null,
+            verification_status: invitedRoleAllowed && desiredRole === 'operator' ? 'verified' : 'pending',
             trust_points: 25,
             is_active: true,
             created_at: new Date().toISOString()
@@ -686,7 +685,7 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
       if (adminBootstrapAllowed && profile.role !== 'admin') {
         const { data: elevatedProfile, error: elevateError } = await supabase
           .from('profiles')
-          .update({ role: 'admin', updated_at: new Date().toISOString() })
+          .update({ role: 'admin', access_level: 'admin', approval_status: 'approved', is_active: true, updated_at: new Date().toISOString() })
           .eq('id', profile.id)
           .select('id, full_name, role, phone')
           .single();
@@ -694,10 +693,28 @@ router.post('/auth/verify-otp', async (req: Request, res: Response) => {
         profile = elevatedProfile;
       }
 
-      if (generalBootstrapAllowed && profile.role !== desiredRole) {
+      if (invitedRoleAllowed && profile.role !== desiredRole) {
+        const activation = desiredRole === 'operator'
+          ? {
+              role: 'operator',
+              access_level: 'operator',
+              approval_status: 'approved',
+              operator_application_status: 'APPROVED',
+              operator_approved_at: new Date().toISOString(),
+              verification_status: 'verified',
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            }
+          : {
+              role: 'planner',
+              access_level: 'planner',
+              approval_status: 'approved',
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            };
         const { data: bootstrapProfile, error: bootstrapElevateError } = await supabase
           .from('profiles')
-          .update({ role: desiredRole, updated_at: new Date().toISOString() })
+          .update(activation)
           .eq('id', profile.id)
           .select('id, full_name, role, phone')
           .single();
@@ -755,30 +772,18 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Unsupported role intent.' });
     }
 
-    const emailBootstrap = emailBootstrapConfig();
-    const phoneBootstrap = generalBootstrapConfig();
-    const phoneAdminBootstrap = adminBootstrapConfig();
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
-    const generalBootstrapAllowed = requestedRole !== 'admin' && (hasPhoneIdentity
-      ? Boolean(phoneBootstrap.code) &&
-        accessCode === phoneBootstrap.code &&
-        phoneBootstrap.allowlist.includes(phone) &&
-        phoneBootstrap.roles.includes(requestedRole)
-      : Boolean(emailBootstrap.generalCode) &&
-        accessCode === emailBootstrap.generalCode &&
-        emailBootstrap.allowlist.includes(email) &&
-        emailBootstrap.roles.includes(requestedRole));
-    const adminBootstrapAllowed = requestedRole === 'admin' && (hasPhoneIdentity
-      ? Boolean(phoneAdminBootstrap.code) &&
-        providedAdminCode === phoneAdminBootstrap.code &&
-        phoneAdminBootstrap.allowlist.includes(phone)
-      : Boolean(emailBootstrap.adminCode) &&
-        providedAdminCode === emailBootstrap.adminCode &&
-        emailBootstrap.adminAllowlist.includes(email));
+    const identity = hasPhoneIdentity ? { phone } : { email };
+    const invitedRoleAllowed =
+      ['operator', 'planner'].includes(requestedRole) &&
+      controlledRoleApproval(requestedRole, identity, accessCode);
+    const adminBootstrapAllowed =
+      requestedRole === 'admin' &&
+      controlledRoleApproval('admin', identity, providedAdminCode);
 
-    const operatorApplicationRequested = requestedRole === 'operator' && !generalBootstrapAllowed && !adminBootstrapAllowed;
-    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !generalBootstrapAllowed && !adminBootstrapAllowed) {
+    const operatorApplicationRequested = requestedRole === 'operator' && !invitedRoleAllowed;
+    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !invitedRoleAllowed && !adminBootstrapAllowed) {
       return res.status(403).json({
         error: 'This role needs AFAT bootstrap approval for the verified email or phone. Use commuter access if you are not allowlisted.',
       });
@@ -807,10 +812,14 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
           full_name: fullName,
           username,
           role: finalRole,
+          access_level: finalRole === 'commuter' ? 'verified' : finalRole,
+          approval_status: operatorApplicationRequested ? 'application_started' : finalRole === 'commuter' ? 'self_service' : 'approved',
           trust_points: finalRole === 'commuter' ? 50 : 25,
           preferred_city: 'yaounde',
           is_active: true,
-          operator_application_status: operatorApplicationRequested ? 'APPLICATION_STARTED' : null,
+          operator_application_status: operatorApplicationRequested ? 'APPLICATION_STARTED' : finalRole === 'operator' ? 'APPROVED' : null,
+          operator_approved_at: finalRole === 'operator' ? new Date().toISOString() : null,
+          verification_status: finalRole === 'operator' ? 'verified' : null,
           attribution_source: hasPhoneIdentity ? 'supabase_phone_auth' : 'supabase_email_auth',
           created_at: new Date().toISOString(),
         })
@@ -839,13 +848,28 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .single();
       if (updateError) throw updateError;
       profile = updatedProfile;
-    } else if (profile.role !== finalRole && (generalBootstrapAllowed || adminBootstrapAllowed)) {
+    } else if (profile.role !== finalRole && (invitedRoleAllowed || adminBootstrapAllowed)) {
+      const activation = finalRole === 'operator'
+        ? {
+            role: finalRole,
+            access_level: finalRole,
+            approval_status: 'approved',
+            operator_application_status: 'APPROVED',
+            operator_approved_at: new Date().toISOString(),
+            verification_status: 'verified',
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          }
+        : {
+            role: finalRole,
+            access_level: finalRole,
+            approval_status: 'approved',
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          };
       const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
-        .update({
-          role: finalRole,
-          updated_at: new Date().toISOString(),
-        })
+        .update(activation)
         .eq('id', user.id)
         .select('*')
         .single();
@@ -1902,11 +1926,17 @@ router.patch('/ops/operators/:operatorId/status', async (req: Request, res: Resp
 
     if (nextStatus === 'APPROVED') {
       updatePayload.role = 'operator';
+      updatePayload.access_level = 'operator';
+      updatePayload.approval_status = 'approved';
       updatePayload.operator_approved_at = nowIso;
       updatePayload.verification_status = 'verified';
     } else if (['REJECTED', 'SUSPENDED'].includes(nextStatus)) {
       updatePayload.operator_approved_at = null;
-      if (nextStatus === 'REJECTED') updatePayload.role = 'commuter';
+      updatePayload.approval_status = nextStatus === 'SUSPENDED' ? 'suspended' : 'rejected';
+      if (nextStatus === 'REJECTED') {
+        updatePayload.role = 'commuter';
+        updatePayload.access_level = 'verified';
+      }
     }
 
     const { data: profile, error } = await supabase
@@ -1929,6 +1959,62 @@ router.patch('/ops/operators/:operatorId/status', async (req: Request, res: Resp
   }
 });
 
+router.patch('/ops/staff/:profileId/status', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin']);
+  if (!access) return;
+
+  try {
+    const profileId = String(req.params.profileId || '').trim();
+    const nextStatus = String(req.body?.status || '').trim().toUpperCase();
+    if (!profileId || !['ACTIVE', 'SUSPENDED'].includes(nextStatus)) {
+      return res.status(400).json({ error: 'Valid staff profile and status are required.' });
+    }
+    if (profileId === access.profile.id && nextStatus === 'SUSPENDED') {
+      return res.status(409).json({ error: 'Administrators cannot suspend their own active session.' });
+    }
+
+    const { data: staff, error: lookupError } = await supabase
+      .from('profiles')
+      .select('id, full_name, role, is_active, approval_status')
+      .eq('id', profileId)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (!staff || !['planner', 'admin'].includes(String(staff.role || '').toLowerCase())) {
+      return res.status(404).json({ error: 'Planner or administrator profile not found.' });
+    }
+
+    const isActive = nextStatus === 'ACTIVE';
+    const { data: updatedStaff, error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        is_active: isActive,
+        approval_status: isActive ? 'approved' : 'suspended',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', profileId)
+      .select('id, full_name, role, is_active, approval_status')
+      .single();
+    if (updateError) throw updateError;
+
+    if (!isActive) {
+      const { error: revokeError } = await supabase
+        .from('auth_refresh_sessions')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('profile_id', profileId)
+        .is('revoked_at', null);
+      if (revokeError) throw revokeError;
+    }
+
+    return res.status(200).json({
+      success: true,
+      staff: updatedStaff,
+      message: `${updatedStaff.full_name || updatedStaff.role} marked ${nextStatus}.`,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Staff lifecycle update failed.' });
+  }
+});
+
 router.patch('/ops/companies/:companyId/status', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['admin', 'planner']);
   if (!access) return;
@@ -1938,7 +2024,6 @@ router.patch('/ops/companies/:companyId/status', async (req: Request, res: Respo
     const nextStatus = String(req.body?.status || '').trim().toLowerCase();
     const notes = String(req.body?.notes || '').trim();
     const coordinatorProfileId = String(req.body?.coordinator_profile_id || '').trim();
-    const grantPlannerAccess = Boolean(req.body?.grant_planner_access);
     const allowedStatuses = new Set(['partial_intake', 'under_review', 'approved', 'documents_pending', 'rejected', 'suspended']);
 
     if (!companyId || !allowedStatuses.has(nextStatus)) {
@@ -1963,7 +2048,7 @@ router.patch('/ops/companies/:companyId/status', async (req: Request, res: Respo
     if (coordinatorProfileId) {
       const { data: membership } = await supabase
         .from('company_memberships')
-        .select('id, profile_id, company_id')
+        .select('id, profile_id, company_id, role, status')
         .eq('company_id', companyId)
         .eq('profile_id', coordinatorProfileId)
         .maybeSingle();
@@ -1972,24 +2057,20 @@ router.patch('/ops/companies/:companyId/status', async (req: Request, res: Respo
         return res.status(404).json({ error: 'Coordinator membership not found for this company.' });
       }
 
-      const profileUpdate: Record<string, any> = {
-        updated_at: nowIso,
-        operator_review_notes: notes || `Company status moved to ${nextStatus}.`,
-      };
+      const membershipStatus = nextStatus === 'suspended' || nextStatus === 'rejected' ? 'suspended' : 'active';
+      const { error: membershipStatusError } = await supabase
+        .from('company_memberships')
+        .update({ status: membershipStatus })
+        .eq('id', membership.id);
 
-      if (nextStatus === 'approved' && grantPlannerAccess) {
-        profileUpdate.role = 'planner';
-        profileUpdate.is_active = true;
-      }
-
-      if (['rejected', 'suspended'].includes(nextStatus)) {
-        profileUpdate.role = 'commuter';
-        profileUpdate.is_active = nextStatus !== 'suspended';
-      }
+      if (membershipStatusError) throw membershipStatusError;
 
       const { data: updatedCoordinator, error: coordinatorError } = await supabase
         .from('profiles')
-        .update(profileUpdate)
+        .update({
+          operator_review_notes: notes || `Company status moved to ${nextStatus}.`,
+          updated_at: nowIso,
+        })
         .eq('id', coordinatorProfileId)
         .select('id, full_name, role, is_active')
         .single();

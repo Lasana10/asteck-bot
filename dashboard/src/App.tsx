@@ -597,7 +597,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                     <div className="space-y-2">
                       <input
                         type="password"
-                        placeholder={roleIntent === 'admin' ? 'Admin approval code' : 'Staff approval code'}
+                        placeholder={roleIntent === 'admin'
+                          ? 'Administrator bootstrap code'
+                          : roleIntent === 'planner'
+                            ? 'Planner invitation code'
+                            : 'Operator invitation code'}
                         value={roleIntent === 'admin' ? adminCode : accessCode}
                         onChange={e => roleIntent === 'admin' ? setAdminCode(e.target.value) : setAccessCode(e.target.value)}
                         className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"
@@ -606,10 +610,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                       />
                       <p className="px-1 text-[10px] font-semibold leading-relaxed text-white/45">
                         {roleIntent === 'operator'
-                          ? 'Approved AFAT operators enter their staff code. Leave it blank to start a controlled operator application as a passenger.'
+                          ? 'Already approved by AFAT? Enter your operator invitation code. Otherwise leave it blank to begin a reviewed operator application.'
                           : roleIntent === 'planner'
-                            ? 'Planner access requires an allowlisted email and the current AFAT staff approval code.'
-                            : 'Administrator access requires an allowlisted email and the separate AFAT admin approval code.'}
+                            ? 'Planner is an internal AFAT operations role. Access requires an invited email and its current planner invitation code.'
+                            : 'Administrator is a restricted platform-control role. Access requires an approved root-admin email and the separate bootstrap code.'}
                       </p>
                     </div>
                   )}
@@ -705,10 +709,12 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             </div>
             {(authChannel === 'phone' || authChannel === 'email_otp') && isGeneralStaffLane && (
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Temporary Access Code</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">
+                  {roleIntent === 'operator' ? 'Operator Invitation Code' : 'Planner Invitation Code'}
+                </label>
                 <input
                   type="password"
-                  placeholder="Temporary access code"
+                  placeholder={roleIntent === 'operator' ? 'Operator invitation code' : 'Planner invitation code'}
                   value={accessCode}
                   onChange={e => setAccessCode(e.target.value)}
                   className="w-full bg-slate-900 px-5 py-4 rounded-2xl text-white placeholder:text-white/20 focus:outline-none focus:ring-2 ring-blue-500/50 border border-white/10 font-mono font-bold"

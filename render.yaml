@@ -52,12 +52,14 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
-      - key: AFAT_BOOTSTRAP_ALLOW_EMAILS
+      - key: AFAT_OPERATOR_INVITE_EMAILS
         sync: false
-      - key: AFAT_BOOTSTRAP_ACCESS_CODE
+      - key: AFAT_OPERATOR_INVITE_CODE
         sync: false
-      - key: AFAT_BOOTSTRAP_ALLOW_ROLES
-        value: operator,planner
+      - key: AFAT_PLANNER_INVITE_EMAILS
+        sync: false
+      - key: AFAT_PLANNER_INVITE_CODE
+        sync: false
       - key: AFAT_ADMIN_BOOTSTRAP_EMAILS
         sync: false
       - key: AFAT_ADMIN_BOOTSTRAP_CODE

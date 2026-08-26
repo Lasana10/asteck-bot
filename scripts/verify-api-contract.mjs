@@ -39,8 +39,11 @@ const checks = [
   ['returns JSON API 404', files.index, "app.use('/api', (req: Request, res: Response)"],
   ['exposes health contract', files.index, "app.get('/health/contract'"],
   ['auth: Supabase profile bootstrap', files.routes, "router.post('/auth/supabase-profile'"],
-  ['auth: general staff bootstrap defaults to operator and planner only', files.routes, "AFAT_BOOTSTRAP_ALLOW_ROLES || 'operator,planner'"],
-  ['auth: general staff code can never grant admin', files.routes, "requestedRole !== 'admin' && (hasPhoneIdentity"],
+  ['auth: operator invitation is independently configured', files.routes, "'AFAT_OPERATOR_INVITE'"],
+  ['auth: planner invitation is independently configured', files.routes, "'AFAT_PLANNER_INVITE'"],
+  ['auth: admin bootstrap is independently configured', files.routes, "'AFAT_ADMIN_BOOTSTRAP'"],
+  ['auth: suspended profiles are rejected centrally', files.routes, "res.status(403).json({ error: 'Access suspended' })"],
+  ['auth: unapproved operators are rejected centrally', files.routes, "res.status(403).json({ error: 'Operator approval required' })"],
   ['auth: QA bypass', files.routes, "router.post('/auth/qa-bypass'"],
   ['auth: send OTP', files.routes, "router.post('/auth/send-otp'"],
   ['auth: verify OTP', files.routes, "router.post('/auth/verify-otp'"],
@@ -100,6 +103,8 @@ const checks = [
 const failures = checks.filter(([, content, needle]) => !content.includes(needle));
 const forbiddenChecks = [
   ['commuter lane cannot silently downgrade existing staff', files.routes, 'publicRoles.has(finalRole) || generalBootstrapAllowed'],
+  ['company approval cannot grant global planner', files.routes, 'grant_planner_access'],
+  ['operator and planner cannot share a legacy bootstrap allowlist', files.routes, 'AFAT_BOOTSTRAP_ALLOW_EMAILS'],
   ['phone auth bypasses legacy AFAT OTP routes', phoneOtpClient, "/api/auth/send-otp"],
   ['phone auth bypasses legacy AFAT OTP verification', phoneOtpClient, "/api/auth/verify-otp"],
 ];
