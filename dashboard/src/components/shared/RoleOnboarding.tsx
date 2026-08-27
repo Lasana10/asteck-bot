@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ShieldAlert, Zap, Navigation2, CheckCircle, X, ChevronRight } from 'lucide-react';
 
 interface Props {
@@ -10,6 +10,10 @@ interface Props {
 
 export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
   const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    if (isVisible) setStep(0);
+  }, [isVisible, role]);
 
   if (!isVisible) return null;
 
@@ -42,11 +46,12 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
     commuter: baseCommuter,
     operator: baseOperator,
     admin: [
-       { title: "Command Center", desc: "You have global oversight of the Yaoundé mobility grid.", icon: ShieldAlert },
-       { title: "Power of Broadcast", desc: "Use the Emergency Alert to push warnings to all active network nodes.", icon: Zap }
+       { title: "Administrator control", desc: "Review people, access, operator approvals and platform health from the AFAT control center.", icon: ShieldAlert },
+       { title: "Audited actions", desc: "High-impact access and operational changes remain attributable and can be suspended or reviewed.", icon: Zap }
     ],
     planner: [
-       { title: "Urban Analytics", desc: "Access high-frequency heatmaps to identify traffic bottlenecks in Douala & Yaoundé.", icon: ShieldAlert }
+       { title: "Operations planning", desc: "Coordinate dispatch, route conditions and mobility intelligence without receiving administrator powers.", icon: ShieldAlert },
+       { title: "Live network picture", desc: "Use verified operational signals to plan interventions across Yaoundé and Douala.", icon: Navigation2 }
     ]
   };
 
@@ -76,7 +81,15 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
             onClick={() => step < steps.length - 1 ? setStep(step + 1) : onClose()}
             className="w-full bg-white hover:bg-slate-100 text-slate-950 py-5 rounded-[24px] font-black flex items-center justify-center gap-3 transition-all active:scale-95 shadow-xl shadow-white/10"
           >
-            {step < steps.length - 1 ? 'CONTINUE' : 'START JOURNEY'}
+            {step < steps.length - 1
+              ? 'CONTINUE'
+              : role === 'admin'
+                ? 'OPEN ADMIN CONTROL'
+                : role === 'planner'
+                  ? 'OPEN PLANNER WORKSPACE'
+                  : role === 'operator'
+                    ? 'OPEN OPERATOR TERMINAL'
+                    : 'OPEN PASSENGER WORKSPACE'}
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>

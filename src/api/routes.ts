@@ -772,6 +772,13 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Unsupported role intent.' });
     }
 
+    const { data: existingProfile, error: lookupError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
     const identity = hasPhoneIdentity ? { phone } : { email };
@@ -782,15 +789,27 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       requestedRole === 'admin' &&
       controlledRoleApproval('admin', identity, providedAdminCode);
 
-    if (requestedRole === 'operator' && accessCode && !invitedRoleAllowed) {
+    // An invitation is consumed only when authority is first granted. Existing
+    // active staff must be able to refresh and sign in again without retaining
+    // or re-entering the onboarding secret on every session.
+    const existingControlledAccess = Boolean(
+      existingProfile &&
+      existingProfile.role === requestedRole &&
+      ['operator', 'planner', 'admin'].includes(requestedRole) &&
+      existingProfile.is_active !== false &&
+      String(existingProfile.approval_status || '').toLowerCase() === 'approved' &&
+      (requestedRole !== 'operator' || String(existingProfile.operator_application_status || '').toUpperCase() === 'APPROVED')
+    );
+
+    if (requestedRole === 'operator' && accessCode && !invitedRoleAllowed && !existingControlledAccess) {
       return res.status(403).json({
         code: 'OPERATOR_INVITATION_INVALID',
         error: 'This operator invitation is not valid for the signed-in email. Remove the code to start a public operator application, or use the invitation issued to this account.',
       });
     }
 
-    const operatorApplicationRequested = requestedRole === 'operator' && !invitedRoleAllowed;
-    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !invitedRoleAllowed && !adminBootstrapAllowed) {
+    const operatorApplicationRequested = requestedRole === 'operator' && !invitedRoleAllowed && !existingControlledAccess;
+    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !invitedRoleAllowed && !adminBootstrapAllowed && !existingControlledAccess) {
       const invitationLabel = requestedRole === 'admin' ? 'administrator activation' : `${requestedRole} invitation`;
       return res.status(403).json({
         code: 'CONTROLLED_ACCESS_DENIED',
@@ -803,13 +822,6 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     const fullName =
       String(user.user_metadata?.full_name || user.user_metadata?.name || '').trim() ||
       `AFAT ${finalRole.charAt(0).toUpperCase()}${finalRole.slice(1)}`;
-
-    const { data: existingProfile, error: lookupError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (lookupError) throw lookupError;
 
     let profile = existingProfile;
     if (!profile) {
@@ -905,7 +917,13 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Supabase identity profile bootstrap error:', error);
-    res.status(500).json({ error: error.message || 'Identity profile bootstrap failed.' });
+    const schemaContractUnavailable = /schema cache|could not find.+column|pgrst20[024]/i.test(String(error?.message || error?.code || ''));
+    res.status(schemaContractUnavailable ? 503 : 500).json({
+      code: schemaContractUnavailable ? 'ROLE_PROFILE_UNAVAILABLE' : 'ROLE_ACTIVATION_FAILED',
+      error: schemaContractUnavailable
+        ? 'AFAT role services are updating. Please wait a moment and retry.'
+        : 'AFAT could not finish role activation. Please retry; your current access has not changed.',
+    });
   }
 });
 

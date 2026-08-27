@@ -52,6 +52,12 @@ function explainAuthError(message?: string) {
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
     return 'AFAT could not reach the identity service. Check your connection and retry.';
   }
+  if (lower.includes('schema cache') || lower.includes("column of 'profiles'") || lower.includes('role_profile_unavailable')) {
+    return 'AFAT role services are updating. Wait a moment, then retry access; your account remains safe.';
+  }
+  if (lower.includes('role_activation_failed')) {
+    return 'AFAT could not finish role activation. Retry once; your current access has not changed.';
+  }
 
   return raw || 'AFAT could not complete secure access. Please retry with a fresh security check.';
 }
@@ -1072,19 +1078,13 @@ function RestrictedAccessPending({
             Your identity is verified, but your server profile has not received {requestedRole === 'admin' ? 'administrator' : 'AFAT operations planner'} authority.
             Enter the activation issued to this exact email. Company, fleet, and government registrations do not grant this platform role.
           </p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Identity</p>
-              <p className="mt-2 text-sm font-black uppercase text-emerald-100">Verified</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Requested lane</p>
-              <p className="mt-2 text-sm font-black uppercase text-blue-100">{requestedRole}</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Console</p>
-              <p className="mt-2 text-sm font-black uppercase text-amber-100">Invite needed</p>
-            </div>
+          <div className="mt-5 flex flex-wrap gap-2" aria-label="Access status">
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-100">
+              Identity verified
+            </span>
+            <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-100">
+              {requestedRole} activation pending
+            </span>
           </div>
           <div className="mt-7 rounded-3xl border border-blue-400/20 bg-blue-500/[0.07] p-4">
             <label className="text-[10px] font-black uppercase tracking-widest text-blue-100">
@@ -1400,7 +1400,7 @@ function AppShell() {
         accessCode: role === 'admin' ? undefined : code.trim(),
         adminCode: role === 'admin' ? code.trim() : undefined,
       });
-      if (result.error) return result.error.message;
+      if (result.error) return explainAuthError(result.error.message);
 
       const activatedProfile = result.data?.profile;
       if (!activatedProfile || normalizeAfatRole(activatedProfile.role) !== role) {
@@ -1681,22 +1681,32 @@ function AppShell() {
       );
     };
 
+    const effectiveRoleForFrame = normalizeAfatRole(userRole);
+    const intendedRoleForFrame = localStorage.getItem('afat_access_intent_role') || effectiveRoleForFrame;
+    const controlledAccessPending = Boolean(
+      userProfile && (
+        (effectiveRoleForFrame === 'commuter' && (intendedRoleForFrame === 'planner' || intendedRoleForFrame === 'admin')) ||
+        ((effectiveRoleForFrame === 'operator' || intendedRoleForFrame === 'operator') &&
+          ((effectiveRoleForFrame === 'operator' && !canUseOperatorConsole(userProfile)) || hasOperatorApplication(userProfile)))
+      )
+    );
+
     return (
       <div className="min-h-screen flex flex-col sentinel-bg text-white selection:bg-blue-500/30">
         <div className="mesh-gradient" />
         <div className="relative z-10 flex-1 flex flex-col">
-          <AccessLevelStrip accessLevel={getAccessLevel(userProfile, sessionUser)} profile={userProfile} />
-          {renderRoleFrame()}
+          {!controlledAccessPending && <AccessLevelStrip accessLevel={getAccessLevel(userProfile, sessionUser)} profile={userProfile} />}
+          {!controlledAccessPending && renderRoleFrame()}
           {renderDashboard()}
         </div>
-        <BottomNav role={normalizeAfatRole(userRole) as any} activeTab={activeTab} onTabChange={setActiveTab} />
+        {!controlledAccessPending && <BottomNav role={normalizeAfatRole(userRole) as any} activeTab={activeTab} onTabChange={setActiveTab} />}
         {showDevOverride && renderRoleToggle()}
-        <RoleOnboarding
+        {!controlledAccessPending && <RoleOnboarding
           role={normalizeAfatRole(userRole) as any}
           profile={userProfile}
           isVisible={showOnboarding}
           onClose={handleOnboardingComplete}
-        />
+        />}
         <RegistrationHub
           isVisible={isRegistrationHubOpen}
           onClose={() => setIsRegistrationHubOpen(false)}
@@ -1711,7 +1721,7 @@ function AppShell() {
             forceRole(data.role, data.vehicleType, data);
           }}
         />
-        <AICopilot userName={userProfile?.full_name || 'User'} userRole={normalizeAfatRole(userRole)} />
+        {!controlledAccessPending && <AICopilot userName={userProfile?.full_name || 'User'} userRole={normalizeAfatRole(userRole)} />}
       </div>
     );
   } catch (err: any) {

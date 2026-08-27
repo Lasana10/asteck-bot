@@ -10,6 +10,7 @@ const files = {
   app: readFileSync(join(root, 'dashboard', 'src', 'App.tsx'), 'utf8'),
   registration: readFileSync(join(root, 'dashboard', 'src', 'components', 'shared', 'RegistrationHub.tsx'), 'utf8'),
   releaseSecurity: readFileSync(join(root, 'db', '20260825_release_security_clearance.sql'), 'utf8'),
+  roleActivationMigration: readFileSync(join(root, 'supabase', 'migrations', '20260827152758_repair_profile_role_activation_contract.sql'), 'utf8'),
 };
 
 const activeDispatchRoute = files.routes.slice(
@@ -43,6 +44,8 @@ const checks = [
   ['auth: planner invitation is independently configured', files.routes, "'AFAT_PLANNER_INVITE'"],
   ['auth: admin bootstrap is independently configured', files.routes, "'AFAT_ADMIN_BOOTSTRAP'"],
   ['auth: invalid operator invitation is rejected instead of opening an application', files.routes, "code: 'OPERATOR_INVITATION_INVALID'"],
+  ['auth: already-authorized staff can refresh without reusing invitation secret', files.routes, 'existingControlledAccess'],
+  ['auth: schema failures are not exposed to end users', files.routes, "code: schemaContractUnavailable ? 'ROLE_PROFILE_UNAVAILABLE'"],
   ['auth: suspended profiles are rejected centrally', files.routes, "res.status(403).json({ error: 'Access suspended' })"],
   ['auth: unapproved operators are rejected centrally', files.routes, "res.status(403).json({ error: 'Operator approval required' })"],
   ['auth: QA bypass', files.routes, "router.post('/auth/qa-bypass'"],
@@ -87,6 +90,8 @@ const checks = [
   ['frontend keeps access codes through auth events and reloads', files.frontend, "sessionStorage.getItem(pendingAccessCodeStorageKey)"],
   ['frontend exposes staff approval code to operator and planner', files.app, "roleIntent === 'operator' || roleIntent === 'planner'"],
   ['frontend provides controlled-role activation recovery', files.app, 'activateControlledRole'],
+  ['frontend hides workspace navigation while controlled access is pending', files.app, '!controlledAccessPending && <BottomNav'],
+  ['frontend converts schema errors into a safe recovery message', files.app, "lower.includes('schema cache')"],
   ['frontend keeps onboarding completion separate per authorized role', files.app, '`onboarded_${sessionUser.id}_${normalizeAfatRole(userProfile?.role)}`'],
   ['phone auth sends OTP through Supabase identity', phoneOtpClient, 'supabase.auth.signInWithOtp'],
   ['phone auth sends captcha token', phoneOtpClient, 'captchaToken: options?.captchaToken'],
@@ -102,6 +107,10 @@ const checks = [
   ['frontend calls passenger onboarding API', files.frontend, '/api/onboard/passenger/register'],
   ['frontend calls driver onboarding API', files.frontend, '/api/onboard/driver/register'],
   ['frontend calls company onboarding API', files.frontend, '/api/onboard/company/register'],
+  ['schema: role activation access level exists', files.roleActivationMigration, 'add column if not exists access_level'],
+  ['schema: role activation approval lifecycle exists', files.roleActivationMigration, 'add column if not exists approval_status'],
+  ['schema: authority trigger protects activation fields', files.roleActivationMigration, 'new.access_level := old.access_level'],
+  ['schema: PostgREST cache reload follows role contract migration', files.roleActivationMigration, "notify pgrst, 'reload schema'"],
 ];
 
 const failures = checks.filter(([, content, needle]) => !content.includes(needle));
