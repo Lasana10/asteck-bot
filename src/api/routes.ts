@@ -12,12 +12,17 @@ import { TermiiClient } from '../infra/termii';
 import { NotificationChannel, NotificationService } from '../services/NotificationService';
 
 const router = express.Router();
-const ticketSecret = process.env.TICKET_SIGNING_SECRET || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || 'afat-dev-ticket-secret';
-const authSecret = process.env.AFAT_AUTH_SECRET || ticketSecret;
+const ticketSecret = process.env.TICKET_SIGNING_SECRET;
+const authSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET;
 const paymentService = new PaymentService();
 
+function requireConfiguredSecret(value: string | undefined, name: string) {
+  if (!value) throw new Error(`${name} is not configured on AFAT backend.`);
+  return value;
+}
+
 function signTicketPayload(payload: string) {
-  return crypto.createHmac('sha256', ticketSecret).update(payload).digest('hex');
+  return crypto.createHmac('sha256', requireConfiguredSecret(ticketSecret, 'TICKET_SIGNING_SECRET')).update(payload).digest('hex');
 }
 
 function base64Url(input: string) {
@@ -26,7 +31,7 @@ function base64Url(input: string) {
 
 function signLocalAuth(payload: Record<string, any>) {
   const body = base64Url(JSON.stringify(payload));
-  const signature = crypto.createHmac('sha256', authSecret).update(body).digest('base64url');
+  const signature = crypto.createHmac('sha256', requireConfiguredSecret(authSecret, 'AFAT_AUTH_SECRET')).update(body).digest('base64url');
   return `${body}.${signature}`;
 }
 
@@ -96,13 +101,38 @@ function controlledAccessConfig(role: ControlledAccessRole) {
   return { code, emails, phones };
 }
 
+function matchesControlledCode(expected: string, provided: string) {
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  return expectedBytes.length === providedBytes.length && crypto.timingSafeEqual(expectedBytes, providedBytes);
+}
+
 function controlledRoleApproval(role: string, identity: { email?: string; phone?: string }, providedCode: string) {
   if (!['operator', 'planner', 'admin'].includes(role)) return false;
   const config = controlledAccessConfig(role as ControlledAccessRole);
-  if (!config.code || providedCode !== config.code) return false;
-  if (identity.email) return config.emails.includes(identity.email.trim().toLowerCase());
-  if (identity.phone) return config.phones.includes(normalizeAuthPhone(identity.phone));
-  return false;
+  if (!config.code || !providedCode || !matchesControlledCode(config.code, providedCode)) return false;
+
+  const emailAllowed = Boolean(identity.email && config.emails.includes(identity.email.trim().toLowerCase()));
+  const phoneAllowed = Boolean(identity.phone && config.phones.includes(normalizeAuthPhone(identity.phone)));
+  return emailAllowed || phoneAllowed;
+}
+
+function controlledRoleFailure(role: ControlledAccessRole, identity: { email?: string; phone?: string }, providedCode: string) {
+  const config = controlledAccessConfig(role);
+  const label = role === 'admin' ? 'administrator activation' : `${role} invitation`;
+  if (!config.code) {
+    return { code: 'CONTROLLED_ACCESS_NOT_CONFIGURED', error: `The ${label} path is not configured on the AFAT backend.` };
+  }
+  if (!providedCode) {
+    return { code: 'CONTROLLED_ACCESS_CODE_REQUIRED', error: `Enter the ${label} code, or sign in through the ${role} workspace if this account has already been activated.` };
+  }
+  if (!matchesControlledCode(config.code, providedCode)) {
+    return { code: 'CONTROLLED_ACCESS_CODE_INVALID', error: `The ${label} code is incorrect.` };
+  }
+  return {
+    code: 'CONTROLLED_ACCESS_IDENTITY_DENIED',
+    error: `This signed-in identity is not invited to the ${role} workspace. Sign out and use the email that AFAT invited for this role.`,
+  };
 }
 
 function qaBypassAllowed(req: Request) {
@@ -772,6 +802,9 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Unsupported role intent.' });
     }
 
+    // A role code grants an account once.  After that, ordinary sign-in must
+    // restore the already-approved workspace rather than asking for the same
+    // shared bootstrap code on every visit.
     const { data: existingProfile, error: lookupError } = await supabase
       .from('profiles')
       .select('*')
@@ -781,7 +814,21 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
 
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
-    const identity = hasPhoneIdentity ? { phone } : { email };
+    const identity = { email: email || undefined, phone: hasPhoneIdentity ? phone : undefined };
+    const existingOperatorApproved = Boolean(
+      existingProfile &&
+      existingProfile.role === 'operator' &&
+      existingProfile.is_active !== false &&
+      String(existingProfile.approval_status || '').toLowerCase() === 'approved' &&
+      String(existingProfile.operator_application_status || '').toUpperCase() === 'APPROVED'
+    );
+    const existingRoleApproved = Boolean(
+      existingProfile &&
+      existingProfile.role === requestedRole &&
+      existingProfile.is_active !== false &&
+      String(existingProfile.approval_status || '').toLowerCase() === 'approved' &&
+      (requestedRole !== 'operator' || existingOperatorApproved)
+    );
     const invitedRoleAllowed =
       ['operator', 'planner'].includes(requestedRole) &&
       controlledRoleApproval(requestedRole, identity, accessCode);
@@ -789,35 +836,19 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       requestedRole === 'admin' &&
       controlledRoleApproval('admin', identity, providedAdminCode);
 
-    // An invitation is consumed only when authority is first granted. Existing
-    // active staff must be able to refresh and sign in again without retaining
-    // or re-entering the onboarding secret on every session.
-    const existingControlledAccess = Boolean(
-      existingProfile &&
-      existingProfile.role === requestedRole &&
-      ['operator', 'planner', 'admin'].includes(requestedRole) &&
-      existingProfile.is_active !== false &&
-      String(existingProfile.approval_status || '').toLowerCase() === 'approved' &&
-      (requestedRole !== 'operator' || String(existingProfile.operator_application_status || '').toUpperCase() === 'APPROVED')
-    );
-
-    if (requestedRole === 'operator' && accessCode && !invitedRoleAllowed && !existingControlledAccess) {
-      return res.status(403).json({
-        code: 'OPERATOR_INVITATION_INVALID',
-        error: 'This operator invitation is not valid for the signed-in email. Remove the code to start a public operator application, or use the invitation issued to this account.',
-      });
+    if (requestedRole === 'operator' && accessCode && !invitedRoleAllowed) {
+      return res.status(403).json(controlledRoleFailure('operator', identity, accessCode));
     }
 
-    const operatorApplicationRequested = requestedRole === 'operator' && !invitedRoleAllowed && !existingControlledAccess;
-    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !invitedRoleAllowed && !adminBootstrapAllowed && !existingControlledAccess) {
-      const invitationLabel = requestedRole === 'admin' ? 'administrator activation' : `${requestedRole} invitation`;
-      return res.status(403).json({
-        code: 'CONTROLLED_ACCESS_DENIED',
-        error: `The ${invitationLabel} was not accepted for this signed-in account. Check the invited email and code, or continue as a commuter.`,
-      });
+    const roleGranted = existingRoleApproved || invitedRoleAllowed || adminBootstrapAllowed;
+    const operatorApplicationRequested = requestedRole === 'operator' && !roleGranted && Boolean(req.body?.startOperatorApplication);
+    const operatorIntentPending = requestedRole === 'operator' && !roleGranted;
+    if (!publicRoles.has(requestedRole) && !operatorApplicationRequested && !operatorIntentPending && !roleGranted) {
+      const code = requestedRole === 'admin' ? providedAdminCode : accessCode;
+      return res.status(403).json(controlledRoleFailure(requestedRole as ControlledAccessRole, identity, code));
     }
 
-    const finalRole = operatorApplicationRequested ? 'commuter' : requestedRole;
+    const finalRole = roleGranted ? requestedRole : 'commuter';
     const username = email ? email.split('@')[0] : `afat-${user.id.slice(0, 8)}`;
     const fullName =
       String(user.user_metadata?.full_name || user.user_metadata?.name || '').trim() ||
@@ -838,7 +869,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
           trust_points: finalRole === 'commuter' ? 50 : 25,
           preferred_city: 'yaounde',
           is_active: true,
-          operator_application_status: operatorApplicationRequested ? 'APPLICATION_STARTED' : finalRole === 'operator' ? 'APPROVED' : null,
+          operator_application_status: operatorApplicationRequested ? 'APPLICATION_STARTED' : finalRole === 'operator' ? 'APPROVED' : operatorIntentPending ? 'NOT_APPLIED' : null,
           operator_approved_at: finalRole === 'operator' ? new Date().toISOString() : null,
           verification_status: finalRole === 'operator' ? 'verified' : null,
           attribution_source: hasPhoneIdentity ? 'supabase_phone_auth' : 'supabase_email_auth',
@@ -857,7 +888,9 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .single();
       if (updateError) throw updateError;
       profile = updatedProfile;
-    } else if (operatorApplicationRequested) {
+    }
+
+    if (profile && operatorApplicationRequested && profile.role === 'commuter') {
       const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -869,7 +902,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
         .single();
       if (updateError) throw updateError;
       profile = updatedProfile;
-    } else if (profile.role !== finalRole && (invitedRoleAllowed || adminBootstrapAllowed)) {
+    } else if (profile && !existingRoleApproved && (invitedRoleAllowed || adminBootstrapAllowed)) {
       const activation = finalRole === 'operator'
         ? {
             role: finalRole,

@@ -88,6 +88,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   const [backendDiagnostics, setBackendDiagnostics] = useState('');
   const [guestTurnstileToken, setGuestTurnstileToken] = useState('');
   const [authTurnstileToken, setAuthTurnstileToken] = useState('');
+  const [staffRoleChosen, setStaffRoleChosen] = useState(!isStaffAccess);
 
   const resetAuthChallenge = () => {
     setAuthTurnstileToken('');
@@ -122,7 +123,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         { role: 'operator', label: 'Operator' },
       ];
   const isGeneralStaffLane = roleIntent === 'operator' || roleIntent === 'planner';
-  const requiresApprovalCode = roleIntent === 'planner' || roleIntent === 'admin';
+  // Invitation codes are for the first controlled activation.  An already
+  // approved staff member must be able to use ordinary email/password sign-in
+  // afterwards; the backend restores the server-held role.
+  const requiresApprovalCode = false;
 
   useEffect(() => {
     let mounted = true;
@@ -185,6 +189,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
   };
 
   const handleGoogleLogin = async () => {
+    if (isStaffAccess && !staffRoleChosen) {
+      setErrorText('Choose Planner or Admin before continuing. AFAT will never guess a staff role from an email address.');
+      return;
+    }
     setLoading(true);
     setErrorText('');
     setInfoText('');
@@ -215,6 +223,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isStaffAccess && !staffRoleChosen) {
+      setErrorText('Choose Planner or Admin before continuing. AFAT will never guess a staff role from an email address.');
+      return;
+    }
     setLoading(true);
     setErrorText('');
     setInfoText('');
@@ -260,6 +272,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           setErrorText(profileResult.error.message);
           setLoading(false);
           return;
+        }
+        const grantedRole = normalizeAfatRole(profileResult.data?.profile?.role);
+        if (['operator', 'planner', 'admin'].includes(grantedRole)) {
+          localStorage.setItem('afat_access_intent_role', grantedRole);
         }
         window.location.reload();
       }
@@ -477,9 +493,17 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   <button
                     key={item.role}
                     type="button"
-                    onClick={() => setRoleIntent(item.role as typeof roleIntent)}
+                    onClick={() => {
+                      setRoleIntent(item.role as typeof roleIntent);
+                      setStaffRoleChosen(true);
+                      setAccessCode('');
+                      setAdminCode('');
+                      setErrorText('');
+                      setInfoText(`${item.label} access selected. Use the email invited specifically for this workspace.`);
+                      resetAuthChallenge();
+                    }}
                     className={`rounded-2xl border px-3 py-3 text-[10px] font-black uppercase tracking-widest transition ${
-                      roleIntent === item.role
+                      roleIntent === item.role && staffRoleChosen
                         ? 'border-blue-400/50 bg-blue-500/15 text-blue-100'
                         : 'border-white/10 bg-slate-950 text-white/55 hover:text-white'
                     }`}
@@ -488,6 +512,11 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                   </button>
                 ))}
               </div>
+              {isStaffAccess && !staffRoleChosen && (
+                <p role="status" className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-3 text-[10px] font-bold leading-relaxed text-amber-100">
+                  Select the exact staff workspace first. Planner and Admin invitations are separate and cannot be exchanged.
+                </p>
+              )}
               {!isStaffAccess && (
                 <button
                   type="button"
@@ -618,10 +647,10 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
                       />
                       <p className="px-1 text-[10px] font-semibold leading-relaxed text-white/45">
                         {roleIntent === 'operator'
-                          ? 'Already approved by AFAT? Enter your operator invitation code. Otherwise leave it blank to begin a reviewed operator application.'
+                          ? 'Already approved by AFAT? Enter your operator invitation code once. Otherwise sign in first, then start a reviewed operator application deliberately.'
                           : roleIntent === 'planner'
-                            ? 'Planner is an internal AFAT operations role. Access requires an invited email and its current planner invitation code.'
-                            : 'Administrator is a restricted platform-control role. Access requires an approved root-admin email and its separate activation code.'}
+                            ? 'Planner is an internal AFAT operations role. New access requires the invited email and its planner invitation code. Approved planners can sign in normally.'
+                            : 'Administrator is a restricted platform-control role. New access requires the root-admin email and its separate activation code. Approved administrators can sign in normally.'}
                       </p>
                     </div>
                   )}
@@ -652,7 +681,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             )}
             <button
               type="submit"
-              disabled={loading || requiresApprovalCode && !(roleIntent === 'admin' ? adminCode.trim() : accessCode.trim()) || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
+              disabled={loading || (isStaffAccess && !staffRoleChosen) || requiresApprovalCode && !(roleIntent === 'admin' ? adminCode.trim() : accessCode.trim()) || (needsAuthTurnstile && !authTurnstileToken) || (authChannel !== 'phone' ? !normalizedEmail.includes('@') || (authChannel === 'email_password' && password.length < 6) : normalizedPhone.length < 8)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               {loading ? 'Transmitting...' : authChannel === 'email_password' ? (needsAccountCreation ? 'Create AFAT account' : 'Enter AFAT') : authChannel === 'email_otp' ? 'Send Email Link' : 'Request Phone Code'}
@@ -669,7 +698,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
             <button
               type="button"
               onClick={handleGoogleLogin}
-              disabled={loading || !supabaseReady || requiresApprovalCode && !(roleIntent === 'admin' ? adminCode.trim() : accessCode.trim())}
+              disabled={loading || !supabaseReady || (isStaffAccess && !staffRoleChosen) || requiresApprovalCode && !(roleIntent === 'admin' ? adminCode.trim() : accessCode.trim())}
               className="w-full border border-white/15 bg-white text-slate-950 hover:bg-slate-100 font-black py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
             >
               <Chrome className="h-4 w-4" />
@@ -948,7 +977,8 @@ function canUseOperatorConsole(profile: any) {
 }
 
 function hasOperatorApplication(profile: any) {
-  return Boolean(profile?.operator_application_status);
+  const status = String(profile?.operator_application_status || '').toUpperCase();
+  return Boolean(status && !['NOT_APPLIED', 'APPROVED'].includes(status));
 }
 
 function OperatorAccessPending({
@@ -1002,7 +1032,7 @@ function OperatorAccessPending({
           </div>
           <div className="mt-7 rounded-3xl border border-emerald-400/20 bg-emerald-500/[0.07] p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-emerald-100">Already invited by AFAT?</p>
-            <p className="mt-1 text-xs font-semibold leading-relaxed text-white/50">Redeem the operator invitation issued specifically to this signed-in email.</p>
+            <p className="mt-1 text-xs font-semibold leading-relaxed text-white/50">Redeem the operator invitation issued specifically to this signed-in email. Once activated, future sign-ins open the operator console directly.</p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input
                 type="password"
@@ -1029,7 +1059,7 @@ function OperatorAccessPending({
               onClick={onRegister}
               className="rounded-2xl bg-white px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-950"
             >
-              Continue operator application
+              Start or continue operator application
             </button>
             <button
               type="button"
@@ -1576,7 +1606,7 @@ function AppShell() {
       const effectiveRole = normalizeAfatRole(userRole);
       const intendedRole = localStorage.getItem('afat_access_intent_role') || effectiveRole;
       const wantsOperatorConsole = effectiveRole === 'operator' || intendedRole === 'operator';
-      if (wantsOperatorConsole && ((effectiveRole === 'operator' && !canUseOperatorConsole(userProfile)) || hasOperatorApplication(userProfile))) {
+      if (wantsOperatorConsole && (effectiveRole !== 'operator' || !canUseOperatorConsole(userProfile) || hasOperatorApplication(userProfile))) {
         return (
           <OperatorAccessPending
             profile={userProfile}

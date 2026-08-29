@@ -19,9 +19,10 @@ import { Terminal, Database, Cpu } from 'lucide-react';
 
 interface Props {
   onSignOut: () => void;
+  activeTab?: string;
 }
 
-export function PlannerDashboard({ onSignOut }: Props) {
+export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
   const [stats, setStats] = useState({
     totalIncidents: 0,
     activeOperators: 0,
@@ -212,23 +213,148 @@ export function PlannerDashboard({ onSignOut }: Props) {
     getCompanyMembership(profileId).then(({ data }) => setCompanyContext(data || null));
   }, []);
 
+  const renderHeader = () => (
+    <header className="bg-slate-900 border-b border-slate-800 px-5 py-4 flex items-center justify-between sticky top-0 z-50">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+          <ShieldAlert className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h1 className="font-bold text-slate-100 leading-none">AFAT Operations</h1>
+          <p className="text-[10px] font-mono text-purple-400 uppercase tracking-widest mt-1">Planner workspace · Yaoundé</p>
+        </div>
+      </div>
+      <button onClick={onSignOut} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm bg-slate-800 px-3 py-2 rounded-full transition-colors border border-slate-700">
+        <LogOut className="w-4 h-4" />
+        <span className="hidden sm:inline">Sign out</span>
+      </button>
+    </header>
+  );
+
+  if (activeTab === 'bookings') {
+    const reports = reportCenter?.reports || incidents;
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 pb-28">
+        {renderHeader()}
+        <main className="mx-auto w-full max-w-7xl space-y-6 p-5 sm:p-8">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-purple-300">Operational work queue</p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">Reports, passages and dispatch</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-400">Review evidence, recover unmatched journeys, and assign verified supply. Every action below writes to the live AFAT operations record.</p>
+          </div>
+          {opsMessage && <p role="status" className="rounded-2xl border border-blue-400/20 bg-blue-500/10 p-4 text-sm font-semibold text-blue-100">{opsMessage}</p>}
+          <section className="grid gap-5 lg:grid-cols-2">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-bold"><Siren className="h-5 w-5 text-red-400" /> Reports requiring review</h3>
+                <span className="text-xs text-slate-500">{reports.length} signals</span>
+              </div>
+              <div className="space-y-3">
+                {reports.slice(0, 10).map((report: any) => (
+                  <article key={report.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase text-white">{String(report.type || 'mobility signal').replace(/_/g, ' ')}</p>
+                        <p className="mt-1 text-[11px] text-slate-400">{report.address || report.description || 'Location evidence awaiting planner review'}</p>
+                      </div>
+                      <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2 py-1 text-[9px] font-black uppercase text-amber-300">Severity {report.severity ?? '—'}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={() => handleReportAction(report.id, 'verified')} className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase text-emerald-300">Verify</button>
+                      <button onClick={() => handleReportAction(report.id, 'resolved')} className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-[9px] font-black uppercase text-blue-300">Resolve</button>
+                      <button onClick={() => handleReportAction(report.id, 'dismissed')} className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-[9px] font-black uppercase text-red-300">Dismiss</button>
+                    </div>
+                  </article>
+                ))}
+                {!reports.length && <p className="py-10 text-center text-sm text-slate-500">No reports are waiting for review.</p>}
+              </div>
+            </div>
+            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-bold"><Route className="h-5 w-5 text-blue-400" /> Passenger recovery queue</h3>
+                <span className="text-xs text-slate-500">{passageQueue.length} open</span>
+              </div>
+              <div className="space-y-3">
+                {passageQueue.slice(0, 10).map((passage: any) => (
+                  <article key={passage.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <p className="text-sm font-bold text-white">{passage.origin_text || 'Origin pending'} → {passage.destination_text || 'Destination pending'}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Status: {String(passage.status || 'open').replace(/_/g, ' ')} · Meeting point: {passage.afat_meeting_points?.name || passage.meeting_point_name || 'not confirmed'}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={() => notifyOperatorsForPassage(passage)} disabled={missionInFlight === passage.id} className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-[9px] font-black uppercase text-blue-300 disabled:opacity-50">Notify operators</button>
+                      <button onClick={() => markPassageForRecovery(passage.id)} className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[9px] font-black uppercase text-amber-300">Recovery review</button>
+                    </div>
+                  </article>
+                ))}
+                {!passageQueue.length && <p className="py-10 text-center text-sm text-slate-500">No passenger recovery cases are open.</p>}
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  if (activeTab === 'notifications') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 pb-28">
+        {renderHeader()}
+        <main className="mx-auto w-full max-w-5xl space-y-6 p-5 sm:p-8">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-300">Live safety desk</p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">Alerts and disruptions</h2>
+            <p className="mt-2 text-sm text-slate-400">A focused incident feed for decisions that need planner attention now.</p>
+          </div>
+          <section className="space-y-3">
+            {incidents.slice(0, 20).map((incident: any) => (
+              <article key={incident.id} className="flex items-start gap-4 rounded-3xl border border-slate-800 bg-slate-900 p-5">
+                <div className={`mt-1 h-3 w-3 shrink-0 rounded-full ${Number(incident.severity || 0) >= 4 ? 'bg-red-400' : 'bg-amber-400'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-black capitalize text-white">{String(incident.type || 'incident').replace(/_/g, ' ')}</h3>
+                    <span className="text-[10px] font-mono uppercase text-slate-500">Severity {incident.severity ?? '—'}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-400">{incident.address || incident.description || 'Location details are still being verified.'}</p>
+                </div>
+              </article>
+            ))}
+            {!incidents.length && <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-8 text-center text-sm text-emerald-100">No active disruption alerts are currently visible.</div>}
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  if (activeTab === 'profile') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 pb-28">
+        {renderHeader()}
+        <main className="mx-auto w-full max-w-4xl space-y-6 p-5 sm:p-8">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-purple-300">Authority and scope</p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">Planner workspace profile</h2>
+            <p className="mt-2 text-sm text-slate-400">Planner authority covers dispatch, service recovery, safety review and operational intelligence. It does not grant root administration.</p>
+          </div>
+          <section className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-3xl border border-purple-400/20 bg-purple-500/10 p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-purple-200">Platform role</p>
+              <p className="mt-3 text-xl font-black">AFAT Operations Planner</p>
+              <p className="mt-2 text-xs leading-relaxed text-white/55">Authorized to review reports, coordinate operators, manage recovery queues and issue field missions.</p>
+            </div>
+            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Organization context</p>
+              <p className="mt-3 text-xl font-black">{companyContext?.companies?.name || 'AFAT platform operations'}</p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-400">{companyContext?.companies ? `Membership: ${companyContext.role}` : 'No transport-company role is attached to this planner identity.'}</p>
+            </div>
+          </section>
+          <button onClick={onSignOut} className="min-h-12 w-full rounded-2xl border border-red-400/20 bg-red-500/10 px-5 text-xs font-black uppercase tracking-widest text-red-200">Sign out of planner workspace</button>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <ShieldAlert className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold text-slate-100 leading-none">AFAT</h1>
-            <p className="text-[10px] font-mono text-purple-400 uppercase tracking-widest mt-1">City Planner Terminal</p>
-          </div>
-        </div>
-        <button onClick={onSignOut} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm bg-slate-800 px-4 py-2 rounded-full transition-colors border border-slate-700">
-          <LogOut className="w-4 h-4" />
-          <span className="hidden sm:inline">Sign Out</span>
-        </button>
-      </header>
+      {renderHeader()}
 
       <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full">
         

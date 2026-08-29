@@ -3,10 +3,11 @@ import { supabase } from '../infra/supabase';
 import crypto from 'crypto';
 
 const router = express.Router();
-const localAuthSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || 'afat-dev-ticket-secret';
+const localAuthSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET;
 
 function verifyLocalToken(token: string) {
   try {
+    if (!localAuthSecret) return null;
     if (!token.includes('.')) return null;
     const [body, signature] = token.split('.');
     const expected = crypto.createHmac('sha256', localAuthSecret).update(body).digest('base64url');
