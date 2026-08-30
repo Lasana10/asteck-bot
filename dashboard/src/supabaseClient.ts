@@ -1467,6 +1467,24 @@ export async function fetchPublicPartnerConditions(city: string = 'cameroon') {
   }
 }
 
+export async function createPublicPartnerResponse(payload: {
+  evidence_id: string;
+  requested_actions: string[];
+}) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/public-partner/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Public mobility response could not be created.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchMobilityMapFeed(city: string = 'cameroon') {
   try {
     const query = new URLSearchParams({ city });

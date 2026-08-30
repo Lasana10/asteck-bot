@@ -2372,6 +2372,96 @@ router.get('/public-partner/mobility-conditions', async (req: Request, res: Resp
   }
 });
 
+router.post('/public-partner/responses', async (req: Request, res: Response) => {
+  try {
+    const { auth, profile } = await getAuthProfileByToken(req);
+    if (!auth?.sub || !profile?.id) {
+      return res.status(401).json({ error: 'Authenticated public partner identity required.' });
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from('public_partner_memberships')
+      .select('partner_id, role, status, permission_scope')
+      .eq('profile_id', profile.id)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership) {
+      return res.status(403).json({ error: 'Active public partner membership required.' });
+    }
+
+    const { data: partner, error: partnerError } = await supabase
+      .from('public_partner_entities')
+      .select('id, name, jurisdiction, mandate_scope, status')
+      .eq('id', membership.partner_id)
+      .maybeSingle();
+    if (partnerError) throw partnerError;
+    if (!partner || ['rejected', 'suspended'].includes(String(partner.status))) {
+      return res.status(403).json({ error: 'Public partner workspace is not active.' });
+    }
+
+    const evidenceId = String(req.body?.evidence_id || '').trim();
+    const actions = Array.isArray(req.body?.requested_actions)
+      ? req.body.requested_actions.map((action: unknown) => String(action).trim()).filter(Boolean).slice(0, 8)
+      : [];
+    if (!evidenceId || actions.length === 0) {
+      return res.status(400).json({ error: 'Validated evidence and at least one requested action are required.' });
+    }
+
+    const { data: incident, error: incidentError } = await supabase
+      .from('incidents')
+      .select('id, type, severity, status, verification_status, location')
+      .eq('id', evidenceId)
+      .maybeSingle();
+    if (incidentError) throw incidentError;
+    if (!incident) {
+      return res.status(404).json({ error: 'The selected public mobility evidence is no longer available.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: request, error: requestError } = await supabase
+      .from('service_requests')
+      .insert({
+        requester_id: profile.id,
+        service_type: 'complaint',
+        origin: partner.jurisdiction || 'Public jurisdiction',
+        destination: incident.location || incident.type || 'Validated movement condition',
+        priority: Number(incident.severity || 0) >= 4 ? 'high' : 'normal',
+        status: 'needs_review',
+        notes: actions.join('; '),
+        contact_name: profile.full_name || null,
+        contact_phone: profile.phone || null,
+        metadata: {
+          category: 'public_mobility_response',
+          public_partner_id: partner.id,
+          public_partner_name: partner.name,
+          membership_role: membership.role,
+          permission_scope: membership.permission_scope,
+          mandate_scope: partner.mandate_scope,
+          evidence_id: incident.id,
+          evidence_type: incident.type,
+          requested_actions: actions,
+          approval_state: 'public_approval_required',
+        },
+        created_at: nowIso,
+        updated_at: nowIso,
+      })
+      .select('id, status, priority, created_at')
+      .single();
+    if (requestError) throw requestError;
+
+    return res.status(201).json({
+      success: true,
+      request,
+      approval_state: 'public_approval_required',
+      message: 'Public mobility response entered mandate-scoped review.',
+    });
+  } catch (error: any) {
+    console.error('Public partner response error:', error);
+    return res.status(500).json({ error: error.message || 'Public mobility response could not be created.' });
+  }
+});
+
 // Passenger, operator and organisation members receive a sanitized map feed.
 // The staff live-map below remains richer and Planner/Admin-only.
 router.get('/mobility/map-feed', async (req: Request, res: Response) => {

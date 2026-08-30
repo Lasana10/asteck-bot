@@ -9,6 +9,7 @@ import { telemetry } from './services/telemetryService';
 import { TurnstileGate } from './components/shared/TurnstileGate';
 import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
 import { AdaptiveRoleHome } from './components/shared/AdaptiveRoleHome';
+import { resolveWorkspaceRole, restoreWorkspaceTab, workspaceTabStorageKey } from './utils/workspaceNavigation';
 
 const CommuterDashboard = React.lazy(() => import('./components/commuter/CommuterDashboard').then(module => ({ default: module.CommuterDashboard })));
 const OperatorDashboard = React.lazy(() => import('./components/operator/OperatorDashboard').then(module => ({ default: module.OperatorDashboard })));
@@ -68,7 +69,13 @@ function explainAuthError(message?: string) {
 // ==============================================================================
 // 🔐 OTP LOGIN COMPONENT
 // ==============================================================================
-function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => void }) {
+function Login({
+  onRegisterRequest,
+  onAuthenticated,
+}: {
+  onRegisterRequest: (role?: string) => void;
+  onAuthenticated: (profile: any) => Promise<void> | void;
+}) {
   const isStaffAccess = typeof window !== 'undefined' && window.location.pathname === '/staff/access';
   const [authChannel, setAuthChannel] = useState<'email_password' | 'email_otp' | 'phone'>('email_password');
   const [phone, setPhone] = useState('');
@@ -280,7 +287,9 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
         if (['operator', 'planner', 'admin'].includes(grantedRole)) {
           localStorage.setItem('afat_access_intent_role', grantedRole);
         }
-        window.location.reload();
+        sessionStorage.removeItem(pendingAccessCodeStorageKey);
+        sessionStorage.removeItem(pendingAdminCodeStorageKey);
+        await onAuthenticated(profileResult.data?.profile);
       }
       setLoading(false);
       return;
@@ -321,6 +330,7 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
     if (error) {
       setErrorText(error.message);
     } else {
+      let authenticatedProfile: any = null;
       if (authChannel === 'email_otp') {
         const profileResult = await ensureSupabaseEmailProfile({
           roleIntent,
@@ -332,8 +342,19 @@ function Login({ onRegisterRequest }: { onRegisterRequest: (role?: string) => vo
           setLoading(false);
           return;
         }
+        authenticatedProfile = profileResult.data?.profile;
       }
-      window.location.reload();
+      sessionStorage.removeItem(pendingAccessCodeStorageKey);
+      sessionStorage.removeItem(pendingAdminCodeStorageKey);
+      if (authenticatedProfile) {
+        const grantedRole = normalizeAfatRole(authenticatedProfile.role);
+        if (['operator', 'planner', 'admin'].includes(grantedRole)) {
+          localStorage.setItem('afat_access_intent_role', grantedRole);
+        }
+        await onAuthenticated(authenticatedProfile);
+      } else {
+        window.location.reload();
+      }
     }
     setLoading(false);
   };
@@ -1601,6 +1622,24 @@ function AppShell() {
                   setRegistrationTrack(getRegistrationTrackForRole(role));
                   setIsRegistrationHubOpen(true);
                 }}
+                onAuthenticated={async (profile) => {
+                  const current = await getCurrentUser();
+                  const authenticatedId = current.user?.id || profile?.id;
+                  if (!authenticatedId || !profile) {
+                    setBootError('Identity succeeded, but AFAT could not open the authorized workspace. Please retry once.');
+                    return;
+                  }
+                  const phone = current.user?.phone || localStorage.getItem('afat_local_phone') || '';
+                  setSessionUser({ id: authenticatedId, phone });
+                  setUserProfile(profile);
+                  setUserRole(normalizeAfatRole(profile.role));
+                  setActiveTab('home');
+                  setBootError(null);
+                  localStorage.setItem('afat_local_user_id', authenticatedId);
+                  localStorage.setItem('afat_user_id', authenticatedId);
+                  telemetry.start(authenticatedId);
+                  await fetchRole(authenticatedId);
+                }}
               />
 
               {bootError && (
@@ -1629,6 +1668,18 @@ function AppShell() {
         </div>
       );
     }
+
+    const workspaceRole = resolveWorkspaceRole(
+      normalizeAfatRole(userRole),
+      commuterWorkspace,
+      Boolean(companyMembership?.companies),
+      Boolean(publicPartnerMembership?.partner),
+    );
+    const activeWorkspaceTabStorageKey = workspaceTabStorageKey(workspaceRole);
+    const navigateWorkspace = (tab: 'home' | 'book' | 'bookings' | 'notifications' | 'profile') => {
+      localStorage.setItem(activeWorkspaceTabStorageKey, tab);
+      setActiveTab(tab);
+    };
 
     const renderDashboard = () => {
       const accessLevel = getAccessLevel(userProfile, sessionUser);
@@ -1667,17 +1718,17 @@ function AppShell() {
       }
 
       if (effectiveRole === 'commuter' && companyMembership?.companies && commuterWorkspace === 'organization') {
-        if (activeTab === 'home') return <AdaptiveRoleHome role="organization" profile={userProfile} membership={companyMembership} onNavigate={setActiveTab as any} onSignOut={handleSignOut} />;
+        if (activeTab === 'home') return <AdaptiveRoleHome role="organization" profile={userProfile} membership={companyMembership} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
         return <OrganizationDashboard onSignOut={handleSignOut} profile={userProfile} membership={companyMembership} activeTab={activeTab} />;
       }
 
       if (effectiveRole === 'commuter' && publicPartnerMembership?.partner && commuterWorkspace === 'government') {
-        if (activeTab === 'home') return <AdaptiveRoleHome role="government" profile={userProfile} membership={publicPartnerMembership} onNavigate={setActiveTab as any} onSignOut={handleSignOut} />;
+        if (activeTab === 'home') return <AdaptiveRoleHome role="government" profile={userProfile} membership={publicPartnerMembership} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
         return <GovernmentDashboard onSignOut={handleSignOut} profile={userProfile} membership={publicPartnerMembership} activeTab={activeTab} />;
       }
 
       if (activeTab === 'home') {
-        return <AdaptiveRoleHome role={effectiveRole} profile={userProfile} onNavigate={setActiveTab as any} onSignOut={handleSignOut} />;
+        return <AdaptiveRoleHome role={effectiveRole} profile={userProfile} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
       }
 
       switch (effectiveRole) {
@@ -1699,7 +1750,9 @@ function AppShell() {
         setCommuterWorkspace(workspace);
         localStorage.setItem('afat_commuter_workspace', workspace);
         localStorage.setItem('afat_access_intent_role', 'commuter');
-        setActiveTab('home');
+        const nextRole = workspace === 'passenger' ? 'commuter' : workspace;
+        const savedTab = localStorage.getItem(workspaceTabStorageKey(nextRole));
+        setActiveTab(restoreWorkspaceTab(savedTab));
       };
       return (
         <div className="relative z-20 mx-auto w-full max-w-7xl px-4 pt-4">
@@ -1708,7 +1761,7 @@ function AppShell() {
               <p className="text-[8px] font-black uppercase tracking-[0.22em] text-white/35">Signed in as {userProfile?.full_name || 'AFAT member'}</p>
               <p className="truncate text-xs font-bold text-white/70">Choose the work you are doing now</p>
             </div>
-            <div className="flex shrink-0 gap-1">
+            <div className="flex max-w-full shrink-0 gap-1 overflow-x-auto">
               <button onClick={() => chooseWorkspace('passenger')} className={`min-h-10 rounded-xl px-3 text-[9px] font-black uppercase tracking-wider ${commuterWorkspace === 'passenger' ? 'bg-blue-500 text-white' : 'text-white/45 hover:bg-white/5'}`}>Passenger</button>
               {companyMembership?.companies && <button onClick={() => chooseWorkspace('organization')} className={`min-h-10 rounded-xl px-3 text-[9px] font-black uppercase tracking-wider ${commuterWorkspace === 'organization' ? 'bg-cyan-400 text-slate-950' : 'text-white/45 hover:bg-white/5'}`}>Organisation</button>}
               {publicPartnerMembership?.partner && <button onClick={() => chooseWorkspace('government')} className={`min-h-10 rounded-xl px-3 text-[9px] font-black uppercase tracking-wider ${commuterWorkspace === 'government' ? 'bg-teal-400 text-slate-950' : 'text-white/45 hover:bg-white/5'}`}>Public Partner</button>}
@@ -1796,9 +1849,11 @@ function AppShell() {
           {!controlledAccessPending && <AccessLevelStrip accessLevel={getAccessLevel(userProfile, sessionUser)} profile={userProfile} />}
           {!controlledAccessPending && renderRoleFrame()}
           {renderCommuterWorkspaceSwitcher()}
-          {renderDashboard()}
+          <div key={`${workspaceRole}:${activeTab}`} className="animate-in fade-in duration-200">
+            {renderDashboard()}
+          </div>
         </div>
-        {!controlledAccessPending && <BottomNav role={(normalizeAfatRole(userRole) === 'commuter' && companyMembership?.companies && commuterWorkspace === 'organization') ? 'organization' : (normalizeAfatRole(userRole) === 'commuter' && publicPartnerMembership?.partner && commuterWorkspace === 'government') ? 'government' : normalizeAfatRole(userRole) as any} activeTab={activeTab} onTabChange={setActiveTab} />}
+        {!controlledAccessPending && <BottomNav role={workspaceRole as any} activeTab={activeTab} onTabChange={(tab) => navigateWorkspace(tab as any)} />}
         {showDevOverride && renderRoleToggle()}
         {!controlledAccessPending && <RoleOnboarding
           role={normalizeAfatRole(userRole) as any}
