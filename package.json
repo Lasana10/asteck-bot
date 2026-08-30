@@ -9,6 +9,7 @@
     "build:backend": "tsc",
     "build:dashboard": "cd dashboard && npm install && npm run build",
     "test:api-contract": "node scripts/verify-api-contract.mjs",
+    "test:smoke:production-auth": "node scripts/smoke-production-auth.mjs",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -37,13 +38,12 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "uuid": "^13.0.0",
-    "whatsapp-web.js": "^1.26.1",
-    "zod": "^4.3.5"
+    "whatsapp-web.js": "^1.26.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/ioredis": "^4.28.10",
-    "@types/multer": "^2.1.0",
-    "@types/node-cron": "^3.0.11"
+    "@types/multer": "^2.1.1",
+    "@types/node-cron": "^3.0.3"
   }
 }

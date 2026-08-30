@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ViewToggle } from '../shared/ViewToggle';
 import { InteractiveMap } from '../shared/InteractiveMap';
 import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle, CreditCard, FileCheck, Globe2, GraduationCap, HandHeart, Landmark, X, Sparkles } from 'lucide-react';
-import { createDispatchAssignment, enrollCheckpoint, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle } from '../../supabaseClient';
+import { createDispatchAssignment, enrollCheckpoint, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle, updateStaffLifecycle } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
@@ -213,20 +213,27 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     fetchAdminData();
   };
 
+  const handleStaffLifecycle = async (profileId: string, status: 'ACTIVE' | 'SUSPENDED') => {
+    setCommandFeedback(`Updating staff access to ${status}...`);
+    const { error } = await updateStaffLifecycle(profileId, status);
+    if (error) {
+      setCommandFeedback(`Staff access update failed: ${error.message}`);
+      return;
+    }
+    setCommandFeedback(`Staff access updated to ${status}.`);
+    fetchAdminData();
+  };
+
   const handleCompanyLifecycle = async (
     company: any,
     status: 'partial_intake' | 'under_review' | 'approved' | 'documents_pending' | 'rejected' | 'suspended',
-    grantPlannerAccess = false,
   ) => {
     const owner = company?.memberships?.find((membership: any) => membership.role === 'owner') || company?.memberships?.[0];
     setCommandFeedback(`Updating company lifecycle to ${status}...`);
     const { error } = await updateCompanyLifecycle(company.id, {
       status,
-      notes: grantPlannerAccess
-        ? 'Company approved and coordinator planner access granted from AFAT command.'
-        : `Company moved to ${status} from AFAT command.`,
+      notes: `Company moved to ${status} from AFAT command.`,
       coordinator_profile_id: owner?.profile_id,
-      grant_planner_access: grantPlannerAccess,
     });
     if (error) {
       setCommandFeedback(`Company lifecycle update failed: ${error.message}`);
@@ -689,6 +696,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
               <div className="p-4 space-y-2">
                  {profiles.map((p, i) => {
                    const hasOperatorApplication = Boolean(p.operator_application_status) || p.role === 'operator';
+                   const isPlatformStaff = p.role === 'planner' || p.role === 'admin';
                    return (
                    <div key={i} className="flex items-center justify-between p-4 hover:bg-slate-800/50 rounded-2xl transition-all border border-transparent hover:border-slate-800">
                       <div className="flex items-center gap-4">
@@ -701,6 +709,11 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                             {hasOperatorApplication && (
                               <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-amber-300/80">
                                 {p.operator_application_status || (p.is_active ? 'APPROVED' : 'UNDER_REVIEW')}
+                              </p>
+                            )}
+                            {isPlatformStaff && (
+                              <p className={`mt-1 text-[9px] font-black uppercase tracking-widest ${p.is_active ? 'text-emerald-300/80' : 'text-red-300/80'}`}>
+                                {p.is_active ? 'Staff access active' : 'Staff access suspended'}
                               </p>
                             )}
                          </div>
@@ -721,6 +734,18 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                               Review
                             </button>
                           </>
+                        )}
+                        {isPlatformStaff && (
+                          <button
+                            onClick={() => handleStaffLifecycle(p.id, p.is_active ? 'SUSPENDED' : 'ACTIVE')}
+                            className={`rounded-xl border px-3 py-1.5 text-[9px] font-black uppercase tracking-wider transition ${
+                              p.is_active
+                                ? 'border-red-500/30 bg-red-500/15 text-red-200 hover:bg-red-500/25'
+                                : 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                            }`}
+                          >
+                            {p.is_active ? 'Suspend staff' : 'Reactivate staff'}
+                          </button>
                         )}
                         <button
                           onClick={() => toggleIngestion(p.id, !!p.data_ingest_allowed)}
@@ -745,7 +770,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                     Fleet & Company Review
                  </h3>
                  <p className="mt-2 text-xs text-slate-500 font-medium">
-                    Company intake is reviewed here. Planner access is granted only after coordinator and organization approval.
+                    Company intake is reviewed here. Coordinators receive company-scoped membership; platform Planner access is managed separately.
                  </p>
               </div>
               <div className="p-4 space-y-2">
@@ -791,12 +816,6 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                           className="rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/25"
                         >
                           Approve company
-                        </button>
-                        <button
-                          onClick={() => handleCompanyLifecycle(company, 'approved', true)}
-                          className="rounded-xl border border-white/10 bg-white/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-white transition hover:bg-white/15"
-                        >
-                          Grant planner
                         </button>
                       </div>
                     </div>
@@ -1338,4 +1357,3 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     </div>
   );
 }
-

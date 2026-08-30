@@ -10,6 +10,8 @@ const supabaseAnonKey =
 const liveApiBaseUrl = REQUIRED_RENDER_API_URL;
 const apiOverrideStorageKey = 'afat_api_base_override';
 const localRuntimeHosts = new Set(['localhost', '127.0.0.1']);
+const pendingAccessCodeStorageKey = 'afat_pending_access_code';
+const pendingAdminCodeStorageKey = 'afat_pending_admin_code';
 
 function normalizeApiUrl(url?: string | null) {
   const raw = String(url || '').trim();
@@ -658,8 +660,8 @@ export async function ensureSupabaseEmailProfile(options?: {
       },
       body: JSON.stringify({
         roleIntent: options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter',
-        accessCode: options?.accessCode || '',
-        adminCode: options?.adminCode || '',
+        accessCode: options?.accessCode || sessionStorage.getItem(pendingAccessCodeStorageKey) || '',
+        adminCode: options?.adminCode || sessionStorage.getItem(pendingAdminCodeStorageKey) || '',
       }),
     }, 'Identity profile bootstrap failed');
     if (result.parsed.error) return result.parsed;
@@ -672,6 +674,8 @@ export async function ensureSupabaseEmailProfile(options?: {
     }
     if (data?.accessToken) localStorage.setItem('afat_access_token', data.accessToken);
     if (data?.refreshToken) localStorage.setItem('afat_refresh_token', data.refreshToken);
+    sessionStorage.removeItem(pendingAccessCodeStorageKey);
+    sessionStorage.removeItem(pendingAdminCodeStorageKey);
 
     return { data, error: null };
   } catch (err: any) {
@@ -827,6 +831,8 @@ export async function signOut() {
   localStorage.removeItem('afat_access_token');
   const refreshToken = localStorage.getItem('afat_refresh_token');
   localStorage.removeItem('afat_refresh_token');
+  sessionStorage.removeItem(pendingAccessCodeStorageKey);
+  sessionStorage.removeItem(pendingAdminCodeStorageKey);
   if (refreshToken) {
     try {
       await fetch(`${getApiBaseUrl()}/api/auth/logout`, {
@@ -1038,6 +1044,22 @@ export async function registerCompany(companyData: any) {
   }
 }
 
+export async function registerPublicPartner(partnerData: any) {
+  try {
+    const authHeaders = await onboardingAuthHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/onboard/public-partner/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(partnerData),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Public partner registration failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function getOperatorVehicles(operatorId: string) {
   const { data, error } = await supabase
     .from('vehicles')
@@ -1227,6 +1249,18 @@ export async function getCompanyMembership(profileId: string) {
     .select('role, status, companies:company_id(id, name, fleet_size, contact_person)')
     .eq('profile_id', profileId)
     .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  return { data, error };
+}
+
+export async function getPublicPartnerMembership(profileId: string) {
+  const { data, error } = await supabase
+    .from('public_partner_memberships')
+    .select('role, status, permission_scope, partner:partner_id(id, name, partner_type, jurisdiction, mandate_scope, service_coverage, status)')
+    .eq('profile_id', profileId)
+    .eq('status', 'active')
+    .limit(1)
     .maybeSingle();
   return { data, error };
 }
@@ -1413,6 +1447,34 @@ export async function fetchLiveMapOps(city: string = 'cameroon') {
     if (parsed.error) return { data: null, error: parsed.error };
     const data = parsed.data;
     if (!res.ok) return { data: null, error: { message: data.error || 'Live map feed failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchPublicPartnerConditions(city: string = 'cameroon') {
+  try {
+    const query = new URLSearchParams({ city });
+    const res = await fetch(`${getApiBaseUrl()}/api/public-partner/mobility-conditions?${query.toString()}`, {
+      headers: afatAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Public mobility conditions unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchMobilityMapFeed(city: string = 'cameroon') {
+  try {
+    const query = new URLSearchParams({ city });
+    const res = await fetch(`${getApiBaseUrl()}/api/mobility/map-feed?${query.toString()}`, {
+      headers: afatAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Mobility map feed unavailable.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };
@@ -1762,13 +1824,30 @@ export async function updateOperatorLifecycle(
   }
 }
 
+export async function updateStaffLifecycle(
+  profileId: string,
+  status: 'ACTIVE' | 'SUSPENDED',
+) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/staff/${profileId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Staff status update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function updateCompanyLifecycle(
   companyId: string,
   payload: {
     status: 'partial_intake' | 'under_review' | 'approved' | 'documents_pending' | 'rejected' | 'suspended';
     notes?: string;
     coordinator_profile_id?: string;
-    grant_planner_access?: boolean;
   }
 ) {
   try {

@@ -20,6 +20,17 @@ Strongly recommended:
 - `NODE_ENV=production`
 - `PORT=3000`
 
+Controlled role activation (backend only; never expose these as `VITE_*` values):
+
+- `AFAT_OPERATOR_INVITE_EMAILS=<comma-separated pre-approved operator emails>`
+- `AFAT_OPERATOR_INVITE_CODE=<rotatable operator invitation code>`
+- `AFAT_PLANNER_INVITE_EMAILS=<comma-separated invited AFAT planner emails>`
+- `AFAT_PLANNER_INVITE_CODE=<rotatable planner invitation code>`
+- `AFAT_ADMIN_BOOTSTRAP_EMAILS=<comma-separated approved administrator emails>`
+- `AFAT_ADMIN_BOOTSTRAP_CODE=<separate root-administrator bootstrap code>`
+
+Each lane has an independent allowlist and code. Public operator applicants do not need an invitation code; they remain passengers until reviewed. Company coordinators retain company-scoped membership and never become global planners through company approval. Changing a code blocks future grants but does not revoke an already granted role; suspension blocks protected APIs and sessions must also be revoked during offboarding.
+
 Optional / feature-specific:
 
 - `WEBHOOK_DOMAIN`
@@ -34,6 +45,9 @@ Optional / feature-specific:
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_WHATSAPP_NUMBER`
+- `AFAT_OPERATOR_INVITE_PHONES`
+- `AFAT_PLANNER_INVITE_PHONES`
+- `AFAT_ADMIN_BOOTSTRAP_PHONES`
 - `OLLAMA_URL`
 
 ## Frontend

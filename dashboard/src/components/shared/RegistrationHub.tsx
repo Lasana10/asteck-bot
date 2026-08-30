@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Camera, Shield, FileText, UploadCloud, ChevronRight, X, Compass, AlertTriangle, Zap, CheckCircle, Users, Phone } from 'lucide-react';
-import { registerCompany, registerDriver, registerPassenger } from '../../supabaseClient';
+import { Building2, Shield, FileText, UploadCloud, ChevronRight, X, Compass, Zap, CheckCircle, Users } from 'lucide-react';
+import { registerCompany, registerDriver, registerPassenger, registerPublicPartner } from '../../supabaseClient';
 
 interface Props {
   isVisible: boolean;
   onClose: () => void;
-  onRegisterCustom: (data: any) => void;
+  onRegisterCustom: (data: any) => void | Promise<void>;
   initialTrack?: RegistrationTrack;
   prefillPhone?: string;
+  hasAuthenticatedSession?: boolean;
 }
 
 type RegistrationTrack = 'select' | 'commuter' | 'gov_link' | 'citizen_reg' | 'company';
@@ -126,15 +127,19 @@ function explainRegistrationError(message?: string) {
   const lower = raw.toLowerCase();
 
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
-    return 'AFAT backend is not reachable from this browser. Check the Render service, VITE_API_URL, and whether the local preview is pointing to the correct API target.';
+    return 'AFAT cannot reach the mobility service right now. Please retry shortly.';
   }
 
   if (lower.includes('duplicate') || lower.includes('already') || lower.includes('unique')) {
-    return 'This identity already exists. AFAT will try to resume the existing profile when the updated backend is deployed; if this persists, sign in with the same phone/email or ask admin to merge the profile.';
+    return 'This identity already exists. Sign in with the same email, or ask AFAT support to recover the profile.';
+  }
+
+  if (lower.includes('auth_required_for_onboarding') || lower.includes('sign in before registration')) {
+    return 'Sign in with email or Google first, then reopen registration. AFAT needs the account session to attach commuter, operator, and company intake safely.';
   }
 
   if (lower.includes('row-level security') || lower.includes('permission') || lower.includes('unauthorized')) {
-    return 'The request reached AFAT, but database permissions blocked it. Check Supabase RLS/API grants for this registration table before retrying.';
+    return 'AFAT could not complete this protected action. Sign in again or contact support.';
   }
 
   return raw;
@@ -151,14 +156,14 @@ function getCompletionCopy(track: RegistrationTrack) {
   if (track === 'company') {
     return {
       title: 'Fleet Workspace Created',
-      body: 'Your company intake is saved for AFAT review. Fleet documents, coordinator verification, and planner authority are activated by operations after approval.'
+      body: 'Your company intake and owner membership are saved. Fleet verification continues here; AFAT Planner and Admin authority remain separate.'
     };
   }
 
   if (track === 'gov_link') {
     return {
-      title: 'Clearance Intake Saved',
-      body: 'This partner lane is registered for AFAT review, controlled access, and operational classification before full activation.'
+      title: 'Public Partner Workspace Created',
+      body: 'The institution and representative membership are saved for mandate review. This does not grant AFAT Planner or Admin authority.'
     };
   }
 
@@ -168,7 +173,7 @@ function getCompletionCopy(track: RegistrationTrack) {
   };
 }
 
-function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: string | null) {
+export function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: string | null, applicationStatus?: string | null) {
   if (track === 'commuter' && intakeStatus === 'phone_first_partial') {
     return {
       title: 'Commuter Intake Saved',
@@ -176,14 +181,21 @@ function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: str
     };
   }
 
-  if ((track === 'citizen_reg' || track === 'gov_link') && intakeStatus === 'verification_ready') {
+  if (track === 'citizen_reg' && String(applicationStatus || '').toUpperCase() === 'APPROVED') {
+    return {
+      title: 'Operator Access Active',
+      body: 'This account was already approved by AFAT. The operator terminal is available now; no new approval was created by this registration update.'
+    };
+  }
+
+  if (track === 'citizen_reg' && intakeStatus === 'verification_ready') {
     return {
       title: 'Operator Review Started',
       body: 'AFAT received the operator file and opened review. Dispatch, live bookings, and marketplace activation begin after approval from operations.'
     };
   }
 
-  if ((track === 'citizen_reg' || track === 'gov_link') && intakeStatus && intakeStatus !== 'verification_ready') {
+  if (track === 'citizen_reg' && intakeStatus && intakeStatus !== 'verification_ready') {
     return {
       title: 'Operator Intake Saved',
       body: 'AFAT accepted this operator as a partial intake. Missing documents, compliance follow-up, and approval still need to be completed before live service activation.'
@@ -193,27 +205,40 @@ function getCompletionCopyForStatus(track: RegistrationTrack, intakeStatus?: str
   if (track === 'company' && intakeStatus === 'partial_intake') {
     return {
       title: 'Fleet Intake Saved',
-      body: 'AFAT opened the fleet workspace, but coordinator or company details still need follow-up before full planner activation.'
+      body: 'AFAT opened the fleet workspace, but coordinator or company details still need follow-up before organisation approval.'
     };
   }
 
   if (track === 'company' && intakeStatus === 'verification_ready') {
     return {
       title: 'Fleet Review Opened',
-      body: 'AFAT received the company file. Planner controls remain locked until operations approves the organization and coordinator.'
+      body: 'AFAT received the company file. Fleet operations remain organisation-scoped; AFAT Planner and Admin authority require separate staff invitations.'
+    };
+  }
+
+  if (track === 'gov_link' && intakeStatus === 'under_review') {
+    return {
+      title: 'Public Partner Review Opened',
+      body: 'AFAT received the institution, mandate and representative details. The workspace is limited to aggregated public-mobility coordination while verification continues.'
+    };
+  }
+
+  if (track === 'gov_link' && intakeStatus === 'partial_intake') {
+    return {
+      title: 'Public Partner Intake Saved',
+      body: 'The institution workspace exists, but registration, jurisdiction or mandate evidence still requires completion.'
     };
   }
 
   return getCompletionCopy(track);
 }
 
-export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '' }: Props) {
+export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialTrack = 'select', prefillPhone = '', hasAuthenticatedSession = false }: Props) {
   const [track, setTrack] = useState<RegistrationTrack>('select');
   const [govId, setGovId] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [isScanningQR, setIsScanningQR] = useState(false);
 
   // Citizen Track State
   const [vehicleType, setVehicleType] = useState('taxi');
@@ -236,6 +261,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
   const [companyNotes, setCompanyNotes] = useState('');
   const [errorText, setErrorText] = useState('');
   const [completionState, setCompletionState] = useState<{ title: string; body: string } | null>(null);
+  const [completionAction, setCompletionAction] = useState('Continue to workspace');
 
   useEffect(() => {
     if (!isVisible) return;
@@ -243,6 +269,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
     setSuccess(false);
     setErrorText('');
     setCompletionState(null);
+    setCompletionAction('Continue to workspace');
     if (prefillPhone) {
       setPhone(prefillPhone.replace(/^\+?237/, '').trim());
     }
@@ -291,57 +318,56 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
   const serviceProfile = SERVICE_PLAYBOOK[vehicleType] || SERVICE_PLAYBOOK.taxi;
   const companyProfile = COMPANY_PLAYBOOK[companyType] || COMPANY_PLAYBOOK['Transport agency'];
   const completionCopy = completionState || getCompletionCopy(track);
+  const requestedRole = track === 'commuter'
+    ? 'commuter'
+    : track === 'citizen_reg'
+      ? 'operator'
+      : track === 'company'
+        ? 'commuter'
+        : track === 'gov_link'
+          ? 'commuter'
+          : 'commuter';
 
-  const handleGovLinkSubmit = (e: React.FormEvent) => {
+  const returnToSecureAccess = () => {
+    localStorage.setItem('afat_access_intent_role', requestedRole);
+    onClose();
+    window.setTimeout(() => {
+      document.getElementById('afat-secure-access')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
+
+  const handleGovLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorText('');
     setLoading(true);
-
-    registerDriver({
-      full_name: driverName || `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`,
+    const { data, error } = await registerPublicPartner({
+      entity_name: companyName,
+      partner_type: 'government',
+      registration_number: govId || null,
+      official_domain: affiliationName || null,
+      jurisdiction: baseCity || null,
+      mandate_scope: companyNotes || null,
+      service_coverage: serviceCoverage || null,
+      representative_name: contactPerson || driverName || null,
       phone,
-      national_id: govId,
-      license_number: driverLicenseNumber || `SEC-${govId.split('-').pop() || Date.now().toString(36).toUpperCase()}`,
-      vehicle_type: vehicleType || 'taxi',
-      vehicle_plate: plateNumber,
-      vehicle_capacity: driverCapacity ? Number(driverCapacity) : 4,
-      base_city: baseCity || null,
-      operating_zone: operatingZone || null,
-      affiliation_name: affiliationName || null,
-    }).then(({ data, error }) => {
-      setLoading(false);
-
-      if (error) {
-        setErrorText(explainRegistrationError(error.message));
-        return;
-      }
-
-      setCompletionState(getCompletionCopyForStatus('gov_link', data?.driver?.onboarding_context?.intake_status));
-      setSuccess(true);
-      setTimeout(() => {
-        onRegisterCustom({ 
-          id: data?.driver?.id,
-          role: 'operator', 
-          vehicleType: vehicleType || 'custom_security',
-          ids_number: data?.driver?.contractor_code || govId,
-          cni_number: govId.split('-').pop(),
-          plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
-          full_name: driverName || `Strategic Operator ${govId.split('-').pop() || 'AFAT'}`,
-          operator_application_status: data?.driver?.operator_application_status || data?.driver?.onboarding_context?.application_status,
-          is_active: false
-        });
-        onClose();
-      }, 1500);
     });
-  };
-
-  const simulateQRScan = () => {
-    setIsScanningQR(true);
-    setTimeout(() => {
-      setIsScanningQR(false);
-      setGovId('CMR-MOTO-QR981');
-      setPlateNumber('CE 882 MX');
-    }, 2500);
+    if (error) {
+      setLoading(false);
+      setErrorText(explainRegistrationError(error.message));
+      return;
+    }
+    setCompletionState(getCompletionCopyForStatus('gov_link', data?.partner?.onboarding_context?.intake_status));
+    setCompletionAction('Open public partner workspace');
+    await onRegisterCustom({
+      id: data?.profile?.id,
+      role: data?.profile?.role || 'commuter',
+      full_name: data?.profile?.full_name || contactPerson,
+      government_name: data?.partner?.name || companyName,
+      public_partner_status: data?.partner?.status,
+      phone,
+    });
+    setLoading(false);
+    setSuccess(true);
   };
 
   const handleCitizenSubmit = (e: React.FormEvent) => {
@@ -360,30 +386,31 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       base_city: baseCity || null,
       operating_zone: operatingZone || null,
       affiliation_name: affiliationName || null,
-    }).then(({ data, error }) => {
-      setLoading(false);
-
+    }).then(async ({ data, error }) => {
       if (error) {
+        setLoading(false);
         setErrorText(explainRegistrationError(error.message));
         return;
       }
 
-      setCompletionState(getCompletionCopyForStatus('citizen_reg', data?.driver?.onboarding_context?.intake_status));
-      setSuccess(true);
-      setTimeout(() => {
-        onRegisterCustom({
+      const applicationStatus = String(data?.driver?.operator_application_status || data?.driver?.onboarding_context?.application_status || '').toUpperCase();
+      const isApprovedOperator = applicationStatus === 'APPROVED';
+      setCompletionState(getCompletionCopyForStatus('citizen_reg', data?.driver?.onboarding_context?.intake_status, applicationStatus));
+      setCompletionAction(isApprovedOperator ? 'Open operator terminal' : 'View operator review status');
+      await onRegisterCustom({
           id: data?.driver?.id,
-          role: 'operator',
+          role: isApprovedOperator ? 'operator' : 'commuter',
+          requested_role: 'operator',
           vehicleType,
           full_name: data?.driver?.full_name || driverName || `AFAT operator ${phone.slice(-4)}`,
           phone,
           ids_number: data?.driver?.contractor_code,
           plate_number: data?.driver?.vehicle?.plate_number || plateNumber,
           operator_application_status: data?.driver?.operator_application_status || data?.driver?.onboarding_context?.application_status,
-          is_active: false
+          is_active: isApprovedOperator
         });
-        onClose();
-      }, 1500);
+      setLoading(false);
+      setSuccess(true);
     });
   };
 
@@ -400,24 +427,22 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       preferred_zone: commuterZone || null,
     });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setErrorText(explainRegistrationError(error.message));
       return;
     }
 
     setCompletionState(getCompletionCopyForStatus('commuter', data?.user?.onboarding_context?.intake_status));
-    setSuccess(true);
-      setTimeout(() => {
-        onRegisterCustom({
+    setCompletionAction('Open passenger workspace');
+    await onRegisterCustom({
           id: data?.user?.id,
           role: 'commuter',
           full_name: data?.user?.full_name || driverName,
           phone,
         });
-        onClose();
-      }, 1500);
+    setLoading(false);
+    setSuccess(true);
   };
 
   const handleCompanySubmit = async (e: React.FormEvent) => {
@@ -435,17 +460,15 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
       notes: [companyType, serviceCoverage, companyNotes].filter(Boolean).join(' | '),
     });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setErrorText(explainRegistrationError(error.message));
       return;
     }
 
     setCompletionState(getCompletionCopyForStatus('company', data?.company?.onboarding_context?.intake_status));
-    setSuccess(true);
-      setTimeout(() => {
-        onRegisterCustom({
+    setCompletionAction('Open organisation workspace');
+    await onRegisterCustom({
           id: data?.profile?.id,
           role: data?.profile?.role || 'commuter',
           full_name: data?.profile?.full_name || contactPerson || companyName,
@@ -453,8 +476,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
           company_application_status: data?.profile?.company_application_status || data?.company?.onboarding_context?.intake_status,
           phone,
         });
-        onClose();
-      }, 1500);
+    setLoading(false);
+    setSuccess(true);
   };
 
   return (
@@ -490,17 +513,53 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
 
         <div className="flex-1 overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6">
           {success ? (
-            <div className="flex flex-col items-center justify-center py-10 animate-in zoom-in duration-500">
+            <div className="flex flex-col items-center justify-center py-8 animate-in zoom-in duration-500">
               <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center border border-green-500/20 mb-6 shadow-[0_0_40px_rgba(34,197,94,0.2)]">
                 <CheckCircle className="w-12 h-12 text-green-500" />
               </div>
               <h3 className="text-2xl font-black text-white uppercase italic tracking-tight mb-2">{completionCopy.title}</h3>
               <p className="text-sm text-slate-400 text-center font-bold">{completionCopy.body}</p>
+              <div className="mt-7 w-full space-y-2 rounded-3xl border border-white/10 bg-slate-950/60 p-4 text-left">
+                <div className="flex items-center gap-3 text-xs font-bold text-emerald-100"><CheckCircle className="h-4 w-4 text-emerald-400" /> Secure identity attached</div>
+                <div className="flex items-center gap-3 text-xs font-bold text-emerald-100"><CheckCircle className="h-4 w-4 text-emerald-400" /> Registration saved</div>
+                <div className="flex items-center gap-3 text-xs font-bold text-amber-100"><Shield className="h-4 w-4 text-amber-300" /> Role access follows the status shown above</div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-6 min-h-14 w-full rounded-2xl bg-white px-5 text-xs font-black uppercase tracking-widest text-slate-950 transition hover:bg-slate-100"
+              >
+                {completionAction}
+              </button>
+              <p className="mt-3 text-center text-[10px] font-semibold leading-relaxed text-white/40">AFAT will not silently promote an account. Operator, Planner and Admin authority appears only after its own approval.</p>
+            </div>
+          ) : track !== 'select' && !hasAuthenticatedSession ? (
+            <div className="flex min-h-[28rem] flex-col justify-center animate-in slide-in-from-right-4 duration-300">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-blue-400/25 bg-blue-500/10">
+                <Shield className="h-8 w-8 text-blue-300" />
+              </div>
+              <p className="mt-7 text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Secure identity required</p>
+              <h3 className="mt-2 text-2xl font-black uppercase italic tracking-tight text-white">Sign in before registration</h3>
+              <p className="mt-4 text-sm font-medium leading-relaxed text-white/60">
+                AFAT attaches every commuter, operator, fleet, and staff intake to a verified AFAT identity. Continue with email or Google, then this registration lane will reopen for your profile.
+              </p>
+              <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-semibold leading-relaxed text-emerald-100/75">
+                Your phone remains a contact and safety detail. Phone sign-in will appear only when it is ready for reliable use.
+              </div>
+              <div className="mt-8 flex gap-3">
+                <button type="button" onClick={() => setTrack('select')} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 text-slate-300 transition hover:bg-white/5 hover:text-white" aria-label="Choose another registration lane">
+                  <X className="h-5 w-5" />
+                </button>
+                <button type="button" onClick={returnToSecureAccess} className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-500 px-5 text-sm font-black uppercase tracking-wide text-white transition hover:bg-blue-400">
+                  Continue to secure access
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
           ) : track === 'select' ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">
-                Select your registration stream to join the intelligence network. High-security profiles and standard operators follow different clearance paths.
+                Choose the identity or entity you are registering. Each path receives only the workspace and authority it needs.
               </p>
 
               <button 
@@ -518,8 +577,8 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-transparent translate-x-[-100%] group-hover:translate-x-[0%] transition-transform duration-500"></div>
                 <Shield className="w-8 h-8 text-blue-400 mb-4" />
-                <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track A: Government Link</h3>
-                <p className="text-xs text-blue-200/60 font-medium">For pre-cleared state vehicles, accredited transport unions, and security fleet operators.</p>
+                <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">Track A: Government / Public Partner</h3>
+                <p className="text-xs text-blue-200/60 font-medium">For ministries, councils and public agencies coordinating privacy-safe mobility services under a verified mandate.</p>
               </button>
 
               <button 
@@ -572,7 +631,7 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
               </div>
 
               <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-emerald-100/80">
-                Phone is enough to open a commuter intake. Name, zone, and guardian details can be completed later.
+                Your verified AFAT identity owns this commuter profile. The phone number is stored as a contact and can be updated later.
               </div>
 
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
@@ -588,121 +647,53 @@ export function RegistrationHub({ isVisible, onClose, onRegisterCustom, initialT
             </form>
           ) : track === 'gov_link' ? (
             <form onSubmit={handleGovLinkSubmit} className="space-y-5 animate-in slide-in-from-right-4 duration-300">
-              <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl flex gap-4 mb-6">
-                <Shield className="w-6 h-6 text-blue-400 shrink-0" />
-                <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
-                  This portal connects directly to the Strategic Identity Database. Scan your physical jacket QR or enter your credentials to port your secure vehicle blueprint to the AFAT grid.
+              <div className="flex gap-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4">
+                <Building2 className="h-6 w-6 shrink-0 text-cyan-300" />
+                <p className="text-xs font-medium leading-relaxed text-cyan-50/80">
+                  Register a ministry, council, transport authority or public agency. This creates a mandate-scoped partner workspace—not Operator, Planner or Admin access.
                 </p>
               </div>
-
-              <div className="rounded-3xl border border-blue-500/20 bg-blue-950/20 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Service Package</p>
-                    <h3 className="mt-2 text-base font-black uppercase tracking-tight text-white">{serviceProfile.title}</h3>
-                    <p className="mt-1 text-xs leading-relaxed text-blue-100/70">{serviceProfile.focus}</p>
-                  </div>
-                  <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-200">
-                    Cleared lane
-                  </div>
+              <div>
+                <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Institution / Authority Name</label>
+                <input required value={companyName} onChange={e=>setCompanyName(e.target.value)} placeholder="Freetown City Council" className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 font-medium text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Registration Number</label>
+                  <input value={govId} onChange={e=>setGovId(e.target.value)} placeholder="Official registry ID" className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 font-mono text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
                 </div>
-                <div className="mt-4 grid grid-cols-1 gap-2">
-                  {serviceProfile.docs.slice(0, 3).map((doc) => (
-                    <div key={doc} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[11px] font-bold text-white/75">
-                      {doc}
-                    </div>
-                  ))}
+                <div>
+                  <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Jurisdiction</label>
+                  <input value={baseCity} onChange={e=>setBaseCity(e.target.value)} placeholder="City / Region" className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
                 </div>
               </div>
-
-              {isScanningQR ? (
-                <div className="bg-slate-950 border border-blue-500/30 rounded-2xl p-8 flex flex-col items-center justify-center relative overflow-hidden h-48">
-                  <div className="absolute inset-0 bg-blue-500/10 animate-pulse"></div>
-                  <div className="w-full h-1 bg-blue-400 absolute top-0 left-0 animate-[routeDraw_2s_ease-in-out_infinite] blur-sm"></div>
-                  <Camera className="w-12 h-12 text-blue-400 mb-4 animate-bounce" />
-                  <p className="text-sm font-black text-white uppercase tracking-widest relative z-10">Scanning Jacket QR...</p>
-                  <p className="text-[10px] text-blue-300 font-mono mt-2 relative z-10 animate-pulse">Align QR code within frame</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <button 
-                    type="button" 
-                    onClick={simulateQRScan}
-                    className="w-full bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/30 text-blue-300 rounded-2xl p-4 flex items-center justify-center gap-3 transition-colors group"
-                  >
-                    <div className="p-2 bg-blue-500/20 rounded-lg group-hover:bg-blue-500/40 transition-colors">
-                      <Camera className="w-5 h-5 text-blue-400" />
-                    </div>
-                    <div className="text-left flex-1">
-                      <p className="text-sm font-black uppercase tracking-wider">Scan Physical QR</p>
-                      <p className="text-[10px] uppercase font-mono tracking-widest opacity-70">Jacket or Official Badge</p>
-                    </div>
-                  </button>
-
-                  <div className="flex items-center gap-4 py-2">
-                    <div className="h-px flex-1 bg-white/10"></div>
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">OR MANUAL ENTRY</span>
-                    <div className="h-px flex-1 bg-white/10"></div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Operator Name</label>
-                    <input type="text" value={driverName} onChange={e=>setDriverName(e.target.value)} placeholder="Cleared operator name" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-medium" />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Gov Identity Number (CNI / QR ID, optional)</label>
-                    <input type="text" value={govId} onChange={e=>setGovId(e.target.value)} placeholder="e.g., CM-2026-X891" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">License / Accreditation Number</label>
-                    <input type="text" value={driverLicenseNumber} onChange={e=>setDriverLicenseNumber(e.target.value)} placeholder="Official license or clearance code" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Secured Plate Number (optional)</label>
-                    <input type="text" value={plateNumber} onChange={e=>setPlateNumber(e.target.value)} placeholder="CE 123 AB" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono text-lg uppercase" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Service Type</label>
-                      <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-blue-500">
-                        {SERVICE_CATEGORIES.filter((item) => item.id !== 'agency').map((item) => (
-                          <option key={item.id} value={item.id}>{item.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Capacity</label>
-                      <input type="number" min="1" value={driverCapacity} onChange={e=>setDriverCapacity(e.target.value)} placeholder="4" className="w-full bg-slate-950 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2 pl-2">Operator Phone</label>
-                    <div className="flex bg-slate-950 border border-white/10 rounded-2xl overflow-hidden">
-                      <span className="flex items-center px-4 text-slate-400 font-mono border-r border-white/10">+237</span>
-                      <input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
+              <div>
+                <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Official Representative</label>
+                <input value={contactPerson} onChange={e=>setContactPerson(e.target.value)} placeholder="Appointed mobility representative" className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Official Email Domain</label>
+                <input value={affiliationName} onChange={e=>setAffiliationName(e.target.value)} placeholder="council.gov" className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Mandate Scope</label>
+                <textarea value={companyNotes} onChange={e=>setCompanyNotes(e.target.value)} placeholder="Public transport coordination, corridor planning, traffic response..." rows={3} className="w-full resize-none rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Service Coverage</label>
+                <input value={serviceCoverage} onChange={e=>setServiceCoverage(e.target.value)} placeholder="Wards, corridors or region" className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white placeholder-slate-600 focus:border-cyan-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-2 block pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Contact Phone</label>
+                <div className="flex overflow-hidden rounded-2xl border border-white/10 bg-slate-950"><span className="flex items-center border-r border-white/10 px-4 font-mono text-slate-400">+237</span><input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="6XX XXX XXX" className="w-full bg-transparent px-5 py-4 font-mono text-white placeholder-slate-600 focus:outline-none" /></div>
+              </div>
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-emerald-100/80">
+                Partner users receive aggregated, privacy-safe mobility data only. Citizen PII, operator financials and AFAT administration remain excluded.
+              </div>
               {errorText && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
-
-              <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-xs font-medium leading-relaxed text-blue-100/80">
-                AFAT can save this strategic intake with only a phone line. Missing ID, plate, QR, and documents become follow-up tasks before approval.
-              </div>
-
-              <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setTrack('select')} className="w-14 h-14 shrink-0 rounded-2xl border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/5 hover:text-white transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-                <button disabled={loading || !phone || isScanningQR} type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 transition-all">
-                  {loading ? <Zap className="w-5 h-5 animate-pulse" /> : govId && plateNumber ? 'Execute Clearance' : 'Save Strategic Intake'}
-                </button>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setTrack('select')} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 text-slate-400 hover:bg-white/5 hover:text-white"><X className="h-5 w-5" /></button>
+                <button disabled={loading || !phone || !companyName} type="submit" className="flex-1 rounded-2xl bg-cyan-400 text-sm font-black uppercase text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50">{loading ? <Zap className="mx-auto h-5 w-5 animate-pulse" /> : 'Create Public Partner Workspace'}</button>
               </div>
             </form>
           ) : track === 'citizen_reg' ? (

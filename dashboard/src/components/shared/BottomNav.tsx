@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 interface Props {
-  role: 'commuter' | 'operator' | 'admin' | 'planner';
+  role: 'commuter' | 'operator' | 'admin' | 'planner' | 'organization' | 'government';
   activeTab: string;
   onTabChange: (tab: string) => void;
 }
@@ -30,6 +30,18 @@ const TAB_CONFIG: Record<string, { id: string; label: string; icon: React.Elemen
     { id: 'notifications', label: 'Alerts',      icon: Bell },
     { id: 'profile',       label: 'Profile',     icon: User },
   ],
+  organization: [
+    { id: 'home',          label: 'Overview',    icon: Home },
+    { id: 'bookings',      label: 'Fleet',       icon: Navigation2 },
+    { id: 'notifications', label: 'Compliance',  icon: ShieldAlert },
+    { id: 'profile',       label: 'Organisation', icon: User },
+  ],
+  government: [
+    { id: 'home',          label: 'Conditions', icon: Map },
+    { id: 'bookings',      label: 'Evidence',   icon: BarChart3 },
+    { id: 'notifications', label: 'Response',   icon: Radio },
+    { id: 'profile',       label: 'Mandate',    icon: ShieldAlert },
+  ],
   admin: [
     { id: 'home',          label: 'Command',     icon: ShieldAlert },
     { id: 'bookings',      label: 'Analytics',   icon: BarChart3 },
@@ -43,6 +55,8 @@ const ROLE_ACCENT: Record<string, string> = {
   commuter: 'text-blue-400 bg-blue-400/10 shadow-[0_0_12px_rgba(96,165,250,0.3)]',
   operator: 'text-green-400 bg-green-400/10 shadow-[0_0_12px_rgba(74,222,128,0.3)]',
   planner:  'text-purple-400 bg-purple-400/10 shadow-[0_0_12px_rgba(192,132,252,0.3)]',
+  organization: 'text-cyan-300 bg-cyan-300/10 shadow-[0_0_12px_rgba(103,232,249,0.3)]',
+  government: 'text-teal-300 bg-teal-300/10 shadow-[0_0_12px_rgba(94,234,212,0.3)]',
   admin:    'text-red-400 bg-red-400/10 shadow-[0_0_12px_rgba(248,113,113,0.3)]',
 };
 
@@ -50,6 +64,8 @@ const ROLE_TEXT: Record<string, string> = {
   commuter: 'text-blue-400',
   operator: 'text-green-400',
   planner:  'text-purple-400',
+  organization: 'text-cyan-300',
+  government: 'text-teal-300',
   admin:    'text-red-400',
 };
 
@@ -57,6 +73,8 @@ const ROLE_DOT: Record<string, string> = {
   commuter: 'bg-blue-400',
   operator: 'bg-green-400',
   planner:  'bg-purple-400',
+  organization: 'bg-cyan-300',
+  government: 'bg-teal-300',
   admin:    'bg-red-400',
 };
 

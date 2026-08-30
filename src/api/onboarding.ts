@@ -40,6 +40,15 @@ async function getOptionalAuthUser(req: Request) {
   return { id: String(auth.sub), email: auth.email ? String(auth.email) : null };
 }
 
+function requireOnboardingAuth(authUser: { id: string; email: string | null } | null, res: Response) {
+  if (authUser?.id) return true;
+  res.status(401).json({
+    error: 'Sign in before registration so AFAT can attach this intake to your verified account.',
+    code: 'AUTH_REQUIRED_FOR_ONBOARDING',
+  });
+  return false;
+}
+
 function canResumeProfile(existing: any, authUser: { id: string } | null) {
   return Boolean(existing && authUser?.id && existing.id === authUser.id);
 }
@@ -152,6 +161,7 @@ function buildCompanyComplianceRecords(params: {
 router.post('/driver/register', async (req: Request, res: Response) => {
   try {
     const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
     const {
       full_name, phone, national_id, license_number,
       vehicle_type, vehicle_plate, vehicle_capacity,
@@ -429,6 +439,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
 router.post('/passenger/register', async (req: Request, res: Response) => {
   try {
     const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
     const { full_name, phone, emergency_contact, preferred_city, preferred_zone } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
     const resolvedName = normalizeOptionalText(full_name);
@@ -509,10 +520,128 @@ router.post('/passenger/register', async (req: Request, res: Response) => {
   }
 });
 
+// ── GOVERNMENT / PUBLIC PARTNER REGISTRATION ───────────────────────────────
+router.post('/public-partner/register', async (req: Request, res: Response) => {
+  try {
+    const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
+    const {
+      entity_name,
+      partner_type,
+      registration_number,
+      official_domain,
+      jurisdiction,
+      mandate_scope,
+      service_coverage,
+      representative_name,
+      phone,
+    } = req.body;
+
+    const normalizedPhone = normalizeCameroonPhone(phone);
+    const entityName = normalizeOptionalText(entity_name);
+    const representativeName = normalizeOptionalText(representative_name) || 'Public Partner Representative';
+    if (!entityName || !normalizedPhone) {
+      return res.status(400).json({ error: 'Entity name and contact phone are required.' });
+    }
+
+    const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
+    if (existing && !canResumeProfile(existing, authUser)) {
+      return res.status(409).json({ error: 'This representative profile already exists. Sign in to resume it.' });
+    }
+
+    const profilePayload = existing
+      ? supabase.from('profiles').update({
+          full_name: representativeName,
+          role: existing.role || 'commuter',
+          is_active: true,
+          operator_review_notes: 'Public partner intake submitted. Membership does not grant AFAT Admin or Planner authority.',
+          updated_at: new Date().toISOString(),
+        }).eq('id', existing.id)
+      : supabase.from('profiles').insert({
+          ...(authUser?.id ? { id: authUser.id } : {}),
+          full_name: representativeName,
+          username: authUser?.email ? String(authUser.email).split('@')[0] : undefined,
+          phone: normalizedPhone,
+          role: 'commuter',
+          access_level: 'verified',
+          approval_status: 'self_service',
+          trust_points: 50,
+          is_active: true,
+          operator_review_notes: 'Public partner intake submitted. Membership does not grant AFAT Admin or Planner authority.',
+          created_at: new Date().toISOString(),
+        });
+
+    const { data: profile, error: profileError } = await profilePayload.select().single();
+    if (profileError) throw profileError;
+
+    const isVerificationReady = Boolean(registration_number && jurisdiction && mandate_scope);
+    const { data: existingMembership } = await supabase
+      .from('public_partner_memberships')
+      .select('id, partner_id')
+      .eq('profile_id', profile.id)
+      .maybeSingle();
+
+    const entityDetails = {
+        name: entityName,
+        partner_type: normalizeOptionalText(partner_type) || 'government',
+        registration_number: normalizeOptionalText(registration_number),
+        official_domain: normalizeOptionalText(official_domain),
+        jurisdiction: normalizeOptionalText(jurisdiction),
+        mandate_scope: normalizeOptionalText(mandate_scope),
+        service_coverage: normalizeOptionalText(service_coverage),
+        contact_phone: normalizedPhone,
+        status: isVerificationReady ? 'under_review' : 'partial_intake',
+        updated_at: new Date().toISOString(),
+      };
+    const entityPayload = existingMembership?.partner_id
+      ? supabase.from('public_partner_entities').update(entityDetails).eq('id', existingMembership.partner_id)
+      : supabase.from('public_partner_entities').insert(entityDetails);
+    const { data: entity, error: entityError } = await entityPayload
+      .select()
+      .single();
+    if (entityError) throw entityError;
+
+    const membershipPayload = existingMembership?.id
+      ? supabase.from('public_partner_memberships').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', existingMembership.id)
+      : supabase.from('public_partner_memberships').insert({
+          partner_id: entity.id,
+          profile_id: profile.id,
+          role: 'representative',
+          status: 'active',
+        });
+    const { data: membership, error: membershipError } = await membershipPayload
+      .select()
+      .single();
+    if (membershipError) throw membershipError;
+
+    res.status(201).json({
+      success: true,
+      partner: {
+        ...entity,
+        onboarding_context: { intake_status: entity.status },
+      },
+      membership,
+      profile: {
+        id: profile.id,
+        role: profile.role || 'commuter',
+        full_name: profile.full_name,
+      },
+      authority_boundary: {
+        grants_platform_role: false,
+        excluded: ['citizen_pii', 'afat_admin', 'operator_financials'],
+      },
+    });
+  } catch (error: any) {
+    console.error('Public partner registration error:', error);
+    res.status(500).json({ error: error.message || 'Public partner registration failed' });
+  }
+});
+
 // ── COMPANY / FLEET REGISTRATION ────────────────────────────────────────────
 router.post('/company/register', async (req: Request, res: Response) => {
   try {
     const authUser = await getOptionalAuthUser(req);
+    if (!requireOnboardingAuth(authUser, res)) return;
     const { company_name, phone, contact_person, fleet_size, notes, company_type, service_coverage } = req.body;
     const normalizedPhone = normalizeCameroonPhone(phone);
 
