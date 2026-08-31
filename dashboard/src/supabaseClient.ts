@@ -408,7 +408,9 @@ if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLIS
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     flowType: 'pkce',
-    detectSessionInUrl: true,
+    // AFAT owns /auth/callback and exchanges the code exactly once there.
+    // Automatic handling can consume the verifier before our callback runs.
+    detectSessionInUrl: false,
     persistSession: true,
     autoRefreshToken: true,
   },

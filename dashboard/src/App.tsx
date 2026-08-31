@@ -10,6 +10,7 @@ import { TurnstileGate } from './components/shared/TurnstileGate';
 import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
 import { AdaptiveRoleHome } from './components/shared/AdaptiveRoleHome';
 import { resolveWorkspaceRole, restoreWorkspaceTab, workspaceTabStorageKey } from './utils/workspaceNavigation';
+import { canUseOperatorConsole, hasPendingOperatorApplication } from './utils/roleAccess';
 
 const CommuterDashboard = React.lazy(() => import('./components/commuter/CommuterDashboard').then(module => ({ default: module.CommuterDashboard })));
 const OperatorDashboard = React.lazy(() => import('./components/operator/OperatorDashboard').then(module => ({ default: module.OperatorDashboard })));
@@ -91,7 +92,11 @@ function Login({
   const [showBypass, setShowBypass] = useState(false);
   const [needsAccountCreation, setNeedsAccountCreation] = useState(false);
   const [authChallengeKey, setAuthChallengeKey] = useState(0);
-  const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>(isStaffAccess ? 'planner' : 'commuter');
+  const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>(() => {
+    const savedRole = localStorage.getItem('afat_access_intent_role');
+    if (isStaffAccess) return savedRole === 'admin' ? 'admin' : 'planner';
+    return savedRole === 'operator' ? 'operator' : 'commuter';
+  });
   const [backendStatus, setBackendStatus] = useState<'checking' | 'live' | 'offline'>('checking');
   const [apiTarget, setApiTarget] = useState(getApiBaseUrl());
   const [backendDetail, setBackendDetail] = useState('');
@@ -908,9 +913,6 @@ function AuthCallback() {
     setPhase('session');
     completeGoogleAuthCallback({ roleIntent, accessCode, adminCode })
       .then(({ error }) => {
-        sessionStorage.removeItem('afat_pending_access_code');
-        sessionStorage.removeItem('afat_pending_admin_code');
-
         if (!mounted) return;
         if (error) {
           setStatus('error');
@@ -918,6 +920,8 @@ function AuthCallback() {
           return;
         }
 
+        sessionStorage.removeItem('afat_pending_access_code');
+        sessionStorage.removeItem('afat_pending_admin_code');
         setPhase('profile');
         window.history.replaceState({}, '', '/');
         window.location.replace('/');
@@ -994,17 +998,6 @@ function getAccessLevel(profile: any, sessionUser: any): AccessLevel {
   return profile?.access_level === 'guest' || localStorage.getItem('afat_access_level') === 'guest' ? 'guest' : 'verified';
 }
 
-function canUseOperatorConsole(profile: any) {
-  if (!profile) return false;
-  const status = String(profile.operator_application_status || '').toUpperCase();
-  return normalizeAfatRole(profile.role) === 'operator' && profile.is_active !== false && (!status || status === 'APPROVED');
-}
-
-function hasOperatorApplication(profile: any) {
-  const status = String(profile?.operator_application_status || '').toUpperCase();
-  return Boolean(status && !['NOT_APPLIED', 'APPROVED'].includes(status));
-}
-
 function OperatorAccessPending({
   profile,
   onRegister,
@@ -1017,6 +1010,7 @@ function OperatorAccessPending({
   onUseCommuter: () => void;
 }) {
   const status = String(profile?.operator_application_status || 'APPLICATION_STARTED').replace(/_/g, ' ');
+  const approvalRecorded = String(profile?.operator_application_status || '').toUpperCase() === 'APPROVED';
   const [invitationCode, setInvitationCode] = useState('');
   const [activationError, setActivationError] = useState('');
   const [activating, setActivating] = useState(false);
@@ -1035,10 +1029,13 @@ function OperatorAccessPending({
       <div className="relative z-10 mx-auto max-w-3xl">
         <div className="rounded-[2rem] border border-amber-400/20 bg-slate-950/80 p-7 shadow-ambient-float backdrop-blur-2xl">
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-200/70">Controlled operator access</p>
-          <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">Operator approval required</h1>
+          <h1 className="mt-3 text-3xl font-black uppercase italic tracking-tight text-white">
+            {approvalRecorded ? 'Operator console unavailable' : 'Operator approval required'}
+          </h1>
           <p className="mt-4 text-sm font-semibold leading-relaxed text-white/65">
-            Your Google or email account is valid, but AFAT has not approved this profile for live driver/operator operations yet.
-            This protects passengers, operators, payments and city intelligence from fake role elevation.
+            {approvalRecorded
+              ? 'AFAT has recorded the operator approval, but this profile is inactive or suspended. An administrator must reactivate it before live operations.'
+              : 'Your Google or email account is valid, but AFAT has not approved this profile for live driver/operator operations yet. This protects passengers, operators, payments and city intelligence from fake role elevation.'}
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -1686,7 +1683,7 @@ function AppShell() {
       const effectiveRole = normalizeAfatRole(userRole);
       const intendedRole = localStorage.getItem('afat_access_intent_role') || effectiveRole;
       const wantsOperatorConsole = effectiveRole === 'operator' || intendedRole === 'operator';
-      if (wantsOperatorConsole && (effectiveRole !== 'operator' || !canUseOperatorConsole(userProfile) || hasOperatorApplication(userProfile))) {
+      if (wantsOperatorConsole && (effectiveRole !== 'operator' || !canUseOperatorConsole(userProfile) || hasPendingOperatorApplication(userProfile))) {
         return (
           <OperatorAccessPending
             profile={userProfile}
@@ -1838,7 +1835,7 @@ function AppShell() {
       userProfile && (
         (effectiveRoleForFrame === 'commuter' && (intendedRoleForFrame === 'planner' || intendedRoleForFrame === 'admin')) ||
         ((effectiveRoleForFrame === 'operator' || intendedRoleForFrame === 'operator') &&
-          ((effectiveRoleForFrame === 'operator' && !canUseOperatorConsole(userProfile)) || hasOperatorApplication(userProfile)))
+          ((effectiveRoleForFrame === 'operator' && !canUseOperatorConsole(userProfile)) || hasPendingOperatorApplication(userProfile)))
       )
     );
 
