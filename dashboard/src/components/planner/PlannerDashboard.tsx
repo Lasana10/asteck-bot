@@ -4,6 +4,7 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 import {
   createDispatchAssignment,
   fetchComplianceRadar,
+  fetchLiveMapOps,
   fetchActiveDispatches,
   fetchDemandRadar,
   fetchOpsReportCenter,
@@ -61,24 +62,15 @@ export function PlannerDashboard({ onSignOut, activeTab = 'home' }: Props) {
     const { count: operatorCount } = await supabase.from('vehicles').select('*', { count: 'exact', head: true }).eq('is_available', true);
     const { count: companyCount } = await supabase.from('companies').select('*', { count: 'exact', head: true });
     
-    // 3. Fetch Grid Pulses (GPS Tracks in last 5 mins)
-    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: trackData, count: pulseCount } = await supabase
-      .from('gps_tracks')
-      .select('*', { count: 'exact' })
-      .gt('created_at', fiveMinsAgo);
-    
-    if (trackData) {
-      setTracks(trackData.map((t: any) => ({
-        latitude: parseFloat(t.location.match(/\((.*) (.*)\)/)[2]),
-        longitude: parseFloat(t.location.match(/\((.*) (.*)\)/)[1])
-      })));
-    }
+    // 3. Use the authorized operations feed instead of a removed public GPS table.
+    const mapResult = await fetchLiveMapOps('cameroon');
+    const trackData = mapResult.data?.vehicles || [];
+    setTracks(trackData);
     
     setStats(prev => ({ 
       ...prev, 
       activeOperators: operatorCount || 0,
-      gridPulses: pulseCount || 0,
+      gridPulses: trackData.length,
       companies: companyCount || 0
     }));
 

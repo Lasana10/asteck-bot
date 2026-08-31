@@ -1,5 +1,5 @@
 import { WeatherService } from './weather';
-import { getActiveIncidents } from '../infra/supabase';
+import { getActiveIncidents, supabase } from '../infra/supabase';
 import { INCIDENT_TYPES, SEVERITY_LABELS } from '../types';
 
 /**
@@ -142,19 +142,16 @@ export class AsTeckScheduler {
 
   private async runExpiryCleanup() {
     try {
-      // This calls the Supabase RPC function
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(
-        process.env.SUPABASE_URL || '',
-        process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || ''
-      );
-      
-      const { data } = await supabase.rpc('expire_old_incidents');
+      const { data, error } = await supabase.rpc('expire_old_incidents');
+      if (error) {
+        console.error('[Scheduler] Incident expiry failed:', error.message);
+        return;
+      }
       if (data && data > 0) {
         console.log(`[Scheduler] Expired ${data} old incidents`);
       }
     } catch (error) {
-      // Silently fail — not critical
+      console.error('[Scheduler] Incident expiry exception:', error);
     }
   }
 }

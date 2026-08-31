@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Activity, ArrowRight, Building2, Gauge, Landmark, Layers3, LogOut,
-  MapPin, Navigation2, Radio, RefreshCw, Search, ShieldCheck,
+  Activity, ArrowRight, Bell, Building2, CheckCircle2, Gauge, Landmark, Layers3, LogOut,
+  MapPin, Navigation2, Radio, RefreshCw, Search, ShieldCheck, UserCircle,
 } from 'lucide-react';
 import {
   createPassageIntent, fetchActiveDispatches, fetchComplianceRadar, fetchDemandRadar,
@@ -10,14 +10,16 @@ import {
 } from '../../supabaseClient';
 import { AFATLogo } from './AFATLogo';
 import { InteractiveMap } from './InteractiveMap';
+import { ROLE_FLOW } from '../../utils/roleWorkspace';
 
 export type AdaptiveWorkspaceRole = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
-type WorkspaceTab = 'bookings' | 'notifications' | 'profile';
+type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
 
 type Props = {
   role: AdaptiveWorkspaceRole;
   profile: any;
   membership?: any;
+  activeTab?: WorkspaceTab;
   onNavigate: (tab: WorkspaceTab) => void;
   onSignOut: () => void;
 };
@@ -34,6 +36,64 @@ const ROLE_META: Record<AdaptiveWorkspaceRole, { label: string; promise: string;
 };
 
 const EMPTY_LIVE: LiveFeed = { incidents: [], tracks: [], checkpoints: [] };
+
+const TAB_COPY: Record<AdaptiveWorkspaceRole, Record<Exclude<WorkspaceTab, 'home'>, { eyebrow: string; title: string; description: string }>> = {
+  commuter: {
+    bookings: { eyebrow: 'My journeys', title: 'Passage history and active trips', description: 'Follow each request from meeting-point confirmation to safe arrival.' },
+    notifications: { eyebrow: 'Journey safety', title: 'Conditions that affect your movement', description: 'Only relevant route, pickup and safety notices appear here.' },
+    profile: { eyebrow: 'Passenger identity', title: 'Your trusted travel profile', description: 'Control identity, accessibility and contact preferences without exposing them to other roles.' },
+  },
+  operator: {
+    bookings: { eyebrow: 'Mission queue', title: 'Accept, deliver and complete service', description: 'Verified demand stays connected to pickup, trip and earnings evidence.' },
+    notifications: { eyebrow: 'Operator alerts', title: 'Route and service intelligence', description: 'See disruptions and instructions that affect active work.' },
+    profile: { eyebrow: 'Operator authority', title: 'Vehicle and approval status', description: 'Your live console depends on verified identity, operator approval and an approved vehicle.' },
+  },
+  planner: {
+    bookings: { eyebrow: 'Dispatch board', title: 'Turn pressure into accountable action', description: 'Monitor open dispatches and preserve the evidence behind every intervention.' },
+    notifications: { eyebrow: 'Disruption queue', title: 'Validated conditions requiring attention', description: 'Prioritise movement failures by severity and operational impact.' },
+    profile: { eyebrow: 'Planner authority', title: 'Scope and decision accountability', description: 'Planning authority remains separate from platform administration.' },
+  },
+  organization: {
+    bookings: { eyebrow: 'People and fleet', title: 'Assign owned resources', description: 'Manage only the people and vehicles attached to this organisation.' },
+    notifications: { eyebrow: 'Compliance', title: 'Evidence and renewal readiness', description: 'Submission, review and approval remain visibly separate states.' },
+    profile: { eyebrow: 'Organisation record', title: 'Registration and accountable ownership', description: 'Government-linked registration evidence and AFAT membership scope live here.' },
+  },
+  government: {
+    bookings: { eyebrow: 'Evidence register', title: 'Privacy-safe public conditions', description: 'Review aggregated evidence without exposing passenger or operator personal data.' },
+    notifications: { eyebrow: 'Response room', title: 'Coordinate within the public mandate', description: 'Responses remain jurisdiction-scoped, attributable and measurable.' },
+    profile: { eyebrow: 'Public mandate', title: 'Jurisdiction and access boundary', description: 'Partner access is tied to an approved institution and explicit mandate.' },
+  },
+  admin: {
+    bookings: { eyebrow: 'Authority queue', title: 'Identity, approval and permissions', description: 'Every elevation requires evidence, explicit scope and a recorded decision.' },
+    notifications: { eyebrow: 'System integrity', title: 'Compliance and operational exceptions', description: 'Investigate failures without mixing Admin and Planner authority.' },
+    profile: { eyebrow: 'Admin identity', title: 'Privileged access and audit', description: 'High-risk actions remain attributable, reversible and reviewable.' },
+  },
+};
+
+function RoleFlow({ role, activeTab, onNavigate }: { role: AdaptiveWorkspaceRole; activeTab: WorkspaceTab; onNavigate: Props['onNavigate'] }) {
+  const tabs: WorkspaceTab[] = ['home', 'bookings', 'notifications', 'profile'];
+  return <div className="mb-5 grid grid-cols-4 gap-2" aria-label={`${ROLE_META[role].label} service flow`}>{ROLE_FLOW[role].map((step, index) => <button key={step} type="button" onClick={() => onNavigate(tabs[index])} className={`rounded-lg border px-2 py-3 text-left transition ${activeTab === tabs[index] ? 'border-cyan-300/35 bg-cyan-400/10 text-white' : 'border-white/10 bg-white/[0.025] text-white/45'}`}><span className="block text-[8px] font-black uppercase tracking-widest">0{index + 1}</span><span className="mt-1 block text-[10px] font-black uppercase sm:text-xs">{step}</span></button>)}</div>;
+}
+
+function WorkspaceTabCanvas({ role, activeTab, profile, membership, live, missions, operations, onSignOut }: { role: AdaptiveWorkspaceRole; activeTab: Exclude<WorkspaceTab, 'home'>; profile: any; membership: any; live: LiveFeed; missions: any[]; operations: any; onSignOut: () => void }) {
+  const copy = TAB_COPY[role][activeTab];
+  const items = activeTab === 'bookings'
+    ? (role === 'operator' ? missions : role === 'planner' ? operations?.dispatches || [] : live.tracks)
+    : activeTab === 'notifications' ? live.incidents : [];
+  const identity = role === 'organization' ? membership?.companies : role === 'government' ? membership?.partner : profile;
+  return <div className="grid gap-5 xl:grid-cols-[0.78fr_1.22fr]">
+    <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+      <p className={`text-[10px] font-black uppercase tracking-[0.24em] ${ROLE_META[role].accent}`}>{copy.eyebrow}</p>
+      <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">{copy.title}</h1>
+      <p className="mt-3 text-sm leading-relaxed text-white/50">{copy.description}</p>
+      {activeTab === 'profile' ? <div className="mt-6 space-y-3">
+        <div className="rounded-lg border border-white/10 bg-black/20 p-4"><UserCircle className="h-5 w-5 text-cyan-200" /><p className="mt-3 text-base font-black">{identity?.name || identity?.full_name || profile?.email || 'Verified AFAT identity'}</p><p className="mt-1 text-xs text-white/40">Role: {ROLE_META[role].label} · Status: {identity?.status || membership?.status || profile?.status || 'active'}</p></div>
+        <button type="button" onClick={onSignOut} className="min-h-12 w-full rounded-lg border border-white/10 bg-white/5 text-xs font-black text-white">Sign out securely</button>
+      </div> : <div className="mt-6 grid grid-cols-3 gap-3"><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{items.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Live items</p></div><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{live.checkpoints.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Checkpoints</p></div><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{live.incidents.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Conditions</p></div></div>}
+    </section>
+    {activeTab === 'profile' ? <section className="rounded-lg border border-cyan-300/15 bg-cyan-400/[0.035] p-6"><ShieldCheck className="h-6 w-6 text-cyan-200" /><h2 className="mt-4 text-xl font-black">Access boundary</h2><p className="mt-2 text-sm leading-7 text-white/50">This workspace exposes only {ROLE_META[role].label.toLowerCase()} capabilities. Changing workspace never silently changes your approved role or authority.</p></section> : <section className="rounded-lg border border-white/10 bg-white/[0.025] p-5"><div className="flex items-center gap-2"><Bell className="h-4 w-4 text-cyan-200" /><h2 className="text-sm font-black uppercase tracking-wider">Current operational queue</h2></div><div className="mt-4 space-y-3">{items.slice(0, 8).map((item: any, index: number) => <article key={item.id || index} className="rounded-lg border border-white/10 bg-black/20 p-4"><div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /><div><p className="text-sm font-black">{item.destination_text || item.name || item.type || item.status || `${ROLE_META[role].label} item`}</p><p className="mt-1 text-xs text-white/40">{item.origin_text || item.description || item.status || 'Live AFAT service record'}</p></div></div></article>)}{!items.length && <div className="rounded-lg border border-dashed border-white/15 p-8 text-center text-sm text-white/40">No live items in this queue. This is a real empty state, not sample data.</div>}</div></section>}
+  </div>;
+}
 
 function WorkspaceHeader({ role, profile, onSignOut }: Pick<Props, 'role' | 'profile' | 'onSignOut'>) {
   const meta = ROLE_META[role];
@@ -244,12 +304,12 @@ function AdminCanvas({ operations, onNavigate }: { operations: any; onNavigate: 
   );
 }
 
-export function AdaptiveRoleHome({ role, profile, membership, onNavigate, onSignOut }: Props) {
+export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home', onNavigate, onSignOut }: Props) {
   const [live, setLive] = useState<LiveFeed>(EMPTY_LIVE);
   const [missions, setMissions] = useState<any[]>([]);
   const [operations, setOperations] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [feedError, setFeedError] = useState('');
+  const [serviceErrors, setServiceErrors] = useState<string[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const meta = ROLE_META[role];
 
@@ -257,45 +317,50 @@ export function AdaptiveRoleHome({ role, profile, membership, onNavigate, onSign
     let active = true;
     const hydrate = async () => {
       setLoading(true);
-      setFeedError('');
+      const errors: string[] = [];
       const city = profile?.preferred_city || profile?.base_city || 'cameroon';
       const mapResult = role === 'government' ? await fetchPublicPartnerConditions(city) : ['planner', 'admin'].includes(role) ? await fetchLiveMapOps(city) : await fetchMobilityMapFeed(city);
       if (!active) return;
       if (mapResult.data) setLive({ incidents: mapResult.data.incidents || [], tracks: mapResult.data.vehicles || [], checkpoints: mapResult.data.checkpoints || [] });
       else {
         setLive(EMPTY_LIVE);
-        setFeedError(mapResult.error?.message || 'The live map feed is temporarily unavailable.');
+        errors.push(`Map: ${mapResult.error?.message || 'temporarily unavailable'}`);
       }
 
       if (role === 'operator') {
         const requests = await fetchPassageIntents({ open: true });
         if (active) {
           setMissions(requests.data?.passages || []);
-          if (requests.error) setFeedError((current) => current || requests.error.message);
+          if (requests.error) errors.push(`Mission queue: ${requests.error.message}`);
         }
       }
       if (role === 'planner') {
         const [demand, dispatches] = await Promise.all([fetchDemandRadar(), fetchActiveDispatches()]);
+        if (demand.error) errors.push(`Demand radar: ${demand.error.message}`);
+        if (dispatches.error) errors.push(`Dispatch board: ${dispatches.error.message}`);
         if (active) setOperations({ demand: demand.data, dispatches: dispatches.data?.dispatches || [] });
       }
       if (role === 'admin') {
         const [reports, compliance] = await Promise.all([fetchOpsReportCenter(), fetchComplianceRadar()]);
+        if (reports.error) errors.push(`Report center: ${reports.error.message}`);
+        if (compliance.error) errors.push(`Compliance radar: ${compliance.error.message}`);
         if (active) setOperations({ reports: reports.data, compliance: compliance.data });
       }
-      if (active) setLoading(false);
+      if (active) { setServiceErrors(errors); setLoading(false); }
     };
     void hydrate();
     return () => { active = false; };
   }, [profile?.preferred_city, profile?.base_city, role, refreshKey]);
 
   const content = useMemo(() => {
+    if (activeTab !== 'home') return <WorkspaceTabCanvas role={role} activeTab={activeTab} profile={profile} membership={membership} live={live} missions={missions} operations={operations} onSignOut={onSignOut} />;
     if (role === 'commuter') return <PassengerCanvas profile={profile} live={live} onNavigate={onNavigate} />;
     if (role === 'operator') return <OperatorCanvas profile={profile} live={live} missions={missions} onNavigate={onNavigate} onMissionChanged={() => setRefreshKey((value) => value + 1)} />;
     if (role === 'organization') return <OrganizationCanvas membership={membership} live={live} onNavigate={onNavigate} />;
     if (role === 'government') return <GovernmentCanvas membership={membership} live={live} onNavigate={onNavigate} />;
     if (role === 'planner') return <PlannerCanvas live={live} operations={operations} onNavigate={onNavigate} />;
     return <AdminCanvas operations={operations} onNavigate={onNavigate} />;
-  }, [role, profile, live, missions, membership, operations, onNavigate]);
+  }, [activeTab, role, profile, live, missions, membership, operations, onNavigate, onSignOut]);
 
   return (
     <div className="min-h-screen bg-[#03080e] pb-28 text-white">
@@ -305,9 +370,10 @@ export function AdaptiveRoleHome({ role, profile, membership, onNavigate, onSign
           <div><div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] ${meta.accent}`}><Radio className="h-3 w-3" /> {meta.label} workspace</div><p className="mt-2 max-w-3xl text-sm font-medium text-white/45">{meta.promise}</p></div>
           <button onClick={() => setRefreshKey((value) => value + 1)} disabled={loading} className="flex min-h-10 items-center gap-2 self-start rounded-lg border border-white/10 bg-white/5 px-3 text-[9px] font-black uppercase tracking-wider text-white/60 disabled:opacity-40"><RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} /> {loading ? 'Syncing' : 'Refresh live data'}</button>
         </div>
-        {feedError && <div role="status" className="mb-5 rounded-lg border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100"><strong>Partial service:</strong> {feedError}</div>}
+        <RoleFlow role={role} activeTab={activeTab} onNavigate={onNavigate} />
+        {serviceErrors.length > 0 && <div role="status" className="mb-5 rounded-lg border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100"><strong>Partial service:</strong><ul className="mt-2 list-disc space-y-1 pl-5">{serviceErrors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
         {content}
-        {!feedError && !loading && <div className="mt-4 flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-emerald-300"><Activity className="h-3 w-3" /> Live role services synchronized</div>}
+        {serviceErrors.length === 0 && !loading && <div className="mt-4 flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-emerald-300"><Activity className="h-3 w-3" /> Required {meta.label.toLowerCase()} services responded</div>}
       </main>
     </div>
   );

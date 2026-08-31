@@ -23,26 +23,23 @@ export function LiveETATracker({ bookingId, operatorId, onClose }: Props) {
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'gps_tracks',
+        table: 'movement_logs',
         filter: `user_id=eq.${operatorId}`
       }, (payload: any) => {
         const track = payload.new;
-        if (track.location) {
-          const matches = track.location.match(/\((.*) (.*)\)/);
-          if (matches) {
-            const lng = parseFloat(matches[1]);
-            const lat = parseFloat(matches[2]);
+        if (Number.isFinite(Number(track.latitude)) && Number.isFinite(Number(track.longitude))) {
+            const lng = Number(track.longitude);
+            const lat = Number(track.latitude);
             setOperatorLocation({ lat, lng });
 
             // Rough ETA: assume 30km/h avg in city
-            const speed = track.speed_kph || 30;
+            const speed = track.speed || 30;
             const distance = calculateDistance(lat, lng);
             const eta = Math.max(1, Math.round((distance / speed) * 60));
             setEtaMinutes(eta);
 
             if (eta <= 2) setStatus('arriving');
             if (distance < 0.1) setStatus('arrived');
-          }
         }
       })
       .subscribe();
@@ -64,22 +61,19 @@ export function LiveETATracker({ bookingId, operatorId, onClose }: Props) {
 
   const fetchLatestPosition = async () => {
     const { data } = await supabase
-      .from('gps_tracks')
+      .from('movement_logs')
       .select('*')
       .eq('user_id', operatorId)
-      .order('created_at', { ascending: false })
+      .order('timestamp', { ascending: false })
       .limit(1)
       .single();
 
-    if (data?.location) {
-      const matches = data.location.match(/\((.*) (.*)\)/);
-      if (matches) {
-        const lng = parseFloat(matches[1]);
-        const lat = parseFloat(matches[2]);
+    if (Number.isFinite(Number(data?.latitude)) && Number.isFinite(Number(data?.longitude))) {
+        const lng = Number(data.longitude);
+        const lat = Number(data.latitude);
         setOperatorLocation({ lat, lng });
         const distance = calculateDistance(lat, lng);
         setEtaMinutes(Math.max(1, Math.round((distance / 30) * 60)));
-      }
     }
   };
 

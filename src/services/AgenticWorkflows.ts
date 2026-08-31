@@ -128,15 +128,15 @@ export class AgenticWorkflows {
     const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     
     const { data: nearbyTracks } = await supabase
-      .from('gps_tracks')
-      .select('speed_kph')
-      .gt('created_at', fiveMinsAgo)
+      .from('movement_logs')
+      .select('speed')
+      .gt('timestamp', fiveMinsAgo)
       // Geographic bounding box filtering would go here
       .limit(10);
 
     if (!nearbyTracks || nearbyTracks.length < 3) return false;
 
-    const avgSpeed = nearbyTracks.reduce((s, t) => s + (t.speed_kph || 0), 0) / nearbyTracks.length;
+    const avgSpeed = nearbyTracks.reduce((s, t) => s + (t.speed || 0), 0) / nearbyTracks.length;
 
     // If avg speed is < 15kph in a 50kph zone, verify the jam
     if (avgSpeed < 15) {

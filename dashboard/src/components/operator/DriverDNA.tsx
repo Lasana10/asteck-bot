@@ -45,17 +45,17 @@ export function DriverDNA({ operatorId }: Props) {
     setLoading(true);
 
     const { data: tracks } = await supabase
-      .from('gps_tracks')
-      .select('speed_kph')
+      .from('movement_logs')
+      .select('speed')
       .eq('user_id', operatorId)
-      .order('created_at', { ascending: false })
+      .order('timestamp', { ascending: false })
       .limit(100);
 
     let safetyScore: number | null = null;
     const gpsSamples = tracks?.length || 0;
     if (gpsSamples >= 20) {
-      const avgSpeed = tracks.reduce((sum, t) => sum + (t.speed_kph || 0), 0) / tracks.length;
-      const overspeeding = tracks.filter(t => (t.speed_kph || 0) > 80).length;
+      const avgSpeed = tracks.reduce((sum, t) => sum + (t.speed || 0), 0) / tracks.length;
+      const overspeeding = tracks.filter(t => (t.speed || 0) > 80).length;
       const overspeedingRate = overspeeding / tracks.length;
       safetyScore = Math.max(30, Math.min(100, 100 - (overspeedingRate * 200) - (avgSpeed > 60 ? 15 : 0)));
     }

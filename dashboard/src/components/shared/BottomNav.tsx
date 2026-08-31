@@ -13,40 +13,40 @@ interface Props {
 // ── Per-role tab definitions ────────────────────────────────────
 const TAB_CONFIG: Record<string, { id: string; label: string; icon: React.ElementType }[]> = {
   commuter: [
-    { id: 'home',          label: 'Home',        icon: Home },
-    { id: 'bookings',      label: 'Book',        icon: Ticket },
-    { id: 'notifications', label: 'Intel',       icon: Radio },
-    { id: 'profile',       label: 'Profile',     icon: User },
+    { id: 'home',          label: 'Plan',        icon: Home },
+    { id: 'bookings',      label: 'Trips',       icon: Ticket },
+    { id: 'notifications', label: 'Safety',      icon: Radio },
+    { id: 'profile',       label: 'Me',          icon: User },
   ],
   operator: [
     { id: 'home',          label: 'Terminal',    icon: Home },
-    { id: 'bookings',      label: 'Requests',    icon: QrCode },
-    { id: 'notifications', label: 'Intel',       icon: Radio },
-    { id: 'profile',       label: 'Profile',     icon: User },
+    { id: 'bookings',      label: 'Missions',    icon: QrCode },
+    { id: 'notifications', label: 'Alerts',      icon: Radio },
+    { id: 'profile',       label: 'Account',     icon: User },
   ],
   planner: [
-    { id: 'home',          label: 'Map',         icon: Map },
-    { id: 'bookings',      label: 'Reports',     icon: BarChart3 },
-    { id: 'notifications', label: 'Alerts',      icon: Bell },
-    { id: 'profile',       label: 'Profile',     icon: User },
+    { id: 'home',          label: 'Situation',   icon: Map },
+    { id: 'bookings',      label: 'Dispatch',    icon: BarChart3 },
+    { id: 'notifications', label: 'Disruptions', icon: Bell },
+    { id: 'profile',       label: 'Authority',   icon: User },
   ],
   organization: [
     { id: 'home',          label: 'Overview',    icon: Home },
-    { id: 'bookings',      label: 'Fleet',       icon: Navigation2 },
+    { id: 'bookings',      label: 'Assign',      icon: Navigation2 },
     { id: 'notifications', label: 'Compliance',  icon: ShieldAlert },
     { id: 'profile',       label: 'Organisation', icon: User },
   ],
   government: [
     { id: 'home',          label: 'Conditions', icon: Map },
-    { id: 'bookings',      label: 'Evidence',   icon: BarChart3 },
+    { id: 'bookings',      label: 'Mandate',    icon: BarChart3 },
     { id: 'notifications', label: 'Response',   icon: Radio },
-    { id: 'profile',       label: 'Mandate',    icon: ShieldAlert },
+    { id: 'profile',       label: 'Institution', icon: ShieldAlert },
   ],
   admin: [
     { id: 'home',          label: 'Command',     icon: ShieldAlert },
-    { id: 'bookings',      label: 'Analytics',   icon: BarChart3 },
-    { id: 'notifications', label: 'Alerts',      icon: Bell },
-    { id: 'profile',       label: 'Profile',     icon: User },
+    { id: 'bookings',      label: 'Authority',   icon: BarChart3 },
+    { id: 'notifications', label: 'Integrity',   icon: Bell },
+    { id: 'profile',       label: 'Audit',       icon: User },
   ],
 };
 
