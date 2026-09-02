@@ -793,7 +793,7 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
     const email = String(user.email || '').trim().toLowerCase();
     const phone = normalizeAuthPhone(String(user.phone || ''));
     const hasPhoneIdentity = Boolean(user.phone && phone);
-    const requestedRole = isAnonymousSession
+    let requestedRole = isAnonymousSession
       ? 'commuter'
       : String(req.body?.roleIntent || user.user_metadata?.role || 'commuter').trim().toLowerCase();
     const publicRoles = new Set(['commuter']);
@@ -814,6 +814,12 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
 
     const accessCode = String(req.body?.accessCode || '').trim();
     const providedAdminCode = String(req.body?.adminCode || '').trim();
+    // A remembered browser lane is never role authority. If this identity
+    // already has a profile and no activation credential was supplied, restore
+    // the server-held role instead of failing or opening another role's UI.
+    if (existingProfile && !accessCode && !providedAdminCode) {
+      requestedRole = String(existingProfile.role || 'commuter').trim().toLowerCase();
+    }
     const identity = { email: email || undefined, phone: hasPhoneIdentity ? phone : undefined };
     const existingOperatorApproved = Boolean(
       existingProfile &&
@@ -933,7 +939,18 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
 
     const accessIdentity = email || phone || profile.phone || user.id;
     const accessToken = issueAccessToken(profile, accessIdentity);
-    const { refreshToken, session } = await issueRefreshSession(profile, accessIdentity, req);
+    let refreshToken: string | null = null;
+    let session: any = null;
+    try {
+      const issued = await issueRefreshSession(profile, accessIdentity, req);
+      refreshToken = issued.refreshToken;
+      session = issued.session;
+    } catch (sessionError) {
+      // Supabase already owns this authenticated browser session. A secondary
+      // AFAT refresh-session outage must not turn a valid identity into a
+      // failed role activation; API calls can continue with the Supabase JWT.
+      console.warn('AFAT refresh session unavailable for Supabase identity:', sessionError);
+    }
 
     res.status(200).json({
       success: true,
@@ -943,10 +960,10 @@ router.post('/auth/supabase-profile', async (req: Request, res: Response) => {
       profile,
       accessToken,
       refreshToken,
-      session: {
+      session: session ? {
         id: session.id,
         expires_at: session.expires_at,
-      },
+      } : null,
     });
   } catch (error: any) {
     console.error('Supabase identity profile bootstrap error:', error);

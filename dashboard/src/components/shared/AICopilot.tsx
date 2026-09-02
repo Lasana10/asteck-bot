@@ -216,10 +216,10 @@ User input: "${userText}"`;
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-24 right-4 z-[1500] flex items-center gap-3 rounded-full border border-white/10 bg-gradient-to-r from-blue-600 to-indigo-700 px-4 py-3 shadow-2xl shadow-blue-500/30 active:scale-95 transition-all ring-4 ring-white/10 hover:ring-blue-500/30"
+          className="fixed bottom-24 right-3 z-[5100] flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-gradient-to-r from-blue-600 to-indigo-700 shadow-2xl shadow-blue-500/30 ring-4 ring-white/10 transition-all active:scale-95 hover:ring-blue-500/30 sm:bottom-28 sm:right-4 sm:h-auto sm:w-auto sm:gap-3 sm:px-4 sm:py-3"
         >
           <Sparkles className="w-6 h-6 text-white" />
-          <div className="text-left">
+          <div className="hidden text-left sm:block">
             <p className="text-[10px] font-black uppercase tracking-widest text-white">AI Orchestrator</p>
             <p className="text-[9px] font-semibold text-blue-100/80">Guidance, strategy, vision</p>
           </div>
@@ -228,7 +228,7 @@ User input: "${userText}"`;
 
       {/* Chat panel */}
       {isOpen && (
-        <div className="fixed bottom-20 right-4 left-4 sm:left-auto sm:w-96 z-[2000] animate-in slide-in-from-bottom-4 duration-300">
+        <div className="fixed bottom-24 left-3 right-3 z-[5200] animate-in slide-in-from-bottom-4 duration-300 sm:bottom-28 sm:left-auto sm:right-4 sm:w-96">
           <div className="bg-slate-900 border border-white/10 rounded-[32px] shadow-2xl shadow-black/50 overflow-hidden flex flex-col max-h-[70vh]">
             {/* Header */}
             <div className="bg-gradient-to-r from-blue-600/20 to-indigo-700/20 border-b border-white/5 px-6 py-4 flex items-center justify-between">

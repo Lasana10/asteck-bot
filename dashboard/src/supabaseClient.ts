@@ -12,6 +12,10 @@ const apiOverrideStorageKey = 'afat_api_base_override';
 const localRuntimeHosts = new Set(['localhost', '127.0.0.1']);
 const pendingAccessCodeStorageKey = 'afat_pending_access_code';
 const pendingAdminCodeStorageKey = 'afat_pending_admin_code';
+const pendingRoleIntentStorageKey = 'afat_pending_role_intent';
+const afatAccessTokenStorageKey = 'afat_access_token';
+const afatRefreshTokenStorageKey = 'afat_refresh_token';
+const afatTokenOwnerStorageKey = 'afat_access_token_user_id';
 
 function normalizeApiUrl(url?: string | null) {
   const raw = String(url || '').trim();
@@ -29,6 +33,68 @@ function normalizeApiUrl(url?: string | null) {
 
 function canUseWindow() {
   return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+}
+
+function decodeJwtPayload(token?: string | null) {
+  if (!token) return null;
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(window.atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+export function clearAfatSessionTokens() {
+  if (!canUseWindow()) return;
+  localStorage.removeItem(afatAccessTokenStorageKey);
+  localStorage.removeItem(afatRefreshTokenStorageKey);
+  localStorage.removeItem(afatTokenOwnerStorageKey);
+}
+
+function storeAfatSession(data: any) {
+  if (!canUseWindow()) return;
+  const userId = String(data?.userId || data?.profile?.id || '').trim();
+  if (data?.accessToken && userId) {
+    localStorage.setItem(afatAccessTokenStorageKey, data.accessToken);
+    localStorage.setItem(afatTokenOwnerStorageKey, userId);
+  }
+  if (data?.refreshToken && userId) localStorage.setItem(afatRefreshTokenStorageKey, data.refreshToken);
+}
+
+function getBoundAfatAccessToken(expectedUserId?: string | null) {
+  if (!canUseWindow()) return null;
+  const token = localStorage.getItem(afatAccessTokenStorageKey);
+  if (!token) return null;
+  const payload = decodeJwtPayload(token);
+  const tokenUserId = String(payload?.sub || '').trim();
+  const storedOwner = String(localStorage.getItem(afatTokenOwnerStorageKey) || '').trim();
+  const expected = String(expectedUserId || '').trim();
+  const expiryMs = Number(payload?.exp || 0) * 1000;
+  const mismatched = Boolean(
+    (storedOwner && tokenUserId && storedOwner !== tokenUserId) ||
+    (expected && storedOwner && expected !== storedOwner) ||
+    (expected && tokenUserId && expected !== tokenUserId) ||
+    (expiryMs && expiryMs <= Date.now())
+  );
+  if (mismatched) {
+    clearAfatSessionTokens();
+    return null;
+  }
+  const owner = tokenUserId || storedOwner;
+  if (!owner || (expected && owner !== expected)) {
+    clearAfatSessionTokens();
+    return null;
+  }
+  if (!storedOwner) localStorage.setItem(afatTokenOwnerStorageKey, owner);
+  return token;
+}
+
+export function reconcileAfatSessionOwner(userId: string) {
+  getBoundAfatAccessToken(userId);
 }
 
 export function isLocalAppRuntime() {
@@ -422,8 +488,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 export async function signInWithGoogle(options?: { roleIntent?: string }) {
   try {
-    const roleIntent = options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter';
+    const roleIntent = options?.roleIntent || sessionStorage.getItem(pendingRoleIntentStorageKey) || 'commuter';
     localStorage.setItem('afat_access_intent_role', roleIntent);
+    sessionStorage.setItem(pendingRoleIntentStorageKey, roleIntent);
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -505,7 +572,7 @@ export async function completeGoogleAuthCallback(options?: {
     }
 
     const profileResult = await ensureSupabaseEmailProfile({
-      roleIntent: options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter',
+      roleIntent: options?.roleIntent || sessionStorage.getItem(pendingRoleIntentStorageKey) || 'commuter',
       accessCode: options?.accessCode || '',
       adminCode: options?.adminCode || '',
     });
@@ -653,6 +720,7 @@ export async function ensureSupabaseEmailProfile(options?: {
     if (!token) {
       return { data: null, error: { message: 'No verified Supabase identity session is active yet.' } };
     }
+    reconcileAfatSessionOwner(sessionData.session?.user?.id || '');
 
     const result = await requestAfatApi('/api/auth/supabase-profile', {
       method: 'POST',
@@ -661,7 +729,7 @@ export async function ensureSupabaseEmailProfile(options?: {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        roleIntent: options?.roleIntent || localStorage.getItem('afat_access_intent_role') || 'commuter',
+        roleIntent: options?.roleIntent || sessionStorage.getItem(pendingRoleIntentStorageKey) || 'commuter',
         accessCode: options?.accessCode || sessionStorage.getItem(pendingAccessCodeStorageKey) || '',
         adminCode: options?.adminCode || sessionStorage.getItem(pendingAdminCodeStorageKey) || '',
       }),
@@ -674,8 +742,10 @@ export async function ensureSupabaseEmailProfile(options?: {
       localStorage.setItem('afat_local_user_id', data.userId);
       localStorage.setItem('afat_user_id', data.userId);
     }
-    if (data?.accessToken) localStorage.setItem('afat_access_token', data.accessToken);
-    if (data?.refreshToken) localStorage.setItem('afat_refresh_token', data.refreshToken);
+    storeAfatSession(data);
+    const grantedRole = String(data?.profile?.role || 'commuter').toLowerCase();
+    localStorage.setItem('afat_access_intent_role', grantedRole);
+    sessionStorage.removeItem(pendingRoleIntentStorageKey);
     sessionStorage.removeItem(pendingAccessCodeStorageKey);
     sessionStorage.removeItem(pendingAdminCodeStorageKey);
 
@@ -703,12 +773,7 @@ export async function bypassAfatRole(role: string) {
     if (data?.profile?.phone) {
       localStorage.setItem('afat_local_phone', data.profile.phone);
     }
-    if (data?.accessToken) {
-      localStorage.setItem('afat_access_token', data.accessToken);
-    }
-    if (data?.refreshToken) {
-      localStorage.setItem('afat_refresh_token', data.refreshToken);
-    }
+    storeAfatSession(data);
     localStorage.setItem('afat_access_intent_role', role);
 
     return { data, error: null };
@@ -805,8 +870,7 @@ export async function refreshAfatSession() {
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Session refresh failed.' } };
 
-    if (data?.accessToken) localStorage.setItem('afat_access_token', data.accessToken);
-    if (data?.refreshToken) localStorage.setItem('afat_refresh_token', data.refreshToken);
+    storeAfatSession(data);
     if (data?.profile?.id) localStorage.setItem('afat_local_user_id', data.profile.id);
     if (data?.profile?.phone) localStorage.setItem('afat_local_phone', data.profile.phone);
 
@@ -830,11 +894,11 @@ export async function fetchAfatSessionProfile() {
 }
 
 export async function signOut() {
-  localStorage.removeItem('afat_access_token');
-  const refreshToken = localStorage.getItem('afat_refresh_token');
-  localStorage.removeItem('afat_refresh_token');
+  const refreshToken = localStorage.getItem(afatRefreshTokenStorageKey);
+  clearAfatSessionTokens();
   sessionStorage.removeItem(pendingAccessCodeStorageKey);
   sessionStorage.removeItem(pendingAdminCodeStorageKey);
+  sessionStorage.removeItem(pendingRoleIntentStorageKey);
   if (refreshToken) {
     try {
       await fetch(`${getApiBaseUrl()}/api/auth/logout`, {
@@ -848,28 +912,28 @@ export async function signOut() {
 }
 
 export function afatAuthHeaders() {
-  const token = localStorage.getItem('afat_access_token');
+  const token = getBoundAfatAccessToken(localStorage.getItem('afat_local_user_id'));
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function authenticatedApiHeaders() {
-  const localToken = localStorage.getItem('afat_access_token');
-  if (localToken) return { Authorization: `Bearer ${localToken}` };
   const { data } = await supabase.auth.getSession();
+  const localToken = getBoundAfatAccessToken(data.session?.user?.id || null);
+  if (localToken) return { Authorization: `Bearer ${localToken}` };
   return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
 async function passageAuthHeaders() {
-  const localToken = localStorage.getItem('afat_access_token');
-  if (localToken) return { Authorization: `Bearer ${localToken}` };
   const { data } = await supabase.auth.getSession();
+  const localToken = getBoundAfatAccessToken(data.session?.user?.id || null);
+  if (localToken) return { Authorization: `Bearer ${localToken}` };
   return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
 async function onboardingAuthHeaders() {
   const { data } = await supabase.auth.getSession();
   if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}` };
-  const localToken = localStorage.getItem('afat_access_token');
+  const localToken = getBoundAfatAccessToken(localStorage.getItem('afat_local_user_id'));
   return localToken ? { Authorization: `Bearer ${localToken}` } : {};
 }
 
@@ -882,7 +946,7 @@ export async function getCurrentUser() {
  * Get the full universal profile including their ROLE (commuter, operator, planner, admin)
  */
 export async function getProfile(userId: string) {
-  const localAccessToken = localStorage.getItem('afat_access_token');
+  const localAccessToken = getBoundAfatAccessToken(userId);
   if (localAccessToken) {
     const afatSession = await fetchAfatSessionProfile();
     const sessionProfile = afatSession.data?.profile;
@@ -1372,7 +1436,8 @@ export async function fetchBookingStatus(bookingId: string) {
 
 export async function fetchOpsReportCenter() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/report-center`, { headers: afatAuthHeaders() });
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/report-center`, { headers: authHeaders });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Report center fetch failed.' } };
     return { data, error: null };
@@ -1383,9 +1448,10 @@ export async function fetchOpsReportCenter() {
 
 export async function updateOpsReportStatus(reportId: string, status: string, resolverId?: string) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/reports/${reportId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ status, resolver_id: resolverId }),
     });
     const data = await res.json();
@@ -1413,7 +1479,8 @@ export async function fetchSafetyScore(lat?: number, lng?: number, radiusKm: num
 
 export async function fetchDemandRadar() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/demand-radar`, { headers: afatAuthHeaders() });
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/demand-radar`, { headers: authHeaders });
     const parsed = await readApiJson(res, 'Demand radar fetch failed.');
     if (parsed.error) return { data: null, error: parsed.error };
     const data = parsed.data;
@@ -1426,9 +1493,10 @@ export async function fetchDemandRadar() {
 
 export async function publishMapSignal(signalData: any) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(signalData),
     });
     const parsed = await readApiJson(res, 'Map signal publish failed.');
@@ -1444,7 +1512,8 @@ export async function publishMapSignal(signalData: any) {
 export async function fetchLiveMapOps(city: string = 'cameroon') {
   try {
     const params = new URLSearchParams({ city });
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/live-map?${params.toString()}`, { headers: afatAuthHeaders() });
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/live-map?${params.toString()}`, { headers: authHeaders });
     const parsed = await readApiJson(res, 'Live map feed failed.');
     if (parsed.error) return { data: null, error: parsed.error };
     const data = parsed.data;
@@ -1458,8 +1527,9 @@ export async function fetchLiveMapOps(city: string = 'cameroon') {
 export async function fetchPublicPartnerConditions(city: string = 'cameroon') {
   try {
     const query = new URLSearchParams({ city });
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/public-partner/mobility-conditions?${query.toString()}`, {
-      headers: afatAuthHeaders(),
+      headers: authHeaders,
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Public mobility conditions unavailable.' } };
@@ -1474,9 +1544,10 @@ export async function createPublicPartnerResponse(payload: {
   requested_actions: string[];
 }) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/public-partner/responses`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -1490,8 +1561,9 @@ export async function createPublicPartnerResponse(payload: {
 export async function fetchMobilityMapFeed(city: string = 'cameroon') {
   try {
     const query = new URLSearchParams({ city });
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/mobility/map-feed?${query.toString()}`, {
-      headers: afatAuthHeaders(),
+      headers: authHeaders,
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Mobility map feed unavailable.' } };
@@ -1510,9 +1582,10 @@ export async function reviewMapSignal(reviewData: {
   reviewer_id?: string;
 }) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/map-signal-reviews`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(reviewData),
     });
     const parsed = await readApiJson(res, 'Map signal review failed.');
@@ -1527,8 +1600,9 @@ export async function reviewMapSignal(reviewData: {
 
 export async function fetchActiveDispatches() {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/dispatch/active`, {
-      headers: afatAuthHeaders(),
+      headers: authHeaders,
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch fetch failed.' } };
@@ -1540,9 +1614,10 @@ export async function fetchActiveDispatches() {
 
 export async function createDispatchAssignment(dispatchData: any) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/dispatch/assign`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(dispatchData),
     });
     const data = await res.json();
@@ -1555,9 +1630,10 @@ export async function createDispatchAssignment(dispatchData: any) {
 
 export async function createServiceRequest(serviceData: any) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/service/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(serviceData),
     });
     const data = await res.json();
@@ -1599,9 +1675,10 @@ export type AfatPlaceCandidate = {
 
 export async function resolveAfatPlace(payload: { query: string; city?: string; vehicle_type?: string }) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/place/resolve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -1737,7 +1814,8 @@ export async function fetchPaymentProviderReadiness() {
 
 export async function fetchComplianceRadar() {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/ops/compliance-radar`, { headers: afatAuthHeaders() });
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/compliance-radar`, { headers: authHeaders });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance radar fetch failed.' } };
     return { data, error: null };
@@ -1748,7 +1826,8 @@ export async function fetchComplianceRadar() {
 
 export async function fetchComplianceSummary(profileId: string) {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/compliance/summary/${profileId}`, { headers: afatAuthHeaders() });
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/compliance/summary/${profileId}`, { headers: authHeaders });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Compliance summary fetch failed.' } };
     return { data, error: null };
@@ -1768,11 +1847,12 @@ export async function enrollCheckpoint(payload: {
   notes?: string;
 }) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/checkpoints/enroll`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...afatAuthHeaders(),
+        ...authHeaders,
       },
       body: JSON.stringify(payload),
     });
@@ -1786,9 +1866,10 @@ export async function enrollCheckpoint(payload: {
 
 export async function updateComplianceStatus(recordId: string, status: string, notes?: string) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/compliance/${recordId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ status, notes }),
     });
     const data = await res.json();
@@ -1810,9 +1891,10 @@ export async function sendOpsNotification(payload: {
   reference_id?: string;
 }) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/notifications/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -1831,9 +1913,10 @@ export async function updateOperatorLifecycle(
   }
 ) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/operators/${operatorId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -1849,9 +1932,10 @@ export async function updateStaffLifecycle(
   status: 'ACTIVE' | 'SUSPENDED',
 ) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/staff/${profileId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ status }),
     });
     const data = await res.json();
@@ -1871,9 +1955,10 @@ export async function updateCompanyLifecycle(
   }
 ) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/companies/${companyId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
     const data = await res.json();

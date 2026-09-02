@@ -84,8 +84,8 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
   const accentText   = ROLE_TEXT[role] ?? ROLE_TEXT.commuter;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[5000] w-[calc(100%-48px)] max-w-lg">
-      <nav className="bg-slate-950/80 backdrop-blur-2xl border border-cyan-400/10 p-2.5 rounded-[2rem] flex items-center justify-around shadow-[0_20px_60px_rgba(0,0,0,0.55),0_0_28px_rgba(59,130,246,0.08)]">
+    <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 z-[5000] w-[calc(100%-24px)] max-w-lg -translate-x-1/2">
+      <nav className="flex items-center justify-around rounded-[1.75rem] border border-cyan-400/10 bg-slate-950/90 p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.55),0_0_28px_rgba(59,130,246,0.08)] backdrop-blur-2xl sm:p-2.5">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -97,11 +97,11 @@ export function BottomNav({ role, activeTab, onTabChange }: Props) {
               aria-label={tab.label}
               aria-current={isActive ? 'page' : undefined}
               onClick={() => onTabChange(tab.id)}
-              className={`flex-1 flex flex-col items-center gap-1.5 transition-all duration-300 relative group py-2 rounded-2xl ${
+              className={`group relative flex min-h-16 flex-1 flex-col items-center gap-1 rounded-2xl py-1.5 transition-all duration-300 sm:gap-1.5 sm:py-2 ${
                 isActive ? accentText : 'text-slate-500 hover:text-cyan-200'
               }`}
             >
-              <div className={`p-2 rounded-xl transition-all duration-300 ${isActive ? accentActive : 'group-hover:bg-cyan-400/10'}`}>
+              <div className={`rounded-xl p-1.5 transition-all duration-300 sm:p-2 ${isActive ? accentActive : 'group-hover:bg-cyan-400/10'}`}>
                 <Icon className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-105'}`} />
               </div>
               

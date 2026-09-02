@@ -179,7 +179,7 @@ export function InteractiveMap({
     const refresh = async () => {
       const [{ data: vehiclesData }, { data: movementData }] = await Promise.all([
         supabase.from('vehicles').select('*').eq('is_available', true).limit(20),
-        supabase.from('movement_logs').select('*').order('created_at', { ascending: false }).limit(12),
+        supabase.from('movement_logs').select('*').order('timestamp', { ascending: false }).limit(12),
       ]);
 
       if (vehiclesData?.length) setLiveVehicles(vehiclesData);

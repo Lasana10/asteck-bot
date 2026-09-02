@@ -389,7 +389,7 @@ export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home'
   }, [activeTab, role, profile, live, missions, membership, operations, onNavigate, onSignOut]);
 
   return (
-    <div className="min-h-screen bg-[#03080e] pb-28 text-white">
+    <div className="min-h-screen bg-[#03080e] pb-44 text-white sm:pb-36">
       <WorkspaceHeader role={role} profile={profile} onSignOut={onSignOut} />
       <main className="mx-auto max-w-[1500px] px-4 py-5 sm:px-7 sm:py-7">
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

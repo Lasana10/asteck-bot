@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, getCompanyMembership, getPublicPartnerMembership, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole, runAfatBackendDiagnostics } from './supabaseClient';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, sendEmailOtp, verifyEmailOtp, signInOrSignUpWithEmailPassword, signInWithGoogle, signInAsGuest, completeGoogleAuthCallback, ensureSupabaseEmailProfile, getCurrentUser, getProfile, getCompanyMembership, getPublicPartnerMembership, signOut, fetchAfatSessionProfile, refreshAfatSession, ensureReachableApiBaseUrl, getApiBaseUrl, setApiBaseOverride, bypassAfatRole, runAfatBackendDiagnostics, reconcileAfatSessionOwner } from './supabaseClient';
 import { ShieldAlert, Car, Map as MapIcon, BarChart3, ChevronRight, Chrome } from 'lucide-react';
 import { AFATLogo } from './components/shared/AFATLogo';
 import { BottomNav } from './components/shared/BottomNav';
@@ -87,7 +87,7 @@ function Login({
   const [needsAccountCreation, setNeedsAccountCreation] = useState(false);
   const [authChallengeKey, setAuthChallengeKey] = useState(0);
   const [roleIntent, setRoleIntent] = useState<'commuter' | 'operator' | 'planner' | 'admin'>(() => {
-    const savedRole = localStorage.getItem('afat_access_intent_role');
+    const savedRole = sessionStorage.getItem('afat_pending_role_intent');
     if (isStaffAccess) return savedRole === 'admin' ? 'admin' : 'planner';
     return savedRole === 'operator' ? 'operator' : 'commuter';
   });
@@ -177,6 +177,7 @@ function Login({
 
   const persistAccessIntent = () => {
     localStorage.setItem('afat_access_intent_role', roleIntent);
+    sessionStorage.setItem('afat_pending_role_intent', roleIntent);
     localStorage.setItem('afat_access_channel', authChannel);
     if (normalizedPhone) {
       localStorage.setItem('afat_access_phone', normalizedPhone);
@@ -900,7 +901,7 @@ function AuthCallback() {
 
   useEffect(() => {
     let mounted = true;
-    const roleIntent = localStorage.getItem('afat_access_intent_role') || 'commuter';
+    const roleIntent = sessionStorage.getItem('afat_pending_role_intent') || 'commuter';
     const accessCode = sessionStorage.getItem('afat_pending_access_code') || '';
     const adminCode = sessionStorage.getItem('afat_pending_admin_code') || '';
 
@@ -909,6 +910,8 @@ function AuthCallback() {
       .then(({ error }) => {
         if (!mounted) return;
         if (error) {
+          sessionStorage.removeItem('afat_pending_role_intent');
+          localStorage.removeItem('afat_access_intent_role');
           setStatus('error');
           setMessage(error.message || 'AFAT could not complete Google sign-in.');
           return;
@@ -922,6 +925,8 @@ function AuthCallback() {
       })
       .catch((err) => {
         if (!mounted) return;
+        sessionStorage.removeItem('afat_pending_role_intent');
+        localStorage.removeItem('afat_access_intent_role');
         setStatus('error');
         setMessage(err?.message || 'AFAT could not complete Google sign-in.');
       });
@@ -1183,9 +1188,6 @@ function AccessLevelStrip({ accessLevel, profile }: { accessLevel: AccessLevel; 
       <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-xs font-bold text-white/60 backdrop-blur-xl">
         <span className="text-[9px] font-black uppercase tracking-[0.24em] text-cyan-200/60">Access level</span>
         <span className="ml-3 text-white">{label[accessLevel]}</span>
-        {profile?.operator_application_status && normalizeAfatRole(profile?.role) !== 'operator' && (
-          <span className="ml-3 text-amber-200">Operator application: {String(profile.operator_application_status).replace(/_/g, ' ')}</span>
-        )}
       </div>
     </div>
   );
@@ -1312,8 +1314,9 @@ function AppShell() {
       const bootAuth = async () => {
         const supabaseSession = await getCurrentUser();
         if (supabaseSession.user?.id) {
+          reconcileAfatSessionOwner(supabaseSession.user.id);
           const profileResult = await ensureSupabaseEmailProfile({
-            roleIntent: localStorage.getItem('afat_access_intent_role') || 'commuter',
+            roleIntent: sessionStorage.getItem('afat_pending_role_intent') || 'commuter',
           });
           if (profileResult.error) {
             setBootError(profileResult.error.message);
@@ -1372,6 +1375,7 @@ function AppShell() {
 
       const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'SIGNED_IN' && session?.user?.id) {
+          reconcileAfatSessionOwner(session.user.id);
           localStorage.setItem('afat_local_user_id', session.user.id);
           localStorage.setItem('afat_user_id', session.user.id);
           if (session.user.phone) localStorage.setItem('afat_local_phone', session.user.phone);
@@ -1415,6 +1419,8 @@ function AppShell() {
           setBootError(null);
 
           const profileRole = normalizeAfatRole(data.role);
+          localStorage.setItem('afat_access_intent_role', profileRole);
+          sessionStorage.removeItem('afat_pending_role_intent');
           const hasOnboarded = localStorage.getItem(`onboarded_${userId}_${profileRole}`);
           if (!hasOnboarded) {
             setShowOnboarding(true);
@@ -1438,6 +1444,7 @@ function AppShell() {
       localStorage.removeItem('afat_access_level');
       localStorage.removeItem('afat_access_intent_role');
       localStorage.removeItem('afat_commuter_workspace');
+      sessionStorage.removeItem('afat_pending_role_intent');
       sessionStorage.removeItem('afat_pending_access_code');
       sessionStorage.removeItem('afat_pending_admin_code');
       setLocalAuthUserId(null);
@@ -1458,6 +1465,7 @@ function AppShell() {
     const activateControlledRole = async (role: 'operator' | 'planner' | 'admin', code: string) => {
       if (!code.trim()) return `Enter the ${role === 'admin' ? 'administrator activation' : `${role} invitation`} code.`;
       localStorage.setItem('afat_access_intent_role', role);
+      sessionStorage.setItem('afat_pending_role_intent', role);
       sessionStorage.removeItem('afat_pending_access_code');
       sessionStorage.removeItem('afat_pending_admin_code');
       if (role === 'admin') {
@@ -1471,7 +1479,11 @@ function AppShell() {
         accessCode: role === 'admin' ? undefined : code.trim(),
         adminCode: role === 'admin' ? code.trim() : undefined,
       });
-      if (result.error) return explainAuthError(result.error.message);
+      if (result.error) {
+        sessionStorage.removeItem('afat_pending_role_intent');
+        localStorage.setItem('afat_access_intent_role', normalizeAfatRole(userProfile?.role));
+        return explainAuthError(result.error.message);
+      }
 
       const activatedProfile = result.data?.profile;
       if (!activatedProfile || normalizeAfatRole(activatedProfile.role) !== role) {
@@ -1675,7 +1687,7 @@ function AppShell() {
     const renderDashboard = () => {
       const accessLevel = getAccessLevel(userProfile, sessionUser);
       const effectiveRole = normalizeAfatRole(userRole);
-      const intendedRole = localStorage.getItem('afat_access_intent_role') || effectiveRole;
+      const intendedRole = sessionStorage.getItem('afat_pending_role_intent') || effectiveRole;
       const wantsOperatorConsole = effectiveRole === 'operator' || intendedRole === 'operator';
       if (wantsOperatorConsole && (effectiveRole !== 'operator' || !canUseOperatorConsole(userProfile) || hasPendingOperatorApplication(userProfile))) {
         return (
@@ -1808,7 +1820,7 @@ function AppShell() {
     };
 
     const effectiveRoleForFrame = normalizeAfatRole(userRole);
-    const intendedRoleForFrame = localStorage.getItem('afat_access_intent_role') || effectiveRoleForFrame;
+    const intendedRoleForFrame = sessionStorage.getItem('afat_pending_role_intent') || effectiveRoleForFrame;
     const controlledAccessPending = Boolean(
       userProfile && (
         (effectiveRoleForFrame === 'commuter' && (intendedRoleForFrame === 'planner' || intendedRoleForFrame === 'admin')) ||
