@@ -1,67 +1,69 @@
-# AFAT Adaptive Service Canvas — Design QA
+# AFAT role workspace design QA
 
 ## Comparison target
 
 - Source visual truth:
-  - Passenger: `/workspace/scratch/af6d070aac2f/generated_images/exec-0bd2e975-48b2-47dd-99b9-588e84d5a1c2.png` (853 × 1844)
-  - Operator: `/workspace/scratch/af6d070aac2f/generated_images/exec-72dec534-6c58-4272-8f92-b65e5288c28e.png` (853 × 1844)
-  - Organisation: `/workspace/scratch/af6d070aac2f/generated_images/exec-36a58c5e-4dfc-4a80-9132-8bbc6ecd82d1.png` (1487 × 1058)
-  - Public Partner: `/workspace/scratch/af6d070aac2f/generated_images/exec-65234d41-af55-42a5-b9b8-547109434acc.png` (1487 × 1058)
-  - Planner: `/workspace/scratch/af6d070aac2f/generated_images/exec-628e2ce0-ff6f-4f3d-ac73-59e78b7b0c73.png` (1487 × 1058)
-- Implementation: local Vite/Sites preview at `http://terminal.local:4173/`
-- Implementation screenshot: unavailable; the Work Mode cloud-browser URL policy blocked the local preview address after the preview bridge started successfully.
-- Intended viewports: 390 × 844 CSS px for Passenger and Operator; 1440 × 1024 CSS px for Organisation, Public Partner, Planner and Admin.
-- Density normalization: not performed because no browser-rendered implementation capture was available.
-- State: role-specific authenticated home workspace.
+  - `/workspace/scratch/af6d070aac2f/afat-approved-designs/AFAT Passenger Route to Mfoundi Market.png`
+  - `/workspace/scratch/af6d070aac2f/afat-approved-designs/AFAT operator next mission dashboard.png`
+  - `/workspace/scratch/af6d070aac2f/afat-approved-designs/AFAT Fleet Operations Control Center.png`
+  - `/workspace/scratch/af6d070aac2f/afat-approved-designs/AFAT Planner: Resolve Movement Failures.png`
+- Source pixels: mobile references 853 × 1844; desktop references 1487 × 1058.
+- Intended CSS viewports: mobile 393 × 852 at density 1; desktop 1440 × 1024 at density 1.
+- Implementation: production `https://asteck-bot.pages.dev/`, commit `ec7a8c32ba97b681b4756b190a49f536f1f5cf98`.
+- Implementation screenshot path: unavailable; the cloud browser blocked `terminal.local:4173` with `ERR_BLOCKED_BY_CLIENT`, and production correctly requires an approved signed-in role before rendering these workspaces.
+- State: production access screen verified; authenticated passenger, operator, organisation and planner states not captured.
 
 ## Full-view comparison evidence
 
-Blocked. All source references were opened and inspected, but the implementation could not be opened in the required cloud browser. Production compilation is not accepted as visual evidence.
+Blocked. The source visuals were opened and inspected, but an equivalent authenticated browser-rendered workspace could not be captured. The public production access screen loaded successfully and the deployed JavaScript contains the new role workspace copy, but neither is a valid visual substitute for the authenticated target states.
 
 ## Focused-region comparison evidence
 
-Blocked for the same reason. The required focused checks would cover the passenger passage card, operator mission card, organisation exception queue, public-partner mandate boundary, planner intervention builder and admin evidence/scope decision panel.
+Blocked for the same reason. Code and build output were not treated as visual evidence.
 
 ## Findings
 
-- [P1] Browser-rendered implementation evidence is unavailable.
-  - Location: all six role home workspaces.
-  - Evidence: Sites preview reported the correct local URL, but the cloud browser rejected the address under its URL policy.
-  - Impact: typography, responsive wrapping, Leaflet sizing, below-the-fold control reachability and exact visual fidelity cannot be certified.
-  - Fix: repeat the same role-by-role capture and interaction pass in a Work Mode environment where `terminal.local:4173` is permitted.
+- [P1] Authenticated role screens still need production visual comparison.
+  - Location: passenger, operator, organisation and planner home workspaces.
+  - Evidence: source targets are available; equivalent browser screenshots are not.
+  - Impact: typography, density, map proportions and above-the-fold hierarchy cannot be honestly certified against the approved images.
+  - Fix: capture each role with an approved test identity at the target viewport, combine each capture with its source image, and repeat the comparison after any P1/P2 correction.
+
+- [P2] Mobile density and persistent navigation need a 393 × 852 check.
+  - Location: passenger and operator workspaces.
+  - Evidence: the responsive code builds, but a normalized 1:1 mobile capture was unavailable.
+  - Impact: long local-place labels or mission fields may wrap differently from the approved screens.
+  - Fix: verify at 393 × 852 and adjust panel heights, type wrapping and bottom navigation clearance if required.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: implemented with the existing AFAT type stack, role-specific hierarchy and optical weights; visual comparison blocked.
-- Spacing and layout rhythm: responsive mobile/desktop grid rules implemented; visual comparison blocked.
-- Colors and visual tokens: shared onyx/navy base with semantic cyan, emerald, amber, violet and restrained red; visual comparison blocked.
-- Image quality and asset fidelity: existing vector logo and production Leaflet map are retained; no mockup screenshot is embedded as UI. Map tile rendering comparison blocked.
-- Copy and content: role promises, authority boundaries and primary actions align with the approved references; rendered wrapping comparison blocked.
+- Fonts and typography: implementation uses the existing AFAT type system and source-like heavy display hierarchy; visual certification is blocked.
+- Spacing and layout rhythm: role-specific mobile/desktop grids are implemented; visual certification is blocked.
+- Colors and visual tokens: blue passenger, emerald operator, cyan organisation, violet planner, teal government and rose admin tokens are implemented; visual certification is blocked.
+- Image quality and asset fidelity: functional Leaflet map is retained instead of rasterizing the approved map; no placeholder or handcrafted SVG imagery was introduced.
+- Copy and content: source journeys are represented with live-data-safe copy; unavailable fare, ETA and confidence are explicitly labelled rather than fabricated.
 
-## Primary interactions intended for browser verification
+## Primary interactions tested
 
-- Passenger destination input → Plan safe passage → available services.
-- Operator Go online → Accept mission / empty-live-demand state.
-- Organisation exception → fleet or compliance workspace.
-- Public Partner coordinated response → mandate-bound actions.
-- Planner Run simulation → proposed outcome → prepare dispatch.
-- Admin rationale requirement → stage scoped approval → governance workspace.
-- Workspace switching for users with Organisation or Public Partner memberships.
-- Console errors and mobile/desktop overflow.
+- Production access page loaded and exposed commuter, operator and staff lanes.
+- Production frontend asset changed and contains `Plan safe passage`.
+- Backend and dashboard production builds passed.
+- Dashboard lint passed.
+- Dashboard tests: 16 passed.
+- API contract: 104 checks passed.
+- Anonymous production authorization smoke tests: 5 passed.
+- Console: no AFAT application error observed on the public production entry; one Chrome-extension metadata error was outside the application.
 
 ## Comparison history
 
-- Iteration 1: implementation compiled and preview bridge started; browser capture blocked before visual comparison. No visual fixes were claimed from non-rendered evidence.
+- Iteration 1: source visuals inspected; role-specific hierarchy and functional data states implemented.
+- Iteration 2: build, lint, tests, contract, deployment and public production entry verified. Visual comparison remained blocked because no equivalent authenticated implementation capture could be produced.
 
 ## Implementation checklist
 
-- [x] Preserve the current AFAT logo for later replacement.
-- [x] Implement six role-distinct Adaptive Service Canvas home experiences.
-- [x] Preserve existing booking, ticket, wallet, operator, fleet, planning and admin flows.
-- [x] Separate entity membership from platform authority.
-- [x] Correct Government/Public Partner registration so it cannot create Operator or Admin access.
-- [x] Add permission-scoped Public Partner persistence and RLS.
-- [x] Pass backend compilation, frontend production build, lint, frontend tests and API contracts.
-- [ ] Capture and compare all six rendered role states in the required cloud browser.
+- Capture approved-role production screens at matching viewports.
+- Compare source and implementation in a combined visual input.
+- Correct any remaining P1/P2 typography, spacing, map or navigation mismatch.
+- Re-run interaction and console checks using approved non-production test identities.
 
 final result: blocked
