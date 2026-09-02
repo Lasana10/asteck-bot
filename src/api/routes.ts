@@ -2826,7 +2826,7 @@ router.get('/ops/demand-radar', async (req: Request, res: Response) => {
     const [{ data: bookings }, { data: vehicles }, { data: movements }] = await Promise.all([
       supabase.from('bookings').select('id, status, route_id, created_at, routes(name, origin, destination)').gte('created_at', since),
       supabase.from('vehicles').select('id, operator_id, type, is_available, current_lat, current_lng, last_ping_at').eq('is_available', true),
-      supabase.from('movement_logs').select('id, latitude, longitude, created_at').gte('created_at', since).limit(200),
+      supabase.from('movement_logs').select('id, latitude, longitude, timestamp').gte('timestamp', since).limit(200),
     ]);
 
     const bookingCount = (bookings || []).length;

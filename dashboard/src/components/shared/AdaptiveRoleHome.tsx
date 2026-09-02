@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Activity, ArrowRight, Bell, Building2, CheckCircle2, Gauge, Landmark, Layers3, LogOut,
-  MapPin, Navigation2, Radio, RefreshCw, Search, ShieldCheck, UserCircle,
+  Activity, AlertTriangle, ArrowRight, Bell, Building2, Car, CheckCircle2, Clock3, FileCheck,
+  Gauge, Landmark, Layers3, LogOut, MapPin, Mic, Navigation2, Radio, RefreshCw, Route,
+  Search, ShieldCheck, UserCircle, Users, Wallet,
 } from 'lucide-react';
 import {
   createPassageIntent, fetchActiveDispatches, fetchComplianceRadar, fetchDemandRadar,
@@ -81,17 +82,35 @@ function WorkspaceTabCanvas({ role, activeTab, profile, membership, live, missio
     ? (role === 'operator' ? missions : role === 'planner' ? operations?.dispatches || [] : live.tracks)
     : activeTab === 'notifications' ? live.incidents : [];
   const identity = role === 'organization' ? membership?.companies : role === 'government' ? membership?.partner : profile;
-  return <div className="grid gap-5 xl:grid-cols-[0.78fr_1.22fr]">
-    <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+  const roleQueueLabel: Record<AdaptiveWorkspaceRole, string> = {
+    commuter: activeTab === 'bookings' ? 'Journey timeline' : 'Route safety notices',
+    operator: activeTab === 'bookings' ? 'Mission control' : 'Operator intelligence',
+    organization: activeTab === 'bookings' ? 'Owned fleet register' : 'Compliance exceptions',
+    government: activeTab === 'bookings' ? 'Public evidence register' : 'Mandate response queue',
+    planner: activeTab === 'bookings' ? 'Dispatch interventions' : 'Movement failure queue',
+    admin: activeTab === 'bookings' ? 'Authority decisions' : 'Integrity exceptions',
+  };
+  const rolePanel: Record<AdaptiveWorkspaceRole, { icon: React.ElementType; boundary: string; empty: string }> = {
+    commuter: { icon: Route, boundary: 'Only your passages, shared meeting instructions and route-relevant safety notices appear here.', empty: 'No active journey records yet. Plan a passage from Home to begin.' },
+    operator: { icon: Car, boundary: 'Only verified requests and missions assigned to your approved operator identity appear here.', empty: 'No verified mission is waiting. Stay online to receive eligible demand.' },
+    organization: { icon: Building2, boundary: 'People, vehicles and evidence remain scoped to this organisation membership.', empty: 'No owned fleet activity is available in the live feed.' },
+    government: { icon: Landmark, boundary: 'Public views remain aggregated, jurisdiction-scoped and free of passenger personal data.', empty: 'No validated public condition requires response in this mandate.' },
+    planner: { icon: Layers3, boundary: 'Every dispatch preserves its triggering evidence, decision owner and measurable outcome.', empty: 'No movement failure or dispatch is in the current decision queue.' },
+    admin: { icon: ShieldCheck, boundary: 'Privilege changes require evidence, rationale, scope and an attributable audit event.', empty: 'No governance exception is open in the current service response.' },
+  };
+  const panel = rolePanel[role];
+  const PanelIcon = panel.icon;
+  return <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
+    <section className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.055] to-transparent p-5 sm:p-7">
       <p className={`text-[10px] font-black uppercase tracking-[0.24em] ${ROLE_META[role].accent}`}>{copy.eyebrow}</p>
       <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">{copy.title}</h1>
       <p className="mt-3 text-sm leading-relaxed text-white/50">{copy.description}</p>
       {activeTab === 'profile' ? <div className="mt-6 space-y-3">
         <div className="rounded-lg border border-white/10 bg-black/20 p-4"><UserCircle className="h-5 w-5 text-cyan-200" /><p className="mt-3 text-base font-black">{identity?.name || identity?.full_name || profile?.email || 'Verified AFAT identity'}</p><p className="mt-1 text-xs text-white/40">Role: {ROLE_META[role].label} · Status: {identity?.status || membership?.status || profile?.status || 'active'}</p></div>
         <button type="button" onClick={onSignOut} className="min-h-12 w-full rounded-lg border border-white/10 bg-white/5 text-xs font-black text-white">Sign out securely</button>
-      </div> : <div className="mt-6 grid grid-cols-3 gap-3"><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{items.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Live items</p></div><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{live.checkpoints.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Checkpoints</p></div><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{live.incidents.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Conditions</p></div></div>}
+      </div> : <div className="mt-6 grid grid-cols-3 gap-3"><div className="rounded-xl border border-white/10 bg-black/25 p-4"><p className="text-2xl font-black">{items.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">In this queue</p></div><div className="rounded-xl border border-white/10 bg-black/25 p-4"><p className="text-2xl font-black">{live.checkpoints.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Meeting points</p></div><div className="rounded-xl border border-white/10 bg-black/25 p-4"><p className="text-2xl font-black">{live.incidents.length}</p><p className="mt-1 text-[8px] uppercase text-white/35">Conditions</p></div></div>}
     </section>
-    {activeTab === 'profile' ? <section className="rounded-lg border border-cyan-300/15 bg-cyan-400/[0.035] p-6"><ShieldCheck className="h-6 w-6 text-cyan-200" /><h2 className="mt-4 text-xl font-black">Access boundary</h2><p className="mt-2 text-sm leading-7 text-white/50">This workspace exposes only {ROLE_META[role].label.toLowerCase()} capabilities. Changing workspace never silently changes your approved role or authority.</p></section> : <section className="rounded-lg border border-white/10 bg-white/[0.025] p-5"><div className="flex items-center gap-2"><Bell className="h-4 w-4 text-cyan-200" /><h2 className="text-sm font-black uppercase tracking-wider">Current operational queue</h2></div><div className="mt-4 space-y-3">{items.slice(0, 8).map((item: any, index: number) => <article key={item.id || index} className="rounded-lg border border-white/10 bg-black/20 p-4"><div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /><div><p className="text-sm font-black">{item.destination_text || item.name || item.type || item.status || `${ROLE_META[role].label} item`}</p><p className="mt-1 text-xs text-white/40">{item.origin_text || item.description || item.status || 'Live AFAT service record'}</p></div></div></article>)}{!items.length && <div className="rounded-lg border border-dashed border-white/15 p-8 text-center text-sm text-white/40">No live items in this queue. This is a real empty state, not sample data.</div>}</div></section>}
+    {activeTab === 'profile' ? <section className="rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.035] p-6"><PanelIcon className="h-7 w-7 text-cyan-200" /><h2 className="mt-4 text-xl font-black">{ROLE_META[role].label} access boundary</h2><p className="mt-2 text-sm leading-7 text-white/50">{panel.boundary}</p><div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4 text-xs text-white/45">Changing workspace never silently changes an approved role, organisation, jurisdiction or authority.</div></section> : <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-5"><div className="flex items-center gap-2"><PanelIcon className="h-4 w-4 text-cyan-200" /><h2 className="text-sm font-black uppercase tracking-wider">{roleQueueLabel[role]}</h2></div><div className="mt-4 space-y-3">{items.slice(0, 8).map((item: any, index: number) => <article key={item.id || index} className="rounded-xl border border-white/10 bg-black/25 p-4"><div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /><div><p className="text-sm font-black">{item.destination_text || item.name || item.type || item.status || `${ROLE_META[role].label} record`}</p><p className="mt-1 text-xs text-white/40">{item.origin_text || item.description || item.status || 'Live AFAT service record'}</p><p className="mt-2 text-[9px] font-black uppercase tracking-wider text-white/25">Live evidence · {item.updated_at || item.created_at || item.timestamp ? 'timestamped' : 'time unavailable'}</p></div></div></article>)}{!items.length && <div className="rounded-xl border border-dashed border-white/15 p-8 text-center"><PanelIcon className="mx-auto h-6 w-6 text-white/25" /><p className="mt-3 text-sm text-white/40">{panel.empty}</p></div>}</div></section>}
   </div>;
 }
 
@@ -154,16 +173,18 @@ function PassengerCanvas({ profile, live, onNavigate }: { profile: any; live: Li
 
   return (
     <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
-      <section className="rounded-lg border border-blue-300/15 bg-blue-500/[0.055] p-5 sm:p-7">
+      <section className="rounded-2xl border border-blue-300/15 bg-gradient-to-br from-blue-500/[0.12] via-blue-500/[0.045] to-transparent p-5 sm:p-7">
         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300/70">Passenger journey</p>
         <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Where do you need to go?</h1>
         <p className="mt-3 text-sm leading-relaxed text-white/55">Create one live passage request. AFAT then connects destination confidence, meeting point, available service and safety context.</p>
         <form onSubmit={requestPassage} className="mt-7 space-y-3">
           <label className="block"><span className="sr-only">Starting point</span><div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/25 px-4"><MapPin className="h-4 w-4 text-emerald-300" /><input value={origin} onChange={(event) => setOrigin(event.target.value)} className="min-h-14 w-full bg-transparent text-sm font-bold text-white outline-none" /></div></label>
-          <label className="block"><span className="sr-only">Destination</span><div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/25 px-4"><Search className="h-4 w-4 text-blue-300" /><input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="Destination or local landmark" className="min-h-14 w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/25" /></div></label>
-          <button type="submit" disabled={!destination.trim() || submitting || !profile?.id} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-blue-500 px-5 text-sm font-black text-white transition hover:bg-blue-400 disabled:opacity-40">{submitting ? 'Creating live passage...' : 'Request safe passage'} <ArrowRight className="h-4 w-4" /></button>
+          <label className="block"><span className="sr-only">Destination</span><div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/25 px-4"><Search className="h-4 w-4 text-blue-300" /><input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="Destination or local landmark" className="min-h-14 w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/25" /><Mic className="h-4 w-4 text-white/35" aria-hidden="true" /></div></label>
+          <div className="grid grid-cols-3 gap-2"><div className="rounded-xl border border-white/10 bg-black/20 p-3"><MapPin className="h-4 w-4 text-emerald-300" /><p className="mt-2 text-lg font-black">{live.checkpoints.length}</p><p className="text-[8px] uppercase text-white/35">Meeting points</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-3"><Car className="h-4 w-4 text-blue-300" /><p className="mt-2 text-lg font-black">{live.tracks.length}</p><p className="text-[8px] uppercase text-white/35">Visible supply</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-3"><ShieldCheck className="h-4 w-4 text-amber-300" /><p className="mt-2 text-lg font-black">{live.incidents.length}</p><p className="text-[8px] uppercase text-white/35">Conditions</p></div></div>
+          <button type="submit" disabled={!destination.trim() || submitting || !profile?.id} className="flex min-h-16 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-400 px-5 text-sm font-black text-white shadow-lg shadow-blue-900/30 transition hover:brightness-110 disabled:opacity-40">{submitting ? 'Creating live passage...' : 'Plan safe passage'} <ArrowRight className="h-4 w-4" /></button>
         </form>
         {notice && <p role="status" className={`mt-4 rounded-lg border p-4 text-xs font-bold ${notice.includes('failed') ? 'border-red-400/20 bg-red-500/10 text-red-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>{notice}</p>}
+        <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase tracking-wider text-blue-200">Recommended passage</p><p className="mt-2 text-sm font-black">AFAT resolves a reachable meeting point after request</p><p className="mt-1 text-xs leading-5 text-white/40">Fare, pickup time and confidence appear only when a live service quote returns—never as invented values.</p></div>
         <button onClick={() => onNavigate('bookings')} className="mt-4 min-h-11 w-full rounded-lg border border-white/10 bg-white/5 px-4 text-xs font-black text-white/75">View live journeys and tickets</button>
       </section>
       <div className="min-h-[440px]"><MapPanel role="commuter" live={live} /></div>
@@ -218,17 +239,18 @@ function OperatorCanvas({ profile, live, missions, onNavigate, onMissionChanged 
   return (
     <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
       <section className="space-y-4">
-        <div className="rounded-lg border border-emerald-300/15 bg-emerald-500/[0.055] p-5 sm:p-7">
+        <div className="rounded-2xl border border-emerald-300/15 bg-gradient-to-br from-emerald-500/[0.12] to-transparent p-5 sm:p-7">
           <div className="flex items-center justify-between gap-4">
             <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300/70">Operator terminal</p><h1 className="mt-2 text-3xl font-black">{vehicle?.is_available ? 'Ready for verified demand' : 'Service is offline'}</h1><p className="mt-2 text-xs text-white/45">{vehicle ? `${vehicle.plate_number || 'Plate pending'} · ${vehicle.type || 'vehicle'} · ${vehicle.status || 'reviewed'}` : 'No approved vehicle is attached yet.'}</p></div>
             <button onClick={toggleAvailability} disabled={availabilityBusy || !vehicle} className={`min-h-11 rounded-lg px-5 text-xs font-black disabled:opacity-40 ${vehicle?.is_available ? 'bg-emerald-400 text-slate-950' : 'border border-white/10 bg-white/5 text-white'}`}>{availabilityBusy ? 'Updating...' : vehicle?.is_available ? 'Online' : 'Go online'}</button>
           </div>
           <div className="mt-6 grid grid-cols-2 gap-3"><div><p className="text-2xl font-black">{missions.length}</p><p className="text-[9px] uppercase text-white/35">Verified requests</p></div><div><p className="text-2xl font-black">{live.tracks.length}</p><p className="text-[9px] uppercase text-white/35">Visible network vehicles</p></div></div>
         </div>
-        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
           <p className="text-[10px] font-black uppercase tracking-widest text-white/35">Next verified request</p>
           <h2 className="mt-2 text-xl font-black">{first?.destination_text || 'No open request in the queue'}</h2>
           <p className="mt-2 text-sm text-white/45">{first ? `${first.origin_text || 'Origin pending'} to ${first.destination_text}. Passenger identity stays protected.` : 'AFAT only surfaces requests returned by the live passage service.'}</p>
+          <div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl border border-white/10 bg-black/25 p-3"><MapPin className="h-4 w-4 text-emerald-300" /><p className="mt-2 text-[9px] uppercase text-white/35">Safe meeting point</p><p className="mt-1 text-xs font-black">{first?.meeting_point_text || first?.origin_text || 'Awaiting request'}</p></div><div className="rounded-xl border border-white/10 bg-black/25 p-3"><Wallet className="h-4 w-4 text-amber-300" /><p className="mt-2 text-[9px] uppercase text-white/35">Trusted fare</p><p className="mt-1 text-xs font-black">{first?.fare_amount ? `${first.fare_amount} ${first.currency || 'XAF'}` : 'Awaiting live quote'}</p></div><div className="rounded-xl border border-white/10 bg-black/25 p-3"><Clock3 className="h-4 w-4 text-blue-300" /><p className="mt-2 text-[9px] uppercase text-white/35">Pickup readiness</p><p className="mt-1 text-xs font-black">{first?.status ? String(first.status).replace(/_/g, ' ') : 'No mission'}</p></div><div className="rounded-xl border border-white/10 bg-black/25 p-3"><ShieldCheck className="h-4 w-4 text-cyan-300" /><p className="mt-2 text-[9px] uppercase text-white/35">Evidence</p><p className="mt-1 text-xs font-black">{first?.id ? 'Verified service record' : 'Not yet available'}</p></div></div>
           <div className="mt-5 flex gap-2"><button disabled={!vehicle?.is_available || !first?.id || missionBusy} onClick={acceptMission} className="min-h-12 flex-1 rounded-lg bg-emerald-400 px-4 text-xs font-black text-slate-950 disabled:opacity-35">{missionBusy ? 'Accepting...' : 'Accept request'}</button><button onClick={() => onNavigate('bookings')} className="min-h-12 rounded-lg border border-white/10 px-4 text-xs font-black text-white">Open queue</button></div>
           {notice && <p role="status" className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs font-bold text-amber-100">{notice}</p>}
         </div>
@@ -240,19 +262,21 @@ function OperatorCanvas({ profile, live, missions, onNavigate, onMissionChanged 
 
 function OrganizationCanvas({ membership, live, onNavigate }: { membership: any; live: LiveFeed; onNavigate: Props['onNavigate'] }) {
   const company = membership?.companies;
+  const attentionCount = live.incidents.length + (membership?.status && membership.status !== 'active' ? 1 : 0);
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-      <section className="rounded-lg border border-cyan-300/15 bg-white/[0.035] p-5 sm:p-7">
+    <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
+      <section className="rounded-2xl border border-cyan-300/15 bg-gradient-to-br from-cyan-500/[0.11] to-transparent p-5 sm:p-7">
         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300/70">{company?.name || 'Organisation operations'}</p>
-        <h1 className="mt-3 text-3xl font-black sm:text-4xl">Control the fleet you actually own.</h1>
+        <h1 className="mt-3 text-3xl font-black sm:text-4xl">What needs attention today?</h1>
         <p className="mt-2 text-sm text-white/50">Team, vehicle and compliance views are scoped to this organisation membership. Planner and Admin authority remain separate.</p>
+        <div className="mt-5 rounded-xl border border-amber-300/20 bg-amber-400/10 p-4"><div className="flex items-center gap-3"><AlertTriangle className="h-5 w-5 text-amber-200" /><div><p className="text-sm font-black">{attentionCount ? `${attentionCount} live exception${attentionCount === 1 ? '' : 's'}` : 'No urgent exception returned'}</p><p className="mt-1 text-xs text-white/45">Derived from live mobility conditions and organisation status.</p></div></div></div>
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
-          <button onClick={() => onNavigate('bookings')} className="rounded-lg border border-cyan-300/20 bg-cyan-400/10 p-5 text-left"><Building2 className="h-5 w-5 text-cyan-200" /><span className="mt-4 block text-base font-black">People and vehicles</span><span className="mt-2 block text-xs text-white/45">Open the live organisation roster and vehicle register.</span></button>
-          <button onClick={() => onNavigate('notifications')} className="rounded-lg border border-amber-300/20 bg-amber-400/10 p-5 text-left"><ShieldCheck className="h-5 w-5 text-amber-200" /><span className="mt-4 block text-base font-black">Compliance readiness</span><span className="mt-2 block text-xs text-white/45">Review evidence states without treating submission as approval.</span></button>
+          <button onClick={() => onNavigate('bookings')} className="rounded-xl border border-cyan-300/20 bg-cyan-400/10 p-5 text-left"><Users className="h-5 w-5 text-cyan-200" /><span className="mt-4 block text-base font-black">People and fleet</span><span className="mt-2 block text-xs text-white/45">Open owned resources and live service activity.</span></button>
+          <button onClick={() => onNavigate('notifications')} className="rounded-xl border border-amber-300/20 bg-amber-400/10 p-5 text-left"><FileCheck className="h-5 w-5 text-amber-200" /><span className="mt-4 block text-base font-black">Compliance readiness</span><span className="mt-2 block text-xs text-white/45">Review evidence states without treating submission as approval.</span></button>
         </div>
-        <div className="mt-5 rounded-lg border border-white/10 bg-black/20 p-4 text-xs font-bold text-white/55">Membership: {membership?.role || 'member'} · Status: {membership?.status || 'active'} · Declared fleet: {company?.fleet_size || 'not supplied'}</div>
+        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4 text-xs font-bold text-white/55">Membership: {membership?.role || 'member'} · Status: {membership?.status || 'active'} · Declared fleet: {company?.fleet_size || 'not supplied'}</div>
       </section>
-      <div className="min-h-[500px]"><MapPanel role="organization" live={live} /></div>
+      <section className="space-y-4"><div className="min-h-[430px]"><MapPanel role="organization" live={live} /></div><div className="grid grid-cols-4 gap-2 rounded-2xl border border-white/10 bg-white/[0.025] p-4">{[['Demand', live.incidents.length], ['Dispatch', 0], ['In service', live.tracks.length], ['Settled', '—']].map(([label, value], index) => <div key={String(label)} className="relative rounded-xl bg-black/20 p-3"><p className="text-xl font-black">{value}</p><p className="mt-1 text-[8px] uppercase text-white/35">{label}</p>{index < 3 && <ArrowRight className="absolute -right-3 top-5 z-10 h-3 w-3 text-cyan-200/40" />}</div>)}</div></section>
     </div>
   );
 }
@@ -282,13 +306,15 @@ function PlannerCanvas({ live, operations, onNavigate }: { live: LiveFeed; opera
     <div className="grid gap-5 xl:grid-cols-[0.64fr_1.1fr_0.72fr]">
       <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5"><p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Validated situation queue</p>{situations.map((item: any, index: number) => <article key={item.id || index} className={`mt-3 rounded-lg border p-4 ${index === 0 ? 'border-violet-300/30 bg-violet-500/10' : 'border-white/10 bg-black/20'}`}><span className="text-sm font-black">{item.name || item.type || 'Movement signal'}</span><span className="mt-2 block text-[10px] text-white/35">{item.status || 'Awaiting validation'} · severity {item.severity || '—'}</span></article>)}{!situations.length && <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-5 text-sm text-white/40">No validated movement failure is in the current live feed.</div>}</section>
       <div className="min-h-[590px]"><MapPanel role="planner" live={live} /></div>
-      <section className="rounded-lg border border-violet-300/15 bg-violet-500/[0.045] p-5">
+      <section className="rounded-2xl border border-violet-300/15 bg-violet-500/[0.045] p-5">
         <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Live operations posture</p><h2 className="mt-2 text-xl font-black">Decide from current evidence</h2>
         <div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{pressure}</p><p className="mt-1 text-[9px] uppercase text-white/35">Demand pressure</p></div><div className="rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-2xl font-black">{operations?.dispatches?.length || 0}</p><p className="mt-1 text-[9px] uppercase text-white/35">Active dispatches</p></div></div>
         <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase text-white/35">Engine recommendation</p><p className="mt-2 text-sm font-bold capitalize">{String(recommendation).replace(/_/g, ' ')}</p></div>
+        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase text-white/35">Evidence provenance</p><p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length} live records · dispatch and demand services {operations?.demand ? 'responded' : 'awaiting response'}</p></div>
         <button onClick={() => onNavigate('bookings')} className="mt-5 min-h-12 w-full rounded-lg bg-violet-500 text-xs font-black text-white">Open reports, recovery and dispatch</button>
         <button onClick={() => onNavigate('notifications')} className="mt-2 min-h-11 w-full rounded-lg border border-white/10 text-xs font-black text-white/70">Review live disruptions</button>
       </section>
+      <section className="xl:col-span-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4"><p className="mb-3 text-[9px] font-black uppercase tracking-widest text-white/35">Intervention lifecycle</p><div className="grid grid-cols-5 gap-2">{['Detect', 'Simulate', 'Approve', 'Dispatch', 'Measure'].map((step, index) => <div key={step} className={`rounded-xl border p-3 ${index === 0 && situations.length ? 'border-violet-300/30 bg-violet-500/10' : index === 3 && operations?.dispatches?.length ? 'border-cyan-300/30 bg-cyan-500/10' : 'border-white/10 bg-black/20'}`}><span className="text-[8px] font-black text-white/30">0{index + 1}</span><p className="mt-1 text-[9px] font-black uppercase sm:text-xs">{step}</p></div>)}</div></section>
     </div>
   );
 }
