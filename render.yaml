@@ -52,6 +52,10 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
+      - key: AFAT_AUTH_SECRET
+        sync: false
+      - key: TICKET_SIGNING_SECRET
+        sync: false
       - key: AFAT_OPERATOR_INVITE_EMAILS
         sync: false
       - key: AFAT_OPERATOR_INVITE_CODE

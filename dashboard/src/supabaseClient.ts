@@ -61,6 +61,11 @@ function storeAfatSession(data: any) {
   if (data?.accessToken && userId) {
     localStorage.setItem(afatAccessTokenStorageKey, data.accessToken);
     localStorage.setItem(afatTokenOwnerStorageKey, userId);
+  } else if (userId) {
+    // The backend can deliberately rely on the current Supabase JWT when its
+    // optional AFAT local-token signer is not configured. Remove any token
+    // left by an earlier account/session so it can never override that JWT.
+    clearAfatSessionTokens();
   }
   if (data?.refreshToken && userId) localStorage.setItem(afatRefreshTokenStorageKey, data.refreshToken);
 }

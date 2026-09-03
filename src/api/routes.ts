@@ -44,14 +44,23 @@ function generateOpaqueToken() {
 }
 
 function verifyLocalAuth(token?: string) {
-  if (!token || !token.includes('.')) return null;
-  const [body, signature] = token.split('.');
-  const expected = crypto.createHmac('sha256', authSecret).update(body).digest('base64url');
-  if (signature.length !== expected.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-  const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-  if (payload.exp && Number(payload.exp) < Date.now()) return null;
-  return payload;
+  // Local AFAT tokens are optional when Supabase owns the browser session.
+  // Never pass an undefined signing key into createHmac: that used to turn a
+  // valid Supabase request into a 500 before getAuthProfileByToken could fall
+  // back to Supabase verification.
+  if (!authSecret || !token || !token.includes('.')) return null;
+  try {
+    const [body, signature] = token.split('.');
+    if (!body || !signature) return null;
+    const expected = crypto.createHmac('sha256', authSecret).update(body).digest('base64url');
+    if (signature.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (payload.exp && Number(payload.exp) < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function authPayloadFromRequest(req: Request) {
@@ -182,6 +191,10 @@ async function verifyTurnstileToken(req: Request, action: string) {
 }
 
 function issueAccessToken(profile: any, phone: string) {
+  // A Supabase-authenticated request does not require a second AFAT token.
+  // Return no local token when its signing secret is unavailable so profile
+  // activation can still complete and the client can use its Supabase JWT.
+  if (!authSecret) return null;
   return signLocalAuth({
     sub: profile.id,
     phone,
