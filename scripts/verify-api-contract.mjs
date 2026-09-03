@@ -103,7 +103,7 @@ const checks = [
   ['driver: fatigue enforces self or staff', onboardingRoute("router.get('/driver/fatigue", "router.post('/driver/log-time'"), "access.profile.id !== driver_id"],
   ['driver: time logging requires role auth', onboardingRoute("router.post('/driver/log-time'", "router.get('/driver/contract"), "requireAuthRole(req, res, ['operator', 'admin', 'planner'])"],
   ['driver: contract enforces self or staff', onboardingRoute("router.get('/driver/contract", ''), "access.profile.id !== driver_id"],
-  ['dispatch: frontend sends access token', activeDispatchClient, 'headers: afatAuthHeaders()'],
+  ['dispatch: frontend sends user-bound auth token', activeDispatchClient, 'const authHeaders = await authenticatedApiHeaders()'],
   ['frontend probes contract health', files.frontend, '/health/contract'],
   ['frontend calls Supabase profile API', files.frontend, '/api/auth/supabase-profile'],
   ['frontend keeps access codes through auth events and reloads', files.frontend, "sessionStorage.getItem(pendingAccessCodeStorageKey)"],

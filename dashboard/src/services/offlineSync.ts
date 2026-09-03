@@ -1,4 +1,4 @@
-import { afatAuthHeaders, getApiBaseUrl, supabase } from '../supabaseClient';
+import { authenticatedApiHeaders, getApiBaseUrl, supabase } from '../supabaseClient';
 
 /**
  * World-Class Zero-Dependency Offline Queue
@@ -81,11 +81,12 @@ export const offlineSync = {
     
     for (const mutation of queue) {
       try {
+        const authHeaders = await authenticatedApiHeaders();
         if (mutation.type === 'INSERT_INCIDENT') {
           const incident = mutation.payload || {};
           const response = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
             body: JSON.stringify({
               signal_type: 'incident',
               incident_type: incident.type || incident.incident_type || 'road_hazard',
@@ -126,7 +127,7 @@ export const offlineSync = {
           for (const signal of payload) {
             const response = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+              headers: { 'Content-Type': 'application/json', ...authHeaders },
               body: JSON.stringify({
                 signal_type: 'movement',
                 profile_id: signal.user_id,

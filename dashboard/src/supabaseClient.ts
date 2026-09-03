@@ -882,8 +882,9 @@ export async function refreshAfatSession() {
 
 export async function fetchAfatSessionProfile() {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
-      headers: { ...afatAuthHeaders() },
+      headers: { ...authHeaders },
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Auth session lookup failed.' } };

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Loader2, Bot, Sparkles, Camera, Cpu, Mic } from 'lucide-react';
-import { afatAuthHeaders, getApiBaseUrl } from '../../supabaseClient';
+import { authenticatedApiHeaders, getApiBaseUrl } from '../../supabaseClient';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -66,9 +66,10 @@ Reply in the same language the user writes in (French or English).
 Use phrases like "heads-up", "usually at this hour", "from what we see" instead of technical terms.`;
 
   const callBackendAI = async (payload: Record<string, any>): Promise<string> => {
+    const authHeaders = await authenticatedApiHeaders();
     const response = await fetch(`${getApiBaseUrl()}/api/ai/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
 
@@ -109,9 +110,10 @@ User input: "${userText}"`;
   };
 
   const callLlamaVision = async (base64Image: string): Promise<string> => {
+    const authHeaders = await authenticatedApiHeaders();
     const response = await fetch(`${getApiBaseUrl()}/api/ai/vision`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...afatAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
         image: base64Image,
         prompt: systemPrompt + '\n\nAnalyze this traffic photo. Describe what you see, identify any incidents, hazards, or notable conditions. Be concise.'
