@@ -14,7 +14,9 @@ function verifyLocalToken(token: string) {
     if (!signature || signature.length !== expected.length) return null;
     if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    if (payload.exp && Number(payload.exp) < Date.now()) return null;
+    // JWT-style exp values are expressed in seconds. Comparing them to the
+    // millisecond clock made every valid local AFAT token look expired.
+    if (payload.exp && Number(payload.exp) < Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
     return null;
@@ -89,7 +91,15 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    const candidates = (places || [])
+    // The ledger extends (and never replaces) the curated place catalogue.
+    // This is where AFAT-owned informal addresses become searchable.
+    const { data: ledgerPlaces } = await supabase
+      .from('afat_address_ledger')
+      .select('*')
+      .in('status', ['candidate', 'verified'])
+      .limit(200);
+
+    const curatedCandidates = (places || [])
       .map((place: any) => {
         const textScore = lexicalScore(query, [
           place.canonical_name,
@@ -128,9 +138,38 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           meeting_points: meetingPoints,
         };
       })
-      .filter((candidate: any) => candidate.confidence >= 35)
+      .filter((candidate: any) => candidate.confidence >= 35);
+
+    const ledgerCandidates = (ledgerPlaces || []).map((place: any) => {
+      const textScore = lexicalScore(query, [place.canonical_label, ...(place.aliases || []), place.description, place.zone_label, place.city]);
+      const cityScore = !city || normalize(place.city) === city ? 8 : 0;
+      const pickupBalance = Number(place.successful_pickups || 0) - Number(place.failed_pickups || 0);
+      const confidence = clamp(Math.round(Number(place.confidence || 50) * 0.65 + textScore + cityScore + clamp(Math.round(pickupBalance / 2), 0, 12)));
+      return {
+        id: place.id,
+        name: place.canonical_label,
+        description: place.description,
+        city: place.city,
+        zone_label: place.zone_label,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        vehicle_access: place.access_notes || 'local access evidence',
+        confidence,
+        confidence_label: confidenceLabel(confidence),
+        successful_pickups: place.successful_pickups || 0,
+        explanation: [
+          textScore >= 20 ? 'Strong AFAT local alias match' : 'Partial AFAT local description match',
+          cityScore ? `Matches ${place.city}` : 'Outside the preferred city',
+          place.source ? `Ledger source: ${place.source}` : 'AFAT address ledger record',
+        ],
+        meeting_points: [],
+        source: 'afat_address_ledger',
+      };
+    }).filter((candidate: any) => candidate.confidence >= 35);
+
+    const candidates = [...curatedCandidates, ...ledgerCandidates]
       .sort((a: any, b: any) => b.confidence - a.confidence)
-      .slice(0, 5);
+      .slice(0, 8);
 
     res.json({
       query,
@@ -144,6 +183,52 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Place resolution failed.' });
+  }
+});
+
+router.get('/place/ledger', async (req: Request, res: Response) => {
+  try {
+    const city = normalize(req.query.city || 'yaounde');
+    const zone = normalize(req.query.zone || '');
+    let query = supabase.from('afat_address_ledger').select('*').in('status', ['candidate', 'verified']).order('confidence', { ascending: false }).limit(100);
+    if (city) query = query.ilike('city', city);
+    if (zone) query = query.ilike('zone_label', `%${zone}%`);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ city, zone: zone || null, addresses: data || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'AFAT address ledger unavailable.' });
+  }
+});
+
+router.post('/place/ledger', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const payload = req.body || {};
+    const canonicalLabel = String(payload.canonical_label || '').trim();
+    const city = String(payload.city || '').trim();
+    if (canonicalLabel.length < 3 || city.length < 2) return res.status(400).json({ error: 'canonical_label and city are required.' });
+    const { data, error } = await supabase.from('afat_address_ledger').insert({
+      canonical_label: canonicalLabel,
+      aliases: Array.isArray(payload.aliases) ? payload.aliases.filter(Boolean).slice(0, 20) : [],
+      city,
+      zone_label: payload.zone_label || null,
+      address_type: payload.address_type || 'landmark',
+      description: payload.description || null,
+      latitude: payload.latitude == null ? null : Number(payload.latitude),
+      longitude: payload.longitude == null ? null : Number(payload.longitude),
+      access_notes: payload.access_notes || null,
+      confidence: identity.role === 'planner' || identity.role === 'admin' ? Number(payload.confidence ?? 65) : 40,
+      status: identity.role === 'planner' || identity.role === 'admin' ? 'verified' : 'candidate',
+      source: payload.source || 'afat_user_submission',
+      metadata: payload.metadata || {},
+      created_by: identity.id,
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ address: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'AFAT address could not be recorded.' });
   }
 });
 

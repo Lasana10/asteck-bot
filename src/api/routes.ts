@@ -2500,7 +2500,7 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
     if (!access) return;
     const regionKey = normalizeRegion(req.query.city as string | undefined);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const [{ data: incidents }, { data: vehicles }, { data: checkpoints }] = await Promise.all([
+    const [{ data: incidents }, { data: vehicles }, { data: checkpoints }, { data: addressLedger }] = await Promise.all([
       supabase
         .from('incidents')
         .select('id, type, severity, status, verification_status, latitude, longitude, location, created_at')
@@ -2518,6 +2518,11 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
         .select('id, name, city, zone_label, latitude, longitude, status, checkpoint_type, trust_score, coverage_radius_meters')
         .eq('status', 'active')
         .limit(120),
+      supabase
+        .from('afat_address_ledger')
+        .select('id, canonical_label, city, zone_label, address_type, latitude, longitude, access_notes, confidence, status, source')
+        .in('status', ['candidate', 'verified'])
+        .limit(200),
     ]);
 
     const scopedIncidents = (incidents || []).filter((incident: any) => {
@@ -2533,6 +2538,9 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
     const scopedCheckpoints = (checkpoints || []).filter((checkpoint: any) =>
       withinRegion(Number(checkpoint.latitude), Number(checkpoint.longitude), regionKey)
     );
+    const scopedAddresses = (addressLedger || []).filter((address: any) =>
+      withinRegion(Number(address.latitude), Number(address.longitude), regionKey)
+    );
 
     res.json({
       success: true,
@@ -2541,6 +2549,7 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
       incidents: scopedIncidents,
       vehicles: scopedVehicles,
       checkpoints: scopedCheckpoints,
+      addresses: scopedAddresses,
       excluded_fields: ['passenger_identity', 'reporter_identity', 'operator_identity', 'plate_number', 'operator_financials', 'dispatch_assignment'],
     });
   } catch (error: any) {

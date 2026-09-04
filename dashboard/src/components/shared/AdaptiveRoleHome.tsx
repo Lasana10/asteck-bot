@@ -11,6 +11,7 @@ import {
 } from '../../supabaseClient';
 import { AFATLogo } from './AFATLogo';
 import { InteractiveMap } from './InteractiveMap';
+import { PassagePlanner } from '../commuter/PassagePlanner';
 import { ROLE_FLOW } from '../../utils/roleWorkspace';
 
 export type AdaptiveWorkspaceRole = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
@@ -187,6 +188,17 @@ function PassengerCanvas({ profile, live, onNavigate }: { profile: any; live: Li
         <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase tracking-wider text-blue-200">Recommended passage</p><p className="mt-2 text-sm font-black">AFAT resolves a reachable meeting point after request</p><p className="mt-1 text-xs leading-5 text-white/40">Fare, pickup time and confidence appear only when a live service quote returns—never as invented values.</p></div>
         <button onClick={() => onNavigate('bookings')} className="mt-4 min-h-11 w-full rounded-lg border border-white/10 bg-white/5 px-4 text-xs font-black text-white/75">View live journeys and tickets</button>
       </section>
+      <section className="xl:col-span-2">
+        <PassagePlanner
+          profile={profile}
+          originText={origin}
+          initialDestination={destination}
+          onPassageCreated={() => {
+            setNotice('Your verified meeting point and passage request are saved. Open journeys to track the next action.');
+            onNavigate('bookings');
+          }}
+        />
+      </section>
       <div className="min-h-[440px]"><MapPanel role="commuter" live={live} /></div>
     </div>
   );
@@ -347,7 +359,21 @@ export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home'
       const city = profile?.preferred_city || profile?.base_city || 'cameroon';
       const mapResult = role === 'government' ? await fetchPublicPartnerConditions(city) : ['planner', 'admin'].includes(role) ? await fetchLiveMapOps(city) : await fetchMobilityMapFeed(city);
       if (!active) return;
-      if (mapResult.data) setLive({ incidents: mapResult.data.incidents || [], tracks: mapResult.data.vehicles || [], checkpoints: mapResult.data.checkpoints || [] });
+      if (mapResult.data) setLive({
+        incidents: mapResult.data.incidents || [],
+        tracks: mapResult.data.vehicles || [],
+        // Render AFAT-owned informal addresses as map checkpoints so every
+        // role sees the same verified local geography with its own controls.
+        checkpoints: [
+          ...(mapResult.data.checkpoints || []),
+          ...(mapResult.data.addresses || []).filter((item: any) => item.latitude != null && item.longitude != null).map((item: any) => ({
+            ...item,
+            id: `address-${item.id}`,
+            name: item.canonical_label,
+            type: 'local address',
+          })),
+        ],
+      });
       else {
         setLive(EMPTY_LIVE);
         errors.push(`Map: ${mapResult.error?.message || 'temporarily unavailable'}`);

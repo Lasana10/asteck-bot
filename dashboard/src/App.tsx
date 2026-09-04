@@ -1230,7 +1230,11 @@ function AppShell() {
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false); // Changed to false: NEVER block UI on boot
+  // Keep the workspace behind a short authoritative boot gate. Rendering a
+  // commuter shell before the profile query returns is what caused a brief
+  // commuter -> admin flash on Google sign-in.
+  const [loading, setLoading] = useState(true);
+  const [bootResolved, setBootResolved] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'notifications' | 'profile'>('home');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
@@ -1371,6 +1375,8 @@ function AppShell() {
 
       bootAuth().catch((err) => {
         console.error('[AFAT] Auth boot error:', err);
+      }).finally(() => {
+        setBootResolved(true);
       });
 
       const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -1542,6 +1548,7 @@ function AppShell() {
     );
 
     if (!sessionUser) {
+      if (!bootResolved) return <WorkspaceLoading />;
       return (
         <div className="min-h-screen sentinel-bg text-white">
           <div className="mesh-gradient" />
@@ -1671,6 +1678,8 @@ function AppShell() {
         </div>
       );
     }
+
+    if (!bootResolved || !userProfile || !userRole) return <WorkspaceLoading />;
 
     const workspaceRole = resolveWorkspaceRole(
       normalizeAfatRole(userRole),
