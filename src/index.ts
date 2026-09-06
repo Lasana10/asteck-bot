@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { TelegramService } from './services/telegram';
 import { scheduler } from './services/scheduler';
+import secureMapSignalRoutes from './api/mapSignalSecure';
 import apiRoutes from './api/routes';
 import onboardingRoutes from './api/onboarding';
 import passageOutcomeAtomicRoutes from './api/passageOutcomeAtomic';
@@ -16,12 +17,9 @@ import { getSupabaseRuntimeDiagnostics } from './infra/supabase';
 
 dotenv.config();
 
-// Initialize Sentry
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
-  integrations: [
-    nodeProfilingIntegration(),
-  ],
+  integrations: [nodeProfilingIntegration()],
   tracesSampleRate: 1.0,
   profilesSampleRate: 1.0,
 });
@@ -40,11 +38,7 @@ console.log(`
 const app = express();
 const port = process.env.PORT || 3000;
 const apiVersion = process.env.AFAT_API_VERSION || 'v1';
-const buildVersion =
-  process.env.RENDER_GIT_COMMIT ||
-  process.env.CF_PAGES_COMMIT_SHA ||
-  process.env.GIT_COMMIT ||
-  'local';
+const buildVersion = process.env.RENDER_GIT_COMMIT || process.env.CF_PAGES_COMMIT_SHA || process.env.GIT_COMMIT || 'local';
 const requiredApiRoutes = [
   'POST /api/auth/supabase-profile',
   'POST /api/auth/qa-bypass',
@@ -53,6 +47,9 @@ const requiredApiRoutes = [
   'POST /api/onboard/passenger/register',
   'POST /api/onboard/driver/register',
   'POST /api/onboard/company/register',
+  'POST /api/ops/map-signal',
+  'GET /api/atlas/nearby',
+  'POST /api/atlas/observations',
   'GET /health',
   'GET /health/live',
   'GET /health/ready',
@@ -89,14 +86,12 @@ app.use(requestLogger);
 app.use(sanitizeInput);
 app.use('/api', apiRateLimiter);
 
-// Global error handling to prevent silent hangs
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('🔴 UNHANDLED REJECTION:', reason);
 });
 
 process.on('uncaughtException', (err) => {
   console.error('💥 UNCAUGHT EXCEPTION:', err);
-  // Give it a moment to log before restarting
   setTimeout(() => process.exit(1), 1000);
 });
 
@@ -107,13 +102,11 @@ async function startBot() {
     const telegramService = new TelegramService();
     console.log('📡 Telegram Service Initialized. Handlers registered.');
 
-    // Start Scheduler
     scheduler.start(async (msg) => {
       console.log('⏰ Scheduler triggered morning brief...');
       await telegramService.sendToChannel(msg);
     });
 
-    // Heartbeat Monitor (Checks if bot is still responsive every 5 mins)
     if (botHeartbeat) clearInterval(botHeartbeat);
     botHeartbeat = setInterval(async () => {
       try {
@@ -126,23 +119,18 @@ async function startBot() {
       }
     }, 5 * 60 * 1000);
 
-    // Handle webhook/polling
     const webhookDomain = process.env.WEBHOOK_DOMAIN || process.env.RENDER_EXTERNAL_URL;
-    
     if (webhookDomain) {
       const webhookPath = `/webhook/${process.env.TELEGRAM_BOT_TOKEN}`;
       const webhookUrl = `${webhookDomain}${webhookPath}`;
-      
       app.post(webhookPath, (req: Request, res: Response) => {
         const bot = telegramService.getBotInstance();
         bot.handleUpdate(req.body, res);
       });
-      
       app.listen(port, async () => {
         console.log(`🚀 Server listening on port ${port}`);
         try {
           const bot = telegramService.getBotInstance();
-          // FORCE DELETE old webhook to clear 409 Conflicts
           await bot.telegram.deleteWebhook({ drop_pending_updates: true });
           await bot.telegram.setWebhook(webhookUrl);
           console.log(`✅ Webhook synchronized: ${webhookUrl}`);
@@ -152,64 +140,37 @@ async function startBot() {
       });
     } else {
       console.warn('⚠️ No WEBHOOK_DOMAIN found. Falling back to Polling...');
-      app.listen(port, () => {
-        console.log(`🚀 Server listening on port ${port} (Polling mode)`);
-      });
-      // Force delete webhook before polling
+      app.listen(port, () => console.log(`🚀 Server listening on port ${port} (Polling mode)`));
       const bot = telegramService.getBotInstance();
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-      telegramService.launch().catch(err => {
-        console.error('❌ Polling launch error:', err);
-      });
+      telegramService.launch().catch(err => console.error('❌ Polling launch error:', err));
     }
   } catch (err) {
     console.error('💥 BOT FATAL CRASH:', err);
-    console.log('🔄 Restarting in 10 seconds...');
     setTimeout(startBot, 10000);
   }
 }
 
 async function main() {
-  // Validate required environment variables
   const missing: string[] = [];
   if (!process.env.TELEGRAM_BOT_TOKEN) missing.push('TELEGRAM_BOT_TOKEN');
   if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
-  if (
-    !process.env.SUPABASE_SERVICE_ROLE_KEY &&
-    !process.env.SUPABASE_SECRET_KEY &&
-    !process.env.SUPABASE_SERVICE_KEY &&
-    !process.env.SUPABASE_KEY
-  ) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_SERVICE_KEY && !process.env.SUPABASE_KEY) {
     missing.push('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY');
   }
-  
   if (missing.length > 0) {
     console.error('❌ Missing environment variables:', missing.join(', '));
     process.exit(1);
   }
 
-  // Initialize Agentic Cron Jobs
   CronService.init();
 
-  // Health Check endpoints
-  app.get('/health', (req, res) => {
-    res.status(200).json({
-      status: 'UP',
-      service: 'AFAT',
-      version: apiVersion,
-      build: buildVersion,
-      api_mount: '/api',
-      contract: '/health/contract',
-    });
+  app.get('/health', (_req, res) => {
+    res.status(200).json({ status: 'UP', service: 'AFAT', version: apiVersion, build: buildVersion, api_mount: '/api', contract: '/health/contract' });
   });
 
   app.get('/health/live', (_req, res) => {
-    res.status(200).json({
-      status: 'live',
-      service: 'AFAT',
-      build: buildVersion,
-      timestamp: new Date().toISOString(),
-    });
+    res.status(200).json({ status: 'live', service: 'AFAT', build: buildVersion, timestamp: new Date().toISOString() });
   });
 
   app.get('/health/ready', async (_req, res) => {
@@ -218,24 +179,9 @@ async function main() {
         supabase.from('profiles').select('id', { count: 'exact', head: true }).limit(1)
       );
       if (error) throw error;
-      res.status(200).json({
-        status: 'ready',
-        service: 'AFAT',
-        dependencies: {
-          database: 'ready',
-        },
-        build: buildVersion,
-      });
+      res.status(200).json({ status: 'ready', service: 'AFAT', dependencies: { database: 'ready' }, build: buildVersion });
     } catch (error: any) {
-      res.status(503).json({
-        status: 'degraded',
-        service: 'AFAT',
-        dependencies: {
-          database: 'unavailable',
-        },
-        error: error?.message || 'Readiness check failed',
-        build: buildVersion,
-      });
+      res.status(503).json({ status: 'degraded', service: 'AFAT', dependencies: { database: 'unavailable' }, error: error?.message || 'Readiness check failed', build: buildVersion });
     }
   });
 
@@ -256,37 +202,27 @@ async function main() {
     });
   });
 
-  app.get('/', (req, res) => {
-    res.send('AFAT World-Class Traffic Intelligence is Running.');
-  });
+  app.get('/', (_req, res) => res.send('AFAT World-Class Traffic Intelligence is Running.'));
 
+  // Security-critical route overrides must be mounted before the legacy API router.
+  app.use('/api', secureMapSignalRoutes);
   app.use('/api', apiRoutes);
   app.use('/api/onboard', onboardingRoutes);
-  // This handler owns the pickup outcome path and executes before the legacy
-  // place router so outcome + state + counters commit in one database transaction.
   app.use('/api', passageOutcomeAtomicRoutes);
   app.use('/api', atlasRoutes);
   app.use('/api', placeIntelligenceRoutes);
   app.use('/api', (req: Request, res: Response) => {
-    res.status(404).json({
-      error: 'AFAT API route not found',
-      method: req.method,
-      path: req.originalUrl,
-    });
+    res.status(404).json({ error: 'AFAT API route not found', method: req.method, path: req.originalUrl });
   });
   app.use((err: Error, req: Request, res: Response, next: express.NextFunction) => {
     if (res.headersSent) return next(err);
     const isApiRequest = req.originalUrl.startsWith('/api');
     console.error('AFAT request error:', err);
-    res.status(isApiRequest ? 500 : 400).json({
-      error: isApiRequest ? 'AFAT API request failed' : 'Request rejected',
-      detail: process.env.NODE_ENV === 'production' ? undefined : err.message,
-    });
+    res.status(isApiRequest ? 500 : 400).json({ error: isApiRequest ? 'AFAT API request failed' : 'Request rejected', detail: process.env.NODE_ENV === 'production' ? undefined : err.message });
   });
 
   await startBot();
 
-  // Self-Pulse Keep-Alive (Elite reliability strategy)
   const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
   if (appUrl) {
     setInterval(() => {
