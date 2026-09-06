@@ -5,6 +5,52 @@ import crypto from 'crypto';
 const router = express.Router();
 const localAuthSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET;
 
+type AfatIdentity = {
+  id: string;
+  role: string;
+  isActive: boolean;
+  approvalStatus: string;
+  operatorApplicationStatus: string;
+};
+
+type PassageStatus =
+  | 'open'
+  | 'assigned'
+  | 'driver_acknowledged'
+  | 'passenger_walking'
+  | 'driver_arrived'
+  | 'meeting_confirmed'
+  | 'converted'
+  | 'completed'
+  | 'cancelled'
+  | 'recovery';
+
+const PASSAGE_STATUSES = new Set<PassageStatus>([
+  'open',
+  'assigned',
+  'driver_acknowledged',
+  'passenger_walking',
+  'driver_arrived',
+  'meeting_confirmed',
+  'converted',
+  'completed',
+  'cancelled',
+  'recovery',
+]);
+
+const PASSAGE_TRANSITIONS: Record<PassageStatus, Set<PassageStatus>> = {
+  open: new Set(['assigned', 'cancelled', 'recovery']),
+  assigned: new Set(['driver_acknowledged', 'cancelled', 'recovery']),
+  driver_acknowledged: new Set(['passenger_walking', 'driver_arrived', 'cancelled', 'recovery']),
+  passenger_walking: new Set(['driver_arrived', 'cancelled', 'recovery']),
+  driver_arrived: new Set(['meeting_confirmed', 'cancelled', 'recovery']),
+  meeting_confirmed: new Set(['converted', 'recovery']),
+  converted: new Set(['completed', 'recovery']),
+  completed: new Set(),
+  cancelled: new Set(),
+  recovery: new Set(['assigned', 'cancelled']),
+};
+
 function verifyLocalToken(token: string) {
   try {
     if (!localAuthSecret) return null;
@@ -14,35 +60,93 @@ function verifyLocalToken(token: string) {
     if (!signature || signature.length !== expected.length) return null;
     if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    // JWT-style exp values are expressed in seconds. Comparing them to the
-    // millisecond clock made every valid local AFAT token look expired.
-    if (payload.exp && Number(payload.exp) < Math.floor(Date.now() / 1000)) return null;
+    // Support both legacy AFAT millisecond expiries and JWT-style second expiries.
+    if (payload.exp) {
+      const expiry = Number(payload.exp);
+      const expiryMs = expiry > 10_000_000_000 ? expiry : expiry * 1000;
+      if (!Number.isFinite(expiryMs) || expiryMs <= Date.now()) return null;
+    }
     return payload;
   } catch {
     return null;
   }
 }
 
-async function resolveIdentity(req: Request) {
+async function authoritativeProfile(subjectId: string): Promise<AfatIdentity | null> {
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, role, is_active, approval_status, operator_application_status')
+    .eq('id', subjectId)
+    .maybeSingle();
+
+  if (error || !profile?.id) return null;
+
+  const role = String(profile.role || 'commuter').toLowerCase();
+  const approvalStatus = String(profile.approval_status || '').toLowerCase();
+  const operatorApplicationStatus = String(profile.operator_application_status || '').toUpperCase();
+  const isActive = profile.is_active !== false && approvalStatus !== 'suspended';
+
+  if (!isActive) return null;
+  if (role === 'operator' && operatorApplicationStatus !== 'APPROVED') return null;
+
+  return {
+    id: String(profile.id),
+    role,
+    isActive,
+    approvalStatus,
+    operatorApplicationStatus,
+  };
+}
+
+async function resolveIdentity(req: Request): Promise<AfatIdentity | null> {
   const header = req.headers.authorization || '';
-  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7) : '';
+  const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
   if (!token) return null;
 
+  // A signed local token establishes only the subject. Role/approval state is
+  // always re-read from the authoritative AFAT profile so downgrades,
+  // suspensions and operator approval changes take effect immediately.
   const localPayload = verifyLocalToken(token);
   if (localPayload?.sub) {
-    return { id: String(localPayload.sub), role: String(localPayload.role || 'commuter') };
+    return authoritativeProfile(String(localPayload.sub));
   }
 
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user?.id) return null;
+  return authoritativeProfile(String(data.user.id));
+}
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('id', data.user.id)
-    .maybeSingle();
+function isPrivileged(identity: AfatIdentity) {
+  return identity.role === 'planner' || identity.role === 'admin';
+}
 
-  return profile ? { id: profile.id, role: profile.role || 'commuter' } : null;
+function canCreatePassengerPassage(identity: AfatIdentity) {
+  return ['commuter', 'passenger'].includes(identity.role);
+}
+
+function canTransitionPassage(args: {
+  identity: AfatIdentity;
+  current: any;
+  target: PassageStatus;
+}) {
+  const { identity, current, target } = args;
+  const currentStatus = String(current.status || '') as PassageStatus;
+  if (!PASSAGE_STATUSES.has(currentStatus) || !PASSAGE_TRANSITIONS[currentStatus]?.has(target)) return false;
+  if (isPrivileged(identity)) return true;
+
+  const passengerOwns = String(current.passenger_id || '') === identity.id;
+  const operatorOwns = String(current.operator_id || '') === identity.id;
+
+  if (identity.role === 'operator') {
+    if (!operatorOwns) return false;
+    return new Set<PassageStatus>(['driver_acknowledged', 'driver_arrived', 'meeting_confirmed', 'recovery']).has(target);
+  }
+
+  if (passengerOwns) {
+    return new Set<PassageStatus>(['passenger_walking', 'meeting_confirmed', 'cancelled', 'recovery']).has(target);
+  }
+
+  return false;
 }
 
 const normalize = (value: unknown) => String(value || '')
@@ -91,8 +195,6 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    // The ledger extends (and never replaces) the curated place catalogue.
-    // This is where AFAT-owned informal addresses become searchable.
     const { data: ledgerPlaces } = await supabase
       .from('afat_address_ledger')
       .select('*')
@@ -209,6 +311,11 @@ router.post('/place/ledger', async (req: Request, res: Response) => {
     const canonicalLabel = String(payload.canonical_label || '').trim();
     const city = String(payload.city || '').trim();
     if (canonicalLabel.length < 3 || city.length < 2) return res.status(400).json({ error: 'canonical_label and city are required.' });
+
+    const trustedMapper = isPrivileged(identity);
+    const requestedConfidence = Number(payload.confidence ?? 65);
+    const confidence = trustedMapper ? clamp(Number.isFinite(requestedConfidence) ? requestedConfidence : 65, 0, 100) : 40;
+
     const { data, error } = await supabase.from('afat_address_ledger').insert({
       canonical_label: canonicalLabel,
       aliases: Array.isArray(payload.aliases) ? payload.aliases.filter(Boolean).slice(0, 20) : [],
@@ -219,8 +326,8 @@ router.post('/place/ledger', async (req: Request, res: Response) => {
       latitude: payload.latitude == null ? null : Number(payload.latitude),
       longitude: payload.longitude == null ? null : Number(payload.longitude),
       access_notes: payload.access_notes || null,
-      confidence: identity.role === 'planner' || identity.role === 'admin' ? Number(payload.confidence ?? 65) : 40,
-      status: identity.role === 'planner' || identity.role === 'admin' ? 'verified' : 'candidate',
+      confidence,
+      status: trustedMapper ? 'verified' : 'candidate',
       source: payload.source || 'afat_user_submission',
       metadata: payload.metadata || {},
       created_by: identity.id,
@@ -262,16 +369,23 @@ router.post('/passages/intents', async (req: Request, res: Response) => {
   try {
     const identity = await resolveIdentity(req);
     if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    if (!canCreatePassengerPassage(identity)) return res.status(403).json({ error: 'Passenger workspace required.' });
+
     const payload = req.body || {};
-    if (!payload.passenger_id || !payload.destination_text) {
-      return res.status(400).json({ error: 'passenger_id and destination_text are required.' });
+    if (!payload.destination_text) {
+      return res.status(400).json({ error: 'destination_text is required.' });
     }
-    if (payload.passenger_id !== identity.id) return res.status(403).json({ error: 'Passenger identity mismatch.' });
+    if (payload.passenger_id && String(payload.passenger_id) !== identity.id) {
+      return res.status(403).json({ error: 'Passenger identity mismatch.' });
+    }
+
+    const destinationText = String(payload.destination_text).trim();
+    if (destinationText.length < 3) return res.status(400).json({ error: 'Destination description is too short.' });
 
     const { data, error } = await supabase.from('passage_intents').insert({
-      passenger_id: payload.passenger_id,
+      passenger_id: identity.id,
       origin_text: payload.origin_text || null,
-      destination_text: payload.destination_text,
+      destination_text: destinationText,
       arrival_target: payload.arrival_target || null,
       selected_place_id: payload.selected_place_id || null,
       meeting_point_id: payload.meeting_point_id || null,
@@ -292,12 +406,16 @@ router.get('/passages/intents', async (req: Request, res: Response) => {
   try {
     const identity = await resolveIdentity(req);
     if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+
     const passengerId = String(req.query.passenger_id || '').trim();
     const operatorId = String(req.query.operator_id || '').trim();
     const open = String(req.query.open || '') === 'true';
+    const privileged = isPrivileged(identity);
 
-    if (passengerId && passengerId !== identity.id) return res.status(403).json({ error: 'Passenger identity mismatch.' });
-    if (operatorId && operatorId !== identity.id && !['planner', 'admin'].includes(identity.role)) {
+    if (passengerId && passengerId !== identity.id && !privileged) {
+      return res.status(403).json({ error: 'Passenger identity mismatch.' });
+    }
+    if (operatorId && operatorId !== identity.id && !privileged) {
       return res.status(403).json({ error: 'Operator identity mismatch.' });
     }
     if (open && !['operator', 'planner', 'admin'].includes(identity.role)) {
@@ -309,9 +427,19 @@ router.get('/passages/intents', async (req: Request, res: Response) => {
       .order('created_at', { ascending: false })
       .limit(30);
 
-    if (passengerId) query = query.eq('passenger_id', passengerId);
-    if (operatorId) query = query.eq('operator_id', operatorId);
-    if (open) query = query.in('status', ['open', 'recovery']).is('operator_id', null);
+    if (open) {
+      query = query.in('status', ['open', 'recovery']).is('operator_id', null);
+    } else if (passengerId) {
+      query = query.eq('passenger_id', passengerId);
+    } else if (operatorId) {
+      query = query.eq('operator_id', operatorId);
+    } else if (!privileged) {
+      // Never allow an ordinary authenticated caller to fall through to an
+      // unscoped service-role query.
+      query = identity.role === 'operator'
+        ? query.eq('operator_id', identity.id)
+        : query.eq('passenger_id', identity.id);
+    }
 
     const { data, error } = await query;
     if (error) throw error;
@@ -325,37 +453,67 @@ router.patch('/passages/intents/:id/status', async (req: Request, res: Response)
   try {
     const identity = await resolveIdentity(req);
     if (!identity) return res.status(401).json({ error: 'Authentication required.' });
-    const allowedStatuses = new Set(['open', 'assigned', 'driver_acknowledged', 'passenger_walking', 'driver_arrived', 'meeting_confirmed', 'converted', 'completed', 'cancelled', 'recovery']);
-    const status = String(req.body?.status || '');
-    if (!allowedStatuses.has(status)) return res.status(400).json({ error: 'Unsupported passage status.' });
+
+    const target = String(req.body?.status || '') as PassageStatus;
+    if (!PASSAGE_STATUSES.has(target)) return res.status(400).json({ error: 'Unsupported passage status.' });
 
     const { data: current, error: lookupError } = await supabase
       .from('passage_intents')
       .select('id, passenger_id, operator_id, status')
       .eq('id', req.params.id)
-      .single();
+      .maybeSingle();
     if (lookupError || !current) return res.status(404).json({ error: 'Passage intent not found.' });
 
-    const privileged = ['planner', 'admin'].includes(identity.role);
-    const passengerOwns = current.passenger_id === identity.id;
-    const operatorOwns = current.operator_id === identity.id;
-    const claimingOpenPassage = ['assigned', 'driver_acknowledged'].includes(status) && !current.operator_id && identity.role === 'operator';
-    if (!privileged && !passengerOwns && !operatorOwns && !claimingOpenPassage) {
-      return res.status(403).json({ error: 'Passage access denied.' });
+    const currentStatus = String(current.status || '') as PassageStatus;
+    const claimingOpenPassage =
+      identity.role === 'operator' &&
+      target === 'assigned' &&
+      !current.operator_id &&
+      ['open', 'recovery'].includes(currentStatus);
+
+    if (claimingOpenPassage) {
+      // Compare-and-set claim: two operators cannot both successfully claim
+      // the same open passage. Only the first update matching the old state
+      // and NULL operator succeeds.
+      const { data: claimed, error: claimError } = await supabase
+        .from('passage_intents')
+        .update({ operator_id: identity.id, status: 'assigned', updated_at: new Date().toISOString() })
+        .eq('id', current.id)
+        .eq('status', currentStatus)
+        .is('operator_id', null)
+        .select('*, afat_places(*), afat_meeting_points(*)')
+        .maybeSingle();
+
+      if (claimError) throw claimError;
+      if (!claimed) return res.status(409).json({ error: 'Passage was already claimed or changed. Refresh the dispatch queue.' });
+      return res.json({ passage: claimed });
     }
 
-    const updates: Record<string, any> = { status, updated_at: new Date().toISOString() };
-    if (claimingOpenPassage) updates.operator_id = identity.id;
-    else if (req.body?.operator_id && privileged) updates.operator_id = req.body.operator_id;
-    if (req.body?.disruption_reason) updates.disruption_reason = req.body.disruption_reason;
+    if (!canTransitionPassage({ identity, current, target })) {
+      return res.status(409).json({
+        error: `Transition ${currentStatus || 'unknown'} -> ${target} is not allowed for ${identity.role}.`,
+      });
+    }
 
-    const { data, error } = await supabase.from('passage_intents')
+    const updates: Record<string, any> = { status: target, updated_at: new Date().toISOString() };
+    if (req.body?.operator_id && isPrivileged(identity)) updates.operator_id = req.body.operator_id;
+    if (req.body?.disruption_reason && ['cancelled', 'recovery'].includes(target)) {
+      updates.disruption_reason = String(req.body.disruption_reason).slice(0, 500);
+    }
+
+    let updateQuery = supabase.from('passage_intents')
       .update(updates)
-      .eq('id', req.params.id)
+      .eq('id', current.id)
+      .eq('status', currentStatus);
+
+    if (current.operator_id) updateQuery = updateQuery.eq('operator_id', current.operator_id);
+
+    const { data, error } = await updateQuery
       .select('*, afat_places(*), afat_meeting_points(*)')
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
+    if (!data) return res.status(409).json({ error: 'Passage changed while this action was being processed. Refresh and retry.' });
     res.json({ passage: data });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Passage status update failed.' });
@@ -375,32 +533,57 @@ router.post('/passages/intents/:id/outcome', async (req: Request, res: Response)
       .from('passage_intents')
       .select('id, passenger_id, operator_id, selected_place_id, meeting_point_id, status')
       .eq('id', req.params.id)
-      .single();
+      .maybeSingle();
     if (passageError || !passage) return res.status(404).json({ error: 'Passage intent not found.' });
 
-    const privileged = ['planner', 'admin'].includes(identity.role);
-    if (!privileged && passage.passenger_id !== identity.id && passage.operator_id !== identity.id) {
+    const privileged = isPrivileged(identity);
+    const passengerOwns = passage.passenger_id === identity.id;
+    const operatorOwns = passage.operator_id === identity.id;
+    if (!privileged && !passengerOwns && !operatorOwns) {
       return res.status(403).json({ error: 'Passage access denied.' });
     }
 
-    const responsibility = String(req.body?.responsibility || 'unclassified');
+    if (['completed', 'cancelled'].includes(String(passage.status || ''))) {
+      return res.status(409).json({ error: 'A terminal passage cannot receive a new pickup outcome.' });
+    }
+
+    if (outcomeType === 'passenger_no_show' && !operatorOwns && !privileged) {
+      return res.status(403).json({ error: 'Only the assigned operator can report a passenger no-show.' });
+    }
+    if (outcomeType === 'driver_cancelled' && !operatorOwns && !privileged) {
+      return res.status(403).json({ error: 'Only the assigned operator can report a driver cancellation.' });
+    }
+    if (outcomeType === 'passenger_cancelled' && !passengerOwns && !privileged) {
+      return res.status(403).json({ error: 'Only the passenger can report a passenger cancellation.' });
+    }
+
+    const responsibility = String(req.body?.responsibility || 'unclassified').slice(0, 100);
     const { data: outcome, error: outcomeError } = await supabase.from('passage_outcomes').insert({
       passage_intent_id: passage.id,
       reporter_id: identity.id,
       outcome_type: outcomeType,
       responsibility,
-      notes: req.body?.notes || null,
+      notes: req.body?.notes ? String(req.body.notes).slice(0, 1000) : null,
       evidence: req.body?.evidence || {},
     }).select().single();
     if (outcomeError) throw outcomeError;
 
     const successful = outcomeType === 'successful_pickup';
-    const nextStatus = successful ? 'meeting_confirmed' : 'recovery';
-    await supabase.from('passage_intents').update({
+    const nextStatus: PassageStatus = successful ? 'meeting_confirmed' : 'recovery';
+    const { data: updatedPassage, error: passageUpdateError } = await supabase.from('passage_intents').update({
       status: nextStatus,
       disruption_reason: successful ? null : outcomeType,
       updated_at: new Date().toISOString(),
-    }).eq('id', passage.id);
+    })
+      .eq('id', passage.id)
+      .eq('status', passage.status)
+      .select('id')
+      .maybeSingle();
+
+    if (passageUpdateError) throw passageUpdateError;
+    if (!updatedPassage) {
+      return res.status(409).json({ error: 'Passage changed while the outcome was being recorded. Review the latest state.' });
+    }
 
     if (passage.meeting_point_id) {
       const { data: point } = await supabase.from('afat_meeting_points')
