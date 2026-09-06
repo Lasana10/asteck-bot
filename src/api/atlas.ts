@@ -23,13 +23,8 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
   return Math.min(max, Math.max(min, parsed));
 }
 
-function normalizeName(value: unknown) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+function stableHash(value: unknown) {
+  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 router.get('/atlas/nearby', async (req: Request, res: Response) => {
@@ -75,6 +70,33 @@ router.get('/atlas/sources', async (_req: Request, res: Response) => {
   }
 });
 
+router.get('/atlas/import/candidates', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['planner', 'admin']);
+  if (!access) return;
+
+  try {
+    const sourceKey = req.query.source_key ? String(req.query.source_key).trim().toLowerCase() : null;
+    const featureKind = req.query.feature_kind ? String(req.query.feature_kind).trim().toLowerCase() : null;
+    const limit = Math.round(boundedNumber(req.query.limit, 100, 1, 250));
+
+    let query = supabase
+      .from('afat_geo_source_records')
+      .select('id, source_key, external_feature_id, dataset_version, canonical_name, alternate_names, source_category, latitude, longitude, source_confidence, source_properties, review_status, source_feature_kind, source_license, attribution_text, first_seen_at, last_seen_at')
+      .eq('review_status', 'candidate')
+      .order('source_confidence', { ascending: false })
+      .limit(limit);
+
+    if (sourceKey) query = query.eq('source_key', sourceKey);
+    if (featureKind) query = query.eq('source_feature_kind', featureKind);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return res.json({ candidates: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Atlas candidate queue unavailable.' });
+  }
+});
+
 router.post('/atlas/import/features', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['planner', 'admin']);
   if (!access) return;
@@ -115,7 +137,7 @@ router.post('/atlas/import/features', async (req: Request, res: Response) => {
       captured_at: new Date().toISOString(),
     };
 
-    const contentHash = crypto.createHash('sha256').update(JSON.stringify(features)).digest('hex');
+    const contentHash = stableHash(features);
     const { data: batch, error: batchError } = await supabase
       .from('afat_geo_import_batches')
       .insert({
@@ -145,82 +167,60 @@ router.post('/atlas/import/features', async (req: Request, res: Response) => {
     for (const feature of features) {
       try {
         const externalFeatureId = String(feature?.external_feature_id || '').trim();
-        const canonicalName = String(feature?.canonical_name || '').trim();
-        const geometryWkt = String(feature?.geometry_wkt || '').trim();
+        const canonicalName = String(feature?.canonical_name || externalFeatureId).trim();
         const featureKind = String(feature?.feature_kind || '').trim().toLowerCase();
-        if (!externalFeatureId || !canonicalName || !geometryWkt || !['point', 'line', 'polygon', 'relation'].includes(featureKind)) {
-          throw new Error('external_feature_id, canonical_name, geometry_wkt and supported feature_kind are required');
+        const geometry = feature?.geometry_geojson || feature?.geometry;
+        if (!externalFeatureId || !canonicalName || !geometry || !['point', 'line', 'polygon', 'relation'].includes(featureKind)) {
+          throw new Error('external_feature_id, canonical_name, GeoJSON geometry and supported feature_kind are required');
         }
-
-        const lat = Number(feature?.latitude);
-        const lon = Number(feature?.longitude);
-        if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
-          throw new Error('valid representative latitude/longitude required');
+        if (!geometry || typeof geometry !== 'object' || typeof geometry.type !== 'string' || !('coordinates' in geometry)) {
+          throw new Error('geometry must be a GeoJSON geometry object');
         }
 
         const sourceConfidence = boundedNumber(feature?.source_confidence, Number(source.default_trust_weight || 0.5), 0, 1);
-        const fingerprint = crypto.createHash('sha256').update([
-          sourceKey,
-          externalFeatureId,
-          datasetVersion,
-          geometryWkt,
-          JSON.stringify(feature?.properties || {}),
-        ].join('|')).digest('hex');
-
-        const recordPayload: any = {
-          source_key: sourceKey,
-          external_feature_id: externalFeatureId,
-          dataset_version: datasetVersion,
-          canonical_name: canonicalName,
-          normalized_name: normalizeName(canonicalName),
-          alternate_names: Array.isArray(feature?.alternate_names) ? feature.alternate_names.slice(0, 40) : [],
-          source_category: feature?.source_category || null,
-          source_address: feature?.source_address || null,
-          latitude: lat,
-          longitude: lon,
-          location: `POINT(${lon} ${lat})`,
-          source_confidence: sourceConfidence,
-          source_properties: {
-            ...(feature?.properties && typeof feature.properties === 'object' ? feature.properties : {}),
-            source_license: source.license_expression,
-            attribution_text: source.attribution_text,
-          },
-          record_fingerprint: fingerprint,
-          review_status: 'candidate',
-          last_import_batch_id: batch.id,
-          last_seen_at: new Date().toISOString(),
-          source_feature_kind: featureKind,
-          source_geometry: geometryWkt,
+        const sourceProperties = {
+          ...(feature?.properties && typeof feature.properties === 'object' ? feature.properties : {}),
           source_license: source.license_expression,
           attribution_text: source.attribution_text,
         };
+        const fingerprint = stableHash({
+          source_key: sourceKey,
+          external_feature_id: externalFeatureId,
+          dataset_version: datasetVersion,
+          feature_kind: featureKind,
+          geometry,
+          properties: sourceProperties,
+        });
 
         const { data: existing, error: lookupError } = await supabase
           .from('afat_geo_source_records')
-          .select('id, record_fingerprint, first_import_batch_id')
+          .select('id')
           .eq('source_key', sourceKey)
           .eq('external_feature_id', externalFeatureId)
           .maybeSingle();
         if (lookupError) throw lookupError;
 
-        if (existing) {
-          const { error: updateError } = await supabase
-            .from('afat_geo_source_records')
-            .update(recordPayload)
-            .eq('id', existing.id);
-          if (updateError) throw updateError;
-          updated += 1;
-        } else {
-          const { error: insertError } = await supabase
-            .from('afat_geo_source_records')
-            .insert({
-              ...recordPayload,
-              first_import_batch_id: batch.id,
-              first_seen_at: new Date().toISOString(),
-            });
-          if (insertError) throw insertError;
-          inserted += 1;
-        }
+        const { error: rpcError } = await supabase.rpc('afat_register_geo_source_record', {
+          p_source_key: sourceKey,
+          p_external_feature_id: externalFeatureId,
+          p_import_batch_id: batch.id,
+          p_dataset_version: datasetVersion,
+          p_feature_kind: featureKind,
+          p_canonical_name: canonicalName,
+          p_alternate_names: Array.isArray(feature?.alternate_names) ? feature.alternate_names.slice(0, 40).map(String) : [],
+          p_source_category: feature?.source_category ? String(feature.source_category) : null,
+          p_source_address: feature?.source_address ? String(feature.source_address) : null,
+          p_geojson: geometry,
+          p_source_confidence: sourceConfidence,
+          p_source_properties: sourceProperties,
+          p_record_fingerprint: fingerprint,
+          p_source_license: source.license_expression || null,
+          p_attribution_text: source.attribution_text || null,
+        });
+        if (rpcError) throw rpcError;
+
+        if (existing) updated += 1;
+        else inserted += 1;
       } catch (featureError: any) {
         rejected += 1;
         errors.push({
@@ -258,6 +258,56 @@ router.post('/atlas/import/features', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Atlas feature import failed:', error);
     return res.status(500).json({ error: error?.message || 'Atlas import failed.' });
+  }
+});
+
+router.post('/atlas/import/candidates/:recordId/review', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['planner', 'admin']);
+  if (!access) return;
+
+  try {
+    const recordId = String(req.params.recordId || '').trim();
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+    const reason = String(req.body?.reason || '').trim();
+    if (!recordId || !['approve_place', 'reject'].includes(decision) || reason.length < 4) {
+      return res.status(400).json({ error: 'recordId, decision (approve_place|reject), and a review reason are required.' });
+    }
+
+    const { data: candidate, error: candidateError } = await supabase
+      .from('afat_geo_source_records')
+      .select('id, source_feature_kind, review_status')
+      .eq('id', recordId)
+      .maybeSingle();
+    if (candidateError) throw candidateError;
+    if (!candidate) return res.status(404).json({ error: 'Atlas candidate not found.' });
+    if (candidate.review_status !== 'candidate') {
+      return res.status(409).json({ error: 'Atlas candidate has already been reviewed.' });
+    }
+    if (decision === 'approve_place' && candidate.source_feature_kind === 'line') {
+      return res.status(409).json({ error: 'Line features must pass topology/conflation review before becoming routable Atlas edges.' });
+    }
+
+    const { data: resultingPlaceId, error } = await supabase.rpc('afat_review_geo_source_record', {
+      p_record_id: recordId,
+      p_reviewer_id: access.profile.id,
+      p_decision: decision === 'reject' ? 'reject' : 'approve',
+      p_reason: reason,
+      p_canonical_name: req.body?.canonical_name ? String(req.body.canonical_name) : null,
+      p_city: req.body?.city ? String(req.body.city) : 'yaounde',
+      p_zone_label: req.body?.zone_label ? String(req.body.zone_label) : null,
+      p_confidence: req.body?.confidence == null ? null : Math.round(boundedNumber(req.body.confidence, 60, 35, 90)),
+    });
+    if (error) throw error;
+
+    return res.json({
+      record_id: recordId,
+      decision,
+      resulting_place_id: resultingPlaceId || null,
+      next_stage: decision === 'reject' ? 'closed' : 'place_linked_to_atlas_candidate',
+    });
+  } catch (error: any) {
+    console.error('Atlas candidate review failed:', error);
+    return res.status(500).json({ error: error?.message || 'Atlas candidate review failed.' });
   }
 });
 
