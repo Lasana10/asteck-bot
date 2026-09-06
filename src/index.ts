@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { TelegramService } from './services/telegram';
 import { scheduler } from './services/scheduler';
 import secureMapSignalRoutes from './api/mapSignalSecure';
+import dispatchFulfilmentRoutes from './api/dispatchFulfilment';
 import apiRoutes from './api/routes';
 import onboardingRoutes from './api/onboarding';
 import passageOutcomeAtomicRoutes from './api/passageOutcomeAtomic';
@@ -50,6 +51,8 @@ const requiredApiRoutes = [
   'POST /api/ops/map-signal',
   'GET /api/atlas/nearby',
   'POST /api/atlas/observations',
+  'GET /api/dispatch/:assignmentId',
+  'POST /api/dispatch/:assignmentId/transition',
   'GET /health',
   'GET /health/live',
   'GET /health/ready',
@@ -204,8 +207,9 @@ async function main() {
 
   app.get('/', (_req, res) => res.send('AFAT World-Class Traffic Intelligence is Running.'));
 
-  // Security-critical route overrides must be mounted before the legacy API router.
+  // Security-critical and state-machine routes must be mounted before the legacy API router.
   app.use('/api', secureMapSignalRoutes);
+  app.use('/api', dispatchFulfilmentRoutes);
   app.use('/api', apiRoutes);
   app.use('/api/onboard', onboardingRoutes);
   app.use('/api', passageOutcomeAtomicRoutes);
