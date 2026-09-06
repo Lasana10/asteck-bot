@@ -7,6 +7,7 @@ import {
 } from '../../supabaseClient';
 import type { AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
+import { AtlasContextPanel } from './AtlasContextPanel';
 
 type Props = {
   profile: any;
@@ -17,6 +18,7 @@ type Props = {
 
 export function PassagePlanner({ profile, originText = '', initialDestination = '', onPassageCreated }: Props) {
   const [destination, setDestination] = useState(initialDestination);
+  const [originLabel, setOriginLabel] = useState(originText);
   const [arrivalTarget, setArrivalTarget] = useState('');
   const [vehicleType, setVehicleType] = useState('car');
   const [candidates, setCandidates] = useState<AfatPlaceCandidate[]>([]);
@@ -32,6 +34,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedMeetingPoint(null);
     setStatusText('');
   }, [initialDestination]);
+
+  useEffect(() => {
+    setOriginLabel(originText);
+  }, [originText]);
 
   const resolveDestination = async () => {
     if (destination.trim().length < 3) return;
@@ -100,7 +106,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     const { data, error } = await createPassageIntent({
       passenger_id: profile.id,
-      origin_text: originText || undefined,
+      origin_text: originLabel || undefined,
       destination_text: destination.trim(),
       arrival_target: arrivalTarget ? new Date(arrivalTarget).toISOString() : undefined,
       selected_place_id: selectedPlace.id,
@@ -110,6 +116,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       metadata: {
         place_explanation: selectedPlace.explanation,
         meeting_instructions: selectedMeetingPoint.instructions,
+        atlas_origin_label: originLabel || null,
       },
     });
 
@@ -127,7 +134,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-5 shadow-2xl">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-300/65">AFAT Place Intelligence</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-300/65">AFAT Place Intelligence + Atlas</p>
           <h2 className="mt-1 text-lg font-black tracking-tight text-white">Where must your passage succeed?</h2>
           <p className="mt-1 text-xs leading-relaxed text-white/45">Describe a landmark, entrance, gate, junction, or familiar local reference.</p>
         </div>
@@ -179,6 +186,11 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
           {statusText}
         </div>
       )}
+
+      <AtlasContextPanel
+        city={profile?.preferred_city || 'yaounde'}
+        onOriginResolved={({ label }) => setOriginLabel(label)}
+      />
 
       {!!candidates.length && !selectedPlace && (
         <div className="mt-4 space-y-3">
