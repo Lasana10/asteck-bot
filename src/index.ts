@@ -4,6 +4,7 @@ import { scheduler } from './services/scheduler';
 import apiRoutes from './api/routes';
 import onboardingRoutes from './api/onboarding';
 import passageOutcomeAtomicRoutes from './api/passageOutcomeAtomic';
+import atlasRoutes from './api/atlas';
 import placeIntelligenceRoutes from './api/placeIntelligence';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -264,6 +265,7 @@ async function main() {
   // This handler owns the pickup outcome path and executes before the legacy
   // place router so outcome + state + counters commit in one database transaction.
   app.use('/api', passageOutcomeAtomicRoutes);
+  app.use('/api', atlasRoutes);
   app.use('/api', placeIntelligenceRoutes);
   app.use('/api', (req: Request, res: Response) => {
     res.status(404).json({
