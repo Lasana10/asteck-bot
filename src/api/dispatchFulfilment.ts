@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import crypto from 'crypto';
 import { supabase } from '../infra/supabase';
 import { requireAuthRole } from './routes';
 
@@ -80,7 +79,7 @@ router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Resp
     const nextStatus = String(req.body?.next_status || '').trim().toLowerCase();
     const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 500) : null;
     const evidence = req.body?.evidence && typeof req.body.evidence === 'object' ? req.body.evidence : {};
-    const key = stableKey(req) || crypto.randomUUID();
+    const key = stableKey(req);
 
     if (key.length < 8 || key.length > 200) {
       return res.status(400).json({ error: 'A stable Idempotency-Key of 8-200 characters is required.' });
