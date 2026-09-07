@@ -45,6 +45,25 @@ export type DispatchEvent = {
   created_at: string;
 };
 
+export type DispatchCandidate = {
+  vehicle_id: string;
+  operator_id: string;
+  vehicle_type?: string | null;
+  capacity?: number | null;
+  score: number;
+  straight_line_distance_km: number;
+  eta: null;
+  eta_status: string;
+  telemetry_age_minutes?: number | null;
+  factors: Record<string, number>;
+  evidence: {
+    verified_pickup_incidents: string[];
+    atlas_records_considered: number;
+    atlas_average_confidence?: number | null;
+    signal_missing: string[];
+  };
+};
+
 type ApiResult<T> = { data: T | null; error: { message: string } | null };
 
 function decodeJwtSubject(token: string) {
@@ -105,6 +124,21 @@ export async function fetchAuthoritativeDispatches(options?: { includeTerminal?:
   if (options?.limit) params.set('limit', String(options.limit));
   const suffix = params.toString() ? `?${params}` : '';
   return request<{ dispatches: DispatchAssignment[]; role: string; active_states: string[] }>(`/dispatch${suffix}`);
+}
+
+export async function fetchDispatchCandidates(assignmentId: string) {
+  const params = new URLSearchParams({ assignment_id: assignmentId });
+  return request<{
+    assignment_id: string | null;
+    pickup: { latitude: number; longitude: number };
+    scoring_contract: {
+      deterministic: boolean;
+      route_eta_used: boolean;
+      straight_line_distance_only: boolean;
+      evidence_decay_note: string;
+    };
+    candidates: DispatchCandidate[];
+  }>(`/dispatch/candidates?${params}`);
 }
 
 export async function fetchDispatchDetail(assignmentId: string) {
