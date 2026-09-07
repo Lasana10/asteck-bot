@@ -141,6 +141,32 @@ export async function fetchDispatchCandidates(assignmentId: string) {
   }>(`/dispatch/candidates?${params}`);
 }
 
+export async function assignDispatchCandidate(input: {
+  assignmentId: string;
+  candidate: Pick<DispatchCandidate, 'operator_id' | 'vehicle_id'>;
+  expectedStatus: string;
+  nextStatus: 'offered' | 'assigned';
+  reason?: string;
+  idempotencyKey: string;
+}) {
+  return request<{
+    assignment: DispatchAssignment;
+    selected_candidate: DispatchCandidate;
+    idempotency_key: string;
+    scoring_contract: Record<string, unknown>;
+  }>(`/dispatch/${encodeURIComponent(input.assignmentId)}/candidate`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': input.idempotencyKey },
+    body: JSON.stringify({
+      operator_id: input.candidate.operator_id,
+      vehicle_id: input.candidate.vehicle_id,
+      expected_status: input.expectedStatus,
+      next_status: input.nextStatus,
+      reason: input.reason || null,
+    }),
+  });
+}
+
 export async function fetchDispatchDetail(assignmentId: string) {
   return request<{ assignment: DispatchAssignment; events: DispatchEvent[] }>(`/dispatch/${encodeURIComponent(assignmentId)}`);
 }
