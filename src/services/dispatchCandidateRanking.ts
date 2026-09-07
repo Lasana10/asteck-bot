@@ -15,6 +15,8 @@ export type RankedDispatchCandidate = {
     verified_pickup_incidents: string[];
     atlas_records_considered: number;
     atlas_average_confidence: number | null;
+    effective_blocked_edges: number;
+    effective_limited_edges: number;
     signal_missing: string[];
   };
 };
@@ -31,6 +33,8 @@ export type DispatchRankingResult = {
     pickup: { latitude: number; longitude: number };
     records_considered: number;
     average_confidence: number | null;
+    effective_blocked_edges: number;
+    effective_limited_edges: number;
   };
   candidates: RankedDispatchCandidate[];
 };
@@ -65,7 +69,7 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
       .not('longitude', 'is', null)
       .order('created_at', { ascending: false })
       .limit(250),
-    supabase.rpc('afat_atlas_nearby', { p_lat: pickupLat, p_lon: pickupLng, p_radius_m: 1500, p_limit: 100 }),
+    supabase.rpc('afat_atlas_effective_nearby', { p_lat: pickupLat, p_lon: pickupLng, p_radius_m: 1500, p_limit: 100 }),
   ]);
   if (vehicleError) throw vehicleError;
   if (incidentError) throw incidentError;
@@ -97,12 +101,17 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
 
   const atlasRows = Array.isArray(atlasResult.data) ? atlasResult.data : [];
   const atlasConfidenceValues = atlasRows
-    .map((row: any) => Number(row.effective_confidence ?? row.confidence))
+    .map((row: any) => Number(row.effective_confidence))
     .filter((value: number) => Number.isFinite(value));
   const atlasConfidence = atlasConfidenceValues.length
     ? atlasConfidenceValues.reduce((sum: number, value: number) => sum + value, 0) / atlasConfidenceValues.length
     : null;
   const atlasBonus = atlasConfidence == null ? 0 : clamp(atlasConfidence > 1 ? atlasConfidence / 10 : atlasConfidence * 10, 0, 10);
+  const effectiveBlockedEdges = atlasRows.filter((row: any) => row.effective_passability === 'blocked').length;
+  const effectiveLimitedEdges = atlasRows.filter((row: any) => row.effective_passability === 'limited').length;
+  const atlasDisruptionPenalty = effectiveBlockedEdges > 0 ? 20 : effectiveLimitedEdges > 0 ? 8 : 0;
+  // Avoid counting the same incident twice when it is present both in the incident ledger and Atlas evidence.
+  const disruptionPenalty = Math.max(incidentPenalty, atlasDisruptionPenalty);
 
   const candidates: RankedDispatchCandidate[] = (vehicles || []).flatMap((vehicle: any) => {
     const operator: any = operatorMap.get(vehicle.operator_id);
@@ -125,7 +134,7 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
     const complianceScore = operator?.compliance_score == null ? 0 : clamp(Number(operator.compliance_score) / 100 * 10, 0, 10);
     const dnaScore = operator?.driver_dna_score == null ? 0 : clamp(Number(operator.driver_dna_score) / 100 * 5, 0, 5);
     const trustScore = operator?.trust_score == null ? 0 : clamp(Number(operator.trust_score) / 100 * 5, 0, 5);
-    const score = clamp(distanceScore + freshnessScore + ratingScore + experienceScore + complianceScore + dnaScore + trustScore + atlasBonus - incidentPenalty, 0, 100);
+    const score = clamp(distanceScore + freshnessScore + ratingScore + experienceScore + complianceScore + dnaScore + trustScore + atlasBonus - disruptionPenalty, 0, 100);
 
     const missingSignals = [
       vehicle.last_ping_at ? null : 'telemetry_freshness',
@@ -156,12 +165,14 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
         driver_dna: Number(dnaScore.toFixed(2)),
         trust: Number(trustScore.toFixed(2)),
         atlas_confidence: Number(atlasBonus.toFixed(2)),
-        pickup_incident_penalty: Number(incidentPenalty.toFixed(2)),
+        disruption_penalty: Number(disruptionPenalty.toFixed(2)),
       },
       evidence: {
         verified_pickup_incidents: pickupIncidents.map((incident: any) => incident.id),
         atlas_records_considered: atlasRows.length,
         atlas_average_confidence: atlasConfidence,
+        effective_blocked_edges: effectiveBlockedEdges,
+        effective_limited_edges: effectiveLimitedEdges,
         signal_missing: missingSignals,
       },
     }];
@@ -173,12 +184,14 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
       deterministic: true,
       route_eta_used: false,
       straight_line_distance_only: true,
-      evidence_decay_note: 'Expired incidents are excluded; Atlas confidence comes from the effective nearby graph response.',
+      evidence_decay_note: 'Expired incidents are excluded. Corroborated Atlas edge state is dynamic; canonical edge passability is not rewritten by reports.',
     },
     atlas_context: {
       pickup: { latitude: pickupLat, longitude: pickupLng },
       records_considered: atlasRows.length,
       average_confidence: atlasConfidence,
+      effective_blocked_edges: effectiveBlockedEdges,
+      effective_limited_edges: effectiveLimitedEdges,
     },
     candidates,
   };
