@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, X } from 'lucide-react';
 import { fetchAfatSessionProfile, getCurrentUser, getProfile, supabase } from '../../supabaseClient';
+import { AtlasIngestionControl } from './AtlasIngestionControl';
 import { DispatchWorkspace } from './DispatchWorkspace';
 
 type DispatchRole = 'commuter' | 'operator' | 'planner' | 'admin';
@@ -57,6 +58,7 @@ export function DispatchPortal() {
   }, []);
 
   if (!profile?.id || !role) return null;
+  const canIngestAtlas = role === 'planner' || role === 'admin';
 
   return <>
     <button
@@ -80,6 +82,7 @@ export function DispatchPortal() {
         </div>
       </header>
       <main className="mx-auto max-w-[1500px] px-4 py-5 sm:px-7 sm:py-7">
+        {canIngestAtlas && <AtlasIngestionControl />}
         <DispatchWorkspace role={role} profile={profile} />
       </main>
     </div>}
