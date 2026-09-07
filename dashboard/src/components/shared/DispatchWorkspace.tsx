@@ -4,7 +4,7 @@ import {
   Navigation2, RefreshCw, Route, ShieldCheck, Truck, UserCheck, XCircle,
 } from 'lucide-react';
 import {
-  DispatchAssignment, DispatchCandidate, DispatchEvent, fetchAuthoritativeDispatches,
+  assignDispatchCandidate, DispatchAssignment, DispatchCandidate, DispatchEvent, fetchAuthoritativeDispatches,
   fetchDispatchCandidates, fetchDispatchDetail, transitionDispatch,
 } from '../../services/dispatchClient';
 
@@ -37,11 +37,11 @@ function actionsFor(role: DispatchRole, assignment: DispatchAssignment): Action[
     if (status === 'emergency') return [{ status: 'in_journey', label: 'Resume journey', tone: 'primary', needsReason: true }, { status: 'completed', label: 'Close as completed', tone: 'neutral', needsReason: true }, { status: 'disputed', label: 'Open dispute', tone: 'warning', needsReason: true }];
     return [];
   }
-  if (status === 'queued') return [{ status: 'offered', label: 'Offer assignment', tone: 'primary' }, { status: 'assigned', label: 'Assign directly', tone: 'neutral', needsReason: true }, { status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
+  if (status === 'queued') return [{ status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
   if (status === 'offered') return [{ status: 'expired', label: 'Expire offer', tone: 'warning', needsReason: true }, { status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
   if (status === 'accepted') return [{ status: 'assigned', label: 'Confirm assignment', tone: 'primary' }, { status: 'reassigned', label: 'Reassign', tone: 'warning', needsReason: true }, { status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
   if (['assigned','en_route','arrived'].includes(status)) return [{ status: 'reassigned', label: 'Reassign', tone: 'warning', needsReason: true }, { status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
-  if (status === 'reassigned') return [{ status: 'offered', label: 'Send new offer', tone: 'primary' }, { status: 'assigned', label: 'Assign replacement', tone: 'neutral', needsReason: true }, { status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
+  if (status === 'reassigned') return [{ status: 'cancelled', label: 'Cancel', tone: 'danger', needsReason: true }];
   if (status === 'emergency') return [{ status: 'in_journey', label: 'Resume service', tone: 'primary', needsReason: true }, { status: 'completed', label: 'Close completed', tone: 'neutral', needsReason: true }, { status: 'cancelled', label: 'Terminate journey', tone: 'danger', needsReason: true }, { status: 'disputed', label: 'Open dispute', tone: 'warning', needsReason: true }];
   if (status === 'disputed') return [{ status: 'completed', label: 'Resolve completed', tone: 'primary', needsReason: true }, { status: 'cancelled', label: 'Resolve cancelled', tone: 'danger', needsReason: true }];
   return [];
@@ -49,6 +49,9 @@ function actionsFor(role: DispatchRole, assignment: DispatchAssignment): Action[
 
 function mutationKey(assignment: DispatchAssignment, nextStatus: string) {
   return `dispatch:${assignment.id}:v${assignment.state_version ?? 0}:${nextStatus}`;
+}
+function candidateMutationKey(assignment: DispatchAssignment, candidate: DispatchCandidate, nextStatus: string) {
+  return `dispatch-candidate:${assignment.id}:v${assignment.state_version ?? 0}:${candidate.vehicle_id}:${nextStatus}`;
 }
 function toneClass(tone: Action['tone']) {
   if (tone === 'primary') return 'bg-cyan-400 text-slate-950 border-cyan-300/30';
@@ -77,11 +80,13 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [busyCandidate, setBusyCandidate] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState('');
   const selected = useMemo(() => dispatches.find((item) => item.id === selectedId) || dispatches[0] || null, [dispatches, selectedId]);
   const actions = selected ? actionsFor(role, selected) : [];
   const canRank = role === 'planner' || role === 'admin';
+  const canChooseCandidate = canRank && Boolean(selected && ['queued','reassigned'].includes(selected.status));
 
   const refresh = async () => {
     setLoading(true);
@@ -141,6 +146,33 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
     onChanged?.();
   };
 
+  const chooseCandidate = async (candidate: DispatchCandidate, nextStatus: 'offered' | 'assigned') => {
+    if (!selected || !canChooseCandidate) return;
+    if (nextStatus === 'assigned' && reason.trim().length < 4) {
+      setNotice('Direct assignment requires a short accountable reason.');
+      return;
+    }
+    const busyKey = `${candidate.vehicle_id}:${nextStatus}`;
+    setBusyCandidate(busyKey);
+    setNotice('');
+    const result = await assignDispatchCandidate({
+      assignmentId: selected.id,
+      candidate,
+      expectedStatus: selected.status,
+      nextStatus,
+      reason: nextStatus === 'assigned' ? reason.trim() : undefined,
+      idempotencyKey: candidateMutationKey(selected, candidate, nextStatus),
+    });
+    setBusyCandidate(null);
+    if (result.error) { setNotice(result.error.message); await loadCandidates(selected.id); return; }
+    setReason('');
+    setNotice(nextStatus === 'offered' ? 'Candidate offer recorded with fresh server-side ranking evidence.' : 'Candidate directly assigned with fresh server-side ranking evidence and override reason.');
+    await refresh();
+    await loadDetail(selected.id);
+    await loadCandidates(selected.id);
+    onChanged?.();
+  };
+
   return <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
     <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300/70">Authoritative dispatch</p><h2 className="mt-1 text-xl font-black">{role === 'operator' ? 'My missions' : role === 'commuter' ? 'My active journeys' : 'Live dispatch board'}</h2></div><button type="button" onClick={() => void refresh()} disabled={loading} className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 disabled:opacity-40" aria-label="Refresh dispatches"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div>
@@ -153,12 +185,14 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
         <div className="mt-5"><DispatchProgress status={selected.status} /></div>
         <div className="mt-5 grid gap-3 sm:grid-cols-4"><div className="rounded-xl border border-white/10 bg-black/20 p-4"><MapPin className="h-4 w-4 text-emerald-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Pickup</p><p className="mt-1 text-xs font-bold">{selected.pickup_lat != null && selected.pickup_lng != null ? `${Number(selected.pickup_lat).toFixed(4)}, ${Number(selected.pickup_lng).toFixed(4)}` : 'Coordinates pending'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><Truck className="h-4 w-4 text-blue-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Operator</p><p className="mt-1 text-xs font-bold">{selected.operator_id ? `…${selected.operator_id.slice(-8)}` : 'Not assigned'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Stored score</p><p className="mt-1 text-xs font-bold">{selected.dispatch_score != null ? selected.dispatch_score : 'Not yet persisted'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><FileClock className="h-4 w-4 text-amber-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Evidence events</p><p className="mt-1 text-xs font-bold">{events.length}</p></div></div>
 
-        {canRank && <div className="mt-5 rounded-xl border border-violet-300/15 bg-violet-500/[0.05] p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Explainable candidate ranking</p><p className="mt-1 text-xs text-white/40">Eligible supply only; evidence and missing signals remain visible.</p></div><button type="button" onClick={() => void loadCandidates(selected.id)} disabled={rankingLoading} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-black uppercase text-white/60 disabled:opacity-40">{rankingLoading ? 'Ranking…' : 'Re-rank'}</button></div><div className="mt-3 space-y-2">{candidates.slice(0, 5).map((candidate, index) => <article key={candidate.vehicle_id} className="rounded-lg border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-300/20 bg-violet-500/10 text-sm font-black">#{index + 1}</div><div><p className="text-xs font-black">{candidate.vehicle_type || 'Vehicle'} · …{candidate.vehicle_id.slice(-6)}</p><p className="mt-1 text-[9px] text-white/35">{candidate.straight_line_distance_km} km straight-line · telemetry {candidate.telemetry_age_minutes == null ? 'unknown' : `${candidate.telemetry_age_minutes} min old`}</p></div></div><div className="text-right"><p className="text-xl font-black text-violet-200">{candidate.score}</p><p className="text-[8px] uppercase text-white/30">score / 100</p></div></div><div className="mt-3 grid grid-cols-4 gap-1">{Object.entries(candidate.factors).slice(0, 8).map(([key, value]) => <div key={key} className="rounded-md border border-white/5 bg-white/[0.025] p-2"><p className="text-[8px] uppercase text-white/25">{key.replace(/_/g, ' ')}</p><p className="mt-1 text-[10px] font-black">{Number(value).toFixed(1)}</p></div>)}</div>{candidate.evidence.signal_missing.length > 0 && <p className="mt-2 text-[9px] text-amber-200/70">Missing: {candidate.evidence.signal_missing.join(', ')}</p>}</article>)}{!rankingLoading && !candidates.length && <p className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-white/35">No eligible ranked vehicle returned for this pickup yet.</p>}</div>{rankingNote && <p className="mt-3 flex items-start gap-2 text-[10px] leading-5 text-white/40"><Gauge className="mt-0.5 h-3 w-3 shrink-0 text-violet-200" />{rankingNote}</p>}</div>}
+        {canRank && <div className="mt-5 rounded-xl border border-violet-300/15 bg-violet-500/[0.05] p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Explainable candidate ranking</p><p className="mt-1 text-xs text-white/40">Eligible supply only; evidence and missing signals remain visible.</p></div><button type="button" onClick={() => void loadCandidates(selected.id)} disabled={rankingLoading} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-black uppercase text-white/60 disabled:opacity-40">{rankingLoading ? 'Ranking…' : 'Re-rank'}</button></div>
+          {canChooseCandidate && <label className="mt-3 block"><span className="text-[9px] font-bold text-white/40">Direct-assignment reason (required only for bypassing an offer)</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-white outline-none placeholder:text-white/20" placeholder="Example: passenger safety escalation, replacement after breakdown, dispatcher-approved exception." /></label>}
+          <div className="mt-3 space-y-2">{candidates.slice(0, 5).map((candidate, index) => <article key={candidate.vehicle_id} className="rounded-lg border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-300/20 bg-violet-500/10 text-sm font-black">#{index + 1}</div><div><p className="text-xs font-black">{candidate.vehicle_type || 'Vehicle'} · …{candidate.vehicle_id.slice(-6)}</p><p className="mt-1 text-[9px] text-white/35">{candidate.straight_line_distance_km} km straight-line · telemetry {candidate.telemetry_age_minutes == null ? 'unknown' : `${candidate.telemetry_age_minutes} min old`}</p></div></div><div className="text-right"><p className="text-xl font-black text-violet-200">{candidate.score}</p><p className="text-[8px] uppercase text-white/30">score / 100</p></div></div><div className="mt-3 grid grid-cols-4 gap-1">{Object.entries(candidate.factors).slice(0, 8).map(([key, value]) => <div key={key} className="rounded-md border border-white/5 bg-white/[0.025] p-2"><p className="text-[8px] uppercase text-white/25">{key.replace(/_/g, ' ')}</p><p className="mt-1 text-[10px] font-black">{Number(value).toFixed(1)}</p></div>)}</div>{candidate.evidence.signal_missing.length > 0 && <p className="mt-2 text-[9px] text-amber-200/70">Missing: {candidate.evidence.signal_missing.join(', ')}</p>}{canChooseCandidate && <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={Boolean(busyCandidate)} onClick={() => void chooseCandidate(candidate, 'offered')} className="rounded-lg border border-cyan-300/25 bg-cyan-400 px-3 py-2 text-[9px] font-black uppercase text-slate-950 disabled:opacity-40">{busyCandidate === `${candidate.vehicle_id}:offered` ? 'Offering…' : 'Offer candidate'}</button><button type="button" disabled={Boolean(busyCandidate)} onClick={() => void chooseCandidate(candidate, 'assigned')} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-black uppercase text-white/70 disabled:opacity-40">{busyCandidate === `${candidate.vehicle_id}:assigned` ? 'Assigning…' : 'Direct assign'}</button></div>}</article>)}{!rankingLoading && !candidates.length && <p className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-white/35">No eligible ranked vehicle returned for this pickup yet.</p>}</div>{rankingNote && <p className="mt-3 flex items-start gap-2 text-[10px] leading-5 text-white/40"><Gauge className="mt-0.5 h-3 w-3 shrink-0 text-violet-200" />{rankingNote}</p>}</div>}
 
-        {actions.length > 0 && <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase tracking-wider text-white/35">Allowed next actions for {role}</p>{actions.some((action) => action.needsReason) && <label className="mt-3 block"><span className="text-[9px] font-bold text-white/40">Reason for accountable exceptions, cancellations or overrides</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-white outline-none placeholder:text-white/20" placeholder="State the operational reason when required." /></label>}<div className="mt-3 flex flex-wrap gap-2">{actions.map((action) => <button key={action.status} type="button" disabled={Boolean(busyAction)} onClick={() => void runAction(action)} className={`min-h-11 rounded-lg border px-4 text-[10px] font-black uppercase tracking-wide disabled:opacity-40 ${toneClass(action.tone)}`}>{busyAction === action.status ? 'Recording…' : action.label}</button>)}</div></div>}
+        {actions.length > 0 && <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase tracking-wider text-white/35">Allowed next actions for {role}</p>{actions.some((action) => action.needsReason) && !canChooseCandidate && <label className="mt-3 block"><span className="text-[9px] font-bold text-white/40">Reason for accountable exceptions, cancellations or overrides</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-white outline-none placeholder:text-white/20" placeholder="State the operational reason when required." /></label>}<div className="mt-3 flex flex-wrap gap-2">{actions.map((action) => <button key={action.status} type="button" disabled={Boolean(busyAction)} onClick={() => void runAction(action)} className={`min-h-11 rounded-lg border px-4 text-[10px] font-black uppercase tracking-wide disabled:opacity-40 ${toneClass(action.tone)}`}>{busyAction === action.status ? 'Recording…' : action.label}</button>)}</div></div>}
 
         <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between"><p className="text-[9px] font-black uppercase tracking-wider text-white/35">Evidence timeline</p>{detailLoading && <Clock3 className="h-4 w-4 animate-spin text-cyan-200" />}</div><div className="mt-3 space-y-3">{events.map((event, index) => <div key={event.id} className="flex gap-3"><div className="flex flex-col items-center"><div className="flex h-7 w-7 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-500/10"><CheckCircle2 className="h-3 w-3 text-cyan-200" /></div>{index < events.length - 1 && <div className="h-full w-px bg-white/10" />}</div><div className="pb-3"><p className="text-xs font-black">{STATUS_LABEL[event.from_status || ''] || event.from_status || 'Created'} <ArrowRight className="mx-1 inline h-3 w-3 text-white/25" /> {STATUS_LABEL[event.to_status] || event.to_status}</p><p className="mt-1 text-[10px] text-white/35">{new Date(event.created_at).toLocaleString()}{event.reason ? ` · ${event.reason}` : ''}</p></div></div>)}{!events.length && !detailLoading && <p className="py-4 text-xs text-white/35">No transition event has been recorded yet for this dispatch.</p>}</div></div>
-        {notice && <div role="status" className={`mt-4 flex items-start gap-3 rounded-xl border p-4 text-xs font-bold ${/failed|expired|error|blocked|stale/i.test(notice) ? 'border-red-400/20 bg-red-500/10 text-red-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>{/failed|expired|error|blocked|stale/i.test(notice) ? <XCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <UserCheck className="mt-0.5 h-4 w-4 shrink-0" />}{notice}</div>}
+        {notice && <div role="status" className={`mt-4 flex items-start gap-3 rounded-xl border p-4 text-xs font-bold ${/failed|expired|error|blocked|stale|no longer/i.test(notice) ? 'border-red-400/20 bg-red-500/10 text-red-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>{/failed|expired|error|blocked|stale|no longer/i.test(notice) ? <XCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <UserCheck className="mt-0.5 h-4 w-4 shrink-0" />}{notice}</div>}
       </>}
     </section>
   </div>;
