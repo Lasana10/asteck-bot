@@ -4,7 +4,9 @@ import { requireAuthRole } from './routes';
 
 const router = express.Router();
 
+const ACTIVE_DISPATCH_STATES = ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','reassigned','emergency','disputed'];
 const OPERATOR_ALLOWED = new Set(['accepted','declined','en_route','arrived','pickup_verified','in_journey','completed','emergency','disputed','no_show']);
+const PASSENGER_ALLOWED = new Set(['cancelled','disputed']);
 const STAFF_ALLOWED = new Set(['offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','completed','cancelled','declined','expired','reassigned','no_show','emergency','disputed']);
 
 function stableKey(req: Request) {
@@ -26,6 +28,57 @@ function publicDispatchError(error: any) {
   return { status: 500, error: message };
 }
 
+async function passengerOwnsBooking(profileId: string, bookingId?: string | null) {
+  if (!bookingId) return false;
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('passenger_id')
+    .eq('id', bookingId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.passenger_id === profileId;
+}
+
+router.get('/dispatch', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+
+  try {
+    const role = String(access.profile.role || '').toLowerCase();
+    const profileId = access.profile.id;
+    const includeTerminal = String(req.query.include_terminal || '').toLowerCase() === 'true';
+    const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
+
+    let query = supabase
+      .from('dispatch_assignments')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+
+    if (!includeTerminal) query = query.in('status', ACTIVE_DISPATCH_STATES);
+
+    if (role === 'operator') {
+      query = query.eq('operator_id', profileId);
+    } else if (!['admin','planner'].includes(role)) {
+      const { data: bookings, error: bookingsError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('passenger_id', profileId)
+        .limit(100);
+      if (bookingsError) throw bookingsError;
+      const bookingIds = (bookings || []).map((booking: any) => booking.id).filter(Boolean);
+      if (!bookingIds.length) return res.json({ dispatches: [], role, active_states: ACTIVE_DISPATCH_STATES });
+      query = query.in('booking_id', bookingIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return res.json({ dispatches: data || [], role, active_states: ACTIVE_DISPATCH_STATES });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Dispatch workspace unavailable.' });
+  }
+});
+
 router.get('/dispatch/:assignmentId', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
@@ -44,16 +97,7 @@ router.get('/dispatch/:assignmentId', async (req: Request, res: Response) => {
     const profileId = access.profile.id;
     let participant = ['admin','planner'].includes(role) || assignment.operator_id === profileId || assignment.dispatcher_id === profileId;
 
-    if (!participant && assignment.booking_id) {
-      const { data: booking, error: bookingError } = await supabase
-        .from('bookings')
-        .select('passenger_id')
-        .eq('id', assignment.booking_id)
-        .maybeSingle();
-      if (bookingError) throw bookingError;
-      participant = booking?.passenger_id === profileId;
-    }
-
+    if (!participant) participant = await passengerOwnsBooking(profileId, assignment.booking_id);
     if (!participant) return res.status(403).json({ error: 'Forbidden' });
 
     const { data: events, error: eventsError } = await supabase
@@ -100,12 +144,16 @@ router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Resp
     const profileId = access.profile.id;
     const isStaff = ['admin','planner'].includes(role);
     const isAssignedOperator = role === 'operator' && assignment.operator_id === profileId;
+    const isPassenger = !isStaff && !isAssignedOperator && await passengerOwnsBooking(profileId, assignment.booking_id);
 
-    if (!isStaff && !isAssignedOperator) {
-      return res.status(403).json({ error: 'Only AFAT dispatch staff or the assigned operator can transition this dispatch.' });
+    if (!isStaff && !isAssignedOperator && !isPassenger) {
+      return res.status(403).json({ error: 'Only AFAT dispatch staff or dispatch participants can transition this dispatch.' });
     }
     if (isAssignedOperator && !OPERATOR_ALLOWED.has(nextStatus)) {
       return res.status(403).json({ error: 'Operator cannot perform this dispatch transition.' });
+    }
+    if (isPassenger && !PASSENGER_ALLOWED.has(nextStatus)) {
+      return res.status(403).json({ error: 'Passenger can only cancel an eligible dispatch or dispute an active journey.' });
     }
     if (isStaff && !STAFF_ALLOWED.has(nextStatus)) {
       return res.status(400).json({ error: 'Unsupported dispatch transition.' });
