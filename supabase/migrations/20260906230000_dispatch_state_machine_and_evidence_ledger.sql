@@ -13,7 +13,8 @@ alter table public.dispatch_assignments
   add column if not exists failure_reason text,
   add column if not exists state_version integer not null default 0;
 
-drop constraint if exists dispatch_assignments_status_check on public.dispatch_assignments;
+alter table public.dispatch_assignments
+  drop constraint if exists dispatch_assignments_status_check;
 alter table public.dispatch_assignments
   add constraint dispatch_assignments_status_check check (status = any (array[
     'queued'::text,'offered'::text,'accepted'::text,'assigned'::text,'en_route'::text,
@@ -45,6 +46,7 @@ alter table public.dispatch_assignment_events enable row level security;
 create index if not exists dispatch_assignment_events_assignment_created_idx
   on public.dispatch_assignment_events(assignment_id,created_at desc);
 
+drop policy if exists dispatch_event_participant_or_staff_read on public.dispatch_assignment_events;
 create policy dispatch_event_participant_or_staff_read
 on public.dispatch_assignment_events for select
 to authenticated
