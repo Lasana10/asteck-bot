@@ -47,9 +47,34 @@ export type DispatchEvent = {
 
 type ApiResult<T> = { data: T | null; error: { message: string } | null };
 
+function decodeJwtSubject(token: string) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload || typeof window === 'undefined') return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const json = JSON.parse(window.atob(padded));
+    if (json?.exp && Number(json.exp) * 1000 <= Date.now()) return null;
+    return String(json?.sub || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function boundAfatToken() {
+  if (typeof window === 'undefined') return null;
+  const token = localStorage.getItem('afat_access_token');
+  const owner = String(localStorage.getItem('afat_access_token_user_id') || '').trim();
+  const currentUser = String(localStorage.getItem('afat_user_id') || localStorage.getItem('afat_local_user_id') || '').trim();
+  if (!token || !owner || !currentUser || owner !== currentUser) return null;
+  const subject = decodeJwtSubject(token);
+  if (!subject || subject !== owner) return null;
+  return token;
+}
+
 async function authHeaders(extra?: HeadersInit) {
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  const token = data.session?.access_token || boundAfatToken();
   if (!token) throw new Error('Your AFAT session has expired. Sign in again to continue.');
   return {
     'Content-Type': 'application/json',
@@ -104,9 +129,4 @@ export async function transitionDispatch(input: {
       evidence: input.evidence || {},
     }),
   });
-}
-
-export function makeDispatchMutationKey(assignmentId: string, nextStatus: string) {
-  const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `dispatch:${assignmentId}:${nextStatus}:${random}`;
 }
