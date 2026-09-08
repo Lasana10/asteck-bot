@@ -10,6 +10,7 @@ import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 import { AtlasContextPanel } from './AtlasContextPanel';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
+import { fetchCanonicalAfatRoute, type AfatCanonicalRoute, type AfatRouteMode } from '../../services/canonicalRouteClient';
 
 type Props = {
   profile: any;
@@ -17,6 +18,8 @@ type Props = {
   initialDestination?: string;
   onPassageCreated?: (passage: any) => void;
 };
+
+type OriginFix = { latitude: number; longitude: number; accuracy: number; label: string };
 
 function pointFrom(value: any, fallbackName?: string) {
   if (!value) return null;
@@ -37,22 +40,42 @@ function matchLabel(confidence: number) {
   return 'Possible match';
 }
 
+function routeMessageFor(route: AfatCanonicalRoute | null) {
+  if (!route) return '';
+  if (route.status === 'ok') {
+    const km = Number(route.distance_m || 0) / 1000;
+    return `Connected AFAT route ready${km > 0 ? ` · ${km.toFixed(km >= 10 ? 0 : 1)} km` : ''}. ETA appears only after AFAT has a trusted speed profile.`;
+  }
+  const copy: Record<string, string> = {
+    origin_not_connected_to_trusted_graph: 'AFAT has not connected your current position to a trusted road graph yet.',
+    destination_not_connected_to_trusted_graph: 'This destination is known, but its nearby road graph is not trusted yet.',
+    no_trusted_graph_path: 'AFAT cannot yet confirm a connected trusted path between these points.',
+  };
+  return copy[route.reason || ''] || 'A trusted AFAT route is not available for these points yet.';
+}
+
 export function PassagePlanner({ profile, originText = '', initialDestination = '', onPassageCreated }: Props) {
   const [destination, setDestination] = useState(initialDestination);
   const [originLabel, setOriginLabel] = useState(originText);
+  const [originFix, setOriginFix] = useState<OriginFix | null>(null);
   const [arrivalTarget, setArrivalTarget] = useState('');
-  const [vehicleType, setVehicleType] = useState('car');
+  const [vehicleType, setVehicleType] = useState<AfatRouteMode>('car');
   const [candidates, setCandidates] = useState<AfatPlaceCandidate[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<AfatPlaceCandidate | null>(null);
   const [selectedMeetingPoint, setSelectedMeetingPoint] = useState<AfatMeetingPoint | null>(null);
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [canonicalRoute, setCanonicalRoute] = useState<AfatCanonicalRoute | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeMessage, setRouteMessage] = useState('');
 
   useEffect(() => {
     setDestination(initialDestination);
     setCandidates([]);
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
+    setCanonicalRoute(null);
+    setRouteMessage('');
     setStatusText('');
   }, [initialDestination]);
 
@@ -60,6 +83,40 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const destinationPoint = useMemo(() => pointFrom(selectedPlace, selectedPlace?.name), [selectedPlace]);
   const meetingPoint = useMemo(() => pointFrom(selectedMeetingPoint, selectedMeetingPoint?.name), [selectedMeetingPoint]);
+  const arrivalPoint = meetingPoint || destinationPoint;
+
+  useEffect(() => {
+    let active = true;
+    if (!originFix || !arrivalPoint) {
+      setCanonicalRoute(null);
+      setRouteMessage('');
+      return;
+    }
+
+    setRouteLoading(true);
+    setRouteMessage('');
+    fetchCanonicalAfatRoute({
+      originLatitude: originFix.latitude,
+      originLongitude: originFix.longitude,
+      destinationLatitude: arrivalPoint.latitude,
+      destinationLongitude: arrivalPoint.longitude,
+      mode: vehicleType,
+      snapRadiusM: 1200,
+    })
+      .then((route) => {
+        if (!active) return;
+        setCanonicalRoute(route);
+        setRouteMessage(routeMessageFor(route));
+      })
+      .catch((error: any) => {
+        if (!active) return;
+        setCanonicalRoute(null);
+        setRouteMessage(error?.message || 'AFAT could not calculate the connected route.');
+      })
+      .finally(() => { if (active) setRouteLoading(false); });
+
+    return () => { active = false; };
+  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, vehicleType]);
 
   const resolveDestination = async () => {
     if (destination.trim().length < 3) return;
@@ -67,6 +124,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setStatusText('Finding the place and the easiest way to meet there…');
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
+    setCanonicalRoute(null);
     const { data, error } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde', vehicle_type: vehicleType });
     setLoading(false);
     if (error) { setCandidates([]); setStatusText(error.message); return; }
@@ -86,6 +144,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
     setCandidates([]);
+    setCanonicalRoute(null);
     setStatusText('Thanks. AFAT will keep this place unresolved instead of sending someone to the wrong location.');
   };
 
@@ -103,7 +162,13 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       meeting_point_id: selectedMeetingPoint.id,
       place_confidence: selectedPlace.confidence,
       requested_vehicle_type: vehicleType,
-      metadata: { place_explanation: selectedPlace.explanation, meeting_instructions: selectedMeetingPoint.instructions, atlas_origin_label: originLabel || null },
+      metadata: {
+        place_explanation: selectedPlace.explanation,
+        meeting_instructions: selectedMeetingPoint.instructions,
+        atlas_origin_label: originLabel || null,
+        canonical_route_status: canonicalRoute?.status || null,
+        canonical_route_distance_m: canonicalRoute?.status === 'ok' ? canonicalRoute.distance_m || null : null,
+      },
     });
     setLoading(false);
     if (error) { setStatusText(error.message); return; }
@@ -124,10 +189,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
       <label className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"><span className="text-[9px] font-black uppercase tracking-widest text-white/35">Arrive by</span><input type="datetime-local" value={arrivalTarget} onChange={(event) => setArrivalTarget(event.target.value)} className="mt-1 block w-full bg-transparent text-xs font-bold text-white outline-none" /></label>
-      <label className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"><span className="text-[9px] font-black uppercase tracking-widest text-white/35">How are you moving?</span><select value={vehicleType} onChange={(event) => setVehicleType(event.target.value)} className="mt-1 block w-full bg-slate-950 text-xs font-bold text-white outline-none"><option value="car">Car / taxi</option><option value="moto">Motorcycle</option><option value="minibus">Shared / minibus</option></select></label>
+      <label className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"><span className="text-[9px] font-black uppercase tracking-widest text-white/35">How are you moving?</span><select value={vehicleType} onChange={(event) => setVehicleType(event.target.value as AfatRouteMode)} className="mt-1 block w-full bg-slate-950 text-xs font-bold text-white outline-none"><option value="car">Car / taxi</option><option value="moto">Motorcycle</option><option value="minibus">Shared / minibus</option></select></label>
     </div>
 
-    <div className="mt-4"><PassengerSpatialMap city={profile?.preferred_city || 'yaounde'} destination={destinationPoint} meetingPoint={meetingPoint} onOriginResolved={({ label }) => setOriginLabel(label)} /></div>
+    <div className="mt-4"><PassengerSpatialMap city={profile?.preferred_city || 'yaounde'} destination={destinationPoint} meetingPoint={meetingPoint} route={canonicalRoute} routeLoading={routeLoading} routeMessage={routeMessage} onOriginResolved={(origin) => { setOriginFix(origin); setOriginLabel(origin.label); }} /></div>
     {statusText && <div className="mt-4 rounded-2xl border border-blue-400/15 bg-blue-500/8 px-4 py-3 text-xs font-semibold leading-relaxed text-blue-100/75">{statusText}</div>}
     <AtlasContextPanel city={profile?.preferred_city || 'yaounde'} onOriginResolved={({ label }) => setOriginLabel(label)} />
 
