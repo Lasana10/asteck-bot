@@ -1,0 +1,59 @@
+name: AFAT Yaounde Overture Pilot
+
+on:
+  push:
+    branches:
+      - feat/afat-multisource-atlas
+    paths:
+      - '.github/workflows/afat-yaounde-overture-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract-overture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install pinned Overture client
+        run: python -m pip install 'overturemaps==1.0.2'
+      - name: Download real Yaounde pilot extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/afat-yaounde-overture
+          BBOX='11.4905,3.8373,11.5080,3.8527'
+          overturemaps download --bbox="$BBOX" -f geojson --type=place -o artifacts/afat-yaounde-overture/places.geojson
+          overturemaps download --bbox="$BBOX" -f geojson --type=segment -o artifacts/afat-yaounde-overture/transportation-segments.geojson
+          overturemaps download --bbox="$BBOX" -f geojson --type=connector -o artifacts/afat-yaounde-overture/transportation-connectors.geojson
+          overturemaps download --bbox="$BBOX" -f geojson --type=building -o artifacts/afat-yaounde-overture/buildings.geojson
+          python - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('artifacts/afat-yaounde-overture')
+          files = []
+          for p in sorted(root.glob('*.geojson')):
+              data = p.read_bytes()
+              files.append({'file': p.name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+          manifest = {
+              'pilot': 'AFAT Yaounde canonical atlas',
+              'bbox': [11.4905, 3.8373, 11.5080, 3.8527],
+              'source': 'Overture Maps Foundation',
+              'client': 'overturemaps==1.0.2',
+              'files': files,
+          }
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(manifest, indent=2))
+          PY
+      - name: Upload reproducible pilot extract
+        uses: actions/upload-artifact@v4
+        with:
+          name: afat-yaounde-overture-pilot
+          path: artifacts/afat-yaounde-overture/
+          if-no-files-found: error
+          retention-days: 14
