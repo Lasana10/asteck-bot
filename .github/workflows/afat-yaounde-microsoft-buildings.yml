@@ -124,5 +124,7 @@ jobs:
             echo 'Building snapshot unchanged.'
           else
             git commit -m 'data(afat): snapshot Yaounde Microsoft building candidates'
+            git fetch origin feat/afat-multisource-atlas
+            git rebase origin/feat/afat-multisource-atlas
             git push origin HEAD:feat/afat-multisource-atlas
           fi
