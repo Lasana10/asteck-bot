@@ -1,0 +1,128 @@
+name: AFAT Yaounde Microsoft Buildings
+
+on:
+  push:
+    branches:
+      - feat/afat-multisource-atlas
+    paths:
+      - '.github/workflows/afat-yaounde-microsoft-buildings.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract-buildings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install clipping dependencies
+        run: python -m pip install 'requests==2.32.5' 'shapely==2.1.1'
+      - name: Download and clip Microsoft Global ML Building Footprints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, gzip, hashlib, io, json, math, pathlib, requests
+          from shapely.geometry import box, shape
+
+          WEST,SOUTH,EAST,NORTH = 11.4905,3.8373,11.5080,3.8527
+          SNAPSHOT='2026-07-24'
+          INDEX='https://bfppub.blob.core.windows.net/$web/2026-07-24/dataset-links.csv'
+
+          def tile_xy(lat, lon, level=9):
+              lat=max(-85.05112878,min(85.05112878,lat))
+              x=(lon+180.0)/360.0
+              sinlat=math.sin(math.radians(lat))
+              y=0.5-math.log((1+sinlat)/(1-sinlat))/(4*math.pi)
+              size=1<<level
+              return min(size-1,max(0,int(x*size))),min(size-1,max(0,int(y*size)))
+
+          def quadkey(tx,ty,level=9):
+              out=[]
+              for i in range(level,0,-1):
+                  digit=0; mask=1<<(i-1)
+                  if tx & mask: digit+=1
+                  if ty & mask: digit+=2
+                  out.append(str(digit))
+              return ''.join(out)
+
+          keys=set()
+          x0,y0=tile_xy(NORTH,WEST); x1,y1=tile_xy(SOUTH,EAST)
+          for x in range(min(x0,x1),max(x0,x1)+1):
+              for y in range(min(y0,y1),max(y0,y1)+1): keys.add(quadkey(x,y))
+
+          idx=requests.get(INDEX,timeout=60); idx.raise_for_status()
+          rows=list(csv.DictReader(io.StringIO(idx.text)))
+          selected=[r for r in rows if (r.get('Location') or '').strip().lower()=='cameroon' and str(r.get('QuadKey') or '').strip() in keys]
+          if not selected:
+              raise SystemExit(f'No Cameroon dataset partition matched Yaounde quadkeys {sorted(keys)}')
+
+          clip=box(WEST,SOUTH,EAST,NORTH)
+          records=[]; source_files=[]
+          for row in selected:
+              url=row['Url']; qk=str(row['QuadKey'])
+              resp=requests.get(url,timeout=180); resp.raise_for_status()
+              compressed_sha=hashlib.sha256(resp.content).hexdigest()
+              source_files.append({'quadkey':qk,'url':url,'bytes':len(resp.content),'sha256':compressed_sha})
+              text=gzip.decompress(resp.content).decode('utf-8')
+              for line in text.splitlines():
+                  if not line.strip(): continue
+                  obj=json.loads(line)
+                  geom=obj.get('geometry')
+                  if not geom: continue
+                  polygon=shape(geom)
+                  if not polygon.intersects(clip): continue
+                  fingerprint=hashlib.sha256(json.dumps(geom,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+                  props={k:v for k,v in obj.items() if k!='geometry'}
+                  records.append({
+                      'external_feature_id': f'ms-building/{fingerprint[:32]}',
+                      'dataset_version': SNAPSHOT,
+                      'canonical_name': f'Microsoft building {fingerprint[:8]}',
+                      'normalized_name': f'microsoft building {fingerprint[:8]}',
+                      'alternate_names': [],
+                      'source_category': 'building_footprint',
+                      'source_address': None,
+                      'source_confidence': 0.58,
+                      'source_properties': {'microsoft_properties':props,'quadkey':qk,'imagery_ml_derived':True},
+                      'record_fingerprint': fingerprint,
+                      'source_feature_kind': 'polygon',
+                      'geometry': geom,
+                      'source_license': 'CDLA-Permissive-2.0',
+                      'attribution_text': 'Microsoft Global ML Building Footprints',
+                  })
+
+          records.sort(key=lambda r:r['external_feature_id'])
+          manifest={
+              'pilot':'AFAT Yaounde building evidence',
+              'bbox':[WEST,SOUTH,EAST,NORTH],
+              'source':'Microsoft Global ML Building Footprints',
+              'dataset_snapshot':SNAPSHOT,
+              'license':'CDLA-Permissive-2.0',
+              'quadkeys':sorted(keys),
+              'source_files':source_files,
+              'record_count':len(records),
+              'trust_rule':'ML building polygons are independent geometry evidence only; they do not prove address, occupancy, entrance, or road passability.'
+          }
+          out=pathlib.Path('data/afat-pilot/microsoft-buildings/yaounde-2026-07-24-candidates.json')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          out.write_text(json.dumps({'manifest':manifest,'records':records},separators=(',',':'),ensure_ascii=False)+'\n',encoding='utf-8')
+          print(json.dumps({'manifest':manifest,'snapshot_bytes':out.stat().st_size},indent=2))
+          PY
+      - name: Publish auditable building candidate snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/afat-pilot/microsoft-buildings/yaounde-2026-07-24-candidates.json
+          if git diff --cached --quiet; then
+            echo 'Building snapshot unchanged.'
+          else
+            git commit -m 'data(afat): snapshot Yaounde Microsoft building candidates'
+            git push origin HEAD:feat/afat-multisource-atlas
+          fi
