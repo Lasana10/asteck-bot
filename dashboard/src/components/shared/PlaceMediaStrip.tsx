@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Building2, Camera, ImageOff, ShieldCheck } from 'lucide-react';
-import { fetchApprovedPlaceMedia, resolvePlaceMediaUrl, type AfatPlaceMedia } from '../../services/placeMediaClient';
+import { fetchApprovedNodeMedia, fetchApprovedPlaceMedia, resolvePlaceMediaUrl, type AfatPlaceMedia } from '../../services/placeMediaClient';
 
 type Props = {
-  atlasNodeId: string;
+  atlasNodeId?: string | null;
+  placeId?: string | null;
   placeName?: string | null;
   compact?: boolean;
 };
 
-export function PlaceMediaStrip({ atlasNodeId, placeName, compact = false }: Props) {
+export function PlaceMediaStrip({ atlasNodeId, placeId, placeName, compact = false }: Props) {
   const [items, setItems] = useState<AfatPlaceMedia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -17,19 +18,25 @@ export function PlaceMediaStrip({ atlasNodeId, placeName, compact = false }: Pro
     let active = true;
     setLoading(true);
     setError('');
-    fetchApprovedPlaceMedia(atlasNodeId)
+    const request = placeId
+      ? fetchApprovedPlaceMedia(placeId)
+      : atlasNodeId
+        ? fetchApprovedNodeMedia(atlasNodeId)
+        : Promise.resolve([]);
+    request
       .then((media) => { if (active) setItems(media); })
       .catch((err: any) => { if (active) setError(err?.message || 'Place imagery unavailable.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [atlasNodeId]);
+  }, [atlasNodeId, placeId]);
 
   const visible = useMemo(() => items
     .map((item) => ({ item, url: resolvePlaceMediaUrl(item) }))
     .filter((entry): entry is { item: AfatPlaceMedia; url: string } => Boolean(entry.url))
     .slice(0, compact ? 3 : 6), [items, compact]);
 
-  if (loading) return <div className="animate-pulse rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-[10px] font-bold uppercase tracking-wider text-white/30">Loading verified place imagery…</div>;
+  if (!atlasNodeId && !placeId) return null;
+  if (loading) return <div className="animate-pulse rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-[10px] font-bold uppercase tracking-wider text-white/30">Loading place imagery…</div>;
   if (error) return <div className="rounded-2xl border border-amber-300/15 bg-amber-500/[0.05] p-4 text-[11px] text-amber-100/70">{error}</div>;
   if (!visible.length) return compact ? null : (
     <div className="flex items-start gap-3 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-white/40">
@@ -44,7 +51,7 @@ export function PlaceMediaStrip({ atlasNodeId, placeName, compact = false }: Pro
       <img src={lead.url} alt={lead.item.alt_text || placeName || 'AFAT place'} className={`${compact ? 'h-32' : 'h-48 sm:h-56'} w-full object-cover`} loading="lazy" />
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-4 pb-3 pt-10">
         <div className="flex items-end justify-between gap-3">
-          <div><p className="text-sm font-black text-white">{placeName || lead.item.caption || 'AFAT Place'}</p><p className="mt-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-white/55"><ShieldCheck className="h-3 w-3 text-emerald-300" /> Approved imagery · {lead.item.rights_basis.replaceAll('_', ' ')}</p></div>
+          <div><p className="text-sm font-black text-white">{placeName || lead.item.caption || 'AFAT Place'}</p><p className="mt-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-white/55"><ShieldCheck className="h-3 w-3 text-emerald-300" /> Approved imagery</p></div>
           <span className="rounded-full border border-white/15 bg-black/40 px-2 py-1 text-[9px] font-black text-white/70"><Camera className="mr-1 inline h-3 w-3" />{visible.length}</span>
         </div>
       </div>
@@ -53,7 +60,7 @@ export function PlaceMediaStrip({ atlasNodeId, placeName, compact = false }: Pro
       {visible.slice(1, 4).map(({ item, url }) => <img key={item.id} src={url} alt={item.alt_text || item.caption || 'AFAT place context'} className="h-20 w-full rounded-lg object-cover" loading="lazy" />)}
     </div>}
     {!compact && <div className="flex items-center justify-between gap-3 border-t border-white/8 px-4 py-3 text-[9px] text-white/35">
-      <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> Building, entrance and street context can be kept separately.</span>
+      <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> Building, entrance and street context stay distinct.</span>
       {lead.item.attribution_text && <span className="max-w-[48%] truncate text-right">{lead.item.attribution_text}</span>}
     </div>}
   </section>;
