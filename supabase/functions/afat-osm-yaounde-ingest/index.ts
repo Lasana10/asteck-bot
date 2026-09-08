@@ -160,7 +160,7 @@ Deno.serve(async (req: Request) => {
         p_source_category: normalizeName(tags.highway) || "road",
         p_source_address: null,
         p_geojson: geojson,
-        p_source_confidence: 55,
+        p_source_confidence: 0.55,
         p_source_properties: {
           osm_type: "way",
           osm_id: way.id,
