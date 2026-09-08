@@ -17,15 +17,26 @@ export type AfatPlaceMedia = {
   confidence: number;
 };
 
-export async function fetchApprovedPlaceMedia(atlasNodeId: string): Promise<AfatPlaceMedia[]> {
-  if (!atlasNodeId) return [];
-  const { data, error } = await supabase.rpc('afat_place_media_for_node', { p_node_id: atlasNodeId });
-  if (error) throw new Error(error.message || 'AFAT place imagery is unavailable.');
+function normalizeRows(data: unknown): AfatPlaceMedia[] {
   return (Array.isArray(data) ? data : []).map((row: any) => ({
     ...row,
     confidence: Number(row.confidence || 0),
     is_primary: Boolean(row.is_primary),
   })) as AfatPlaceMedia[];
+}
+
+export async function fetchApprovedNodeMedia(atlasNodeId: string): Promise<AfatPlaceMedia[]> {
+  if (!atlasNodeId) return [];
+  const { data, error } = await supabase.rpc('afat_place_media_for_node', { p_node_id: atlasNodeId });
+  if (error) throw new Error(error.message || 'AFAT place imagery is unavailable.');
+  return normalizeRows(data);
+}
+
+export async function fetchApprovedPlaceMedia(placeId: string): Promise<AfatPlaceMedia[]> {
+  if (!placeId) return [];
+  const { data, error } = await supabase.rpc('afat_place_media_for_place', { p_place_id: placeId });
+  if (error) throw new Error(error.message || 'AFAT place imagery is unavailable.');
+  return normalizeRows(data);
 }
 
 export function resolvePlaceMediaUrl(media: AfatPlaceMedia): string | null {
