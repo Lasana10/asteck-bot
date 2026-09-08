@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   extract-overture:
@@ -33,7 +33,7 @@ jobs:
           overturemaps download --bbox="$BBOX" -f geojson --type=connector -o artifacts/afat-yaounde-overture/transportation-connectors.geojson
           overturemaps download --bbox="$BBOX" -f geojson --type=building -o artifacts/afat-yaounde-overture/buildings.geojson
           python - <<'PY'
-          import hashlib, json, pathlib
+          import hashlib, json, pathlib, re, unicodedata
           root = pathlib.Path('artifacts/afat-yaounde-overture')
           files = []
           for p in sorted(root.glob('*.geojson')):
@@ -43,12 +43,91 @@ jobs:
               'pilot': 'AFAT Yaounde canonical atlas',
               'bbox': [11.4905, 3.8373, 11.5080, 3.8527],
               'source': 'Overture Maps Foundation',
+              'release': '2026-08-19.0',
               'client': 'overturemaps==1.0.2',
+              'trust_rule': 'Upstream provenance controls independence; Overture distribution alone never creates corroboration.',
               'files': files,
           }
           (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
-          print(json.dumps(manifest, indent=2))
+
+          def norm(value):
+              value = unicodedata.normalize('NFKD', value or '').encode('ascii','ignore').decode().lower()
+              return re.sub(r'\\s+',' ',re.sub(r'[^a-z0-9]+',' ',value)).strip()
+
+          candidates = []
+          specs = [
+              ('places.geojson','place'),
+              ('transportation-segments.geojson','segment'),
+              ('transportation-connectors.geojson','connector'),
+          ]
+          for filename, kind in specs:
+              data = json.loads((root / filename).read_text(encoding='utf-8'))
+              for feature in data.get('features', []):
+                  props = feature.get('properties') or {}
+                  fid = feature.get('id')
+                  if kind == 'place':
+                      name = ((props.get('names') or {}).get('primary') or f'Overture place {fid[:8]}')
+                      category = ((props.get('categories') or {}).get('primary') or props.get('basic_category') or 'place')
+                      addresses = props.get('addresses') or []
+                      address = addresses[0].get('freeform') if addresses else None
+                      confidence = float(props.get('confidence') or 0.5)
+                      feature_kind = 'point'
+                  elif kind == 'segment':
+                      name = ((props.get('names') or {}).get('primary') or f'Overture road segment {fid[:8]}')
+                      category = 'transportation:' + str(props.get('class') or props.get('subtype') or 'segment')
+                      address = None
+                      confidence = 0.60
+                      feature_kind = 'line'
+                  else:
+                      name = f'Overture connector {fid[:8]}'
+                      category = 'transportation_connector'
+                      address = None
+                      confidence = 0.60
+                      feature_kind = 'point'
+                  sources = props.get('sources') or []
+                  source_license = sources[0].get('license') if sources else None
+                  upstream = sources[0].get('dataset') if sources else None
+                  attribution = 'Overture Maps Foundation' + (f'; upstream {upstream}' if upstream else '')
+                  fingerprint_body = json.dumps({'id':fid,'geometry':feature.get('geometry'),'properties':props},sort_keys=True,separators=(',',':'),ensure_ascii=False)
+                  candidates.append({
+                      'external_feature_id': fid,
+                      'dataset_version': '2026-08-19.0',
+                      'canonical_name': name,
+                      'normalized_name': norm(name) or fid.lower(),
+                      'alternate_names': [],
+                      'source_category': category,
+                      'source_address': address,
+                      'source_confidence': confidence,
+                      'source_properties': props,
+                      'record_fingerprint': hashlib.sha256(fingerprint_body.encode()).hexdigest(),
+                      'source_feature_kind': feature_kind,
+                      'geometry': feature.get('geometry'),
+                      'source_license': source_license,
+                      'attribution_text': attribution,
+                  })
+          snapshot = {
+              'manifest': manifest,
+              'record_count': len(candidates),
+              'records': candidates,
+          }
+          out = pathlib.Path('data/afat-pilot/overture/yaounde-2026-08-19-candidates.json')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(snapshot,separators=(',',':'),ensure_ascii=False) + '\n',encoding='utf-8')
+          print(json.dumps({'record_count':len(candidates),'snapshot_bytes':out.stat().st_size,'manifest':manifest},indent=2))
           PY
+      - name: Publish auditable candidate snapshot on pilot branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/afat-pilot/overture/yaounde-2026-08-19-candidates.json
+          if git diff --cached --quiet; then
+            echo 'Candidate snapshot unchanged.'
+          else
+            git commit -m 'data(afat): snapshot Yaounde Overture candidates'
+            git push origin HEAD:feat/afat-multisource-atlas
+          fi
       - name: Upload reproducible pilot extract
         uses: actions/upload-artifact@v4
         with:
