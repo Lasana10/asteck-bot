@@ -186,7 +186,20 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const finalStatus = rejected > 0 && accepted === 0 ? "failed" : rejected > 0 ? "completed_with_errors" : "completed";
+  let topology: Record<string, unknown> | null = null;
+  let topologyError: string | null = null;
+  if (accepted > 0) {
+    const topologyResult = await service.rpc("afat_prepare_osm_topology", { p_import_batch_id: batch.id });
+    topology = (topologyResult.data || null) as Record<string, unknown> | null;
+    topologyError = topologyResult.error?.message || null;
+    if (topologyError && errors.length < 10) errors.push(`topology: ${topologyError}`);
+  }
+
+  const finalStatus = rejected > 0 && accepted === 0
+    ? "failed"
+    : rejected > 0 || topologyError
+      ? "completed_with_errors"
+      : "completed";
   await service.from("afat_geo_import_batches").update({
     status: finalStatus,
     inserted_count: accepted,
@@ -206,6 +219,8 @@ Deno.serve(async (req: Request) => {
     accepted_count: accepted,
     rejected_count: rejected,
     status: finalStatus,
-    note: "Records remain source candidates; OSM node sequences are preserved for topology review, but this function does not promote roads directly into canonical AFAT Atlas.",
+    topology,
+    topology_error: topologyError,
+    note: "Records and topology remain source candidates. OSM node sequences and per-segment provenance are preserved, but this function does not promote roads directly into canonical AFAT Atlas.",
   });
 });
