@@ -136,10 +136,15 @@ Deno.serve(async (req: Request) => {
         .map((point: any) => [Number(point.lon), Number(point.lat)])
         .filter((point: number[]) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
       if (coordinates.length < 2) { rejected++; continue; }
+
+      const osmNodeIds = Array.isArray(way.nodes)
+        ? way.nodes.map((nodeId: unknown) => Number(nodeId)).filter((nodeId: number) => Number.isSafeInteger(nodeId))
+        : [];
+      const topologyAligned = osmNodeIds.length === coordinates.length;
       const geojson = { type: "LineString", coordinates };
       const externalId = `way/${way.id}`;
       const name = roadName(tags, Number(way.id));
-      const fingerprint = await sha256(JSON.stringify({ externalId, tags, coordinates }));
+      const fingerprint = await sha256(JSON.stringify({ externalId, tags, coordinates, osmNodeIds }));
       const alternateNames = [tags["name:en"], tags["name:fr"], tags.alt_name, tags.old_name]
         .map(normalizeName)
         .filter((value: string, index: number, arr: string[]) => value && value !== name && arr.indexOf(value) === index);
@@ -159,6 +164,8 @@ Deno.serve(async (req: Request) => {
         p_source_properties: {
           osm_type: "way",
           osm_id: way.id,
+          osm_node_ids: osmNodeIds,
+          topology_aligned: topologyAligned,
           tags,
           ingestion_cell: cellKey,
           upstream_timestamp: osmBase,
@@ -199,6 +206,6 @@ Deno.serve(async (req: Request) => {
     accepted_count: accepted,
     rejected_count: rejected,
     status: finalStatus,
-    note: "Records remain source candidates; this function does not promote OSM directly into canonical AFAT Atlas topology.",
+    note: "Records remain source candidates; OSM node sequences are preserved for topology review, but this function does not promote roads directly into canonical AFAT Atlas.",
   });
 });
