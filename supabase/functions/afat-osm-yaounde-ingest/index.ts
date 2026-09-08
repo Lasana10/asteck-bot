@@ -136,10 +136,15 @@ Deno.serve(async (req: Request) => {
         .map((point: any) => [Number(point.lon), Number(point.lat)])
         .filter((point: number[]) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
       if (coordinates.length < 2) { rejected++; continue; }
+
+      const osmNodeIds = Array.isArray(way.nodes)
+        ? way.nodes.map((nodeId: unknown) => Number(nodeId)).filter((nodeId: number) => Number.isSafeInteger(nodeId))
+        : [];
+      const topologyAligned = osmNodeIds.length === coordinates.length;
       const geojson = { type: "LineString", coordinates };
       const externalId = `way/${way.id}`;
       const name = roadName(tags, Number(way.id));
-      const fingerprint = await sha256(JSON.stringify({ externalId, tags, coordinates }));
+      const fingerprint = await sha256(JSON.stringify({ externalId, tags, coordinates, osmNodeIds }));
       const alternateNames = [tags["name:en"], tags["name:fr"], tags.alt_name, tags.old_name]
         .map(normalizeName)
         .filter((value: string, index: number, arr: string[]) => value && value !== name && arr.indexOf(value) === index);
@@ -155,10 +160,12 @@ Deno.serve(async (req: Request) => {
         p_source_category: normalizeName(tags.highway) || "road",
         p_source_address: null,
         p_geojson: geojson,
-        p_source_confidence: 55,
+        p_source_confidence: 0.55,
         p_source_properties: {
           osm_type: "way",
           osm_id: way.id,
+          osm_node_ids: osmNodeIds,
+          topology_aligned: topologyAligned,
           tags,
           ingestion_cell: cellKey,
           upstream_timestamp: osmBase,
@@ -179,7 +186,20 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const finalStatus = rejected > 0 && accepted === 0 ? "failed" : rejected > 0 ? "completed_with_errors" : "completed";
+  let topology: Record<string, unknown> | null = null;
+  let topologyError: string | null = null;
+  if (accepted > 0) {
+    const topologyResult = await service.rpc("afat_prepare_osm_topology", { p_import_batch_id: batch.id });
+    topology = (topologyResult.data || null) as Record<string, unknown> | null;
+    topologyError = topologyResult.error?.message || null;
+    if (topologyError && errors.length < 10) errors.push(`topology: ${topologyError}`);
+  }
+
+  const finalStatus = rejected > 0 && accepted === 0
+    ? "failed"
+    : rejected > 0 || topologyError
+      ? "completed_with_errors"
+      : "completed";
   await service.from("afat_geo_import_batches").update({
     status: finalStatus,
     inserted_count: accepted,
@@ -199,6 +219,8 @@ Deno.serve(async (req: Request) => {
     accepted_count: accepted,
     rejected_count: rejected,
     status: finalStatus,
-    note: "Records remain source candidates; this function does not promote OSM directly into canonical AFAT Atlas topology.",
+    topology,
+    topology_error: topologyError,
+    note: "Records and topology remain source candidates. OSM node sequences and per-segment provenance are preserved, but this function does not promote roads directly into canonical AFAT Atlas.",
   });
 });
