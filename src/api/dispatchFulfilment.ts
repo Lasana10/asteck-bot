@@ -9,6 +9,7 @@ const ACTIVE_DISPATCH_STATES = ['queued','offered','accepted','assigned','en_rou
 const OPERATOR_ALLOWED = new Set(['accepted','declined','en_route','arrived','pickup_verified','in_journey','completed','emergency','disputed','no_show']);
 const PASSENGER_ALLOWED = new Set(['cancelled','disputed']);
 const STAFF_ALLOWED = new Set(['offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','completed','cancelled','declined','expired','reassigned','no_show','emergency','disputed']);
+const JOURNEY_SYNC_STATES = new Set(['in_journey','completed','cancelled','disputed']);
 
 function stableKey(req: Request) {
   return String(
@@ -167,7 +168,6 @@ router.post('/dispatch/:assignmentId/candidate', async (req: Request, res: Respo
       return res.status(400).json({ error: 'Verified pickup coordinates are required before AFAT can assign a candidate.' });
     }
 
-    // Recompute immediately before assignment. Client scores are never trusted.
     const ranking = await rankDispatchCandidates(pickupLat, pickupLng);
     const candidate = ranking.candidates.find((item) => item.vehicle_id === vehicleId && item.operator_id === operatorId);
     if (!candidate) {
@@ -235,7 +235,14 @@ router.get('/dispatch/:assignmentId', async (req: Request, res: Response) => {
       .order('created_at', { ascending: true });
     if (eventsError) throw eventsError;
 
-    return res.json({ assignment, events: events || [] });
+    const { data: journey, error: journeyError } = await supabase
+      .from('afat_journeys')
+      .select('*')
+      .eq('dispatch_assignment_id', assignmentId)
+      .maybeSingle();
+    if (journeyError && journeyError.code !== 'PGRST116') throw journeyError;
+
+    return res.json({ assignment, events: events || [], journey: journey || null });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Dispatch assignment unavailable.' });
   }
@@ -298,7 +305,19 @@ router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Resp
     });
     if (error) throw error;
 
-    return res.status(200).json({ assignment: data, idempotency_key: key });
+    let journey: any = null;
+    if (JOURNEY_SYNC_STATES.has(nextStatus)) {
+      const { data: journeyResult, error: journeyError } = await supabase.rpc('afat_sync_dispatch_journey', {
+        p_assignment_id: assignmentId,
+        p_actor_profile_id: profileId,
+        p_status: nextStatus,
+        p_evidence: evidence,
+      });
+      if (journeyError) throw journeyError;
+      journey = journeyResult?.journey || journeyResult || null;
+    }
+
+    return res.status(200).json({ assignment: data, journey, idempotency_key: key });
   } catch (error: any) {
     const mapped = publicDispatchError(error);
     return res.status(mapped.status).json({ error: mapped.error });
