@@ -49,6 +49,10 @@ async function resolveIdentity(req: Request): Promise<Identity | null> {
 function isPrivileged(role: string) { return role === 'planner' || role === 'admin'; }
 function idempotencyKey(req: Request) { return String(req.header('Idempotency-Key') || req.header('X-Idempotency-Key') || req.body?.idempotency_key || req.body?.evidence?.offline_mutation_id || '').trim(); }
 
+function hasExplicitEdgeObservations(evidence: any) {
+  return Boolean(evidence && typeof evidence === 'object' && Array.isArray(evidence.edge_observations) && evidence.edge_observations.length > 0);
+}
+
 async function ingestEmpiricalSpeedEvidence(outcomeId: string) {
   const { data, error } = await supabase.rpc('afat_ingest_passage_speed_observations', { p_passage_outcome_id: outcomeId });
   if (error) {
@@ -96,8 +100,10 @@ router.post('/passages/intents/:id/outcome', async (req: Request, res: Response)
     }
 
     const result: any = data || {};
-    const outcomeId = String(result.outcome_id || result.passage_outcome_id || result.id || '');
-    const speedLearning = outcomeId ? await ingestEmpiricalSpeedEvidence(outcomeId) : { status: 'unavailable', reason: 'outcome_id_missing' };
+    const outcomeId = String(result?.outcome?.id || '');
+    const speedLearning = hasExplicitEdgeObservations(evidence)
+      ? (outcomeId ? await ingestEmpiricalSpeedEvidence(outcomeId) : { status: 'unavailable', reason: 'outcome_id_missing' })
+      : { status: 'unavailable', reason: 'no_edge_observations' };
     const replayed = Boolean(result.replayed);
     return res.status(replayed ? 200 : 201).json({ ...result, speed_learning: speedLearning });
   } catch (error: any) {
