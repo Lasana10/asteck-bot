@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Crosshair, LocateFixed, MapPin, Navigation2, Route } from 'lucide-react';
-import maplibregl, { type GeoJSONSource, type LngLatBoundsLike, type Map as MapLibreMap } from 'maplibre-gl';
+import {
+  GeoJSONSource,
+  LngLatBounds,
+  Map as MapLibreMap,
+  Marker,
+  NavigationControl,
+  Popup,
+} from 'maplibre-gl';
 import { routeToLatLngs, type AfatCanonicalRoute } from '../../services/canonicalRouteClient';
 
 type SpatialPoint = {
@@ -58,16 +65,26 @@ function markerElement(kind: MarkerKind) {
   return element;
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  }[char] || char));
+}
+
 function popupHtml(title: string, detail?: string | null) {
-  const safeTitle = title.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char] || char));
-  const safeDetail = String(detail || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char] || char));
+  const safeTitle = escapeHtml(title);
+  const safeDetail = escapeHtml(String(detail || ''));
   return `<div style="font:600 12px/1.4 system-ui;color:#0f172a"><strong>${safeTitle}</strong>${safeDetail ? `<br>${safeDetail}` : ''}</div>`;
 }
 
 export function PassengerSpatialMap({ destination, meetingPoint, city = 'yaounde', route = null, routeLoading = false, routeMessage = null, onOriginResolved }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const markerRefs = useRef<maplibregl.Marker[]>([]);
+  const markerRefs = useRef<Marker[]>([]);
   const [origin, setOrigin] = useState<(SpatialPoint & { accuracy?: number }) | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
@@ -83,7 +100,7 @@ export function PassengerSpatialMap({ destination, meetingPoint, city = 'yaounde
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const map = new maplibregl.Map({
+    const map = new MapLibreMap({
       container: containerRef.current,
       center: mapCenter(city),
       zoom: 13,
@@ -102,7 +119,7 @@ export function PassengerSpatialMap({ destination, meetingPoint, city = 'yaounde
         layers: [{ id: 'osm-raster', type: 'raster', source: 'osm-raster' }],
       },
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
+    map.addControl(new NavigationControl({ showCompass: false }), 'bottom-left');
     map.once('load', () => setMapReady(true));
     mapRef.current = map;
     return () => {
@@ -117,11 +134,11 @@ export function PassengerSpatialMap({ destination, meetingPoint, city = 'yaounde
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    const coordinates = routePoints.map(([latitude, longitude]) => [longitude, latitude]);
-    const data: GeoJSON.Feature<GeoJSON.LineString> = {
-      type: 'Feature',
+    const coordinates: [number, number][] = routePoints.map(([latitude, longitude]) => [longitude, latitude]);
+    const data = {
+      type: 'Feature' as const,
       properties: { evidenceStatus: route?.status || 'unavailable' },
-      geometry: { type: 'LineString', coordinates },
+      geometry: { type: 'LineString' as const, coordinates },
     };
 
     const existingSource = map.getSource(ROUTE_SOURCE_ID) as GeoJSONSource | undefined;
@@ -146,9 +163,9 @@ export function PassengerSpatialMap({ destination, meetingPoint, city = 'yaounde
     markerRefs.current = [];
 
     const addMarker = (kind: MarkerKind, longitude: number, latitude: number, title: string, detail?: string | null) => {
-      const marker = new maplibregl.Marker({ element: markerElement(kind), anchor: 'center' })
+      const marker = new Marker({ element: markerElement(kind), anchor: 'center' })
         .setLngLat([longitude, latitude])
-        .setPopup(new maplibregl.Popup({ offset: 18, closeButton: false }).setHTML(popupHtml(title, detail)))
+        .setPopup(new Popup({ offset: 18, closeButton: false }).setHTML(popupHtml(title, detail)))
         .addTo(map);
       markerRefs.current.push(marker);
     };
@@ -158,18 +175,18 @@ export function PassengerSpatialMap({ destination, meetingPoint, city = 'yaounde
     if (meeting) addMarker('meeting', meeting.longitude, meeting.latitude, meetingPoint?.name || 'Recommended meeting point', meetingPoint?.instructions);
 
     if (coordinates.length > 1) {
-      const bounds = new maplibregl.LngLatBounds();
+      const bounds = new LngLatBounds();
       coordinates.forEach(([longitude, latitude]) => bounds.extend([longitude, latitude]));
-      map.fitBounds(bounds as LngLatBoundsLike, { padding: 46, maxZoom: 16, duration: 700 });
+      map.fitBounds(bounds, { padding: 46, maxZoom: 16, duration: 700 });
       return;
     }
 
     const arrival = validPoint(arrivalPoint);
     if (originPoint && arrival) {
-      const bounds = new maplibregl.LngLatBounds();
+      const bounds = new LngLatBounds();
       bounds.extend([originPoint.longitude, originPoint.latitude]);
       bounds.extend([arrival.longitude, arrival.latitude]);
-      map.fitBounds(bounds as LngLatBoundsLike, { padding: 50, maxZoom: 16, duration: 700 });
+      map.fitBounds(bounds, { padding: 50, maxZoom: 16, duration: 700 });
       return;
     }
 
