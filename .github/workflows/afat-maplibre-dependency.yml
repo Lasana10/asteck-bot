@@ -1,0 +1,57 @@
+name: AFAT MapLibre Dependency Migration
+
+on:
+  push:
+    branches:
+      - feat/afat-multisource-atlas
+    paths:
+      - '.github/workflows/afat-maplibre-dependency.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pin-maplibre:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/afat-multisource-atlas
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install pinned MapLibre GL JS and refresh lockfile
+        working-directory: dashboard
+        run: npm install --save-exact maplibre-gl@6.8.0
+      - name: Verify dashboard with MapLibre dependency
+        working-directory: dashboard
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_public_key
+          VITE_TURNSTILE_SITE_KEY: 0x4AAAAAAATESTKEY
+          VITE_API_URL: https://asteck-bot.onrender.com
+        run: |
+          npm run test:env:missing
+          npm run test:env:complete
+          npm run test:env:cf-no-api
+          npm run build
+          npm test -- --passWithNoTests
+      - name: Publish pinned dependency and lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dashboard/package.json dashboard/package-lock.json
+          if git diff --cached --quiet; then
+            echo 'MapLibre dependency already pinned.'
+          else
+            git commit -m 'build(afat): pin MapLibre GL JS 6.8.0'
+            git fetch origin feat/afat-multisource-atlas
+            git rebase origin/feat/afat-multisource-atlas
+            git push origin HEAD:feat/afat-multisource-atlas
+          fi
