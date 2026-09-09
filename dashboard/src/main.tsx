@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import { DispatchPortal } from './components/shared/DispatchPortal';
 import './index.css';
-import 'leaflet/dist/leaflet.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 // ═══ BULLETPROOF BOOT SEQUENCE ═══
