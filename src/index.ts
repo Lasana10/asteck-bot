@@ -38,5 +38,14 @@ app.get('/health/live',(_req,res)=>res.status(200).json({status:'live',service:'
 app.get('/health/ready',async(_req,res)=>{try{const {error}=await import('./infra/supabase').then(({supabase})=>supabase.from('profiles').select('id',{count:'exact',head:true}).limit(1));if(error)throw error;res.status(200).json({status:'ready',service:'AFAT',dependencies:{database:'ready'},build:buildVersion});}catch(error:any){res.status(503).json({status:'degraded',service:'AFAT',dependencies:{database:'unavailable'},error:error?.message||'Readiness check failed',build:buildVersion});}});
 app.get('/health/contract',(_req,res)=>res.status(200).json({status:'contract_ready',service:'AFAT',version:apiVersion,api_mount:'/api',build:buildVersion,database_authority:getSupabaseRuntimeDiagnostics(),required_routes:requiredApiRoutes,auth_contract:{session_authority:'supabase_jwt',profile_bootstrap:'POST /api/auth/supabase-profile',public_qa_bypass:process.env.AFAT_ALLOW_QA_BYPASS==='true'?'enabled':'disabled_or_local_only'}}));
 app.get('/',(_req,res)=>res.send('AFAT World-Class Traffic Intelligence is Running.'));
-app.use('/api',secureMapSignalRoutes);app.use('/api',dispatchFulfilmentRoutes);app.use('/api',journeyClosureRoutes);app.use('/api',apiRoutes);app.use('/api/onboard',onboardingRoutes);app.use('/api',passageOutcomeAtomicRoutes);app.use('/api',atlasRoutes);app.use('/api',placeIntelligenceRoutes);app.use('/api',(req:Request,res:Response)=>res.status(404).json({error:'AFAT API route not found',method:req.method,path:req.originalUrl}));app.use((err:Error,req:Request,res:Response,next:express.NextFunction)=>{if(res.headersSent)return next(err);const api=req.originalUrl.startsWith('/api');console.error('AFAT request error:',err);res.status(api?500:400).json({error:api?'AFAT API request failed':'Request rejected',detail:process.env.NODE_ENV==='production'?undefined:err.message});});await startBot();const appUrl=process.env.RENDER_EXTERNAL_URL||process.env.APP_URL;if(appUrl)setInterval(()=>{fetch(`${appUrl}/health`).catch(()=>{});},10*60*1000);}
+app.use('/api', secureMapSignalRoutes);
+app.use('/api', dispatchFulfilmentRoutes);
+app.use('/api', journeyClosureRoutes);
+app.use('/api', apiRoutes);
+app.use('/api/onboard', onboardingRoutes);
+app.use('/api', passageOutcomeAtomicRoutes);
+app.use('/api', atlasRoutes);
+app.use('/api', placeIntelligenceRoutes);
+app.use('/api', (req: Request, res: Response) => res.status(404).json({error:'AFAT API route not found',method:req.method,path:req.originalUrl}));
+app.use((err:Error,req:Request,res:Response,next:express.NextFunction)=>{if(res.headersSent)return next(err);const api=req.originalUrl.startsWith('/api');console.error('AFAT request error:',err);res.status(api?500:400).json({error:api?'AFAT API request failed':'Request rejected',detail:process.env.NODE_ENV==='production'?undefined:err.message});});await startBot();const appUrl=process.env.RENDER_EXTERNAL_URL||process.env.APP_URL;if(appUrl)setInterval(()=>{fetch(`${appUrl}/health`).catch(()=>{});},10*60*1000);}
 main();
