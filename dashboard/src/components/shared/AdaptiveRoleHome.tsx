@@ -13,6 +13,7 @@ import { ROLE_FLOW } from '../../utils/roleWorkspace';
 import { PassengerWorkspace } from '../workspaces/PassengerWorkspace';
 import { OperatorWorkspace } from '../workspaces/OperatorWorkspace';
 import { PlannerWorkspace } from '../workspaces/PlannerWorkspace';
+import { AdminWorkspace } from '../workspaces/AdminWorkspace';
 import { ScopedWorkspace } from '../workspaces/ScopedWorkspace';
 import { MapPanel, Metric, StatusPill, Surface } from '../workspaces/WorkspacePrimitives';
 import type { AdaptiveWorkspaceRole, LiveFeed, WorkspaceTab } from '../workspaces/WorkspacePrimitives';
@@ -120,7 +121,10 @@ export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home'
     if (role === 'planner') {
       return <PlannerWorkspace live={live} operations={operations} onNavigate={onNavigate} />;
     }
-    if (role === 'organization' || role === 'government' || role === 'admin') {
+    if (role === 'admin') {
+      return <AdminWorkspace live={live} onNavigate={onNavigate} onChanged={refresh} />;
+    }
+    if (role === 'organization' || role === 'government') {
       return <ScopedWorkspace role={role} membership={membership} live={live} operations={operations} onNavigate={onNavigate} meta={meta} />;
     }
     return null;
