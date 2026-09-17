@@ -1,13 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Activity, AlertTriangle, ArrowRight, Bell, Building2, Car, CheckCircle2, Clock3,
   FileCheck, Gauge, Landmark, Layers3, LogOut, MapPin, Navigation2, Radio,
   RefreshCw, Route, Search, ShieldCheck, UserCircle, Users, Wallet,
 } from 'lucide-react';
 import {
-  createPassageIntent, fetchActiveDispatches, fetchComplianceRadar, fetchDemandRadar,
-  fetchLiveMapOps, fetchMobilityMapFeed, fetchOpsReportCenter, fetchParticipantDispatches, fetchPassageIntents,
-  fetchPublicPartnerConditions, supabase, updatePassageIntentStatus,
+  createPassageIntent, supabase, updatePassageIntentStatus,
 } from '../../supabaseClient';
 import { AFATLogo } from './AFATLogo';
 import { InteractiveMap } from './InteractiveMap';
@@ -15,10 +13,11 @@ import { PassagePlanner } from '../commuter/PassagePlanner';
 import { PassengerJourneyContinuity } from '../commuter/PassengerJourneyContinuity';
 import { OperatorMissionLifecycle } from '../operator/OperatorMissionLifecycle';
 import { ROLE_FLOW } from '../../utils/roleWorkspace';
+import { useRoleWorkspaceData, type RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
 export type AdaptiveWorkspaceRole = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
 type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
-type LiveFeed = { incidents: any[]; tracks: any[]; checkpoints: any[] };
+type LiveFeed = RoleWorkspaceLiveFeed;
 
 type Props = {
   role: AdaptiveWorkspaceRole;
@@ -28,8 +27,6 @@ type Props = {
   onNavigate: (tab: WorkspaceTab) => void;
   onSignOut: () => void;
 };
-
-const EMPTY_LIVE: LiveFeed = { incidents: [], tracks: [], checkpoints: [] };
 
 const ROLE_META: Record<AdaptiveWorkspaceRole, { label: string; eyebrow: string; promise: string; accent: string; icon: React.ElementType }> = {
   commuter: { label: 'Passenger', eyebrow: 'Move safely', promise: 'Plan, request and follow one real journey without invented fares, ETAs or availability.', accent: 'text-blue-300', icon: Navigation2 },
@@ -152,8 +149,7 @@ function TabCanvas({ role, activeTab, profile, membership, live, missions, opera
 }
 
 export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home', onNavigate, onSignOut }: Props) {
-  const [live, setLive] = useState<LiveFeed>(EMPTY_LIVE); const [missions, setMissions] = useState<any[]>([]); const [operations, setOperations] = useState<any>({}); const [loading, setLoading] = useState(true); const [serviceErrors, setServiceErrors] = useState<string[]>([]); const [refreshKey, setRefreshKey] = useState(0);
-  useEffect(() => { let active = true; const hydrate = async () => { setLoading(true); const errors: string[] = []; const city = profile?.preferred_city || profile?.base_city || 'cameroon'; try { const mapResult = role === 'government' ? await fetchPublicPartnerConditions(city) : ['planner', 'admin'].includes(role) ? await fetchLiveMapOps(city) : await fetchMobilityMapFeed(city); if (!active) return; if (mapResult.data) setLive({ incidents: mapResult.data.incidents || [], tracks: mapResult.data.vehicles || [], checkpoints: mapResult.data.checkpoints || mapResult.data.addresses || [] }); if (mapResult.error) errors.push(`Map services: ${mapResult.error.message}`); if (role === 'commuter' || role === 'operator') { const participantDispatches = await fetchParticipantDispatches({ include_terminal: true, limit: 20 }); if (participantDispatches.error) errors.push(`Journey continuity: ${participantDispatches.error.message}`); if (active) setOperations((current: any) => ({ ...current, participantDispatches: participantDispatches.data?.dispatches || [] })); } if (role === 'operator') { const requests = await fetchPassageIntents({ status: 'requested' }); if (active) setMissions(requests.data?.passages || []); if (requests.error) errors.push(`Mission queue: ${requests.error.message}`); } if (role === 'planner') { const [demand, dispatches] = await Promise.all([fetchDemandRadar(), fetchActiveDispatches()]); if (active) setOperations({ demand: demand.data, dispatches: dispatches.data?.dispatches || [] }); if (demand.error) errors.push(`Demand radar: ${demand.error.message}`); if (dispatches.error) errors.push(`Dispatch board: ${dispatches.error.message}`); } if (role === 'admin') { const [reports, compliance] = await Promise.all([fetchOpsReportCenter(), fetchComplianceRadar()]); if (active) setOperations({ reports: reports.data, compliance: compliance.data }); if (reports.error) errors.push(`Reports: ${reports.error.message}`); if (compliance.error) errors.push(`Compliance: ${compliance.error.message}`); } } catch (error: any) { errors.push(error?.message || 'AFAT live services could not be refreshed.'); } if (active) { setServiceErrors(errors); setLoading(false); } }; hydrate(); return () => { active = false; }; }, [role, profile?.id, profile?.preferred_city, profile?.base_city, refreshKey]);
-  const meta = ROLE_META[role]; const Icon = meta.icon; const refresh = () => setRefreshKey(v => v + 1); const participantDispatches = operations?.participantDispatches || []; const currentDispatch = participantDispatches.find((item: any) => ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','reassigned','emergency','disputed'].includes(String(item.status || '').toLowerCase())) || participantDispatches[0] || null; const home = useMemo(() => { if (role === 'commuter') return <PassengerHome profile={profile} live={live} currentDispatch={currentDispatch} onNavigate={onNavigate} onChanged={refresh} />; if (role === 'operator') return <OperatorHome profile={profile} live={live} missions={missions} currentDispatch={currentDispatch} onNavigate={onNavigate} onChanged={refresh} />; if (role === 'planner') return <PlannerHome live={live} operations={operations} onNavigate={onNavigate} />; if (role === 'organization' || role === 'government' || role === 'admin') return <ScopedHome role={role} membership={membership} live={live} operations={operations} onNavigate={onNavigate} />; return null; }, [role, profile, membership, live, missions, operations, onNavigate]);
+  const { live, missions, operations, loading, serviceErrors, refresh } = useRoleWorkspaceData(role, profile);
+  const meta = ROLE_META[role]; const Icon = meta.icon; const participantDispatches = operations?.participantDispatches || []; const currentDispatch = participantDispatches.find((item: any) => ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','reassigned','emergency','disputed'].includes(String(item.status || '').toLowerCase())) || participantDispatches[0] || null; const home = useMemo(() => { if (role === 'commuter') return <PassengerHome profile={profile} live={live} currentDispatch={currentDispatch} onNavigate={onNavigate} onChanged={refresh} />; if (role === 'operator') return <OperatorHome profile={profile} live={live} missions={missions} currentDispatch={currentDispatch} onNavigate={onNavigate} onChanged={refresh} />; if (role === 'planner') return <PlannerHome live={live} operations={operations} onNavigate={onNavigate} />; if (role === 'organization' || role === 'government' || role === 'admin') return <ScopedHome role={role} membership={membership} live={live} operations={operations} onNavigate={onNavigate} />; return null; }, [role, profile, membership, live, missions, operations, onNavigate]);
   return <div className="min-h-screen bg-[#050812] text-white"><WorkspaceHeader role={role} profile={profile} onSignOut={onSignOut} loading={loading} onRefresh={refresh} /><main className="mx-auto max-w-[1540px] px-4 pb-28 pt-5 sm:px-7"><div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><div className="flex items-center gap-2"><Icon className={`h-4 w-4 ${meta.accent}`} /><p className={`text-[10px] font-black uppercase tracking-[0.25em] ${meta.accent}`}>{meta.eyebrow}</p></div><h2 className="mt-2 text-2xl font-black tracking-tight">{meta.label} workspace</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">{meta.promise}</p></div><RealityBar live={live} loading={loading} errors={serviceErrors} /></div><RoleFlow role={role} activeTab={activeTab} onNavigate={onNavigate} />{serviceErrors.length > 0 && <div className="mb-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4"><div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" /><div><p className="text-xs font-black text-amber-100">AFAT is operating with partial live data.</p><p className="mt-1 text-xs leading-5 text-white/45">{serviceErrors.join(' · ')}</p></div></div></div>}<div className="mt-5">{activeTab === 'home' ? home : <TabCanvas role={role} activeTab={activeTab as Exclude<WorkspaceTab, 'home'>} profile={profile} membership={membership} live={live} missions={missions} operations={operations} onSignOut={onSignOut} />}</div></main></div>;
 }
