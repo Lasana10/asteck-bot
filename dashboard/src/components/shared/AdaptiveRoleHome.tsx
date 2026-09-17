@@ -1,11 +1,10 @@
 import React, { useMemo } from 'react';
 import {
-  AlertTriangle, Bell, Building2, CheckCircle2, Gauge, Landmark, Layers3, LogOut,
-  MapPin, Navigation2, Radio, RefreshCw, Search, ShieldCheck, UserCircle,
+  AlertTriangle, Building2, Gauge, Landmark, Layers3, LogOut,
+  Navigation2, RefreshCw, Search, ShieldCheck,
 } from 'lucide-react';
 
 import { AFATLogo } from './AFATLogo';
-import { InteractiveMap } from './InteractiveMap';
 import { ROLE_FLOW } from '../../utils/roleWorkspace';
 import { useRoleWorkspaceData, type RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { PassengerWorkspaceHome } from '../commuter/PassengerWorkspaceHome';
