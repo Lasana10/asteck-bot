@@ -37,6 +37,8 @@ interface InteractiveMapProps {
   tracks?: PointLike[];
   routePath?: PointLike[];
   checkpoints?: Array<PointLike & { id: string; name: string; type?: string }>;
+  atlasNodes?: PointLike[];
+  atlasEdges?: any[];
   trackedVehicle?: PointLike | null;
   driveMode?: boolean;
   showInformal?: boolean;
@@ -140,7 +142,7 @@ function lineFeature(points: PointLike[]) {
 }
 
 export function InteractiveMap({
-  incidents = [], tracks = [], routePath = [], checkpoints = [], trackedVehicle = null,
+  incidents = [], tracks = [], routePath = [], checkpoints = [], atlasNodes = [], atlasEdges = [], trackedVehicle = null,
   driveMode = false, showInformal = false, role = 'commuter', mapMode = 'standard', realtimeOverlay = false,
 }: InteractiveMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -181,8 +183,8 @@ export function InteractiveMap({
   const hazardSignals = useMemo(() => incidents, [incidents]);
   const movementSignals = useMemo(() => vehicleSignals.slice(0, 8), [vehicleSignals]);
   const allSignals = useMemo(() => [
-    ...hazardSignals, ...vehicleSignals, ...routePath, ...checkpoints, ...(trackedVehicle ? [trackedVehicle] : []),
-  ], [hazardSignals, vehicleSignals, routePath, checkpoints, trackedVehicle]);
+    ...hazardSignals, ...vehicleSignals, ...routePath, ...checkpoints, ...atlasNodes, ...(trackedVehicle ? [trackedVehicle] : []),
+  ], [hazardSignals, vehicleSignals, routePath, checkpoints, atlasNodes, trackedVehicle]);
   const primaryVehicle = trackedVehicle || liveVehicles[0] || tracks[0] || null;
   const activeSignalCount = liveTracks.length + liveVehicles.length + incidents.length;
 
@@ -237,6 +239,86 @@ export function InteractiveMap({
       checkpoints.forEach((p) => addMarker(p, 'Checkpoint', '#0891b2', 13));
       if (primaryVehicle) addMarker(primaryVehicle, 'Primary dispatch', '#10b981', 20, true);
 
+      const atlasEdgeFeatureCollection = {
+        type: 'FeatureCollection' as const,
+        features: atlasEdges.map((edge: any) => {
+          const geometry = edge?.geometry_geojson;
+          if (!geometry || !['LineString', 'MultiLineString'].includes(String(geometry.type))) return null;
+          return {
+            type: 'Feature' as const,
+            properties: {
+              id: edge.id || null,
+              name: edge.name || null,
+              evidence_status: edge.evidence_status || 'provisional',
+              passability: edge.passability || 'unknown',
+              access_modes: Array.isArray(edge.access_modes) ? edge.access_modes.join(',') : '',
+            },
+            geometry,
+          };
+        }).filter(Boolean),
+      };
+      const atlasEdgeSource = map.getSource('afat-atlas-edges') as GeoJSONSource | undefined;
+      if (atlasEdgeSource) {
+        atlasEdgeSource.setData(atlasEdgeFeatureCollection as any);
+      } else if (atlasEdgeFeatureCollection.features.length) {
+        map.addSource('afat-atlas-edges', { type: 'geojson', data: atlasEdgeFeatureCollection as any });
+        map.addLayer({
+          id: 'afat-atlas-edges-line',
+          type: 'line',
+          source: 'afat-atlas-edges',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'evidence_status'],
+              'verified', '#67e8f9',
+              'corroborated', '#38bdf8',
+              '#64748b',
+            ] as any,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 15, 2.5] as any,
+            'line-opacity': 0.58,
+          },
+        });
+      }
+
+      const atlasFeatureCollection = {
+        type: 'FeatureCollection' as const,
+        features: atlasNodes.map((node) => {
+          const point = extractPoint(node);
+          if (!point) return null;
+          return {
+            type: 'Feature' as const,
+            properties: {
+              id: node.id || null,
+              name: node.name || node.label || null,
+              type: node.type || 'atlas_node',
+              status: node.status || null,
+            },
+            geometry: {
+              type: 'Point' as const,
+              coordinates: [point.longitude, point.latitude],
+            },
+          };
+        }).filter(Boolean),
+      };
+      const atlasSource = map.getSource('afat-atlas-nodes') as GeoJSONSource | undefined;
+      if (atlasSource) {
+        atlasSource.setData(atlasFeatureCollection as any);
+      } else if (atlasFeatureCollection.features.length) {
+        map.addSource('afat-atlas-nodes', { type: 'geojson', data: atlasFeatureCollection as any });
+        map.addLayer({
+          id: 'afat-atlas-nodes-circle',
+          type: 'circle',
+          source: 'afat-atlas-nodes',
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 1.8, 15, 4.5] as any,
+            'circle-color': '#22d3ee',
+            'circle-opacity': 0.5,
+            'circle-stroke-color': '#cffafe',
+            'circle-stroke-width': 0.5,
+          },
+        });
+      }
+
       const upsertLine = (id: string, points: PointLike[], color: string, dashed = false) => {
         const feature = lineFeature(points);
         if (feature.geometry.coordinates.length < 2) return;
@@ -260,7 +342,7 @@ export function InteractiveMap({
       }
     };
     if (map.loaded()) render(); else map.once('load', render);
-  }, [allSignals, checkpoints, hazardSignals, movementSignals, primaryVehicle, routePath, showInformal, vehicleSignals]);
+  }, [allSignals, atlasEdges, atlasNodes, checkpoints, hazardSignals, movementSignals, primaryVehicle, routePath, showInformal, vehicleSignals]);
 
   return (
     <div className="sentinel-atlas-container relative h-full min-h-[260px] overflow-hidden rounded-[28px] border border-white/10 bg-[#05070b] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
@@ -279,6 +361,8 @@ export function InteractiveMap({
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-blue-300">{vehicleSignals.length}</span> moving nodes</div>
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-emerald-300">{hazardSignals.length}</span> hazard signals</div>
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-cyan-300">{checkpoints.length}</span> checkpoints</div>
+        <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-sky-200">{atlasNodes.length}</span> Atlas nodes</div>
+        <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-slate-200">{atlasEdges.length}</span> Atlas edges</div>
         {driveMode && <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-emerald-200 backdrop-blur-xl">live dispatch feed</div>}
         <div className="ml-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/45 backdrop-blur-xl">{mapMode === 'satellite' || mapMode === 'hybrid' ? <Navigation2 className="h-3 w-3" /> : <MapPin className="h-3 w-3" />}{mapMode}</div>
       </div>
