@@ -2934,7 +2934,7 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
     if (!access) return;
     const regionKey = normalizeRegion(req.query.city as string | undefined);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const [{ data: incidents }, { data: vehicles }, { data: checkpoints }, { data: addressLedger }] = await Promise.all([
+    const [{ data: incidents }, { data: vehicles }, { data: checkpoints }, { data: addressLedger }, { data: atlasNodes }] = await Promise.all([
       supabase
         .from('incidents')
         .select('id, type, severity, status, verification_status, latitude, longitude, location, created_at')
@@ -2957,6 +2957,13 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
         .select('id, canonical_label, city, zone_label, address_type, latitude, longitude, access_notes, confidence, status, source')
         .in('status', ['candidate', 'verified'])
         .limit(200),
+      supabase
+        .from('afat_atlas_nodes')
+        .select('id, node_type, canonical_name, city, zone_label, latitude, longitude, access_modes, confidence, evidence_status, status')
+        .eq('status', 'active')
+        .in('evidence_status', ['provisional', 'corroborated', 'verified'])
+        .order('confidence', { ascending: false })
+        .limit(300),
     ]);
 
     const scopedIncidents = (incidents || []).filter((incident: any) => {
@@ -2975,6 +2982,9 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
     const scopedAddresses = (addressLedger || []).filter((address: any) =>
       withinRegion(Number(address.latitude), Number(address.longitude), regionKey)
     );
+    const scopedAtlasNodes = (atlasNodes || []).filter((node: any) =>
+      withinRegion(Number(node.latitude), Number(node.longitude), regionKey)
+    );
 
     res.json({
       success: true,
@@ -2984,6 +2994,7 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
       vehicles: scopedVehicles,
       checkpoints: scopedCheckpoints,
       addresses: scopedAddresses,
+      atlas_nodes: scopedAtlasNodes,
       excluded_fields: ['passenger_identity', 'reporter_identity', 'operator_identity', 'plate_number', 'operator_financials', 'dispatch_assignment'],
     });
   } catch (error: any) {
@@ -3001,7 +3012,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
     const region = LIVE_MAP_REGIONS[regionKey];
     const since = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
 
-    const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }, { data: missionSignals }] = await Promise.all([
+    const [{ data: vehicles }, { data: incidents }, { data: dispatches }, { data: checkpoints }, { data: missionSignals }, { data: atlasNodes }] = await Promise.all([
       supabase
         .from('vehicles')
         .select('id, operator_id, plate_number, type, is_available, current_lat, current_lng, last_ping_at, rating')
@@ -3031,6 +3042,13 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         .gte('timestamp', since)
         .order('timestamp', { ascending: false })
         .limit(180),
+      supabase
+        .from('afat_atlas_nodes')
+        .select('id, node_type, canonical_name, city, zone_label, latitude, longitude, access_modes, confidence, evidence_status, status')
+        .eq('status', 'active')
+        .in('evidence_status', ['provisional', 'corroborated', 'verified'])
+        .order('confidence', { ascending: false })
+        .limit(400),
     ]);
 
     const scopedVehicles = (vehicles || []).filter((vehicle: any) =>
@@ -3063,6 +3081,9 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
 
     const scopedMissionSignals = (missionSignals || []).filter((signal: any) =>
       withinRegion(Number(signal.latitude), Number(signal.longitude), regionKey)
+    );
+    const scopedAtlasNodes = (atlasNodes || []).filter((node: any) =>
+      withinRegion(Number(node.latitude), Number(node.longitude), regionKey)
     );
 
     const urgentAlerts = scopedIncidents
@@ -3134,8 +3155,9 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         urgent_alerts: urgentAlerts.length,
         verified_incidents: verifiedIncidents.length,
         active_dispatches: scopedDispatches.length,
+        atlas_nodes: scopedAtlasNodes.length,
         average_signal_age_seconds: averageSignalAgeSeconds,
-        publish_channels: ['vehicles', 'movement_logs', 'incidents', 'dispatch_assignments', 'checkpoints'],
+        publish_channels: ['vehicles', 'movement_logs', 'incidents', 'dispatch_assignments', 'checkpoints', 'atlas_nodes'],
         data_contract: 'AFAT live-map v2',
         recommended_mode:
           urgentAlerts.length >= 3 ? 'alert' : scopedDispatches.length > scopedVehicles.length ? 'demand_pressure' : 'stable',
@@ -3159,6 +3181,12 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       checkpoints: scopedCheckpoints.map((checkpoint: any) => ({
         ...checkpoint,
         publish_channel: 'checkpoints',
+      })),
+      atlas_nodes: scopedAtlasNodes.map((node: any) => ({
+        ...node,
+        name: node.canonical_name,
+        type: node.node_type,
+        publish_channel: 'atlas_nodes',
       })),
       campaign_signals: scopedMissionSignals.map((signal: any) => ({
         ...signal,
