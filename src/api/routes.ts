@@ -1405,66 +1405,237 @@ router.post('/report', async (req: Request, res: Response) => {
 });
 
 router.post('/sos/panic', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
   try {
-    const { user_id, user_name, latitude, longitude, source } = req.body;
-    const lat = Number(latitude);
-    const lng = Number(longitude);
+    const profileId = access.profile.id;
+    const source = String(req.body?.source || 'sos_button').slice(0, 80);
+    const requestedAssignmentId = String(req.body?.dispatch_assignment_id || '').trim() || null;
+    const rawLat = req.body?.latitude;
+    const rawLng = req.body?.longitude;
+    const rawAccuracy = req.body?.accuracy_m;
+    const deviceLat = rawLat == null || rawLat === '' ? null : Number(rawLat);
+    const deviceLng = rawLng == null || rawLng === '' ? null : Number(rawLng);
+    const accuracy = rawAccuracy == null || rawAccuracy === '' ? null : Number(rawAccuracy);
 
-    if (!user_id || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(400).json({ error: 'user_id, latitude and longitude are required' });
+    const hasDeviceLocation = Number.isFinite(deviceLat) && Number.isFinite(deviceLng)
+      && deviceLat! >= -90 && deviceLat! <= 90 && deviceLng! >= -180 && deviceLng! <= 180;
+    if ((rawLat != null || rawLng != null) && !hasDeviceLocation) {
+      return res.status(400).json({ error: 'Invalid emergency location coordinates.' });
+    }
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 10000)) {
+      return res.status(400).json({ error: 'Invalid emergency location accuracy.' });
     }
 
-    const incidentPayload = {
-      type: 'emergency',
-      description: `Emergency SOS from ${user_name || 'AFAT user'}. Location: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-      latitude: lat,
-      longitude: lng,
-      location: `POINT(${lng} ${lat})`,
-      severity: 5,
-      source: source || 'sos_button',
-      status: 'active',
-      reporter_id: user_id,
-      reporter_username: user_name || 'AFAT user',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const activeStates = ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','emergency','disputed'];
+    const rank: Record<string, number> = { emergency: 0, in_journey: 1, pickup_verified: 2, arrived: 3, en_route: 4, assigned: 5, accepted: 6, offered: 7, queued: 8, disputed: 9 };
+    let assignments: any[] = [];
 
-    const { data: incident, error: incidentError } = await supabase
-      .from('incidents')
-      .insert(incidentPayload)
-      .select()
-      .single();
+    const { data: operatorAssignments, error: operatorError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,vehicle_id,status,updated_at')
+      .eq('operator_id', profileId)
+      .in('status', activeStates)
+      .order('updated_at', { ascending: false })
+      .limit(10);
+    if (operatorError) throw operatorError;
+    assignments.push(...(operatorAssignments || []));
 
-    if (incidentError) {
-      console.warn('SOS accepted without incident persistence:', incidentError.message);
-      return res.status(202).json({
-        success: true,
-        persisted: false,
-        status: 'active',
-        alert: incidentPayload,
-      });
+    const { data: passengerBookings, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('passenger_id', profileId)
+      .limit(100);
+    if (bookingError) throw bookingError;
+    const bookingIds = (passengerBookings || []).map((item: any) => item.id).filter(Boolean);
+    if (bookingIds.length) {
+      const { data: passengerAssignments, error: passengerAssignmentError } = await supabase
+        .from('dispatch_assignments')
+        .select('id,booking_id,operator_id,vehicle_id,status,updated_at')
+        .in('booking_id', bookingIds)
+        .in('status', activeStates)
+        .order('updated_at', { ascending: false })
+        .limit(10);
+      if (passengerAssignmentError) throw passengerAssignmentError;
+      assignments.push(...(passengerAssignments || []));
     }
 
-    const { error: sosError } = await supabase
+    assignments = Array.from(new Map(assignments.map((item: any) => [item.id, item])).values())
+      .sort((a: any, b: any) => (rank[String(a.status)] ?? 99) - (rank[String(b.status)] ?? 99)
+        || new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+
+    const assignment = requestedAssignmentId
+      ? assignments.find((item: any) => item.id === requestedAssignmentId)
+      : assignments[0] || null;
+    if (requestedAssignmentId && !assignment) {
+      return res.status(403).json({ error: 'The requested dispatch is not an active journey owned by this identity.' });
+    }
+
+    let journey: any = null;
+    if (assignment?.id) {
+      const { data, error } = await supabase
+        .from('afat_journeys')
+        .select('id,status,started_at')
+        .eq('dispatch_assignment_id', assignment.id)
+        .maybeSingle();
+      if (error && error.code !== 'PGRST116') throw error;
+      journey = data || null;
+    }
+
+    let lat: number | null = hasDeviceLocation ? Number(deviceLat) : null;
+    let lng: number | null = hasDeviceLocation ? Number(deviceLng) : null;
+    let resolvedAccuracy: number | null = hasDeviceLocation && accuracy != null ? accuracy : null;
+    let locationSource: 'device' | 'journey_last_known' | 'unavailable' = hasDeviceLocation ? 'device' : 'unavailable';
+
+    if (!hasDeviceLocation && journey?.id) {
+      const { data: sample, error } = await supabase
+        .from('afat_journey_samples')
+        .select('latitude,longitude,accuracy_m,recorded_at')
+        .eq('journey_id', journey.id)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error && error.code !== 'PGRST116') throw error;
+      if (sample && Number.isFinite(Number(sample.latitude)) && Number.isFinite(Number(sample.longitude))) {
+        lat = Number(sample.latitude);
+        lng = Number(sample.longitude);
+        resolvedAccuracy = sample.accuracy_m == null ? null : Number(sample.accuracy_m);
+        locationSource = 'journey_last_known';
+      }
+    }
+
+    let passengerId: string | null = null;
+    if (assignment?.booking_id) {
+      const { data: booking, error } = await supabase
+        .from('bookings')
+        .select('passenger_id')
+        .eq('id', assignment.booking_id)
+        .maybeSingle();
+      if (error) throw error;
+      passengerId = booking?.passenger_id || null;
+    }
+
+    let incident: any = null;
+    if (lat != null && lng != null) {
+      const { data, error } = await supabase
+        .from('incidents')
+        .insert({
+          type: 'emergency',
+          description: `Authenticated AFAT SOS. Location source: ${locationSource}.`,
+          latitude: lat,
+          longitude: lng,
+          location: `POINT(${lng} ${lat})`,
+          severity: 5,
+          source: 'sos_authenticated',
+          status: 'active',
+          verification_status: 'authenticated_sos',
+          confidence_score: locationSource === 'device' ? 95 : 80,
+          reporter_id: profileId,
+          reporter_username: access.profile.full_name || 'AFAT member',
+          created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      incident = data;
+    }
+
+    const { data: sosEvent, error: sosError } = await supabase
       .from('sos_events')
       .insert({
-        user_id,
-        incident_id: incident.id,
+        user_id: profileId,
+        incident_id: incident?.id || null,
+        dispatch_assignment_id: assignment?.id || null,
+        journey_id: journey?.id || null,
+        operator_id: assignment?.operator_id || null,
+        vehicle_id: assignment?.vehicle_id || null,
         latitude: lat,
         longitude: lng,
+        accuracy_m: resolvedAccuracy,
+        location_source: locationSource,
         status: 'active',
-        created_at: new Date().toISOString(),
-      });
+        source,
+        metadata: {
+          workspace_role: access.workspaceRole,
+          dispatch_status: assignment?.status || null,
+        },
+      })
+      .select()
+      .single();
+    if (sosError) throw sosError;
 
-    res.status(201).json({
+    let emergencyTransitioned = assignment?.status === 'emergency';
+    if (assignment && ['en_route','arrived','pickup_verified','in_journey'].includes(String(assignment.status))) {
+      const { error } = await supabase.rpc('afat_transition_dispatch_journey', {
+        p_assignment_id: assignment.id,
+        p_actor_profile_id: profileId,
+        p_expected_status: assignment.status,
+        p_next_status: 'emergency',
+        p_idempotency_key: `sos-${sosEvent.id}`,
+        p_reason: 'Authenticated AFAT SOS activated',
+        p_evidence: {
+          sos_event_id: sosEvent.id,
+          incident_id: incident?.id || null,
+          location_source: locationSource,
+        },
+      });
+      if (!error) emergencyTransitioned = true;
+      else console.warn('SOS persisted but dispatch emergency transition failed:', error.message);
+    }
+
+    const participantIds = Array.from(new Set(
+      [passengerId, assignment?.operator_id].filter((id): id is string => Boolean(id) && id !== profileId)
+    ));
+    if (participantIds.length) {
+      await notifyRecipients(
+        { user_ids: participantIds },
+        {
+          type: 'journey_sos',
+          title: 'AFAT journey emergency',
+          body: 'An authenticated SOS was activated for the active journey.',
+          referenceId: sosEvent.id,
+          channels: ['in_app'],
+        }
+      ).catch((notificationError) => console.warn('SOS participant notification failed:', notificationError));
+    }
+
+    await Promise.allSettled([
+      notifyRecipients(
+        { role: 'planner', city: access.profile.preferred_city || undefined },
+        {
+          type: 'journey_sos',
+          title: 'AFAT safety escalation',
+          body: 'An authenticated AFAT SOS requires operational attention.',
+          referenceId: sosEvent.id,
+          channels: ['in_app'],
+        }
+      ),
+      notifyRecipients(
+        { role: 'admin' },
+        {
+          type: 'journey_sos',
+          title: 'AFAT safety escalation',
+          body: 'An authenticated AFAT SOS was recorded.',
+          referenceId: sosEvent.id,
+          channels: ['in_app'],
+        }
+      ),
+    ]);
+
+    return res.status(201).json({
       success: true,
       persisted: true,
       status: 'active',
-      incident_id: incident.id,
-      sos_logged: !sosError,
+      sos_event_id: sosEvent.id,
+      incident_id: incident?.id || null,
+      dispatch_assignment_id: assignment?.id || null,
+      journey_id: journey?.id || null,
+      dispatch_emergency_state: emergencyTransitioned,
+      location_status: locationSource,
     });
   } catch (error: any) {
-    res.status(500).json({ error: publicError(error, 'SOS dispatch failed') });
+    return res.status(500).json({ error: publicError(error, 'SOS dispatch failed') });
   }
 });
 
