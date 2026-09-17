@@ -2985,6 +2985,24 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
     const scopedAtlasNodes = (atlasNodes || []).filter((node: any) =>
       withinRegion(Number(node.latitude), Number(node.longitude), regionKey)
     );
+    const atlasCenterNodes = scopedAtlasNodes
+      .filter((node: any) => Number.isFinite(Number(node.latitude)) && Number.isFinite(Number(node.longitude)))
+      .slice(0, 120);
+    const atlasCenter = atlasCenterNodes.length
+      ? {
+          lat: atlasCenterNodes.reduce((sum: number, node: any) => sum + Number(node.latitude), 0) / atlasCenterNodes.length,
+          lng: atlasCenterNodes.reduce((sum: number, node: any) => sum + Number(node.longitude), 0) / atlasCenterNodes.length,
+        }
+      : null;
+    const { data: nearbyAtlas } = atlasCenter
+      ? await supabase.rpc('afat_atlas_nearby', {
+          p_lat: atlasCenter.lat,
+          p_lon: atlasCenter.lng,
+          p_radius_m: 25000,
+          p_limit: 250,
+        })
+      : { data: null as any };
+    const scopedAtlasEdges = Array.isArray(nearbyAtlas?.edges) ? nearbyAtlas.edges : [];
 
     res.json({
       success: true,
@@ -2995,6 +3013,8 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
       checkpoints: scopedCheckpoints,
       addresses: scopedAddresses,
       atlas_nodes: scopedAtlasNodes,
+      atlas_edges: scopedAtlasEdges,
+      atlas_evidence_contract: nearbyAtlas?.evidence_contract || 'provisional_base_with_corroboration_upgrade',
       excluded_fields: ['passenger_identity', 'reporter_identity', 'operator_identity', 'plate_number', 'operator_financials', 'dispatch_assignment'],
     });
   } catch (error: any) {
@@ -3085,6 +3105,24 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
     const scopedAtlasNodes = (atlasNodes || []).filter((node: any) =>
       withinRegion(Number(node.latitude), Number(node.longitude), regionKey)
     );
+    const atlasCenterNodes = scopedAtlasNodes
+      .filter((node: any) => Number.isFinite(Number(node.latitude)) && Number.isFinite(Number(node.longitude)))
+      .slice(0, 160);
+    const atlasCenter = atlasCenterNodes.length
+      ? {
+          lat: atlasCenterNodes.reduce((sum: number, node: any) => sum + Number(node.latitude), 0) / atlasCenterNodes.length,
+          lng: atlasCenterNodes.reduce((sum: number, node: any) => sum + Number(node.longitude), 0) / atlasCenterNodes.length,
+        }
+      : null;
+    const { data: nearbyAtlas } = atlasCenter
+      ? await supabase.rpc('afat_atlas_nearby', {
+          p_lat: atlasCenter.lat,
+          p_lon: atlasCenter.lng,
+          p_radius_m: 25000,
+          p_limit: 250,
+        })
+      : { data: null as any };
+    const scopedAtlasEdges = Array.isArray(nearbyAtlas?.edges) ? nearbyAtlas.edges : [];
 
     const urgentAlerts = scopedIncidents
       .filter((incident: any) => Number(incident.severity || 0) >= 4)
@@ -3156,6 +3194,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         verified_incidents: verifiedIncidents.length,
         active_dispatches: scopedDispatches.length,
         atlas_nodes: scopedAtlasNodes.length,
+        atlas_edges: scopedAtlasEdges.length,
         average_signal_age_seconds: averageSignalAgeSeconds,
         publish_channels: ['vehicles', 'movement_logs', 'incidents', 'dispatch_assignments', 'checkpoints', 'atlas_nodes'],
         data_contract: 'AFAT live-map v2',
@@ -3188,6 +3227,8 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         type: node.node_type,
         publish_channel: 'atlas_nodes',
       })),
+      atlas_edges: scopedAtlasEdges,
+      atlas_evidence_contract: nearbyAtlas?.evidence_contract || 'provisional_base_with_corroboration_upgrade',
       campaign_signals: scopedMissionSignals.map((signal: any) => ({
         ...signal,
         publish_channel: 'movement_logs',
