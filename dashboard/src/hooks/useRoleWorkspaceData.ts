@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react';
 import {
   fetchActiveDispatches,
+  fetchAccessApprovalInbox,
   fetchComplianceRadar,
   fetchDemandRadar,
   fetchLiveMapOps,
   fetchMobilityMapFeed,
   fetchOpsReportCenter,
   fetchParticipantDispatches,
+  fetchPaymentProviderReadiness,
   fetchPassageIntents,
   fetchPublicPartnerConditions,
 } from '../supabaseClient';
 
 export type RoleWorkspaceKey = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
-export type RoleWorkspaceLiveFeed = { incidents: any[]; tracks: any[]; checkpoints: any[] };
+export type RoleWorkspaceLiveFeed = { incidents: any[]; tracks: any[]; checkpoints: any[]; atlasNodes: any[]; atlasEdges: any[] };
 
-const EMPTY_LIVE: RoleWorkspaceLiveFeed = { incidents: [], tracks: [], checkpoints: [] };
+const EMPTY_LIVE: RoleWorkspaceLiveFeed = { incidents: [], tracks: [], checkpoints: [], atlasNodes: [], atlasEdges: [] };
 
 export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
   const [live, setLive] = useState<RoleWorkspaceLiveFeed>(EMPTY_LIVE);
@@ -46,6 +48,8 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
             incidents: mapResult.data.incidents || [],
             tracks: mapResult.data.vehicles || [],
             checkpoints: mapResult.data.checkpoints || mapResult.data.addresses || [],
+            atlasNodes: mapResult.data.atlas_nodes || [],
+            atlasEdges: mapResult.data.atlas_edges || [],
           });
         }
         if (mapResult.error) errors.push(`Map services: ${mapResult.error.message}`);
@@ -81,16 +85,22 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
         }
 
         if (role === 'admin') {
-          const [reports, compliance] = await Promise.all([
+          const [reports, compliance, approvals, payments] = await Promise.all([
             fetchOpsReportCenter(),
             fetchComplianceRadar(),
+            fetchAccessApprovalInbox(),
+            fetchPaymentProviderReadiness(),
           ]);
           if (active) setOperations({
             reports: reports.data,
             compliance: compliance.data,
+            accessApplications: approvals.data?.applications || [],
+            paymentReadiness: payments.data || null,
           });
           if (reports.error) errors.push(`Reports: ${reports.error.message}`);
           if (compliance.error) errors.push(`Compliance: ${compliance.error.message}`);
+          if (approvals.error) errors.push(`Access reviews: ${approvals.error.message}`);
+          if (payments.error) errors.push(`Payments: ${payments.error.message}`);
         }
       } catch (error: any) {
         errors.push(error?.message || 'AFAT live services could not be refreshed.');
