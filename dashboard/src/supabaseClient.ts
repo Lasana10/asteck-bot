@@ -1630,6 +1630,59 @@ export async function fetchActiveDispatches() {
   }
 }
 
+export async function fetchParticipantDispatches(options: { include_terminal?: boolean; limit?: number } = {}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const query = new URLSearchParams();
+    if (options.include_terminal) query.set('include_terminal', 'true');
+    query.set('limit', String(Math.min(Math.max(options.limit || 20, 1), 100)));
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch?${query.toString()}`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch continuity lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchDispatchDetail(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch detail unavailable.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function transitionDispatch(
+  assignmentId: string,
+  payload: { expected_status: string; next_status: string; reason?: string; evidence?: Record<string, any> },
+  idempotencyKey?: string,
+) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const stableKey = idempotencyKey || `afat-${assignmentId}-${payload.next_status}-${Date.now().toString(36)}`;
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/transition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stableKey, ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch transition failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+
 export async function createDispatchAssignment(dispatchData: any) {
   try {
     const authHeaders = await authenticatedApiHeaders();
