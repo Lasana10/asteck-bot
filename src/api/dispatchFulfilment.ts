@@ -46,7 +46,7 @@ router.get('/dispatch', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
   try {
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     const includeTerminal = String(req.query.include_terminal || '').toLowerCase() === 'true';
     const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
@@ -72,7 +72,7 @@ router.get('/dispatch', async (req: Request, res: Response) => {
 router.get('/dispatch/candidates', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
-  const role = String(access.profile.role || '').toLowerCase();
+  const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
   if (!['admin','planner'].includes(role)) return res.status(403).json({ error: 'Dispatch candidate ranking requires planner or admin authority.' });
   try {
     const assignmentId = String(req.query.assignment_id || '').trim();
@@ -96,7 +96,7 @@ router.get('/dispatch/candidates', async (req: Request, res: Response) => {
 router.post('/dispatch/:assignmentId/candidate', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
-  const role = String(access.profile.role || '').toLowerCase();
+  const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
   if (!['admin','planner'].includes(role)) return res.status(403).json({ error: 'Only AFAT planner or admin authority can choose a dispatch candidate.' });
   try {
     const assignmentId = String(req.params.assignmentId || '').trim();
@@ -142,7 +142,7 @@ router.get('/dispatch/:assignmentId', async (req: Request, res: Response) => {
     const { data: assignment, error } = await supabase.from('dispatch_assignments').select('*').eq('id', assignmentId).maybeSingle();
     if (error) throw error;
     if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     let participant = ['admin','planner'].includes(role) || assignment.operator_id === profileId || assignment.dispatcher_id === profileId;
     if (!participant) participant = await passengerOwnsBooking(profileId, assignment.booking_id);
@@ -179,7 +179,7 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
     if (assignmentError) throw assignmentError;
     if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
     if (!['in_journey','emergency'].includes(assignment.status)) return res.status(409).json({ error: 'Journey telemetry is accepted only for an active journey.' });
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     let participant = assignment.operator_id === profileId;
     if (!participant) participant = await passengerOwnsBooking(profileId, assignment.booking_id);
@@ -217,7 +217,7 @@ router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Resp
     const { data: assignment, error: assignmentError } = await supabase.from('dispatch_assignments').select('id, booking_id, operator_id, dispatcher_id, status').eq('id', assignmentId).maybeSingle();
     if (assignmentError) throw assignmentError;
     if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     const isStaff = ['admin','planner'].includes(role);
     const isAssignedOperator = role === 'operator' && assignment.operator_id === profileId;
