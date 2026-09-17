@@ -257,6 +257,36 @@ function mobilityErrorStatus(error: any) {
   return 500;
 }
 
+async function getActiveRoleAssignments(profileId: string) {
+  const { data, error } = await supabase
+    .from('profile_role_assignments')
+    .select('id, role_key, company_id, status, expires_at, metadata')
+    .eq('profile_id', profileId)
+    .in('status', ['active', 'provisional']);
+
+  if (error) throw error;
+  const now = Date.now();
+  return (data || []).filter((assignment: any) =>
+    !assignment.expires_at || new Date(assignment.expires_at).getTime() > now
+  );
+}
+
+function workspaceCapabilities(profile: any, assignments: any[]) {
+  const capabilities = new Set<string>(['commuter']);
+  const legacyRole = String(profile?.role || 'commuter').toLowerCase();
+  if (['operator', 'planner', 'admin'].includes(legacyRole)) capabilities.add(legacyRole);
+
+  for (const assignment of assignments || []) {
+    const key = String(assignment.role_key || '').toLowerCase();
+    if (['verified_operator', 'trusted_operator', 'fleet_lead'].includes(key)) capabilities.add('operator');
+    if (['afat_operational_planner', 'municipal_planner', 'government_planner', 'emergency_planner', 'fleet_planner'].includes(key)) capabilities.add('planner');
+    if (['operations_admin', 'security_admin', 'platform_admin', 'founder_owner'].includes(key)) capabilities.add('admin');
+    if (['organization_member', 'organization_admin', 'organization_owner', 'fleet_manager', 'dispatcher', 'analyst', 'auditor', 'compliance_officer', 'finance_officer'].includes(key)) capabilities.add('organization');
+  }
+
+  return Array.from(capabilities);
+}
+
 export async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
   const { auth, profile } = await getAuthProfileByToken(req);
   if (!auth?.sub || !profile) {
@@ -269,20 +299,31 @@ export async function requireAuthRole(req: Request, res: Response, roles?: strin
     return null;
   }
 
+  let assignments: any[] = [];
+  try {
+    assignments = await getActiveRoleAssignments(profile.id);
+  } catch (error) {
+    console.error('Role assignment lookup failed:', error);
+  }
+  const capabilities = workspaceCapabilities(profile, assignments);
+
   if (
-    String(profile.role || '').toLowerCase() === 'operator' &&
-    String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED'
+    capabilities.includes('operator') &&
+    String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED' &&
+    !assignments.some((assignment: any) =>
+      ['verified_operator', 'trusted_operator', 'fleet_lead'].includes(String(assignment.role_key || '').toLowerCase())
+    )
   ) {
     res.status(403).json({ error: 'Operator approval required' });
     return null;
   }
 
-  if (roles?.length && !roles.includes(String(profile.role || '').toLowerCase())) {
+  if (roles?.length && !roles.some((role) => capabilities.includes(String(role).toLowerCase()))) {
     res.status(403).json({ error: 'Forbidden' });
     return null;
   }
 
-  return { auth, profile };
+  return { auth, profile, assignments, capabilities };
 }
 
 async function fetchProfilesForNotificationTarget(target: {
@@ -1114,10 +1155,14 @@ router.get('/auth/me', async (req: Request, res: Response) => {
   try {
     const { auth, profile } = await getAuthProfileByToken(req);
     if (!auth?.sub || !profile) return res.status(401).json({ error: 'Unauthorized' });
+    const assignments = await getActiveRoleAssignments(profile.id);
+    const capabilities = workspaceCapabilities(profile, assignments);
     res.status(200).json({
       success: true,
       userId: profile.id,
-      profile,
+      profile: { ...profile, capabilities, role_assignments: assignments },
+      capabilities,
+      role_assignments: assignments,
       auth: {
         sub: auth.sub,
         phone: auth.phone,
@@ -1127,6 +1172,135 @@ router.get('/auth/me', async (req: Request, res: Response) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Auth lookup failed' });
+  }
+});
+
+router.get('/access/applications/mine', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const { data, error } = await supabase
+      .from('access_applications')
+      .select('*')
+      .eq('profile_id', access.profile.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return res.status(200).json({ applications: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Access applications unavailable.' });
+  }
+});
+
+router.post('/access/applications', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const capabilityKey = String(req.body?.capability_key || '').trim().toLowerCase();
+    const allowed = new Set(['operator', 'planner', 'organization', 'public_partner']);
+    if (!allowed.has(capabilityKey)) {
+      return res.status(400).json({ error: 'Unsupported capability request.' });
+    }
+
+    const roleKey = capabilityKey === 'operator'
+      ? 'operator_applicant'
+      : capabilityKey === 'planner'
+        ? 'afat_operational_planner'
+        : capabilityKey === 'organization'
+          ? 'organization_member'
+          : null;
+
+    const companyId = req.body?.company_id || null;
+    const { data: existing } = await supabase
+      .from('access_applications')
+      .select('*')
+      .eq('profile_id', access.profile.id)
+      .eq('capability_key', capabilityKey)
+      .in('status', ['draft', 'submitted', 'under_review', 'needs_information'])
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(200).json({ application: existing, resumed: true });
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('access_applications')
+      .insert({
+        profile_id: access.profile.id,
+        capability_key: capabilityKey,
+        requested_role_key: roleKey,
+        company_id: companyId,
+        status: 'submitted',
+        application_type: req.body?.application_type || 'self_service',
+        reason: req.body?.reason || null,
+        requested_scope: req.body?.requested_scope || {},
+        evidence_summary: req.body?.evidence_summary || {},
+        submitted_at: nowIso,
+        created_at: nowIso,
+        updated_at: nowIso,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    if (capabilityKey === 'operator') {
+      await supabase
+        .from('profiles')
+        .update({
+          operator_application_status: 'UNDER_REVIEW',
+          operator_application_submitted_at: nowIso,
+          operator_review_notes: 'Capability application submitted and awaiting AFAT review.',
+          updated_at: nowIso,
+        })
+        .eq('id', access.profile.id);
+    }
+
+    return res.status(201).json({ application: data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Access application failed.' });
+  }
+});
+
+router.get('/ops/access/applications', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin']);
+  if (!access) return;
+  try {
+    const statuses = String(req.query.status || 'submitted,under_review,needs_information')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const { data, error } = await supabase
+      .from('access_applications')
+      .select('*, profiles:profile_id(id, full_name, phone, preferred_city, verification_status, operator_application_status), companies:company_id(id, name, compliance_status)')
+      .in('status', statuses)
+      .order('submitted_at', { ascending: true, nullsFirst: false });
+    if (error) throw error;
+    return res.status(200).json({ applications: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Approval inbox unavailable.' });
+  }
+});
+
+router.patch('/ops/access/applications/:applicationId', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin']);
+  if (!access) return;
+  try {
+    const applicationId = String(req.params.applicationId || '').trim();
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+    const { data, error } = await supabase.rpc('afat_review_access_application', {
+      p_application_id: applicationId,
+      p_reviewer_id: access.profile.id,
+      p_decision: decision,
+      p_notes: req.body?.notes || null,
+      p_role_key: req.body?.role_key || null,
+      p_review_scope: req.body?.review_scope || {},
+    });
+    if (error) throw error;
+    return res.status(200).json({ application: data, decision });
+  } catch (error: any) {
+    const message = String(error?.message || 'Access review failed.');
+    const status = message.includes('ADMIN_INVITATION_REQUIRED') ? 409 : message.includes('APPLICATION_NOT_FOUND') ? 404 : 500;
+    return res.status(status).json({ error: message });
   }
 });
 
