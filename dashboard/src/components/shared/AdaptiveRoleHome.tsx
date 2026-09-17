@@ -64,8 +64,8 @@ function RoleFlow({ role, activeTab, onNavigate }: { role: AdaptiveWorkspaceRole
 }
 
 function RealityBar({ live, loading, errors }: { live: LiveFeed; loading: boolean; errors: string[] }) {
-  const records = live.incidents.length + live.tracks.length + live.checkpoints.length;
-  return <div className="flex flex-wrap items-center gap-2"><StatusPill tone={loading ? 'warn' : errors.length ? 'warn' : 'good'}>{loading ? 'Refreshing live services' : errors.length ? 'Partial live service' : 'Live services connected'}</StatusPill><StatusPill>{records} map records</StatusPill><StatusPill>{live.incidents.length} conditions</StatusPill><StatusPill>{live.tracks.length} moving assets</StatusPill><StatusPill>{live.checkpoints.length} meeting points</StatusPill></div>;
+  const records = live.incidents.length + live.tracks.length + live.checkpoints.length + live.atlasNodes.length + live.atlasEdges.length;
+  return <div className="flex flex-wrap items-center gap-2"><StatusPill tone={loading ? 'warn' : errors.length ? 'warn' : 'good'}>{loading ? 'Refreshing live services' : errors.length ? 'Partial live service' : 'Live services connected'}</StatusPill><StatusPill>{records} map records</StatusPill><StatusPill>{live.incidents.length} conditions</StatusPill><StatusPill>{live.tracks.length} moving assets</StatusPill><StatusPill>{live.checkpoints.length} meeting points</StatusPill><StatusPill>{live.atlasNodes.length} Atlas nodes</StatusPill><StatusPill>{live.atlasEdges.length} Atlas edges</StatusPill></div>;
 }
 
 export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home', onNavigate, onSignOut }: Props) {
