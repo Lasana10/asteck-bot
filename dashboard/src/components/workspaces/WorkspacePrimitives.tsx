@@ -4,7 +4,7 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 
 export type AdaptiveWorkspaceRole = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
 export type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
-export type LiveFeed = { incidents: any[]; tracks: any[]; checkpoints: any[]; atlasNodes: any[] };
+export type LiveFeed = { incidents: any[]; tracks: any[]; checkpoints: any[]; atlasNodes: any[]; atlasEdges: any[] };
 
 export function Surface({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-2xl border border-white/10 bg-white/[0.035] shadow-[0_24px_80px_rgba(0,0,0,0.18)] ${className}`}>{children}</section>;
@@ -43,6 +43,7 @@ export function MapPanel({ role, live }: { role: AdaptiveWorkspaceRole; live: Li
     tracks={live.tracks}
     checkpoints={live.checkpoints}
     atlasNodes={live.atlasNodes}
+    atlasEdges={live.atlasEdges}
     realtimeOverlay={['operator', 'organization', 'planner', 'admin'].includes(role)}
     showInformal={role !== 'commuter'}
   />;
