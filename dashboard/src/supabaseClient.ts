@@ -1978,6 +1978,79 @@ export async function updateCompanyLifecycle(
   }
 }
 
+
+export async function fetchMyAccessApplications() {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/access/applications/mine`, {
+      headers: { ...authHeaders },
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Access application lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function submitAccessApplication(payload: {
+  capability_key: 'operator' | 'planner' | 'organization' | 'public_partner';
+  company_id?: string | null;
+  application_type?: 'self_service' | 'invitation' | 'organization' | 'public_partner' | 'internal';
+  reason?: string;
+  requested_scope?: Record<string, any>;
+  evidence_summary?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/access/applications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Access application failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchAccessApprovalInbox(status = 'submitted,under_review,needs_information') {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/access/applications?status=${encodeURIComponent(status)}`, {
+      headers: { ...authHeaders },
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Approval inbox lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function reviewAccessApplication(applicationId: string, payload: {
+  decision: 'approved' | 'restricted' | 'needs_information' | 'rejected' | 'suspended';
+  notes?: string;
+  role_key?: string | null;
+  review_scope?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/access/applications/${applicationId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Access review failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function getMyBookings(passengerId: string) {
   const { data, error } = await supabase
     .from('bookings')

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ViewToggle } from '../shared/ViewToggle';
 import { InteractiveMap } from '../shared/InteractiveMap';
 import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle, CreditCard, FileCheck, Globe2, GraduationCap, HandHeart, Landmark, X, Sparkles } from 'lucide-react';
-import { createDispatchAssignment, enrollCheckpoint, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle, updateStaffLifecycle } from '../../supabaseClient';
+import { createDispatchAssignment, enrollCheckpoint, fetchAccessApprovalInbox, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewAccessApplication, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle, updateStaffLifecycle } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
@@ -18,6 +18,8 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   const [uiMode, setUiMode] = useState<'map' | 'grid'>('grid');
   const [profiles, setProfiles] = useState<any[]>([]);
   const [companyApplications, setCompanyApplications] = useState<any[]>([]);
+  const [accessApplications, setAccessApplications] = useState<any[]>([]);
+  const [reviewingApplicationId, setReviewingApplicationId] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [metrics, setMetrics] = useState({ totalUsers: 0, activeCampaigns: 0, pendingIncidents: 0 });
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -120,14 +122,16 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     const { data: dirData } = await supabase.from('sentinel_directives').select('*').eq('status', 'pending_admin').order('created_at', { ascending: false });
     if (dirData) setPendingDirectives(dirData);
 
-    const [paymentRes, complianceRes, liveMapRes] = await Promise.allSettled([
+    const [paymentRes, complianceRes, liveMapRes, approvalInboxRes] = await Promise.allSettled([
       fetchPaymentProviderReadiness(),
       fetchComplianceRadar(),
-      fetchLiveMapOps('cameroon')
+      fetchLiveMapOps('cameroon'),
+      fetchAccessApprovalInbox(),
     ]);
     if (paymentRes.status === 'fulfilled' && paymentRes.value.data) setPaymentReadiness(paymentRes.value.data);
     if (complianceRes.status === 'fulfilled' && complianceRes.value.data) setComplianceRadar(complianceRes.value.data);
     if (liveMapRes.status === 'fulfilled' && liveMapRes.value.data) setLiveMapOps(liveMapRes.value.data);
+    if (approvalInboxRes.status === 'fulfilled' && approvalInboxRes.value.data) setAccessApplications(approvalInboxRes.value.data.applications || []);
 
     // 3. Fetch Metrics
     const { count: userCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
@@ -210,6 +214,36 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       return;
     }
     setCommandFeedback(`Operator lifecycle updated to ${status}.`);
+    fetchAdminData();
+  };
+
+  const handleAccessDecision = async (
+    application: any,
+    decision: 'approved' | 'restricted' | 'needs_information' | 'rejected',
+  ) => {
+    setReviewingApplicationId(application.id);
+    const defaultRoleKey = application.capability_key === 'operator'
+      ? 'verified_operator'
+      : application.capability_key === 'planner'
+        ? 'afat_operational_planner'
+        : application.capability_key === 'organization'
+          ? 'organization_member'
+          : null;
+    const notes = decision === 'needs_information'
+      ? 'More evidence is required before AFAT can activate this capability.'
+      : `${decision} from AFAT approval inbox.`;
+    const { error } = await reviewAccessApplication(application.id, {
+      decision,
+      notes,
+      role_key: defaultRoleKey,
+      review_scope: decision === 'restricted' ? { mode: 'limited', reviewed_at: new Date().toISOString() } : {},
+    });
+    setReviewingApplicationId(null);
+    if (error) {
+      setCommandFeedback(`Access decision failed: ${error.message}`);
+      return;
+    }
+    setCommandFeedback(`${application.capability_key} application marked ${decision}.`);
     fetchAdminData();
   };
 
@@ -636,6 +670,45 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-white/10 bg-slate-950/75 p-5 shadow-2xl">
+          <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-cyan-300/60">Access approval inbox</p>
+              <h2 className="mt-1 text-xl font-black text-white">One review queue for elevated AFAT capabilities</h2>
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-white/45">Operator, Planner and organisation access are reviewed here without manually rewriting account roles. Passenger access remains self-service.</p>
+            </div>
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-amber-200">{accessApplications.length} waiting</span>
+          </div>
+          <div className="grid gap-3 xl:grid-cols-2">
+            {accessApplications.map((application) => {
+              const person = application.profiles || {};
+              const company = application.companies;
+              const busy = reviewingApplicationId === application.id;
+              return (
+                <div key={application.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-black text-white">{person.full_name || person.phone || 'AFAT member'}</p>
+                      <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-cyan-200">{application.capability_key} · {application.status}</p>
+                      <p className="mt-2 text-xs text-white/45">{application.reason || 'No extra reason supplied.'}</p>
+                      {company && <p className="mt-2 text-[10px] text-white/35">Organisation: {company.name} · {company.compliance_status || 'status unknown'}</p>}
+                      <p className="mt-2 text-[10px] text-white/35">Identity: {person.verification_status || 'unverified'} · City: {person.preferred_city || 'not supplied'}</p>
+                    </div>
+                    <ShieldAlert className="h-5 w-5 shrink-0 text-amber-200" />
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <button disabled={busy} onClick={() => handleAccessDecision(application, 'approved')} className="rounded-xl bg-emerald-400 px-3 py-2 text-[9px] font-black uppercase text-slate-950 disabled:opacity-40">Approve</button>
+                    <button disabled={busy} onClick={() => handleAccessDecision(application, 'restricted')} className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-[9px] font-black uppercase text-cyan-100 disabled:opacity-40">Limited</button>
+                    <button disabled={busy} onClick={() => handleAccessDecision(application, 'needs_information')} className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[9px] font-black uppercase text-amber-100 disabled:opacity-40">Need info</button>
+                    <button disabled={busy} onClick={() => handleAccessDecision(application, 'rejected')} className="rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-[9px] font-black uppercase text-red-100 disabled:opacity-40">Reject</button>
+                  </div>
+                </div>
+              );
+            })}
+            {!accessApplications.length && <div className="xl:col-span-2 rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No elevated capability application is waiting for review.</div>}
           </div>
         </div>
 

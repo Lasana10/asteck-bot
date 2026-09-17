@@ -1,96 +1,222 @@
-import React, { useEffect, useState } from 'react';
-import { ShieldAlert, Zap, Navigation2, CheckCircle, X, ChevronRight } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle, ArrowRight, CheckCircle2, Clock3, FileCheck2, Gauge, Map,
+  ShieldCheck, UserCheck, X,
+} from 'lucide-react';
+import { fetchMyAccessApplications, submitAccessApplication } from '../../supabaseClient';
 
 interface Props {
   role: 'commuter' | 'operator' | 'admin' | 'planner';
   isVisible: boolean;
   onClose: () => void;
-  profile?: { subscription_tier?: string; vehicle_type?: string };
+  profile?: {
+    id?: string;
+    subscription_tier?: string;
+    vehicle_type?: string;
+    role?: string;
+    verification_status?: string;
+    operator_application_status?: string;
+    capabilities?: string[];
+  };
+}
+
+type AccessApplication = {
+  id: string;
+  capability_key: string;
+  status: string;
+  reason?: string | null;
+  review_notes?: string | null;
+  submitted_at?: string | null;
+  requested_scope?: Record<string, any>;
+};
+
+const ROLE_COPY = {
+  commuter: {
+    title: 'Passenger access is ready',
+    body: 'Use AFAT immediately for the map, places, routes, safety context and your own journeys. No staff approval is required.',
+    icon: Map,
+    action: 'Open passenger workspace',
+  },
+  operator: {
+    title: 'Operator capability',
+    body: 'Operator access is activated only after identity, vehicle and operating evidence are reviewed. Your Passenger access remains available while review continues.',
+    icon: Gauge,
+    action: 'Open operator workspace',
+  },
+  planner: {
+    title: 'Planner capability',
+    body: 'Planner access is scoped operational authority, not a public sign-up role. AFAT records the requested purpose and activates the workspace only after review.',
+    icon: ShieldCheck,
+    action: 'Open planner workspace',
+  },
+  admin: {
+    title: 'Administrator authority',
+    body: 'Administrator access is internal and invitation-controlled. It is never granted through ordinary public onboarding.',
+    icon: UserCheck,
+    action: 'Open admin control',
+  },
+};
+
+function statusTone(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === 'approved' || normalized === 'active') return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+  if (normalized === 'rejected' || normalized === 'suspended') return 'border-red-400/25 bg-red-400/10 text-red-100';
+  if (normalized === 'needs_information' || normalized === 'restricted') return 'border-amber-400/25 bg-amber-400/10 text-amber-100';
+  return 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100';
+}
+
+function humanStatus(status: string) {
+  return String(status || 'not started').replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
-  const [step, setStep] = useState(0);
+  const [applications, setApplications] = useState<AccessApplication[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  const meta = ROLE_COPY[role];
+  const Icon = meta.icon;
+  const capabilityActive = useMemo(() => {
+    const capabilities = profile?.capabilities || [];
+    if (role === 'commuter') return true;
+    return capabilities.includes(role) || String(profile?.role || '').toLowerCase() === role;
+  }, [profile, role]);
+
+  const application = useMemo(
+    () => applications.find((item) => item.capability_key === role),
+    [applications, role],
+  );
 
   useEffect(() => {
-    if (isVisible) setStep(0);
+    if (!isVisible || role === 'commuter' || role === 'admin') return;
+    let active = true;
+    setLoading(true);
+    fetchMyAccessApplications()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) setNotice(error.message);
+        else setApplications(data?.applications || []);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
   }, [isVisible, role]);
 
   if (!isVisible) return null;
 
-  const baseCommuter = [
-    { title: "AFAT Intel Grid", desc: "Welcome to the future of urban mobility. Use the Map to find rides or report road hazards.", icon: ShieldAlert },
-    { title: "Trust Points", desc: "Earn PTS by reporting incidents accurately. High trust users get priority bookings.", icon: Zap },
-    { title: "One-Tap Booking", desc: "Scan a vehicle's QR or use the search to secure your seat instantly.", icon: Navigation2 }
-  ];
-
-  if (profile?.subscription_tier === 'guardian') {
-    baseCommuter[0].title = "Sentinel Guardian Activated";
-    baseCommuter[0].desc = "Thank you for subscribing to Guardian tier. You now have priority intelligence and direct reporting lines.";
-  }
-
-  const baseOperator = [
-    { title: "Operator Terminal", desc: "Manage your route, accept bookings, and track your daily earnings in real-time.", icon: ShieldAlert },
-    { title: "Verification", desc: "Ensure all passengers have valid tickets by scanning their QR code on boarding.", icon: CheckCircle },
-    { title: "History", desc: "Your completed rides are logged automatically for transparent tontine reporting.", icon: Zap }
-  ];
-
-  if (profile?.vehicle_type === 'moto') {
-    baseOperator[0].title = "Bendskin Terminal";
-  } else if (profile?.vehicle_type === 'taxi') {
-    baseOperator[0].title = "Taxi Ville Terminal";
-  } else if (profile?.vehicle_type === 'minibus' || profile?.vehicle_type === 'bus') {
-    baseOperator[0].title = "Transport Rapide Terminal";
-  }
-
-  const content = {
-    commuter: baseCommuter,
-    operator: baseOperator,
-    admin: [
-       { title: "Administrator control", desc: "Review people, access, operator approvals and platform health from the AFAT control center.", icon: ShieldAlert },
-       { title: "Audited actions", desc: "High-impact access and operational changes remain attributable and can be suspended or reviewed.", icon: Zap }
-    ],
-    planner: [
-       { title: "Operations planning", desc: "Coordinate dispatch, route conditions and mobility intelligence without receiving administrator powers.", icon: ShieldAlert },
-       { title: "Live network picture", desc: "Use verified operational signals to plan interventions across Yaoundé and Douala.", icon: Navigation2 }
-    ]
+  const requestCapability = async () => {
+    if (role !== 'operator' && role !== 'planner') return;
+    setSubmitting(true);
+    setNotice('');
+    const { data, error } = await submitAccessApplication({
+      capability_key: role,
+      reason: role === 'operator'
+        ? 'Activate verified operator service capability.'
+        : 'Request scoped AFAT operational planning capability.',
+      requested_scope: role === 'planner'
+        ? { city: 'cameroon', authority: 'operational_planning' }
+        : { service: 'passenger_transport' },
+      evidence_summary: {
+        profile_verification_status: profile?.verification_status || 'unknown',
+        vehicle_type: profile?.vehicle_type || null,
+      },
+    });
+    setSubmitting(false);
+    if (error) {
+      setNotice(error.message);
+      return;
+    }
+    const next = data?.application;
+    if (next) {
+      setApplications((current) => [next, ...current.filter((item) => item.id !== next.id)]);
+      setNotice(data?.resumed ? 'Your existing application is still active.' : 'Application submitted for AFAT review.');
+    }
   };
 
-  const steps = content[role] || content.commuter;
-  const currentStep = steps[step];
+  const status = capabilityActive
+    ? 'approved'
+    : application?.status
+      || (role === 'operator' ? String(profile?.operator_application_status || '').toLowerCase() : 'not_started');
+
+  const nextStep = capabilityActive
+    ? 'Your approved capability is active. AFAT will open the role-native workspace.'
+    : status === 'needs_information'
+      ? application?.review_notes || 'AFAT needs additional evidence before activation.'
+      : status === 'rejected'
+        ? application?.review_notes || 'This request was not approved. Correct the stated issue before applying again.'
+        : status === 'submitted' || status === 'under_review'
+          ? 'No second account or repeated login is required. Continue using Passenger access while AFAT reviews this capability.'
+          : role === 'admin'
+            ? 'Admin authority must come from an internal invitation or founder-controlled assignment.'
+            : 'Submit one capability request. AFAT will keep the application state visible until a decision is made.';
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in duration-500">
-      <div className="bg-slate-900 border border-white/10 rounded-[48px] p-10 max-w-sm w-full shadow-2xl relative overflow-hidden ring-1 ring-white/5">
-        <button onClick={onClose} className="absolute top-8 right-8 text-slate-500 hover:text-white"><X className="w-6 h-6" /></button>
-        
-        <div className="flex flex-col items-center text-center">
-          <div className="w-24 h-24 bg-white/10 rounded-[40px] flex items-center justify-center text-white mb-8 border border-white/20 shadow-xl shadow-white/10">
-            <currentStep.icon className="w-12 h-12" />
-          </div>
-          
-          <h2 className="text-2xl font-black mb-4 tracking-tight leading-tight uppercase italic">{currentStep.title}</h2>
-          <p className="text-slate-400 text-sm font-bold opacity-80 mb-12">{currentStep.desc}</p>
-          
-          <div className="flex gap-2 mb-10">
-             {steps.map((_, i) => (
-               <div key={i} className={`h-1.5 rounded-full transition-all ${i === step ? 'w-8 bg-white' : 'w-2 bg-slate-800'}`}></div>
-             ))}
-          </div>
+    <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-[#030611]/92 p-4 backdrop-blur-xl">
+      <div className="relative w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 p-6 shadow-2xl sm:p-8">
+        <button onClick={onClose} aria-label="Close onboarding" className="absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/45 hover:text-white">
+          <X className="h-4 w-4" />
+        </button>
 
+        <div className="flex items-start gap-4 pr-12">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/15 bg-cyan-400/10">
+            <Icon className="h-7 w-7 text-cyan-100" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300/60">AFAT access state</p>
+            <h2 className="mt-2 text-2xl font-black text-white">{meta.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-white/50">{meta.body}</p>
+          </div>
+        </div>
+
+        <div className="mt-7 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+            <p className="mt-3 text-[9px] font-black uppercase tracking-widest text-white/30">Basic AFAT</p>
+            <p className="mt-1 text-sm font-black text-white">Active</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <Clock3 className="h-4 w-4 text-cyan-300" />
+            <p className="mt-3 text-[9px] font-black uppercase tracking-widest text-white/30">Capability</p>
+            <p className="mt-1 text-sm font-black text-white">{humanStatus(status)}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <FileCheck2 className="h-4 w-4 text-amber-300" />
+            <p className="mt-3 text-[9px] font-black uppercase tracking-widest text-white/30">Identity</p>
+            <p className="mt-1 text-sm font-black text-white">{humanStatus(profile?.verification_status || 'basic')}</p>
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-xl border p-4 ${statusTone(status)}`}>
+          <div className="flex items-start gap-3">
+            {status === 'rejected' || status === 'suspended'
+              ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              : <ArrowRight className="mt-0.5 h-4 w-4 shrink-0" />}
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest">Next action</p>
+              <p className="mt-2 text-xs font-semibold leading-5 opacity-85">{nextStep}</p>
+            </div>
+          </div>
+        </div>
+
+        {notice && <p role="status" className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4 text-xs font-semibold text-white/60">{notice}</p>}
+
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          {!capabilityActive && !application && (role === 'operator' || role === 'planner') && (
+            <button
+              onClick={requestCapability}
+              disabled={submitting || loading}
+              className="min-h-12 flex-1 rounded-xl bg-cyan-300 px-5 text-xs font-black uppercase tracking-wider text-slate-950 disabled:opacity-40"
+            >
+              {submitting ? 'Submitting…' : `Request ${role} capability`}
+            </button>
+          )}
           <button
-            onClick={() => step < steps.length - 1 ? setStep(step + 1) : onClose()}
-            className="w-full bg-white hover:bg-slate-100 text-slate-950 py-5 rounded-[24px] font-black flex items-center justify-center gap-3 transition-all active:scale-95 shadow-xl shadow-white/10"
+            onClick={onClose}
+            className="min-h-12 flex-1 rounded-xl border border-white/10 bg-white/5 px-5 text-xs font-black uppercase tracking-wider text-white"
           >
-            {step < steps.length - 1
-              ? 'CONTINUE'
-              : role === 'admin'
-                ? 'OPEN ADMIN CONTROL'
-                : role === 'planner'
-                  ? 'OPEN PLANNER WORKSPACE'
-                  : role === 'operator'
-                    ? 'OPEN OPERATOR TERMINAL'
-                    : 'OPEN PASSENGER WORKSPACE'}
-            <ChevronRight className="w-5 h-5" />
+            {capabilityActive ? meta.action : 'Continue with current access'}
           </button>
         </div>
       </div>

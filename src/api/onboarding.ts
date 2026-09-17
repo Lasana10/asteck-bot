@@ -77,6 +77,70 @@ async function findExistingProfile(params: { authUserId?: string; phone?: string
   return null;
 }
 
+async function ensureCapabilityApplication(params: {
+  profileId: string;
+  capabilityKey: 'operator' | 'organization' | 'public_partner';
+  requestedRoleKey?: string | null;
+  companyId?: string | null;
+  status?: 'draft' | 'submitted' | 'under_review' | 'needs_information';
+  applicationType?: 'self_service' | 'organization' | 'public_partner';
+  reason?: string | null;
+  requestedScope?: Record<string, any>;
+  evidenceSummary?: Record<string, any>;
+}) {
+  const companyKey = params.companyId || null;
+  const { data: existing, error: existingError } = await supabase
+    .from('access_applications')
+    .select('*')
+    .eq('profile_id', params.profileId)
+    .eq('capability_key', params.capabilityKey)
+    .in('status', ['draft', 'submitted', 'under_review', 'needs_information'])
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (existing) {
+    const { data, error } = await supabase
+      .from('access_applications')
+      .update({
+        requested_role_key: params.requestedRoleKey || existing.requested_role_key || null,
+        company_id: companyKey || existing.company_id || null,
+        status: params.status || existing.status || 'submitted',
+        reason: params.reason || existing.reason || null,
+        requested_scope: { ...(existing.requested_scope || {}), ...(params.requestedScope || {}) },
+        evidence_summary: { ...(existing.evidence_summary || {}), ...(params.evidenceSummary || {}) },
+        submitted_at: existing.submitted_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('access_applications')
+    .insert({
+      profile_id: params.profileId,
+      capability_key: params.capabilityKey,
+      requested_role_key: params.requestedRoleKey || null,
+      company_id: companyKey,
+      status: params.status || 'submitted',
+      application_type: params.applicationType || 'self_service',
+      reason: params.reason || null,
+      requested_scope: params.requestedScope || {},
+      evidence_summary: params.evidenceSummary || {},
+      submitted_at: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 async function seedComplianceRecords(records: Array<Record<string, any>>) {
   if (!records.length) return;
   const { error } = await supabase.from('compliance_records').insert(records);
@@ -261,6 +325,18 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         })
       );
 
+      if (applicationStatus !== 'APPROVED') {
+        await ensureCapabilityApplication({
+          profileId: existing.id,
+          capabilityKey: 'operator',
+          requestedRoleKey: 'operator_applicant',
+          status: applicationStatus === 'UNDER_REVIEW' ? 'under_review' : 'needs_information',
+          reason: 'Operator service activation',
+          requestedScope: { base_city: base_city || null, operating_zone: operating_zone || null, vehicle_type: vehicle_type || null },
+          evidenceSummary: { national_id: Boolean(resolvedNationalId), license_number: Boolean(resolvedLicenseNumber), vehicle_plate: Boolean(vehicle_plate), verification_status: profile.verification_status || 'pending' },
+        });
+      }
+
       return res.status(200).json({
         success: true,
         resumed: true,
@@ -368,6 +444,16 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         verificationStatus,
       })
     );
+
+    await ensureCapabilityApplication({
+      profileId: profile.id,
+      capabilityKey: 'operator',
+      requestedRoleKey: 'operator_applicant',
+      status: applicationStatus === 'UNDER_REVIEW' ? 'under_review' : 'needs_information',
+      reason: 'Operator service activation',
+      requestedScope: { base_city: base_city || null, operating_zone: operating_zone || null, vehicle_type: vehicle_type || null },
+      evidenceSummary: { national_id: Boolean(resolvedNationalId), license_number: Boolean(resolvedLicenseNumber), vehicle_plate: Boolean(vehicle_plate), verification_status: verificationStatus },
+    });
 
     res.status(201).json({
       success: true,
@@ -614,6 +700,16 @@ router.post('/public-partner/register', async (req: Request, res: Response) => {
       .single();
     if (membershipError) throw membershipError;
 
+    await ensureCapabilityApplication({
+      profileId: profile.id,
+      capabilityKey: 'public_partner',
+      status: isVerificationReady ? 'under_review' : 'needs_information',
+      applicationType: 'public_partner',
+      reason: 'Public partner mandate activation',
+      requestedScope: { partner_id: entity.id, jurisdiction: entity.jurisdiction || null, mandate_scope: entity.mandate_scope || null },
+      evidenceSummary: { registration_number: Boolean(registration_number), jurisdiction: Boolean(jurisdiction), mandate_scope: Boolean(mandate_scope) },
+    });
+
     res.status(201).json({
       success: true,
       partner: {
@@ -749,6 +845,18 @@ router.post('/company/register', async (req: Request, res: Response) => {
         companyNotes: notes,
       })
     );
+
+    await ensureCapabilityApplication({
+      profileId: data.id,
+      capabilityKey: 'organization',
+      requestedRoleKey: 'organization_member',
+      companyId: company.id,
+      status: resolvedCompanyName && resolvedContactPerson ? 'under_review' : 'needs_information',
+      applicationType: 'organization',
+      reason: 'Organisation and fleet workspace activation',
+      requestedScope: { company_type: company_type || null, service_coverage: service_coverage || null },
+      evidenceSummary: { company_name: Boolean(resolvedCompanyName), coordinator: Boolean(resolvedContactPerson), fleet_size: Boolean(fleet_size) },
+    });
 
     res.status(201).json({
       success: true,
