@@ -917,30 +917,42 @@ export async function signOut() {
   return await supabase.auth.signOut();
 }
 
+function afatWorkspaceHeader() {
+  if (typeof localStorage === 'undefined') return {};
+  const role = String(localStorage.getItem('afat_access_intent_role') || 'commuter').trim().toLowerCase();
+  return ['commuter', 'operator', 'planner', 'admin'].includes(role)
+    ? { 'X-AFAT-Workspace-Role': role }
+    : { 'X-AFAT-Workspace-Role': 'commuter' };
+}
+
 export function afatAuthHeaders() {
   const token = getBoundAfatAccessToken(localStorage.getItem('afat_local_user_id'));
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return token ? { Authorization: `Bearer ${token}`, ...afatWorkspaceHeader() } : afatWorkspaceHeader();
 }
 
 export async function authenticatedApiHeaders() {
   const { data } = await supabase.auth.getSession();
   const localToken = getBoundAfatAccessToken(data.session?.user?.id || null);
-  if (localToken) return { Authorization: `Bearer ${localToken}` };
-  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
+  if (localToken) return { Authorization: `Bearer ${localToken}`, ...afatWorkspaceHeader() };
+  return data.session?.access_token
+    ? { Authorization: `Bearer ${data.session.access_token}`, ...afatWorkspaceHeader() }
+    : afatWorkspaceHeader();
 }
 
 async function passageAuthHeaders() {
   const { data } = await supabase.auth.getSession();
   const localToken = getBoundAfatAccessToken(data.session?.user?.id || null);
-  if (localToken) return { Authorization: `Bearer ${localToken}` };
-  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
+  if (localToken) return { Authorization: `Bearer ${localToken}`, ...afatWorkspaceHeader() };
+  return data.session?.access_token
+    ? { Authorization: `Bearer ${data.session.access_token}`, ...afatWorkspaceHeader() }
+    : afatWorkspaceHeader();
 }
 
 async function onboardingAuthHeaders() {
   const { data } = await supabase.auth.getSession();
-  if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}` };
+  if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}`, ...afatWorkspaceHeader() };
   const localToken = getBoundAfatAccessToken(localStorage.getItem('afat_local_user_id'));
-  return localToken ? { Authorization: `Bearer ${localToken}` } : {};
+  return localToken ? { Authorization: `Bearer ${localToken}`, ...afatWorkspaceHeader() } : afatWorkspaceHeader();
 }
 
 export async function getCurrentUser() {
