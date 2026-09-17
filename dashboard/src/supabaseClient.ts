@@ -1682,6 +1682,82 @@ export async function transitionDispatch(
   }
 }
 
+export async function createPickupCode(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/pickup-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: '{}',
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Pickup code unavailable.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function verifyPickupCode(assignmentId: string, code: string, idempotencyKey?: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const stableKey = idempotencyKey || `afat-pickup-${assignmentId}-${Date.now().toString(36)}`;
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/pickup-verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stableKey, ...authHeaders },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Pickup verification failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function fetchJourneyClosure(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/closure`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Journey receipt unavailable.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function updateJourneyClosure(
+  assignmentId: string,
+  payload: {
+    expected_version: number;
+    payment_state?: 'pending' | 'cash_due' | 'mobile_money_pending';
+    payment_reference?: string;
+    proof_reference?: string;
+    rating?: number;
+    dispute_reason?: string;
+    confirm_cash?: boolean;
+  },
+  idempotencyKey?: string,
+) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const stableKey = idempotencyKey || `afat-closure-${assignmentId}-${Date.now().toString(36)}`;
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/closure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stableKey, ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Journey receipt update failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
 
 export async function createDispatchAssignment(dispatchData: any) {
   try {
