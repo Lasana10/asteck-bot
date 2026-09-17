@@ -90,7 +90,7 @@ export function PassengerWorkspaceHome({
       <div className="space-y-5">
         <PassagePlanner profile={profile} originText={origin} initialDestination={destination} onPassageCreated={() => onNavigate('bookings')} />
         <div className="min-h-[430px]">
-          <InteractiveMap role="commuter" mapMode="standard" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay={false} showInformal={false} />
+          <InteractiveMap role="commuter" mapMode="standard" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} atlasNodes={live.atlasNodes} atlasEdges={live.atlasEdges} realtimeOverlay={false} showInformal={false} />
         </div>
       </div>
     </div>
