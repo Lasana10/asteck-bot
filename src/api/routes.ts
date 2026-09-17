@@ -1255,6 +1255,17 @@ router.post('/access/applications', async (req: Request, res: Response) => {
         .eq('id', access.profile.id);
     }
 
+    await notifyRecipients(
+      { role: 'admin' },
+      {
+        type: 'access_application_submitted',
+        title: 'AFAT capability review',
+        body: `${access.profile.full_name || 'An AFAT member'} requested ${capabilityKey.replace(/_/g, ' ')} access.`,
+        referenceId: data.id,
+        channels: ['in_app'],
+      }
+    ).catch((notificationError) => console.warn('Access review notification failed:', notificationError));
+
     return res.status(201).json({ application: data });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Access application failed.' });
@@ -1296,6 +1307,21 @@ router.patch('/ops/access/applications/:applicationId', async (req: Request, res
       p_review_scope: req.body?.review_scope || {},
     });
     if (error) throw error;
+    const reviewedApplication: any = Array.isArray(data) ? data[0] : data;
+    if (reviewedApplication?.profile_id) {
+      await notifyRecipients(
+        { user_ids: [reviewedApplication.profile_id] },
+        {
+          type: 'access_application_reviewed',
+          title: 'AFAT access decision',
+          body: decision === 'needs_information'
+            ? `AFAT needs more information before activating your ${reviewedApplication.capability_key || 'requested'} capability.`
+            : `Your ${reviewedApplication.capability_key || 'requested'} capability was marked ${decision.replace(/_/g, ' ')}.`,
+          referenceId: reviewedApplication.id || applicationId,
+          channels: ['in_app'],
+        }
+      ).catch((notificationError) => console.warn('Access decision notification failed:', notificationError));
+    }
     return res.status(200).json({ application: data, decision });
   } catch (error: any) {
     const message = String(error?.message || 'Access review failed.');
