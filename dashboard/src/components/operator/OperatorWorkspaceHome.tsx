@@ -121,7 +121,7 @@ export function OperatorWorkspaceHome({
       </div>
 
       <div className="min-h-[620px]">
-        <InteractiveMap role="operator" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay showInformal />
+        <InteractiveMap role="operator" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} atlasNodes={live.atlasNodes} atlasEdges={live.atlasEdges} realtimeOverlay showInformal />
       </div>
     </div>
   );
