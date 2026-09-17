@@ -9,6 +9,8 @@ import { telemetry } from './services/telemetryService';
 import { TurnstileGate } from './components/shared/TurnstileGate';
 import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
 import { AdaptiveRoleHome } from './components/shared/AdaptiveRoleHome';
+import { OrganizationDashboard } from './components/organization/OrganizationDashboard';
+import { GovernmentDashboard } from './components/government/GovernmentDashboard';
 import { resolveWorkspaceRole, restoreWorkspaceTab, workspaceTabStorageKey } from './utils/workspaceNavigation';
 import { canUseOperatorConsole, hasPendingOperatorApplication } from './utils/roleAccess';
 
@@ -1734,11 +1736,11 @@ function AppShell() {
       const effectiveRole = normalizeAfatRole(userRole);
 
       if (effectiveRole === 'commuter' && companyMembership?.companies && commuterWorkspace === 'organization') {
-        return <AdaptiveRoleHome role="organization" activeTab={activeTab as any} profile={userProfile} membership={companyMembership} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
+        return <OrganizationDashboard activeTab={activeTab} profile={userProfile} membership={companyMembership} onSignOut={handleSignOut} />;
       }
 
       if (effectiveRole === 'commuter' && publicPartnerMembership?.partner && commuterWorkspace === 'government') {
-        return <AdaptiveRoleHome role="government" activeTab={activeTab as any} profile={userProfile} membership={publicPartnerMembership} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
+        return <GovernmentDashboard activeTab={activeTab} profile={userProfile} membership={publicPartnerMembership} onSignOut={handleSignOut} />;
       }
 
       return <AdaptiveRoleHome role={effectiveRole} activeTab={activeTab as any} profile={userProfile} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
