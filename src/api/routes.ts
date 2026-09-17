@@ -357,10 +357,11 @@ async function fetchProfilesForNotificationTarget(target: {
   role?: string;
   city?: string;
 }) {
+  const selectColumns = 'id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role';
   if (target.user_ids?.length) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role')
+      .select(selectColumns)
       .in('id', target.user_ids);
     if (error) throw error;
     return data || [];
@@ -368,19 +369,55 @@ async function fetchProfilesForNotificationTarget(target: {
 
   if (!target.role) return [];
 
-  let query = supabase
-    .from('profiles')
-    .select('id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role')
-    .eq('role', target.role)
-    .limit(100);
+  const normalizedRole = String(target.role).toLowerCase();
+  const roleKeys: Record<string, string[]> = {
+    operator: ['verified_operator','trusted_operator','fleet_lead'],
+    planner: ['afat_operational_planner','municipal_planner','government_planner','emergency_planner','fleet_planner'],
+    admin: ['operations_admin','security_admin','platform_admin','founder_owner'],
+    organization: ['organization_member','organization_admin','organization_owner','fleet_manager','dispatcher','analyst','auditor','compliance_officer','finance_officer'],
+  };
 
-  if (target.city) {
-    query = query.eq('preferred_city', target.city);
+  let legacyQuery = supabase
+    .from('profiles')
+    .select(selectColumns)
+    .eq('role', normalizedRole)
+    .eq('is_active', true)
+    .limit(100);
+  if (target.city) legacyQuery = legacyQuery.eq('preferred_city', target.city);
+  const { data: legacyProfiles, error: legacyError } = await legacyQuery;
+  if (legacyError) throw legacyError;
+
+  const assignmentKeys = roleKeys[normalizedRole] || [];
+  let assignedProfiles: any[] = [];
+  if (assignmentKeys.length) {
+    const { data: assignments, error: assignmentError } = await supabase
+      .from('profile_role_assignments')
+      .select('profile_id,expires_at')
+      .in('role_key', assignmentKeys)
+      .in('status', ['active','provisional'])
+      .limit(500);
+    if (assignmentError) throw assignmentError;
+
+    const now = Date.now();
+    const ids = Array.from(new Set((assignments || [])
+      .filter((item: any) => !item.expires_at || new Date(item.expires_at).getTime() > now)
+      .map((item: any) => item.profile_id)
+      .filter(Boolean)));
+
+    if (ids.length) {
+      let profileQuery = supabase
+        .from('profiles')
+        .select(selectColumns)
+        .in('id', ids)
+        .eq('is_active', true);
+      if (target.city) profileQuery = profileQuery.eq('preferred_city', target.city);
+      const { data, error } = await profileQuery;
+      if (error) throw error;
+      assignedProfiles = data || [];
+    }
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  return Array.from(new Map([...(legacyProfiles || []), ...assignedProfiles].map((profile: any) => [profile.id, profile])).values());
 }
 
 async function notifyRecipients(target: {
