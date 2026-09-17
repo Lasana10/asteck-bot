@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { createHash, randomInt } from 'node:crypto';
 import { supabase } from '../infra/supabase';
 import { rankDispatchCandidates } from '../services/dispatchCandidateRanking';
 import { requireAuthRole } from './routes';
@@ -6,7 +7,7 @@ import { requireAuthRole } from './routes';
 const router = express.Router();
 
 const ACTIVE_DISPATCH_STATES = ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','reassigned','emergency','disputed'];
-const OPERATOR_ALLOWED = new Set(['accepted','declined','en_route','arrived','pickup_verified','in_journey','completed','emergency','disputed','no_show']);
+const OPERATOR_ALLOWED = new Set(['accepted','declined','en_route','arrived','in_journey','completed','emergency','disputed','no_show']);
 const PASSENGER_ALLOWED = new Set(['cancelled','disputed']);
 const STAFF_ALLOWED = new Set(['offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','completed','cancelled','declined','expired','reassigned','no_show','emergency','disputed']);
 
@@ -46,7 +47,7 @@ router.get('/dispatch', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
   try {
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     const includeTerminal = String(req.query.include_terminal || '').toLowerCase() === 'true';
     const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
@@ -72,7 +73,7 @@ router.get('/dispatch', async (req: Request, res: Response) => {
 router.get('/dispatch/candidates', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
-  const role = String(access.profile.role || '').toLowerCase();
+  const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
   if (!['admin','planner'].includes(role)) return res.status(403).json({ error: 'Dispatch candidate ranking requires planner or admin authority.' });
   try {
     const assignmentId = String(req.query.assignment_id || '').trim();
@@ -96,7 +97,7 @@ router.get('/dispatch/candidates', async (req: Request, res: Response) => {
 router.post('/dispatch/:assignmentId/candidate', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
-  const role = String(access.profile.role || '').toLowerCase();
+  const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
   if (!['admin','planner'].includes(role)) return res.status(403).json({ error: 'Only AFAT planner or admin authority can choose a dispatch candidate.' });
   try {
     const assignmentId = String(req.params.assignmentId || '').trim();
@@ -142,7 +143,7 @@ router.get('/dispatch/:assignmentId', async (req: Request, res: Response) => {
     const { data: assignment, error } = await supabase.from('dispatch_assignments').select('*').eq('id', assignmentId).maybeSingle();
     if (error) throw error;
     if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     let participant = ['admin','planner'].includes(role) || assignment.operator_id === profileId || assignment.dispatcher_id === profileId;
     if (!participant) participant = await passengerOwnsBooking(profileId, assignment.booking_id);
@@ -179,7 +180,7 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
     if (assignmentError) throw assignmentError;
     if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
     if (!['in_journey','emergency'].includes(assignment.status)) return res.status(409).json({ error: 'Journey telemetry is accepted only for an active journey.' });
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     let participant = assignment.operator_id === profileId;
     if (!participant) participant = await passengerOwnsBooking(profileId, assignment.booking_id);
@@ -202,6 +203,93 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
   }
 });
 
+router.post('/dispatch/:assignmentId/pickup-code', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['commuter']);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const { data: assignment, error } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,vehicle_id,status')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+    if (!(await passengerOwnsBooking(access.profile.id, assignment.booking_id))) {
+      return res.status(403).json({ error: 'Only the passenger can create the pickup code.' });
+    }
+    if (assignment.status !== 'arrived') {
+      return res.status(409).json({ error: 'Pickup code becomes available when the assigned operator has arrived.' });
+    }
+
+    const code = String(randomInt(100000, 1000000));
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const { error: challengeError } = await supabase
+      .from('afat_pickup_challenges')
+      .upsert({
+        dispatch_assignment_id: assignmentId,
+        code_hash: codeHash,
+        expires_at: expiresAt,
+        attempts: 0,
+        max_attempts: 5,
+        verified_at: null,
+        verified_by: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'dispatch_assignment_id' });
+    if (challengeError) throw challengeError;
+
+    return res.status(201).json({
+      pickup_code: code,
+      expires_at: expiresAt,
+      dispatch_assignment_id: assignmentId,
+      instruction: 'Share this six-digit code only with the assigned operator at pickup.',
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Pickup code could not be created.' });
+  }
+});
+
+router.post('/dispatch/:assignmentId/pickup-verify', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['operator']);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const code = String(req.body?.code || '').trim();
+    const key = stableKey(req);
+    if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'Enter the six-digit passenger pickup code.' });
+    if (key.length < 8 || key.length > 200) return res.status(400).json({ error: 'A stable Idempotency-Key of 8-200 characters is required.' });
+
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const { data, error } = await supabase.rpc('afat_verify_pickup_code', {
+      p_assignment_id: assignmentId,
+      p_operator_id: access.profile.id,
+      p_code_hash: codeHash,
+      p_idempotency_key: key,
+    });
+    if (error) {
+      const mapped = publicDispatchError(error);
+      return res.status(mapped.status).json({ error: mapped.error });
+    }
+    if (!data?.pickup_verified) {
+      const reason = String(data?.reason || 'verification_failed');
+      const status = reason === 'code_mismatch' ? 400 : reason === 'locked' ? 423 : 409;
+      const message = reason === 'code_mismatch'
+        ? `Pickup code does not match. ${data?.attempts_remaining ?? 0} attempt(s) remain.`
+        : reason === 'expired'
+          ? 'Pickup code expired. Ask the passenger to generate a new code.'
+          : reason === 'locked'
+            ? 'Pickup verification is locked after too many failed attempts.'
+            : 'Passenger pickup code is not available yet.';
+      return res.status(status).json({ error: message, reason, attempts_remaining: data?.attempts_remaining ?? null });
+    }
+
+    return res.status(200).json(data);
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Pickup verification failed.' });
+  }
+});
+
 router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res);
   if (!access) return;
@@ -214,10 +302,13 @@ router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Resp
     const key = stableKey(req);
     if (key.length < 8 || key.length > 200) return res.status(400).json({ error: 'A stable Idempotency-Key of 8-200 characters is required.' });
     if (!expectedStatus || !nextStatus) return res.status(400).json({ error: 'expected_status and next_status are required.' });
+    if (nextStatus === 'pickup_verified') {
+      return res.status(409).json({ error: 'Pickup verification requires the passenger six-digit code.' });
+    }
     const { data: assignment, error: assignmentError } = await supabase.from('dispatch_assignments').select('id, booking_id, operator_id, dispatcher_id, status').eq('id', assignmentId).maybeSingle();
     if (assignmentError) throw assignmentError;
     if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
-    const role = String(access.profile.role || '').toLowerCase();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
     const isStaff = ['admin','planner'].includes(role);
     const isAssignedOperator = role === 'operator' && assignment.operator_id === profileId;

@@ -491,7 +491,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
     const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
     if (!access) return;
     const { driver_id, plate_number, vehicle_type, capacity, brand, model, year, color } = req.body;
-    const resolvedDriverId = access.profile.role === 'operator' ? access.profile.id : driver_id;
+    const resolvedDriverId = access.workspaceRole === 'operator' ? access.profile.id : driver_id;
 
     if (!resolvedDriverId || !plate_number || !vehicle_type) {
       return res.status(400).json({ error: 'Missing: driver_id, plate_number, vehicle_type' });
@@ -1114,7 +1114,7 @@ router.get('/driver/fatigue/:driver_id', async (req: Request, res: Response) => 
     const access = await requireAuthRole(req, res);
     if (!access) return;
     const { driver_id } = req.params;
-    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    const isStaff = ['admin', 'planner'].includes(String(access.workspaceRole || access.profile.role));
     if (!isStaff && access.profile.id !== driver_id) return res.status(403).json({ error: 'Forbidden' });
 
     const { data: profile } = await supabase
@@ -1160,7 +1160,7 @@ router.post('/driver/log-time', async (req: Request, res: Response) => {
     const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
     if (!access) return;
     const { driver_id, hours } = req.body;
-    const resolvedDriverId = access.profile.role === 'operator' ? access.profile.id : driver_id;
+    const resolvedDriverId = access.workspaceRole === 'operator' ? access.profile.id : driver_id;
     const parsedHours = Number(hours);
     if (!resolvedDriverId || !Number.isFinite(parsedHours) || parsedHours <= 0 || parsedHours > 24) {
       return res.status(400).json({ error: 'Valid driver_id and hours between 0 and 24 are required' });
@@ -1193,7 +1193,7 @@ router.get('/driver/contract/:driver_id', async (req: Request, res: Response) =>
     const access = await requireAuthRole(req, res);
     if (!access) return;
     const { driver_id } = req.params;
-    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    const isStaff = ['admin', 'planner'].includes(String(access.workspaceRole || access.profile.role));
     if (!isStaff && access.profile.id !== driver_id) return res.status(403).json({ error: 'Forbidden' });
 
     const { data: profile } = await supabase

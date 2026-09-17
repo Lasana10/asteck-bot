@@ -21,6 +21,12 @@ export type RankedDispatchCandidate = {
   };
 };
 
+export type DispatchRequirements = {
+  vehicle_type?: string | null;
+  min_capacity?: number | null;
+  max_telemetry_age_minutes?: number | null;
+};
+
 export type DispatchRankingResult = {
   pickup: { latitude: number; longitude: number };
   scoring_contract: {
@@ -28,6 +34,9 @@ export type DispatchRankingResult = {
     route_eta_used: false;
     straight_line_distance_only: true;
     evidence_decay_note: string;
+    required_vehicle_type: string | null;
+    minimum_capacity: number | null;
+    max_telemetry_age_minutes: number;
   };
   atlas_context: {
     pickup: { latitude: number; longitude: number };
@@ -52,7 +61,20 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-export async function rankDispatchCandidates(pickupLat: number, pickupLng: number): Promise<DispatchRankingResult> {
+function normalizedVehicleMode(value?: string | null) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (['motorcycle','motorbike','moto','bike_motor'].includes(mode)) return 'moto';
+  if (['taxi','car','vehicle'].includes(mode)) return 'car';
+  if (['shared_vehicle','shared','minibus'].includes(mode)) return 'minibus';
+  if (['bus','coach'].includes(mode)) return 'bus';
+  return mode || null;
+}
+
+export async function rankDispatchCandidates(
+  pickupLat: number,
+  pickupLng: number,
+  requirements: DispatchRequirements = {},
+): Promise<DispatchRankingResult> {
   const [{ data: vehicles, error: vehicleError }, { data: incidents, error: incidentError }, atlasResult] = await Promise.all([
     supabase
       .from('vehicles')
@@ -76,16 +98,33 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
   if (atlasResult.error) throw atlasResult.error;
 
   const operatorIds = Array.from(new Set((vehicles || []).map((vehicle: any) => vehicle.operator_id).filter(Boolean)));
-  const { data: operators, error: operatorError } = operatorIds.length
-    ? await supabase
-        .from('profiles')
-        .select('id,role,is_active,verification_status,operator_application_status,compliance_status,compliance_score,risk_status,driver_dna_score,trust_score,fatigue_hours_today,max_daily_hours')
-        .in('id', operatorIds)
-    : { data: [], error: null } as any;
-  if (operatorError) throw operatorError;
-  const operatorMap = new Map((operators || []).map((operator: any) => [operator.id, operator]));
-
+  const [operatorResult, roleAssignmentResult] = operatorIds.length
+    ? await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id,role,is_active,verification_status,operator_application_status,compliance_status,compliance_score,risk_status,driver_dna_score,trust_score,fatigue_hours_today,max_daily_hours')
+          .in('id', operatorIds),
+        supabase
+          .from('profile_role_assignments')
+          .select('profile_id,role_key,status,expires_at')
+          .in('profile_id', operatorIds)
+          .in('role_key', ['verified_operator','trusted_operator','fleet_lead'])
+          .in('status', ['active','provisional']),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }] as any;
+  if (operatorResult.error) throw operatorResult.error;
+  if (roleAssignmentResult.error) throw roleAssignmentResult.error;
+  const operators = operatorResult.data || [];
+  const operatorMap = new Map(operators.map((operator: any) => [operator.id, operator]));
   const now = Date.now();
+  const assignedOperatorIds = new Set((roleAssignmentResult.data || [])
+    .filter((assignment: any) => !assignment.expires_at || new Date(assignment.expires_at).getTime() > now)
+    .map((assignment: any) => assignment.profile_id));
+  const requiredMode = normalizedVehicleMode(requirements.vehicle_type);
+  const minimumCapacity = requirements.min_capacity == null
+    ? null
+    : Math.max(1, Math.floor(Number(requirements.min_capacity)));
+  const maxTelemetryAgeMinutes = Math.min(Math.max(Number(requirements.max_telemetry_age_minutes ?? 15), 1), 60);
   const activeIncidents = (incidents || []).filter((incident: any) => {
     if (!['verified','corroborated'].includes(String(incident.verification_status || '').toLowerCase())) return false;
     if (incident.expires_at && new Date(incident.expires_at).getTime() <= now) return false;
@@ -117,17 +156,27 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
     const operator: any = operatorMap.get(vehicle.operator_id);
     const eligibilityFailures: string[] = [];
     if (!operator) eligibilityFailures.push('operator_profile_missing');
-    if (operator && String(operator.role || '').toLowerCase() !== 'operator') eligibilityFailures.push('operator_role_invalid');
+    const legacyOperatorApproved = operator
+      && String(operator.role || '').toLowerCase() === 'operator'
+      && String(operator.operator_application_status || '').toUpperCase() === 'APPROVED';
+    const assignmentOperatorApproved = assignedOperatorIds.has(vehicle.operator_id);
+    if (operator && !legacyOperatorApproved && !assignmentOperatorApproved) eligibilityFailures.push('operator_not_approved');
     if (operator && operator.is_active === false) eligibilityFailures.push('operator_inactive');
-    if (operator && String(operator.operator_application_status || '').toUpperCase() !== 'APPROVED') eligibilityFailures.push('operator_not_approved');
     if (operator && String(operator.verification_status || '').toLowerCase() !== 'verified') eligibilityFailures.push('identity_not_verified');
     if (operator && ['blocked','suspended','high'].includes(String(operator.risk_status || '').toLowerCase())) eligibilityFailures.push('operator_risk_block');
     if (operator?.max_daily_hours != null && Number(operator.fatigue_hours_today || 0) >= Number(operator.max_daily_hours)) eligibilityFailures.push('fatigue_limit_reached');
+
+    const vehicleMode = normalizedVehicleMode(vehicle.type);
+    if (requiredMode && vehicleMode !== requiredMode) eligibilityFailures.push('vehicle_mode_mismatch');
+    if (minimumCapacity != null && Number(vehicle.capacity || 0) < minimumCapacity) eligibilityFailures.push('capacity_insufficient');
+    if (['blocked','suspended','rejected','expired'].includes(String(vehicle.clearance_status || '').toLowerCase())) eligibilityFailures.push('vehicle_clearance_block');
+
+    const pingAgeMinutes = vehicle.last_ping_at ? Math.max(0, (now - new Date(vehicle.last_ping_at).getTime()) / 60000) : null;
+    if (pingAgeMinutes == null || pingAgeMinutes > maxTelemetryAgeMinutes) eligibilityFailures.push('telemetry_stale');
     if (eligibilityFailures.length) return [];
 
     const distanceKm = haversineKm(pickupLat, pickupLng, Number(vehicle.current_lat), Number(vehicle.current_lng));
     const distanceScore = clamp(30 - distanceKm * 1.5, 0, 30);
-    const pingAgeMinutes = vehicle.last_ping_at ? Math.max(0, (now - new Date(vehicle.last_ping_at).getTime()) / 60000) : null;
     const freshnessScore = pingAgeMinutes == null ? 0 : pingAgeMinutes <= 5 ? 20 : pingAgeMinutes <= 15 ? 12 : pingAgeMinutes <= 60 ? 5 : 0;
     const ratingScore = vehicle.rating == null ? 0 : clamp(Number(vehicle.rating) / 5 * 10, 0, 10);
     const experienceScore = clamp(Number(vehicle.total_rides || 0) / 100 * 5, 0, 5);
@@ -138,6 +187,7 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
 
     const missingSignals = [
       vehicle.last_ping_at ? null : 'telemetry_freshness',
+      vehicle.clearance_status ? null : 'vehicle_clearance',
       vehicle.rating == null ? 'rating' : null,
       operator?.compliance_score == null ? 'compliance_score' : null,
       operator?.driver_dna_score == null ? 'driver_dna_score' : null,
@@ -184,7 +234,10 @@ export async function rankDispatchCandidates(pickupLat: number, pickupLng: numbe
       deterministic: true,
       route_eta_used: false,
       straight_line_distance_only: true,
-      evidence_decay_note: 'Expired incidents are excluded. Corroborated Atlas edge state is dynamic; canonical edge passability is not rewritten by reports.',
+      evidence_decay_note: 'Expired incidents are excluded. Candidates require recent telemetry; corroborated Atlas edge state is dynamic and reports never rewrite canonical passability.',
+      required_vehicle_type: requiredMode,
+      minimum_capacity: minimumCapacity,
+      max_telemetry_age_minutes: maxTelemetryAgeMinutes,
     },
     atlas_context: {
       pickup: { latitude: pickupLat, longitude: pickupLng },

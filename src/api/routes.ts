@@ -274,7 +274,9 @@ async function getActiveRoleAssignments(profileId: string) {
 function workspaceCapabilities(profile: any, assignments: any[]) {
   const capabilities = new Set<string>(['commuter']);
   const legacyRole = String(profile?.role || 'commuter').toLowerCase();
-  if (['operator', 'planner', 'admin'].includes(legacyRole)) capabilities.add(legacyRole);
+  const operatorApproved = String(profile?.operator_application_status || '').toUpperCase() === 'APPROVED';
+  if (legacyRole === 'operator' && operatorApproved) capabilities.add('operator');
+  if (['planner', 'admin'].includes(legacyRole) && profile?.is_active !== false) capabilities.add(legacyRole);
 
   for (const assignment of assignments || []) {
     const key = String(assignment.role_key || '').toLowerCase();
@@ -285,6 +287,18 @@ function workspaceCapabilities(profile: any, assignments: any[]) {
   }
 
   return Array.from(capabilities);
+}
+
+function requestedWorkspaceRole(req: Request, profile: any, capabilities: string[]) {
+  const headerRole = String(req.headers['x-afat-workspace-role'] || '').trim().toLowerCase();
+  if (headerRole) {
+    return { requested: headerRole, allowed: capabilities.includes(headerRole) };
+  }
+  const legacyRole = String(profile?.role || 'commuter').toLowerCase();
+  return {
+    requested: capabilities.includes(legacyRole) ? legacyRole : 'commuter',
+    allowed: true,
+  };
 }
 
 export async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
@@ -306,24 +320,36 @@ export async function requireAuthRole(req: Request, res: Response, roles?: strin
     console.error('Role assignment lookup failed:', error);
   }
   const capabilities = workspaceCapabilities(profile, assignments);
+  const workspace = requestedWorkspaceRole(req, profile, capabilities);
 
-  if (
-    capabilities.includes('operator') &&
-    String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED' &&
-    !assignments.some((assignment: any) =>
+  if (!workspace.allowed) {
+    res.status(403).json({
+      error: 'Requested AFAT workspace is not approved for this identity.',
+      requested_workspace: workspace.requested,
+      capabilities,
+    });
+    return null;
+  }
+
+  if (workspace.requested === 'operator') {
+    const assignmentApproved = assignments.some((assignment: any) =>
       ['verified_operator', 'trusted_operator', 'fleet_lead'].includes(String(assignment.role_key || '').toLowerCase())
-    )
-  ) {
-    res.status(403).json({ error: 'Operator approval required' });
+    );
+    if (String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED' && !assignmentApproved) {
+      res.status(403).json({ error: 'Operator approval required' });
+      return null;
+    }
+  }
+
+  if (roles?.length && !roles.map((role) => String(role).toLowerCase()).includes(workspace.requested)) {
+    res.status(403).json({
+      error: 'This action is not available in the selected AFAT workspace.',
+      workspace_role: workspace.requested,
+    });
     return null;
   }
 
-  if (roles?.length && !roles.some((role) => capabilities.includes(String(role).toLowerCase()))) {
-    res.status(403).json({ error: 'Forbidden' });
-    return null;
-  }
-
-  return { auth, profile, assignments, capabilities };
+  return { auth, profile, assignments, capabilities, workspaceRole: workspace.requested };
 }
 
 async function fetchProfilesForNotificationTarget(target: {
@@ -331,10 +357,11 @@ async function fetchProfilesForNotificationTarget(target: {
   role?: string;
   city?: string;
 }) {
+  const selectColumns = 'id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role';
   if (target.user_ids?.length) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role')
+      .select(selectColumns)
       .in('id', target.user_ids);
     if (error) throw error;
     return data || [];
@@ -342,19 +369,55 @@ async function fetchProfilesForNotificationTarget(target: {
 
   if (!target.role) return [];
 
-  let query = supabase
-    .from('profiles')
-    .select('id, full_name, phone, telegram_id, whatsapp_id, preferred_city, role')
-    .eq('role', target.role)
-    .limit(100);
+  const normalizedRole = String(target.role).toLowerCase();
+  const roleKeys: Record<string, string[]> = {
+    operator: ['verified_operator','trusted_operator','fleet_lead'],
+    planner: ['afat_operational_planner','municipal_planner','government_planner','emergency_planner','fleet_planner'],
+    admin: ['operations_admin','security_admin','platform_admin','founder_owner'],
+    organization: ['organization_member','organization_admin','organization_owner','fleet_manager','dispatcher','analyst','auditor','compliance_officer','finance_officer'],
+  };
 
-  if (target.city) {
-    query = query.eq('preferred_city', target.city);
+  let legacyQuery = supabase
+    .from('profiles')
+    .select(selectColumns)
+    .eq('role', normalizedRole)
+    .eq('is_active', true)
+    .limit(100);
+  if (target.city) legacyQuery = legacyQuery.eq('preferred_city', target.city);
+  const { data: legacyProfiles, error: legacyError } = await legacyQuery;
+  if (legacyError) throw legacyError;
+
+  const assignmentKeys = roleKeys[normalizedRole] || [];
+  let assignedProfiles: any[] = [];
+  if (assignmentKeys.length) {
+    const { data: assignments, error: assignmentError } = await supabase
+      .from('profile_role_assignments')
+      .select('profile_id,expires_at')
+      .in('role_key', assignmentKeys)
+      .in('status', ['active','provisional'])
+      .limit(500);
+    if (assignmentError) throw assignmentError;
+
+    const now = Date.now();
+    const ids = Array.from(new Set((assignments || [])
+      .filter((item: any) => !item.expires_at || new Date(item.expires_at).getTime() > now)
+      .map((item: any) => item.profile_id)
+      .filter(Boolean)));
+
+    if (ids.length) {
+      let profileQuery = supabase
+        .from('profiles')
+        .select(selectColumns)
+        .in('id', ids)
+        .eq('is_active', true);
+      if (target.city) profileQuery = profileQuery.eq('preferred_city', target.city);
+      const { data, error } = await profileQuery;
+      if (error) throw error;
+      assignedProfiles = data || [];
+    }
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  return Array.from(new Map([...(legacyProfiles || []), ...assignedProfiles].map((profile: any) => [profile.id, profile])).values());
 }
 
 async function notifyRecipients(target: {
@@ -1379,66 +1442,237 @@ router.post('/report', async (req: Request, res: Response) => {
 });
 
 router.post('/sos/panic', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
   try {
-    const { user_id, user_name, latitude, longitude, source } = req.body;
-    const lat = Number(latitude);
-    const lng = Number(longitude);
+    const profileId = access.profile.id;
+    const source = String(req.body?.source || 'sos_button').slice(0, 80);
+    const requestedAssignmentId = String(req.body?.dispatch_assignment_id || '').trim() || null;
+    const rawLat = req.body?.latitude;
+    const rawLng = req.body?.longitude;
+    const rawAccuracy = req.body?.accuracy_m;
+    const deviceLat = rawLat == null || rawLat === '' ? null : Number(rawLat);
+    const deviceLng = rawLng == null || rawLng === '' ? null : Number(rawLng);
+    const accuracy = rawAccuracy == null || rawAccuracy === '' ? null : Number(rawAccuracy);
 
-    if (!user_id || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(400).json({ error: 'user_id, latitude and longitude are required' });
+    const hasDeviceLocation = Number.isFinite(deviceLat) && Number.isFinite(deviceLng)
+      && deviceLat! >= -90 && deviceLat! <= 90 && deviceLng! >= -180 && deviceLng! <= 180;
+    if ((rawLat != null || rawLng != null) && !hasDeviceLocation) {
+      return res.status(400).json({ error: 'Invalid emergency location coordinates.' });
+    }
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 10000)) {
+      return res.status(400).json({ error: 'Invalid emergency location accuracy.' });
     }
 
-    const incidentPayload = {
-      type: 'emergency',
-      description: `Emergency SOS from ${user_name || 'AFAT user'}. Location: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-      latitude: lat,
-      longitude: lng,
-      location: `POINT(${lng} ${lat})`,
-      severity: 5,
-      source: source || 'sos_button',
-      status: 'active',
-      reporter_id: user_id,
-      reporter_username: user_name || 'AFAT user',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const activeStates = ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','emergency','disputed'];
+    const rank: Record<string, number> = { emergency: 0, in_journey: 1, pickup_verified: 2, arrived: 3, en_route: 4, assigned: 5, accepted: 6, offered: 7, queued: 8, disputed: 9 };
+    let assignments: any[] = [];
 
-    const { data: incident, error: incidentError } = await supabase
-      .from('incidents')
-      .insert(incidentPayload)
-      .select()
-      .single();
+    const { data: operatorAssignments, error: operatorError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,vehicle_id,status,updated_at')
+      .eq('operator_id', profileId)
+      .in('status', activeStates)
+      .order('updated_at', { ascending: false })
+      .limit(10);
+    if (operatorError) throw operatorError;
+    assignments.push(...(operatorAssignments || []));
 
-    if (incidentError) {
-      console.warn('SOS accepted without incident persistence:', incidentError.message);
-      return res.status(202).json({
-        success: true,
-        persisted: false,
-        status: 'active',
-        alert: incidentPayload,
-      });
+    const { data: passengerBookings, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('passenger_id', profileId)
+      .limit(100);
+    if (bookingError) throw bookingError;
+    const bookingIds = (passengerBookings || []).map((item: any) => item.id).filter(Boolean);
+    if (bookingIds.length) {
+      const { data: passengerAssignments, error: passengerAssignmentError } = await supabase
+        .from('dispatch_assignments')
+        .select('id,booking_id,operator_id,vehicle_id,status,updated_at')
+        .in('booking_id', bookingIds)
+        .in('status', activeStates)
+        .order('updated_at', { ascending: false })
+        .limit(10);
+      if (passengerAssignmentError) throw passengerAssignmentError;
+      assignments.push(...(passengerAssignments || []));
     }
 
-    const { error: sosError } = await supabase
+    assignments = Array.from(new Map(assignments.map((item: any) => [item.id, item])).values())
+      .sort((a: any, b: any) => (rank[String(a.status)] ?? 99) - (rank[String(b.status)] ?? 99)
+        || new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+
+    const assignment = requestedAssignmentId
+      ? assignments.find((item: any) => item.id === requestedAssignmentId)
+      : assignments[0] || null;
+    if (requestedAssignmentId && !assignment) {
+      return res.status(403).json({ error: 'The requested dispatch is not an active journey owned by this identity.' });
+    }
+
+    let journey: any = null;
+    if (assignment?.id) {
+      const { data, error } = await supabase
+        .from('afat_journeys')
+        .select('id,status,started_at')
+        .eq('dispatch_assignment_id', assignment.id)
+        .maybeSingle();
+      if (error && error.code !== 'PGRST116') throw error;
+      journey = data || null;
+    }
+
+    let lat: number | null = hasDeviceLocation ? Number(deviceLat) : null;
+    let lng: number | null = hasDeviceLocation ? Number(deviceLng) : null;
+    let resolvedAccuracy: number | null = hasDeviceLocation && accuracy != null ? accuracy : null;
+    let locationSource: 'device' | 'journey_last_known' | 'unavailable' = hasDeviceLocation ? 'device' : 'unavailable';
+
+    if (!hasDeviceLocation && journey?.id) {
+      const { data: sample, error } = await supabase
+        .from('afat_journey_samples')
+        .select('latitude,longitude,accuracy_m,recorded_at')
+        .eq('journey_id', journey.id)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error && error.code !== 'PGRST116') throw error;
+      if (sample && Number.isFinite(Number(sample.latitude)) && Number.isFinite(Number(sample.longitude))) {
+        lat = Number(sample.latitude);
+        lng = Number(sample.longitude);
+        resolvedAccuracy = sample.accuracy_m == null ? null : Number(sample.accuracy_m);
+        locationSource = 'journey_last_known';
+      }
+    }
+
+    let passengerId: string | null = null;
+    if (assignment?.booking_id) {
+      const { data: booking, error } = await supabase
+        .from('bookings')
+        .select('passenger_id')
+        .eq('id', assignment.booking_id)
+        .maybeSingle();
+      if (error) throw error;
+      passengerId = booking?.passenger_id || null;
+    }
+
+    let incident: any = null;
+    if (lat != null && lng != null) {
+      const { data, error } = await supabase
+        .from('incidents')
+        .insert({
+          type: 'emergency',
+          description: `Authenticated AFAT SOS. Location source: ${locationSource}.`,
+          latitude: lat,
+          longitude: lng,
+          location: `POINT(${lng} ${lat})`,
+          severity: 5,
+          source: 'sos_authenticated',
+          status: 'active',
+          verification_status: 'authenticated_sos',
+          confidence_score: locationSource === 'device' ? 95 : 80,
+          reporter_id: profileId,
+          reporter_username: access.profile.full_name || 'AFAT member',
+          created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      incident = data;
+    }
+
+    const { data: sosEvent, error: sosError } = await supabase
       .from('sos_events')
       .insert({
-        user_id,
-        incident_id: incident.id,
+        user_id: profileId,
+        incident_id: incident?.id || null,
+        dispatch_assignment_id: assignment?.id || null,
+        journey_id: journey?.id || null,
+        operator_id: assignment?.operator_id || null,
+        vehicle_id: assignment?.vehicle_id || null,
         latitude: lat,
         longitude: lng,
+        accuracy_m: resolvedAccuracy,
+        location_source: locationSource,
         status: 'active',
-        created_at: new Date().toISOString(),
-      });
+        source,
+        metadata: {
+          workspace_role: access.workspaceRole,
+          dispatch_status: assignment?.status || null,
+        },
+      })
+      .select()
+      .single();
+    if (sosError) throw sosError;
 
-    res.status(201).json({
+    let emergencyTransitioned = assignment?.status === 'emergency';
+    if (assignment && ['en_route','arrived','pickup_verified','in_journey'].includes(String(assignment.status))) {
+      const { error } = await supabase.rpc('afat_transition_dispatch_journey', {
+        p_assignment_id: assignment.id,
+        p_actor_profile_id: profileId,
+        p_expected_status: assignment.status,
+        p_next_status: 'emergency',
+        p_idempotency_key: `sos-${sosEvent.id}`,
+        p_reason: 'Authenticated AFAT SOS activated',
+        p_evidence: {
+          sos_event_id: sosEvent.id,
+          incident_id: incident?.id || null,
+          location_source: locationSource,
+        },
+      });
+      if (!error) emergencyTransitioned = true;
+      else console.warn('SOS persisted but dispatch emergency transition failed:', error.message);
+    }
+
+    const participantIds = Array.from(new Set(
+      [passengerId, assignment?.operator_id].filter((id): id is string => Boolean(id) && id !== profileId)
+    ));
+    if (participantIds.length) {
+      await notifyRecipients(
+        { user_ids: participantIds },
+        {
+          type: 'journey_sos',
+          title: 'AFAT journey emergency',
+          body: 'An authenticated SOS was activated for the active journey.',
+          referenceId: sosEvent.id,
+          channels: ['in_app'],
+        }
+      ).catch((notificationError) => console.warn('SOS participant notification failed:', notificationError));
+    }
+
+    await Promise.allSettled([
+      notifyRecipients(
+        { role: 'planner', city: access.profile.preferred_city || undefined },
+        {
+          type: 'journey_sos',
+          title: 'AFAT safety escalation',
+          body: 'An authenticated AFAT SOS requires operational attention.',
+          referenceId: sosEvent.id,
+          channels: ['in_app'],
+        }
+      ),
+      notifyRecipients(
+        { role: 'admin' },
+        {
+          type: 'journey_sos',
+          title: 'AFAT safety escalation',
+          body: 'An authenticated AFAT SOS was recorded.',
+          referenceId: sosEvent.id,
+          channels: ['in_app'],
+        }
+      ),
+    ]);
+
+    return res.status(201).json({
       success: true,
       persisted: true,
       status: 'active',
-      incident_id: incident.id,
-      sos_logged: !sosError,
+      sos_event_id: sosEvent.id,
+      incident_id: incident?.id || null,
+      dispatch_assignment_id: assignment?.id || null,
+      journey_id: journey?.id || null,
+      dispatch_emergency_state: emergencyTransitioned,
+      location_status: locationSource,
     });
   } catch (error: any) {
-    res.status(500).json({ error: publicError(error, 'SOS dispatch failed') });
+    return res.status(500).json({ error: publicError(error, 'SOS dispatch failed') });
   }
 });
 
@@ -3168,7 +3402,7 @@ router.get('/compliance/summary/:profileId', async (req: Request, res: Response)
     const access = await requireAuthRole(req, res);
     if (!access) return;
     const { profileId } = req.params;
-    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    const isStaff = ['admin', 'planner'].includes(String(access.workspaceRole || access.profile.role));
     if (!isStaff && access.profile.id !== profileId) {
       return res.status(403).json({ error: 'Forbidden' });
     }

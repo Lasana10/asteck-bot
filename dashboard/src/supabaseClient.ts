@@ -917,30 +917,42 @@ export async function signOut() {
   return await supabase.auth.signOut();
 }
 
+function afatWorkspaceHeader() {
+  if (typeof localStorage === 'undefined') return {};
+  const role = String(localStorage.getItem('afat_access_intent_role') || 'commuter').trim().toLowerCase();
+  return ['commuter', 'operator', 'planner', 'admin'].includes(role)
+    ? { 'X-AFAT-Workspace-Role': role }
+    : { 'X-AFAT-Workspace-Role': 'commuter' };
+}
+
 export function afatAuthHeaders() {
   const token = getBoundAfatAccessToken(localStorage.getItem('afat_local_user_id'));
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return token ? { Authorization: `Bearer ${token}`, ...afatWorkspaceHeader() } : afatWorkspaceHeader();
 }
 
 export async function authenticatedApiHeaders() {
   const { data } = await supabase.auth.getSession();
   const localToken = getBoundAfatAccessToken(data.session?.user?.id || null);
-  if (localToken) return { Authorization: `Bearer ${localToken}` };
-  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
+  if (localToken) return { Authorization: `Bearer ${localToken}`, ...afatWorkspaceHeader() };
+  return data.session?.access_token
+    ? { Authorization: `Bearer ${data.session.access_token}`, ...afatWorkspaceHeader() }
+    : afatWorkspaceHeader();
 }
 
 async function passageAuthHeaders() {
   const { data } = await supabase.auth.getSession();
   const localToken = getBoundAfatAccessToken(data.session?.user?.id || null);
-  if (localToken) return { Authorization: `Bearer ${localToken}` };
-  return data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {};
+  if (localToken) return { Authorization: `Bearer ${localToken}`, ...afatWorkspaceHeader() };
+  return data.session?.access_token
+    ? { Authorization: `Bearer ${data.session.access_token}`, ...afatWorkspaceHeader() }
+    : afatWorkspaceHeader();
 }
 
 async function onboardingAuthHeaders() {
   const { data } = await supabase.auth.getSession();
-  if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}` };
+  if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}`, ...afatWorkspaceHeader() };
   const localToken = getBoundAfatAccessToken(localStorage.getItem('afat_local_user_id'));
-  return localToken ? { Authorization: `Bearer ${localToken}` } : {};
+  return localToken ? { Authorization: `Bearer ${localToken}`, ...afatWorkspaceHeader() } : afatWorkspaceHeader();
 }
 
 export async function getCurrentUser() {
@@ -1011,18 +1023,25 @@ export async function submitIncident(incidentData: any) {
   return { data, error };
 }
 
-export async function sendPanicAlert(alertData: any) {
+export async function sendPanicAlert(alertData: {
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy_m?: number | null;
+  dispatch_assignment_id?: string | null;
+  source?: string;
+}) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/sos/panic`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(alertData),
     });
     const data = await res.json();
-    if (!res.ok) return { data: null, error: { message: data.error || 'SOS dispatch failed.' } };
-    return { data, error: null };
+    if (!res.ok) return { data: null, error: { message: data.error || 'SOS dispatch failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
   } catch (err: any) {
-    return { data: null, error: { message: err.message || 'Network error.' } };
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
   }
 }
 
@@ -1617,6 +1636,135 @@ export async function fetchActiveDispatches() {
     return { data: null, error: { message: err.message || 'Network error.' } };
   }
 }
+
+export async function fetchParticipantDispatches(options: { include_terminal?: boolean; limit?: number } = {}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const query = new URLSearchParams();
+    if (options.include_terminal) query.set('include_terminal', 'true');
+    query.set('limit', String(Math.min(Math.max(options.limit || 20, 1), 100)));
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch?${query.toString()}`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch continuity lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchDispatchDetail(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch detail unavailable.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function transitionDispatch(
+  assignmentId: string,
+  payload: { expected_status: string; next_status: string; reason?: string; evidence?: Record<string, any> },
+  idempotencyKey?: string,
+) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const stableKey = idempotencyKey || `afat-${assignmentId}-${payload.next_status}-${Date.now().toString(36)}`;
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/transition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stableKey, ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Dispatch transition failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function createPickupCode(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/pickup-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: '{}',
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Pickup code unavailable.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function verifyPickupCode(assignmentId: string, code: string, idempotencyKey?: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const stableKey = idempotencyKey || `afat-pickup-${assignmentId}-${Date.now().toString(36)}`;
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/pickup-verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stableKey, ...authHeaders },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Pickup verification failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function fetchJourneyClosure(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/closure`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Journey receipt unavailable.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
+export async function updateJourneyClosure(
+  assignmentId: string,
+  payload: {
+    expected_version: number;
+    payment_state?: 'pending' | 'cash_due' | 'mobile_money_pending';
+    payment_reference?: string;
+    proof_reference?: string;
+    rating?: number;
+    dispute_reason?: string;
+    confirm_cash?: boolean;
+  },
+  idempotencyKey?: string,
+) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const stableKey = idempotencyKey || `afat-closure-${assignmentId}-${Date.now().toString(36)}`;
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/closure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stableKey, ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Journey receipt update failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
+  }
+}
+
 
 export async function createDispatchAssignment(dispatchData: any) {
   try {

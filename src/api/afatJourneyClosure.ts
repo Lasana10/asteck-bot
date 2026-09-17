@@ -20,7 +20,7 @@ router.get('/dispatch/:assignmentId/closure', async (req: Request, res: Response
       isPassenger = data?.passenger_id === access.profile.id;
     }
     const isOperator = assignment.operator_id === access.profile.id;
-    const allowed = isPassenger || isOperator || assignment.dispatcher_id === access.profile.id || ['admin','planner'].includes(access.profile.role);
+    const allowed = isPassenger || isOperator || assignment.dispatcher_id === access.profile.id || ['admin','planner'].includes(String(access.workspaceRole || access.profile.role || '').toLowerCase());
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     const { data, error } = await supabase.from('afat_journey_closures').select('*').eq('dispatch_assignment_id', id).maybeSingle();
     if (error) throw error;
