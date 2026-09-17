@@ -9,7 +9,6 @@ const ACTIVE_DISPATCH_STATES = ['queued','offered','accepted','assigned','en_rou
 const OPERATOR_ALLOWED = new Set(['accepted','declined','en_route','arrived','pickup_verified','in_journey','completed','emergency','disputed','no_show']);
 const PASSENGER_ALLOWED = new Set(['cancelled','disputed']);
 const STAFF_ALLOWED = new Set(['offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','completed','cancelled','declined','expired','reassigned','no_show','emergency','disputed']);
-const JOURNEY_SYNC_STATES = new Set(['in_journey','completed','cancelled','disputed']);
 
 function stableKey(req: Request) {
   return String(req.header('Idempotency-Key') || req.header('X-Idempotency-Key') || req.body?.idempotency_key || req.body?.mutation_id || '').trim();
@@ -18,13 +17,14 @@ function stableKey(req: Request) {
 function publicDispatchError(error: any) {
   const message = String(error?.message || 'Dispatch operation failed');
   if (/not found/i.test(message)) return { status: 404, error: message };
-  if (/stale dispatch state/i.test(message)) return { status: 409, error: message };
+  if (error?.code === '40001' || /stale dispatch state/i.test(message)) return { status: 409, error: message };
   if (/invalid dispatch state transition|not eligible|not available|risk-blocked|fatigue limit/i.test(message)) return { status: 409, error: message };
   if (/idempotency|required|must be between|must advance/i.test(message)) return { status: 400, error: message };
   return { status: 500, error: message };
 }
 
 function finiteCoordinate(value: unknown, min: number, max: number) {
+  if (value == null || value === '' || typeof value === 'boolean') return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= min && number <= max ? number : null;
 }
@@ -167,7 +167,7 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
     const accuracy = req.body?.accuracy_m == null ? null : Number(req.body.accuracy_m);
     const speed = req.body?.speed_kph == null ? null : Number(req.body.speed_kph);
     const heading = req.body?.heading == null ? null : Number(req.body.heading);
-    const recordedAt = new Date(req.body?.recorded_at || Date.now());
+    const recordedAt = new Date(typeof req.body?.recorded_at === 'string' ? req.body.recorded_at : NaN);
     if (latitude == null || longitude == null || Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Valid latitude, longitude and recorded_at are required.' });
     if (accuracy != null && (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > 5000)) return res.status(400).json({ error: 'accuracy_m is outside the accepted range.' });
     if (speed != null && (!Number.isFinite(speed) || speed < 0 || speed > 180)) return res.status(400).json({ error: 'speed_kph is outside the accepted range.' });
@@ -181,14 +181,15 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
     if (!['in_journey','emergency'].includes(assignment.status)) return res.status(409).json({ error: 'Journey telemetry is accepted only for an active journey.' });
     const role = String(access.profile.role || '').toLowerCase();
     const profileId = access.profile.id;
-    let participant = ['admin','planner'].includes(role) || assignment.operator_id === profileId || assignment.dispatcher_id === profileId;
+    let participant = assignment.operator_id === profileId;
     if (!participant) participant = await passengerOwnsBooking(profileId, assignment.booking_id);
-    if (!participant) return res.status(403).json({ error: 'Only journey participants can submit telemetry.' });
+    if (!participant) return res.status(403).json({ error: 'Only the passenger or assigned operator can submit journey telemetry.' });
 
-    const { data: journey, error: journeyError } = await supabase.from('afat_journeys').select('id,status').eq('dispatch_assignment_id', assignmentId).maybeSingle();
+    const { data: journey, error: journeyError } = await supabase.from('afat_journeys').select('id,status,started_at').eq('dispatch_assignment_id', assignmentId).maybeSingle();
     if (journeyError) throw journeyError;
     if (!journey || journey.status !== 'active') return res.status(409).json({ error: 'Active AFAT journey record not found.' });
 
+    if (!journey.started_at || recordedAt.getTime() < new Date(journey.started_at).getTime()) return res.status(400).json({ error: 'GPS sample predates this journey.' });
     const { data: sample, error: sampleError } = await supabase.from('afat_journey_samples').upsert({
       journey_id: journey.id, profile_id: profileId, latitude, longitude, accuracy_m: accuracy, speed_kph: speed,
       heading, recorded_at: recordedAt.toISOString(), source: 'browser_geolocation'
@@ -225,20 +226,12 @@ router.post('/dispatch/:assignmentId/transition', async (req: Request, res: Resp
     if (isAssignedOperator && !OPERATOR_ALLOWED.has(nextStatus)) return res.status(403).json({ error: 'Operator cannot perform this dispatch transition.' });
     if (isPassenger && !PASSENGER_ALLOWED.has(nextStatus)) return res.status(403).json({ error: 'Passenger can only cancel an eligible dispatch or dispute an active journey.' });
     if (isStaff && !STAFF_ALLOWED.has(nextStatus)) return res.status(400).json({ error: 'Unsupported dispatch transition.' });
-    const { data, error } = await supabase.rpc('afat_transition_dispatch_assignment', {
+    const { data, error } = await supabase.rpc('afat_transition_dispatch_journey', {
       p_assignment_id: assignmentId, p_actor_profile_id: profileId, p_expected_status: expectedStatus,
       p_next_status: nextStatus, p_idempotency_key: key, p_reason: reason, p_evidence: evidence,
     });
     if (error) throw error;
-    let journey: any = null;
-    if (JOURNEY_SYNC_STATES.has(nextStatus)) {
-      const { data: journeyResult, error: journeyError } = await supabase.rpc('afat_sync_dispatch_journey', {
-        p_assignment_id: assignmentId, p_actor_profile_id: profileId, p_status: nextStatus, p_evidence: evidence,
-      });
-      if (journeyError) throw journeyError;
-      journey = journeyResult?.journey || journeyResult || null;
-    }
-    return res.status(200).json({ assignment: data, journey, idempotency_key: key });
+    return res.status(200).json({ assignment: data.assignment, journey: data.journey, idempotency_key: key });
   } catch (error: any) {
     const mapped = publicDispatchError(error);
     return res.status(mapped.status).json({ error: mapped.error });

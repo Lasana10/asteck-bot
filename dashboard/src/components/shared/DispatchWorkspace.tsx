@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight, CheckCircle2, Clock3, FileClock, Gauge, MapPin,
   Navigation2, RefreshCw, Route, ShieldCheck, Truck, UserCheck, XCircle,
@@ -7,6 +7,10 @@ import {
   assignDispatchCandidate, DispatchAssignment, DispatchCandidate, DispatchEvent, fetchAuthoritativeDispatches,
   fetchDispatchCandidates, fetchDispatchDetail, transitionDispatch,
 } from '../../services/dispatchClient';
+
+import { JourneyClosurePanel } from './JourneyClosurePanel';
+import { telemetry } from '../../services/telemetryService';
+import { flushJourneySamples, pendingJourneySamples } from '../../services/journeyTelemetryQueue';
 
 type DispatchRole = 'commuter' | 'operator' | 'planner' | 'admin';
 type Props = { role: DispatchRole; profile: any; onChanged?: () => void };
@@ -71,6 +75,12 @@ function DispatchProgress({ status }: { status: string }) {
 }
 
 export function DispatchWorkspace({ role, profile, onChanged }: Props) {
+  const [gpsEnabled, setGpsEnabled] = useState<string | null>(null);
+  const [online, setOnline] = useState(navigator.onLine);
+  const generation = useRef(0);
+  const refreshSequence = useRef(0);
+  const selection = useRef<string | null>(null);
+  const actionLock = useRef(false);
   const [dispatches, setDispatches] = useState<DispatchAssignment[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [events, setEvents] = useState<DispatchEvent[]>([]);
@@ -89,20 +99,26 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
   const canChooseCandidate = canRank && Boolean(selected && ['queued','reassigned'].includes(selected.status));
 
   const refresh = async () => {
+    const epoch = generation.current;
+    const sequence = ++refreshSequence.current;
     setLoading(true);
-    const result = await fetchAuthoritativeDispatches({ limit: 50 });
+    const result = await fetchAuthoritativeDispatches({ includeTerminal: true, limit: 50 });
+    if (epoch !== generation.current || sequence !== refreshSequence.current) return;
     setLoading(false);
     if (result.error) { setNotice(result.error.message); setDispatches([]); return; }
-    const next = result.data?.dispatches || [];
+    const next = (result.data?.dispatches || []).sort((a, b) => Number(['completed','cancelled','declined','expired','no_show'].includes(a.status)) - Number(['completed','cancelled','declined','expired','no_show'].includes(b.status)));
     setDispatches(next);
-    if (next.length && (!selectedId || !next.some((item) => item.id === selectedId))) setSelectedId(next[0].id);
+    if (next.length && (!selection.current || !next.some((item) => item.id === selection.current))) setSelectedId(next[0].id);
     if (!next.length) { setSelectedId(null); setEvents([]); setCandidates([]); }
   };
 
   const loadDetail = async (id: string) => {
+    const epoch = generation.current;
+    selection.current = id;
     setSelectedId(id);
     setDetailLoading(true);
     const result = await fetchDispatchDetail(id);
+    if (epoch !== generation.current || selection.current !== id) return;
     setDetailLoading(false);
     if (result.error) { setNotice(result.error.message); return; }
     if (result.data?.assignment) {
@@ -113,9 +129,11 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
 
   const loadCandidates = async (id: string) => {
     if (!canRank) return;
+    const epoch = generation.current;
     setRankingLoading(true);
     setRankingNote('');
     const result = await fetchDispatchCandidates(id);
+    if (epoch !== generation.current || selection.current !== id) return;
     setRankingLoading(false);
     if (result.error) { setCandidates([]); setRankingNote(result.error.message); return; }
     setCandidates(result.data?.candidates || []);
@@ -123,19 +141,43 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
     setRankingNote(contract?.route_eta_used ? 'Route ETA included.' : 'No route ETA invented: ranking uses straight-line distance until the AFAT Mobility Graph is ready.');
   };
 
-  useEffect(() => { void refresh(); }, [role, profile?.id]);
+  useEffect(() => {
+    generation.current += 1;
+    selection.current = null; actionLock.current = false; setBusyAction(null); setBusyCandidate(null);
+    setDispatches([]); setEvents([]); setCandidates([]); setSelectedId(null); setNotice(''); setGpsEnabled(null);
+    void refresh();
+    const reconnect = () => { setOnline(navigator.onLine); if (navigator.onLine) { void refresh(); void flushJourneySamples(profile.id).catch(console.error); } };
+    window.addEventListener('online', reconnect); window.addEventListener('offline', reconnect);
+    const timer = window.setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible') void refresh(); }, 15000);
+    return () => { generation.current += 1; clearInterval(timer); window.removeEventListener('online', reconnect); window.removeEventListener('offline', reconnect); telemetry.clearActiveDispatchAssignment(); };
+  }, [role, profile?.id]);
+  useEffect(() => {
+    if (gpsEnabled === selected?.id && selected && ['in_journey','emergency'].includes(selected.status) && ['operator','commuter'].includes(role)) telemetry.start(profile.id, selected.id);
+    else telemetry.clearActiveDispatchAssignment();
+    return () => telemetry.clearActiveDispatchAssignment();
+  }, [gpsEnabled, selected?.id, selected?.status, profile?.id, role]);
   useEffect(() => {
     if (!selected?.id) return;
     void loadDetail(selected.id);
     if (canRank) void loadCandidates(selected.id);
-  }, [selected?.id, canRank]);
+  }, [selected?.id, selected?.state_version, canRank]);
 
   const runAction = async (action: Action) => {
-    if (!selected) return;
+    if (!selected || actionLock.current) return;
+    if (!navigator.onLine) { setNotice('Reconnect before changing journey status.'); return; }
     if (action.needsReason && reason.trim().length < 4) { setNotice('Add a short reason before this accountable dispatch action.'); return; }
+    const epoch = generation.current;
+    actionLock.current = true;
+    if (action.status === 'completed') {
+      telemetry.clearActiveDispatchAssignment(); setGpsEnabled(null);
+      try { await flushJourneySamples(profile.id); } catch { /* retained for retry */ }
+      if (pendingJourneySamples(profile.id, selected.id)) { actionLock.current = false; setNotice('GPS samples are waiting to synchronize. Reconnect and retry completion.'); return; }
+    }
     setBusyAction(action.status);
     setNotice('');
     const result = await transitionDispatch({ assignmentId: selected.id, expectedStatus: selected.status, nextStatus: action.status, reason: reason.trim() || undefined, idempotencyKey: mutationKey(selected, action.status), evidence: { source: 'afat_dispatch_workspace', workspace_role: role, client_state_version: selected.state_version ?? 0 } });
+    actionLock.current = false;
+    if (epoch !== generation.current) return;
     setBusyAction(null);
     if (result.error) { setNotice(result.error.message); return; }
     setReason('');
@@ -152,6 +194,7 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
       setNotice('Direct assignment requires a short accountable reason.');
       return;
     }
+    const epoch = generation.current;
     const busyKey = `${candidate.vehicle_id}:${nextStatus}`;
     setBusyCandidate(busyKey);
     setNotice('');
@@ -163,6 +206,7 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
       reason: nextStatus === 'assigned' ? reason.trim() : undefined,
       idempotencyKey: candidateMutationKey(selected, candidate, nextStatus),
     });
+    if (epoch !== generation.current) return;
     setBusyCandidate(null);
     if (result.error) { setNotice(result.error.message); await loadCandidates(selected.id); return; }
     setReason('');
@@ -175,21 +219,26 @@ export function DispatchWorkspace({ role, profile, onChanged }: Props) {
 
   return <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
     <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300/70">Authoritative dispatch</p><h2 className="mt-1 text-xl font-black">{role === 'operator' ? 'My missions' : role === 'commuter' ? 'My active journeys' : 'Live dispatch board'}</h2></div><button type="button" onClick={() => void refresh()} disabled={loading} className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 disabled:opacity-40" aria-label="Refresh dispatches"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div>
-      <div className="mt-4 space-y-2">{dispatches.map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={`w-full rounded-xl border p-4 text-left transition ${selected?.id === item.id ? 'border-cyan-300/30 bg-cyan-400/10' : 'border-white/10 bg-black/20 hover:border-white/20'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.origin || 'Origin pending'} → {item.destination || 'Destination pending'}</p><p className="mt-1 text-[10px] text-white/40">Updated {item.updated_at ? new Date(item.updated_at).toLocaleString() : 'time unavailable'}</p></div><span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[8px] font-black uppercase text-white/60">{STATUS_LABEL[item.status] || item.status}</span></div></button>)}{!loading && !dispatches.length && <div className="rounded-xl border border-dashed border-white/15 p-8 text-center"><Route className="mx-auto h-6 w-6 text-white/25" /><p className="mt-3 text-sm font-bold text-white/45">No active dispatch is assigned to this workspace.</p><p className="mt-1 text-xs text-white/30">AFAT shows only server-authorized dispatch records for this identity.</p></div>}</div>
+      <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300/70">Authoritative dispatch</p><h2 className="mt-1 text-xl font-black">{role === 'operator' ? 'My missions' : role === 'commuter' ? 'My journeys' : 'Live dispatch board'}</h2></div><button type="button" onClick={() => void refresh()} disabled={loading} className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 disabled:opacity-40" aria-label="Refresh dispatches"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div>
+      {notice && !selected && <p role="alert" className="mt-3 text-sm text-amber-200">{notice}</p>}
+      <div className="mt-4 space-y-2">{dispatches.map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={`w-full rounded-xl border p-4 text-left transition ${selected?.id === item.id ? 'border-cyan-300/30 bg-cyan-400/10' : 'border-white/10 bg-black/20 hover:border-white/20'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.origin || 'Origin pending'} → {item.destination || 'Destination pending'}</p><p className="mt-1 text-[10px] text-white/40">Updated {item.updated_at ? new Date(item.updated_at).toLocaleString() : 'time unavailable'}</p></div><span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[8px] font-black uppercase text-white/60">{STATUS_LABEL[item.status] || item.status}</span></div></button>)}{!loading && !dispatches.length && <div className="rounded-xl border border-dashed border-white/15 p-8 text-center"><Route className="mx-auto h-6 w-6 text-white/25" /><p className="mt-3 text-sm font-bold text-white/45">No journey is assigned to this workspace yet.</p><p className="mt-1 text-xs text-white/30">AFAT shows only server-authorized dispatch records for this identity.</p></div>}</div>
     </section>
 
     <section className="rounded-2xl border border-cyan-300/15 bg-gradient-to-br from-cyan-500/[0.06] to-transparent p-5 sm:p-6">
       {!selected ? <div className="flex min-h-72 items-center justify-center text-center"><div><Navigation2 className="mx-auto h-8 w-8 text-white/20" /><p className="mt-3 text-sm text-white/40">Select an active dispatch to inspect its live state and evidence.</p></div></div> : <>
         <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300/70">Dispatch {selected.id.slice(0, 8)}</p><h2 className="mt-2 text-2xl font-black">{STATUS_LABEL[selected.status] || selected.status}</h2><p className="mt-1 text-sm text-white/45">{selected.origin || 'Origin pending'} → {selected.destination || 'Destination pending'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-right"><p className="text-[8px] font-black uppercase text-white/30">State version</p><p className="mt-1 text-xl font-black">{selected.state_version ?? 0}</p></div></div>
         <div className="mt-5"><DispatchProgress status={selected.status} /></div>
+        {!online && <p role="status" className="mt-3 text-amber-200">Offline. Journey changes require reconnection; consented GPS samples remain queued on this device.</p>}
+        {['in_journey','emergency'].includes(selected.status) && ['operator','commuter'].includes(role) && <label className="mt-4 flex items-start gap-3 rounded-xl border border-white/20 p-4 text-sm"><input type="checkbox" checked={gpsEnabled === selected.id} onChange={e => setGpsEnabled(e.target.checked ? selected.id : null)} className="mt-1" /><span>Share this device’s GPS for this journey. Samples support route evidence and can be queued on this device while offline. Keep AFAT open during the journey.</span></label>}
+        {['completed','disputed'].includes(selected.status) && <JourneyClosurePanel key={`${profile.id}:${selected.id}`} assignmentId={selected.id} />}
+
         <div className="mt-5 grid gap-3 sm:grid-cols-4"><div className="rounded-xl border border-white/10 bg-black/20 p-4"><MapPin className="h-4 w-4 text-emerald-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Pickup</p><p className="mt-1 text-xs font-bold">{selected.pickup_lat != null && selected.pickup_lng != null ? `${Number(selected.pickup_lat).toFixed(4)}, ${Number(selected.pickup_lng).toFixed(4)}` : 'Coordinates pending'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><Truck className="h-4 w-4 text-blue-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Operator</p><p className="mt-1 text-xs font-bold">{selected.operator_id ? `…${selected.operator_id.slice(-8)}` : 'Not assigned'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Stored score</p><p className="mt-1 text-xs font-bold">{selected.dispatch_score != null ? selected.dispatch_score : 'Not yet persisted'}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><FileClock className="h-4 w-4 text-amber-300" /><p className="mt-2 text-[8px] font-black uppercase text-white/30">Evidence events</p><p className="mt-1 text-xs font-bold">{events.length}</p></div></div>
 
         {canRank && <div className="mt-5 rounded-xl border border-violet-300/15 bg-violet-500/[0.05] p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Explainable candidate ranking</p><p className="mt-1 text-xs text-white/40">Eligible supply only; evidence and missing signals remain visible.</p></div><button type="button" onClick={() => void loadCandidates(selected.id)} disabled={rankingLoading} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-black uppercase text-white/60 disabled:opacity-40">{rankingLoading ? 'Ranking…' : 'Re-rank'}</button></div>
           {canChooseCandidate && <label className="mt-3 block"><span className="text-[9px] font-bold text-white/40">Direct-assignment reason (required only for bypassing an offer)</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-white outline-none placeholder:text-white/20" placeholder="Example: passenger safety escalation, replacement after breakdown, dispatcher-approved exception." /></label>}
           <div className="mt-3 space-y-2">{candidates.slice(0, 5).map((candidate, index) => <article key={candidate.vehicle_id} className="rounded-lg border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-300/20 bg-violet-500/10 text-sm font-black">#{index + 1}</div><div><p className="text-xs font-black">{candidate.vehicle_type || 'Vehicle'} · …{candidate.vehicle_id.slice(-6)}</p><p className="mt-1 text-[9px] text-white/35">{candidate.straight_line_distance_km} km straight-line · telemetry {candidate.telemetry_age_minutes == null ? 'unknown' : `${candidate.telemetry_age_minutes} min old`}</p></div></div><div className="text-right"><p className="text-xl font-black text-violet-200">{candidate.score}</p><p className="text-[8px] uppercase text-white/30">score / 100</p></div></div><div className="mt-3 grid grid-cols-4 gap-1">{Object.entries(candidate.factors).slice(0, 8).map(([key, value]) => <div key={key} className="rounded-md border border-white/5 bg-white/[0.025] p-2"><p className="text-[8px] uppercase text-white/25">{key.replace(/_/g, ' ')}</p><p className="mt-1 text-[10px] font-black">{Number(value).toFixed(1)}</p></div>)}</div>{candidate.evidence.signal_missing.length > 0 && <p className="mt-2 text-[9px] text-amber-200/70">Missing: {candidate.evidence.signal_missing.join(', ')}</p>}{canChooseCandidate && <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={Boolean(busyCandidate)} onClick={() => void chooseCandidate(candidate, 'offered')} className="rounded-lg border border-cyan-300/25 bg-cyan-400 px-3 py-2 text-[9px] font-black uppercase text-slate-950 disabled:opacity-40">{busyCandidate === `${candidate.vehicle_id}:offered` ? 'Offering…' : 'Offer candidate'}</button><button type="button" disabled={Boolean(busyCandidate)} onClick={() => void chooseCandidate(candidate, 'assigned')} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-black uppercase text-white/70 disabled:opacity-40">{busyCandidate === `${candidate.vehicle_id}:assigned` ? 'Assigning…' : 'Direct assign'}</button></div>}</article>)}{!rankingLoading && !candidates.length && <p className="rounded-lg border border-dashed border-white/10 p-4 text-xs text-white/35">No eligible ranked vehicle returned for this pickup yet.</p>}</div>{rankingNote && <p className="mt-3 flex items-start gap-2 text-[10px] leading-5 text-white/40"><Gauge className="mt-0.5 h-3 w-3 shrink-0 text-violet-200" />{rankingNote}</p>}</div>}
 
-        {actions.length > 0 && <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase tracking-wider text-white/35">Allowed next actions for {role}</p>{actions.some((action) => action.needsReason) && !canChooseCandidate && <label className="mt-3 block"><span className="text-[9px] font-bold text-white/40">Reason for accountable exceptions, cancellations or overrides</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-white outline-none placeholder:text-white/20" placeholder="State the operational reason when required." /></label>}<div className="mt-3 flex flex-wrap gap-2">{actions.map((action) => <button key={action.status} type="button" disabled={Boolean(busyAction)} onClick={() => void runAction(action)} className={`min-h-11 rounded-lg border px-4 text-[10px] font-black uppercase tracking-wide disabled:opacity-40 ${toneClass(action.tone)}`}>{busyAction === action.status ? 'Recording…' : action.label}</button>)}</div></div>}
+        {actions.length > 0 && <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-[9px] font-black uppercase tracking-wider text-white/35">Allowed next actions for {role}</p>{actions.some((action) => action.needsReason) && !canChooseCandidate && <label className="mt-3 block"><span className="text-[9px] font-bold text-white/40">Reason for accountable exceptions, cancellations or overrides</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-white outline-none placeholder:text-white/20" placeholder="State the operational reason when required." /></label>}<div className="mt-3 flex flex-wrap gap-2">{actions.map((action) => <button key={action.status} type="button" disabled={Boolean(busyAction) || !online} onClick={() => void runAction(action)} className={`min-h-11 rounded-lg border px-4 text-[10px] font-black uppercase tracking-wide disabled:opacity-40 ${toneClass(action.tone)}`}>{busyAction === action.status ? 'Recording…' : action.label}</button>)}</div></div>}
 
         <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between"><p className="text-[9px] font-black uppercase tracking-wider text-white/35">Evidence timeline</p>{detailLoading && <Clock3 className="h-4 w-4 animate-spin text-cyan-200" />}</div><div className="mt-3 space-y-3">{events.map((event, index) => <div key={event.id} className="flex gap-3"><div className="flex flex-col items-center"><div className="flex h-7 w-7 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-500/10"><CheckCircle2 className="h-3 w-3 text-cyan-200" /></div>{index < events.length - 1 && <div className="h-full w-px bg-white/10" />}</div><div className="pb-3"><p className="text-xs font-black">{STATUS_LABEL[event.from_status || ''] || event.from_status || 'Created'} <ArrowRight className="mx-1 inline h-3 w-3 text-white/25" /> {STATUS_LABEL[event.to_status] || event.to_status}</p><p className="mt-1 text-[10px] text-white/35">{new Date(event.created_at).toLocaleString()}{event.reason ? ` · ${event.reason}` : ''}</p></div></div>)}{!events.length && !detailLoading && <p className="py-4 text-xs text-white/35">No transition event has been recorded yet for this dispatch.</p>}</div></div>
         {notice && <div role="status" className={`mt-4 flex items-start gap-3 rounded-xl border p-4 text-xs font-bold ${/failed|expired|error|blocked|stale|no longer/i.test(notice) ? 'border-red-400/20 bg-red-500/10 text-red-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>{/failed|expired|error|blocked|stale|no longer/i.test(notice) ? <XCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <UserCheck className="mt-0.5 h-4 w-4 shrink-0" />}{notice}</div>}
