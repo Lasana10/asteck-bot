@@ -382,21 +382,31 @@ router.post('/passages/intents', async (req: Request, res: Response) => {
     const destinationText = String(payload.destination_text).trim();
     if (destinationText.length < 3) return res.status(400).json({ error: 'Destination description is too short.' });
 
-    const { data, error } = await supabase.from('passage_intents').insert({
-      passenger_id: identity.id,
-      origin_text: payload.origin_text || null,
-      destination_text: destinationText,
-      arrival_target: payload.arrival_target || null,
-      selected_place_id: payload.selected_place_id || null,
-      meeting_point_id: payload.meeting_point_id || null,
-      place_confidence: payload.place_confidence ?? null,
-      requested_vehicle_type: payload.requested_vehicle_type || null,
-      status: 'open',
-      metadata: payload.metadata || {},
-    }).select('*, afat_places(*), afat_meeting_points(*)').single();
+    const originLat = Number(payload.origin_lat);
+    const originLng = Number(payload.origin_lng);
+    const requestKey = String(payload.request_key || '').trim();
+    if (!Number.isFinite(originLat) || originLat < -90 || originLat > 90 || !Number.isFinite(originLng) || originLng < -180 || originLng > 180) {
+      return res.status(400).json({ error: 'Verified pickup coordinates are required.' });
+    }
+    if (requestKey.length < 12 || requestKey.length > 300) return res.status(400).json({ error: 'A stable request_key is required.' });
+
+    const { data, error } = await supabase.rpc('afat_create_passage_dispatch', {
+      p_passenger_id: identity.id,
+      p_origin_text: payload.origin_text || null,
+      p_origin_lat: originLat,
+      p_origin_lng: originLng,
+      p_destination_text: destinationText,
+      p_arrival_target: payload.arrival_target || null,
+      p_selected_place_id: payload.selected_place_id || null,
+      p_meeting_point_id: payload.meeting_point_id || null,
+      p_place_confidence: payload.place_confidence ?? null,
+      p_requested_vehicle_type: payload.requested_vehicle_type || null,
+      p_metadata: payload.metadata || {},
+      p_request_key: requestKey,
+    });
 
     if (error) throw error;
-    res.status(201).json({ passage: data });
+    res.status(data?.replayed ? 200 : 201).json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Passage intent creation failed.' });
   }
@@ -475,18 +485,17 @@ router.patch('/passages/intents/:id/status', async (req: Request, res: Response)
       // Compare-and-set claim: two operators cannot both successfully claim
       // the same open passage. Only the first update matching the old state
       // and NULL operator succeeds.
-      const { data: claimed, error: claimError } = await supabase
-        .from('passage_intents')
-        .update({ operator_id: identity.id, status: 'assigned', updated_at: new Date().toISOString() })
-        .eq('id', current.id)
-        .eq('status', currentStatus)
-        .is('operator_id', null)
-        .select('*, afat_places(*), afat_meeting_points(*)')
-        .maybeSingle();
+      const { data: claimed, error: claimError } = await supabase.rpc('afat_claim_passage_dispatch', {
+        p_passage_id: current.id,
+        p_operator_id: identity.id,
+      });
 
-      if (claimError) throw claimError;
-      if (!claimed) return res.status(409).json({ error: 'Passage was already claimed or changed. Refresh the dispatch queue.' });
-      return res.json({ passage: claimed });
+      if (claimError) {
+        if (claimError.code === '40001') return res.status(409).json({ error: 'Passage was already claimed or changed. Refresh the dispatch queue.' });
+        if (claimError.code === '23514') return res.status(409).json({ error: claimError.message || 'An approved available vehicle is required.' });
+        throw claimError;
+      }
+      return res.json(claimed);
     }
 
     if (!canTransitionPassage({ identity, current, target })) {

@@ -1723,6 +1723,9 @@ export async function confirmAfatPlace(payload: {
 export async function createPassageIntent(payload: {
   passenger_id: string;
   origin_text?: string;
+  origin_lat: number;
+  origin_lng: number;
+  request_key: string;
   destination_text: string;
   arrival_target?: string;
   selected_place_id?: string;

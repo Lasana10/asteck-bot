@@ -150,12 +150,19 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const createPassage = async () => {
     if (!profile?.id || !selectedPlace || !selectedMeetingPoint) return;
+    if (!originFix) {
+      setStatusText('Use the location button on the map to confirm where the operator should collect you.');
+      return;
+    }
     setLoading(true);
     setStatusText('Confirming your pickup point…');
     await confirmAfatPlace({ profile_id: profile.id, query_text: destination.trim(), city: selectedPlace.city, place_id: selectedPlace.id, meeting_point_id: selectedMeetingPoint.id, confidence: selectedPlace.confidence, resolution_status: 'selected' });
     const { data, error } = await createPassageIntent({
       passenger_id: profile.id,
       origin_text: originLabel || undefined,
+      origin_lat: originFix.latitude,
+      origin_lng: originFix.longitude,
+      request_key: `passage:${profile.id}:${originFix.latitude.toFixed(5)}:${originFix.longitude.toFixed(5)}:${selectedPlace.id}:${arrivalTarget || 'now'}`,
       destination_text: destination.trim(),
       arrival_target: arrivalTarget ? new Date(arrivalTarget).toISOString() : undefined,
       selected_place_id: selectedPlace.id,
@@ -166,13 +173,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         place_explanation: selectedPlace.explanation,
         meeting_instructions: selectedMeetingPoint.instructions,
         atlas_origin_label: originLabel || null,
+        origin_accuracy_m: originFix.accuracy,
         canonical_route_status: canonicalRoute?.status || null,
         canonical_route_distance_m: canonicalRoute?.status === 'ok' ? canonicalRoute.distance_m || null : null,
       },
     });
     setLoading(false);
     if (error) { setStatusText(error.message); return; }
-    setStatusText('Pickup confirmed. You and the driver now share the same meeting point.');
+    setStatusText('Transport requested. AFAT created the dispatch and is matching an approved operator.');
     onPassageCreated?.(data?.passage);
   };
 
@@ -206,7 +214,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       <PlaceMediaStrip placeId={selectedPlace.id} placeName={selectedPlace.name} compact />
       {selectedPlace.meeting_points.map((candidateMeetingPoint) => <button key={candidateMeetingPoint.id} onClick={() => setSelectedMeetingPoint(candidateMeetingPoint)} className={`w-full rounded-2xl border p-4 text-left ${selectedMeetingPoint?.id === candidateMeetingPoint.id ? 'border-blue-400/40 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}><div className="flex items-start gap-3"><MapPin className="mt-0.5 h-4 w-4 text-orange-300" /><div className="flex-1"><p className="text-xs font-black text-white">{candidateMeetingPoint.name}</p><p className="mt-1 text-[11px] leading-relaxed text-white/55">{candidateMeetingPoint.instructions}</p><p className="mt-2 text-[10px] font-bold text-blue-200/70">About {candidateMeetingPoint.walk_minutes} min walk{Number(candidateMeetingPoint.successful_pickups || 0) > 0 ? ` · ${candidateMeetingPoint.successful_pickups} successful pickups` : ''}</p></div></div></button>)}
       {!selectedPlace.meeting_points.length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This landmark is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
-      <div className="flex gap-3"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint} className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Confirm pickup</button></div>
+      {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before requesting transport.</div>}
+      <div className="flex gap-3"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix} className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button></div>
     </div>}
   </section>;
 }
