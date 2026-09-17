@@ -988,6 +988,25 @@ function normalizeAfatRole(role?: string | null): AfatRole {
     : 'commuter';
 }
 
+function authorizedAfatRoles(profile: any): AfatRole[] {
+  const roles = new Set<AfatRole>(['commuter']);
+  const legacy = normalizeAfatRole(profile?.role);
+  roles.add(legacy);
+  for (const capability of profile?.capabilities || []) {
+    const normalized = normalizeAfatRole(capability);
+    if (['operator', 'planner', 'admin'].includes(String(capability || '').toLowerCase())) roles.add(normalized);
+  }
+  return Array.from(roles);
+}
+
+function preferredAuthorizedRole(profile: any): AfatRole {
+  const authorized = authorizedAfatRoles(profile);
+  const requested = normalizeAfatRole(localStorage.getItem('afat_access_intent_role'));
+  if (authorized.includes(requested)) return requested;
+  const legacy = normalizeAfatRole(profile?.role);
+  return authorized.includes(legacy) ? legacy : 'commuter';
+}
+
 function getAccessLevel(profile: any, sessionUser: any): AccessLevel {
   if (!sessionUser?.id) return 'public';
   const role = normalizeAfatRole(profile?.role);
@@ -1402,18 +1421,26 @@ function AppShell() {
 
     const fetchRole = async (userId: string) => {
       try {
-        const [{ data, error }, membershipResult, publicPartnerResult] = await Promise.all([
+        const [{ data, error }, membershipResult, publicPartnerResult, sessionProfileResult] = await Promise.all([
           getProfile(userId),
           getCompanyMembership(userId),
           getPublicPartnerMembership(userId),
+          fetchAfatSessionProfile(),
         ]);
         if (!error && data) {
-          setUserProfile(data);
-          setUserRole(normalizeAfatRole(data.role));
+          const authoritativeProfile = sessionProfileResult.data?.profile?.id === userId
+            ? { ...data, ...sessionProfileResult.data.profile }
+            : data;
+          const selectedRole = preferredAuthorizedRole(authoritativeProfile);
+          setUserProfile(authoritativeProfile);
+          setUserRole(selectedRole);
           setCompanyMembership(membershipResult.data || null);
           setPublicPartnerMembership(publicPartnerResult.data || null);
+
           const savedWorkspace = localStorage.getItem('afat_commuter_workspace');
-          if (savedWorkspace === 'organization' && membershipResult.data) {
+          if (selectedRole !== 'commuter') {
+            setCommuterWorkspace('passenger');
+          } else if (savedWorkspace === 'organization' && membershipResult.data) {
             setCommuterWorkspace('organization');
           } else if (savedWorkspace === 'government' && publicPartnerResult.data) {
             setCommuterWorkspace('government');
@@ -1424,13 +1451,16 @@ function AppShell() {
           }
           setBootError(null);
 
-          const profileRole = normalizeAfatRole(data.role);
-          localStorage.setItem('afat_access_intent_role', profileRole);
-          sessionStorage.removeItem('afat_pending_role_intent');
-          const hasOnboarded = localStorage.getItem(`onboarded_${userId}_${profileRole}`);
-          if (!hasOnboarded) {
-            setShowOnboarding(true);
-          }
+          localStorage.setItem('afat_access_intent_role', selectedRole);
+          const pendingIntent = sessionStorage.getItem('afat_pending_role_intent');
+          const pendingIsAuthorized = pendingIntent
+            ? authorizedAfatRoles(authoritativeProfile).includes(normalizeAfatRole(pendingIntent))
+            : false;
+          if (pendingIsAuthorized) sessionStorage.removeItem('afat_pending_role_intent');
+
+          const onboardingRole = pendingIntent && !pendingIsAuthorized ? normalizeAfatRole(pendingIntent) : selectedRole;
+          const hasOnboarded = localStorage.getItem(`onboarded_${userId}_${onboardingRole}`);
+          if (!hasOnboarded) setShowOnboarding(true);
         } else {
           setUserRole(null);
           setUserProfile(null);
@@ -1463,7 +1493,9 @@ function AppShell() {
 
     const handleOnboardingComplete = () => {
       if (sessionUser) {
-        localStorage.setItem(`onboarded_${sessionUser.id}_${normalizeAfatRole(userProfile?.role)}`, 'true');
+        const pending = sessionStorage.getItem('afat_pending_role_intent');
+        const completionRole = pending || normalizeAfatRole(userRole || userProfile?.role);
+        localStorage.setItem(`onboarded_${sessionUser.id}_${completionRole}`, 'true');
       }
       setShowOnboarding(false);
     };
@@ -1696,38 +1728,6 @@ function AppShell() {
     const renderDashboard = () => {
       const accessLevel = getAccessLevel(userProfile, sessionUser);
       const effectiveRole = normalizeAfatRole(userRole);
-      const intendedRole = sessionStorage.getItem('afat_pending_role_intent') || effectiveRole;
-      const wantsOperatorConsole = effectiveRole === 'operator' || intendedRole === 'operator';
-      if (wantsOperatorConsole && (effectiveRole !== 'operator' || !canUseOperatorConsole(userProfile) || hasPendingOperatorApplication(userProfile))) {
-        return (
-          <OperatorAccessPending
-            profile={userProfile}
-            onRegister={() => {
-              setRegistrationTrack('citizen_reg');
-              setIsRegistrationHubOpen(true);
-            }}
-            onRedeem={(code) => activateControlledRole('operator', code)}
-            onUseCommuter={() => {
-              localStorage.setItem('afat_access_intent_role', 'commuter');
-              setUserRole('commuter');
-              setActiveTab('home');
-            }}
-          />
-        );
-      }
-      if (effectiveRole === 'commuter' && (intendedRole === 'planner' || intendedRole === 'admin')) {
-        return (
-          <RestrictedAccessPending
-            requestedRole={intendedRole as 'planner' | 'admin'}
-            onActivate={(code) => activateControlledRole(intendedRole as 'planner' | 'admin', code)}
-            onUseCommuter={() => {
-              localStorage.setItem('afat_access_intent_role', 'commuter');
-              setUserRole('commuter');
-              setActiveTab('home');
-            }}
-          />
-        );
-      }
 
       if (effectiveRole === 'commuter' && companyMembership?.companies && commuterWorkspace === 'organization') {
         return <AdaptiveRoleHome role="organization" activeTab={activeTab as any} profile={userProfile} membership={companyMembership} onNavigate={navigateWorkspace as any} onSignOut={handleSignOut} />;
@@ -1768,60 +1768,52 @@ function AppShell() {
     };
 
     const renderRoleFrame = () => {
-      if (!isLocalReview) {
-        return null;
-      }
+      const authorizedRoles = authorizedAfatRoles(userProfile);
+      const visibleRoles = [
+        { role: 'commuter' as AfatRole, label: 'Passenger', icon: MapIcon },
+        { role: 'operator' as AfatRole, label: 'Operator', icon: Car },
+        { role: 'planner' as AfatRole, label: 'Planner', icon: BarChart3 },
+        { role: 'admin' as AfatRole, label: 'Admin', icon: ShieldAlert },
+      ].filter((item) => authorizedRoles.includes(item.role));
 
-      const config = roleAccessConfig[userRole || 'commuter'] || roleAccessConfig.commuter;
-      const Icon = config.icon;
-      const isCompanyCoordinator = userRole === 'planner' && userProfile?.company_name;
-      const reviewRoles = [
-        { role: 'commuter', label: 'Commuter', vehicle: undefined },
-        { role: 'operator', label: 'Operator', vehicle: userProfile?.vehicle_type || 'taxi' },
-        { role: 'planner', label: 'Planner', vehicle: undefined },
-        { role: 'admin', label: 'Admin', vehicle: undefined },
-      ];
+      if (visibleRoles.length <= 1 && !companyMembership?.companies && !publicPartnerMembership?.partner) return null;
+
+      const chooseRole = (role: AfatRole) => {
+        if (!authorizedRoles.includes(role)) return;
+        setUserRole(role);
+        setActiveTab('home');
+        localStorage.setItem('afat_access_intent_role', role);
+        if (role !== 'commuter') {
+          setCommuterWorkspace('passenger');
+          localStorage.setItem('afat_commuter_workspace', 'passenger');
+        }
+      };
+
       return (
-        <div className="mx-auto w-full max-w-7xl px-4 pt-4">
-          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 px-4 py-3 shadow-xl backdrop-blur-2xl">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${config.iconWrapClass}`}>
-                  <Icon className={`h-4 w-4 ${config.iconClass}`} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/35">QA workspace</p>
-                  <p className="truncate text-sm font-black uppercase tracking-tight text-white">
-                    {isCompanyCoordinator ? 'Company / fleet coordinator' : config.label}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="mr-1 text-[9px] font-black uppercase tracking-[0.22em] text-cyan-200/70">Role switch</span>
-                {reviewRoles.map((item) => (
+        <div className="relative z-20 mx-auto w-full max-w-7xl px-4 pt-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-slate-950/85 p-3 shadow-xl backdrop-blur-2xl lg:flex-row lg:items-center lg:justify-between">
+            <div className="px-1">
+              <p className="text-[8px] font-black uppercase tracking-[0.22em] text-white/35">Approved AFAT capabilities</p>
+              <p className="mt-1 text-xs font-bold text-white/70">Switch workspaces without signing out or changing your identity.</p>
+            </div>
+            <div className="flex max-w-full gap-1 overflow-x-auto">
+              {visibleRoles.map((item) => {
+                const Icon = item.icon;
+                const active = normalizeAfatRole(userRole) === item.role;
+                return (
                   <button
                     key={item.role}
-                    onClick={() => forceRole(item.role, item.vehicle)}
-                    className={`min-h-10 rounded-2xl border px-3 py-2 text-[9px] font-black uppercase tracking-widest transition ${
-                      userRole === item.role
-                        ? 'border-cyan-300/50 bg-cyan-500/15 text-cyan-100'
-                        : 'border-white/10 bg-white/[0.03] text-white/45 hover:text-white'
+                    type="button"
+                    onClick={() => chooseRole(item.role)}
+                    className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 text-[9px] font-black uppercase tracking-wider transition ${
+                      active ? 'border-cyan-300/40 bg-cyan-400/12 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-white/45 hover:text-white'
                     }`}
                   >
+                    <Icon className="h-3.5 w-3.5" />
                     {item.label}
                   </button>
-                ))}
-                <button
-                  onClick={() => {
-                    setRegistrationTrack('select');
-                    setIsRegistrationHubOpen(true);
-                  }}
-                  className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white/70 transition hover:text-white"
-                >
-                  Register
-                </button>
-              </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1830,13 +1822,8 @@ function AppShell() {
 
     const effectiveRoleForFrame = normalizeAfatRole(userRole);
     const intendedRoleForFrame = sessionStorage.getItem('afat_pending_role_intent') || effectiveRoleForFrame;
-    const controlledAccessPending = Boolean(
-      userProfile && (
-        (effectiveRoleForFrame === 'commuter' && (intendedRoleForFrame === 'planner' || intendedRoleForFrame === 'admin')) ||
-        ((effectiveRoleForFrame === 'operator' || intendedRoleForFrame === 'operator') &&
-          ((effectiveRoleForFrame === 'operator' && !canUseOperatorConsole(userProfile)) || hasPendingOperatorApplication(userProfile)))
-      )
-    );
+    const intendedRoleAuthorized = authorizedAfatRoles(userProfile).includes(normalizeAfatRole(intendedRoleForFrame));
+    const controlledAccessPending = false;
 
     return (
       <div className="min-h-screen flex flex-col sentinel-bg text-white selection:bg-blue-500/30">
@@ -1852,7 +1839,7 @@ function AppShell() {
         {!controlledAccessPending && <BottomNav role={workspaceRole as any} activeTab={activeTab} onTabChange={(tab) => navigateWorkspace(tab as any)} />}
         {showDevOverride && renderRoleToggle()}
         {!controlledAccessPending && <RoleOnboarding
-          role={normalizeAfatRole(userRole) as any}
+          role={(intendedRoleForFrame && !intendedRoleAuthorized ? normalizeAfatRole(intendedRoleForFrame) : normalizeAfatRole(userRole)) as any}
           profile={userProfile}
           isVisible={showOnboarding}
           onClose={handleOnboardingComplete}
