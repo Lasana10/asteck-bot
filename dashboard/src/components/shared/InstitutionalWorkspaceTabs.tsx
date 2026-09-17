@@ -40,9 +40,11 @@ export function InstitutionalWorkspaceTabs({
   const Icon = copy.icon;
   const identity = role === 'organization' ? membership?.companies : role === 'government' ? membership?.partner : profile;
   const adminReports = operations?.reports?.reports || [];
+  const accessApplications = operations?.accessApplications || [];
   const compliance = operations?.compliance?.summary || {};
+  const paymentReadiness = operations?.paymentReadiness;
   const queueItems = role === 'admin'
-    ? adminReports
+    ? accessApplications
     : role === 'government'
       ? live.incidents
       : live.tracks;
@@ -104,15 +106,15 @@ export function InstitutionalWorkspaceTabs({
         <h1 className="mt-2 text-3xl font-black">{role === 'admin' ? 'Identity and platform authority' : role === 'government' ? 'Mandate-scoped mobility evidence' : 'Owned operational resources'}</h1>
         <div className="mt-5 grid grid-cols-2 gap-3">
           <State icon={Icon} label="Queue records" value={queueItems.length} />
-          <State icon={CheckCircle2} label="Live conditions" value={live.incidents.length} />
+          <State icon={CheckCircle2} label={role === 'admin' ? 'Payment readiness' : 'Live conditions'} value={role === 'admin' ? String(paymentReadiness?.status || paymentReadiness?.state || 'not configured').replace(/_/g, ' ') : live.incidents.length} />
         </div>
       </Surface>
       <Surface className="p-5">
         <div className="space-y-3">
           {queueItems.slice(0, 15).map((item: any, index: number) => (
             <article key={item.id || index} className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <p className="text-sm font-black">{item.title || item.name || item.type || item.status || `${copy.label} record`}</p>
-              <p className="mt-1 text-xs text-white/40">{item.description || item.status || item.plate_number || 'Current AFAT record'}</p>
+              <p className="text-sm font-black">{item.profiles?.full_name || item.title || item.name || item.type || item.status || `${copy.label} record`}</p>
+              <p className="mt-1 text-xs text-white/40">{item.capability_key ? `${item.capability_key} · ${item.status}` : item.description || item.status || item.plate_number || 'Current AFAT record'}</p>
             </article>
           ))}
           {!queueItems.length && <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No current {copy.queue.toLowerCase()} record is available.</p>}
