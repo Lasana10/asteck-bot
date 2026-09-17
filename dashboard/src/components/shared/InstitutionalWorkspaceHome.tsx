@@ -37,7 +37,7 @@ export function InstitutionalWorkspaceHome({
       ? membership?.partner?.name || 'Public mobility coordination'
       : 'Platform governance';
   const attention = role === 'admin'
-    ? (operations?.reports?.reports?.length || 0) + (operations?.compliance?.summary?.overdue || 0)
+    ? (operations?.accessApplications?.length || 0) + (operations?.reports?.reports?.length || 0) + (operations?.compliance?.summary?.overdue || 0)
     : live.incidents.length;
   const mapRole = role === 'admin' ? 'admin' : 'planner';
 
@@ -74,7 +74,7 @@ export function InstitutionalWorkspaceHome({
       </Surface>
 
       <div className="min-h-[540px]">
-        <InteractiveMap role={mapRole as any} mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay={role !== 'government'} showInformal />
+        <InteractiveMap role={mapRole as any} mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} atlasNodes={live.atlasNodes} atlasEdges={live.atlasEdges} realtimeOverlay={role !== 'government'} showInformal />
       </div>
     </div>
   );
