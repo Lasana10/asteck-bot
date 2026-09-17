@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import {
-  Activity, AlertTriangle, ArrowRight, Bell, Building2, Car, CheckCircle2, Clock3,
-  FileCheck, Gauge, Landmark, Layers3, LogOut, MapPin, Navigation2, Radio,
-  RefreshCw, Route, Search, ShieldCheck, UserCircle, Users, Wallet,
+  AlertTriangle, Bell, Building2, CheckCircle2, Gauge, Landmark, Layers3, LogOut,
+  MapPin, Navigation2, Radio, RefreshCw, Search, ShieldCheck, UserCircle,
 } from 'lucide-react';
 
 import { AFATLogo } from './AFATLogo';
