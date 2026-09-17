@@ -274,7 +274,9 @@ async function getActiveRoleAssignments(profileId: string) {
 function workspaceCapabilities(profile: any, assignments: any[]) {
   const capabilities = new Set<string>(['commuter']);
   const legacyRole = String(profile?.role || 'commuter').toLowerCase();
-  if (['operator', 'planner', 'admin'].includes(legacyRole)) capabilities.add(legacyRole);
+  const operatorApproved = String(profile?.operator_application_status || '').toUpperCase() === 'APPROVED';
+  if (legacyRole === 'operator' && operatorApproved) capabilities.add('operator');
+  if (['planner', 'admin'].includes(legacyRole) && profile?.is_active !== false) capabilities.add(legacyRole);
 
   for (const assignment of assignments || []) {
     const key = String(assignment.role_key || '').toLowerCase();
@@ -285,6 +287,18 @@ function workspaceCapabilities(profile: any, assignments: any[]) {
   }
 
   return Array.from(capabilities);
+}
+
+function requestedWorkspaceRole(req: Request, profile: any, capabilities: string[]) {
+  const headerRole = String(req.headers['x-afat-workspace-role'] || '').trim().toLowerCase();
+  if (headerRole) {
+    return { requested: headerRole, allowed: capabilities.includes(headerRole) };
+  }
+  const legacyRole = String(profile?.role || 'commuter').toLowerCase();
+  return {
+    requested: capabilities.includes(legacyRole) ? legacyRole : 'commuter',
+    allowed: true,
+  };
 }
 
 export async function requireAuthRole(req: Request, res: Response, roles?: string[]) {
@@ -306,24 +320,36 @@ export async function requireAuthRole(req: Request, res: Response, roles?: strin
     console.error('Role assignment lookup failed:', error);
   }
   const capabilities = workspaceCapabilities(profile, assignments);
+  const workspace = requestedWorkspaceRole(req, profile, capabilities);
 
-  if (
-    capabilities.includes('operator') &&
-    String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED' &&
-    !assignments.some((assignment: any) =>
+  if (!workspace.allowed) {
+    res.status(403).json({
+      error: 'Requested AFAT workspace is not approved for this identity.',
+      requested_workspace: workspace.requested,
+      capabilities,
+    });
+    return null;
+  }
+
+  if (workspace.requested === 'operator') {
+    const assignmentApproved = assignments.some((assignment: any) =>
       ['verified_operator', 'trusted_operator', 'fleet_lead'].includes(String(assignment.role_key || '').toLowerCase())
-    )
-  ) {
-    res.status(403).json({ error: 'Operator approval required' });
+    );
+    if (String(profile.operator_application_status || '').toUpperCase() !== 'APPROVED' && !assignmentApproved) {
+      res.status(403).json({ error: 'Operator approval required' });
+      return null;
+    }
+  }
+
+  if (roles?.length && !roles.map((role) => String(role).toLowerCase()).includes(workspace.requested)) {
+    res.status(403).json({
+      error: 'This action is not available in the selected AFAT workspace.',
+      workspace_role: workspace.requested,
+    });
     return null;
   }
 
-  if (roles?.length && !roles.some((role) => capabilities.includes(String(role).toLowerCase()))) {
-    res.status(403).json({ error: 'Forbidden' });
-    return null;
-  }
-
-  return { auth, profile, assignments, capabilities };
+  return { auth, profile, assignments, capabilities, workspaceRole: workspace.requested };
 }
 
 async function fetchProfilesForNotificationTarget(target: {
