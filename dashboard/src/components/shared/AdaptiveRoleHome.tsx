@@ -29,7 +29,7 @@ type Props = {
   onSignOut: () => void;
 };
 
-const EMPTY_LIVE: LiveFeed = { incidents: [], tracks: [], checkpoints: [], atlasNodes: [] };
+const EMPTY_LIVE: LiveFeed = { incidents: [], tracks: [], checkpoints: [], atlasNodes: [], atlasEdges: [] };
 
 const ROLE_META: Record<AdaptiveWorkspaceRole, { label: string; eyebrow: string; promise: string; accent: string; icon: React.ElementType }> = {
   commuter: { label: 'Passenger', eyebrow: 'Move safely', promise: 'Plan, request and follow one real journey without invented fares, ETAs or availability.', accent: 'text-blue-300', icon: Navigation2 },
@@ -90,8 +90,8 @@ function RoleFlow({ role, activeTab, onNavigate }: { role: AdaptiveWorkspaceRole
 }
 
 function RealityBar({ live, loading, errors }: { live: LiveFeed; loading: boolean; errors: string[] }) {
-  const records = live.incidents.length + live.tracks.length + live.checkpoints.length + live.atlasNodes.length;
-  return <div className="flex flex-wrap items-center gap-2"><StatusPill tone={loading ? 'warn' : errors.length ? 'warn' : 'good'}>{loading ? 'Refreshing live services' : errors.length ? 'Partial live service' : 'Live services connected'}</StatusPill><StatusPill>{records} map records</StatusPill><StatusPill>{live.incidents.length} conditions</StatusPill><StatusPill>{live.tracks.length} moving assets</StatusPill><StatusPill>{live.checkpoints.length} meeting points</StatusPill><StatusPill>{live.atlasNodes.length} Atlas nodes</StatusPill></div>;
+  const records = live.incidents.length + live.tracks.length + live.checkpoints.length + live.atlasNodes.length + live.atlasEdges.length;
+  return <div className="flex flex-wrap items-center gap-2"><StatusPill tone={loading ? 'warn' : errors.length ? 'warn' : 'good'}>{loading ? 'Refreshing live services' : errors.length ? 'Partial live service' : 'Live services connected'}</StatusPill><StatusPill>{records} map records</StatusPill><StatusPill>{live.incidents.length} conditions</StatusPill><StatusPill>{live.tracks.length} moving assets</StatusPill><StatusPill>{live.checkpoints.length} meeting points</StatusPill><StatusPill>{live.atlasNodes.length} Atlas nodes</StatusPill><StatusPill>{live.atlasEdges.length} Atlas edges</StatusPill></div>;
 }
 
 function TabCanvas({ role, activeTab, profile, membership, live, missions, operations, onSignOut }: { role: AdaptiveWorkspaceRole; activeTab: Exclude<WorkspaceTab, 'home'>; profile: any; membership: any; live: LiveFeed; missions: any[]; operations: any; onSignOut: () => void }) {
@@ -106,6 +106,7 @@ export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home'
         tracks: mapResult.data.vehicles || [],
         checkpoints: mapResult.data.checkpoints || mapResult.data.addresses || [],
         atlasNodes: mapResult.data.atlas_nodes || [],
+        atlasEdges: mapResult.data.atlas_edges || [],
       }); if (mapResult.error) errors.push(`Map services: ${mapResult.error.message}`); if (role === 'commuter' || role === 'operator') { const participantDispatches = await fetchParticipantDispatches({ include_terminal: true, limit: 20 }); if (participantDispatches.error) errors.push(`Journey continuity: ${participantDispatches.error.message}`); if (active) setOperations((current: any) => ({ ...current, participantDispatches: participantDispatches.data?.dispatches || [] })); } if (role === 'operator') { const requests = await fetchPassageIntents({ status: 'requested' }); if (active) setMissions(requests.data?.passages || []); if (requests.error) errors.push(`Mission queue: ${requests.error.message}`); } if (role === 'planner') { const [demand, dispatches] = await Promise.all([fetchDemandRadar(), fetchActiveDispatches()]); if (active) setOperations({ demand: demand.data, dispatches: dispatches.data?.dispatches || [] }); if (demand.error) errors.push(`Demand radar: ${demand.error.message}`); if (dispatches.error) errors.push(`Dispatch board: ${dispatches.error.message}`); } if (role === 'admin') { const [reports, compliance] = await Promise.all([fetchOpsReportCenter(), fetchComplianceRadar()]); if (active) setOperations({ reports: reports.data, compliance: compliance.data }); if (reports.error) errors.push(`Reports: ${reports.error.message}`); if (compliance.error) errors.push(`Compliance: ${compliance.error.message}`); } } catch (error: any) { errors.push(error?.message || 'AFAT live services could not be refreshed.'); } if (active) { setServiceErrors(errors); setLoading(false); } }; hydrate(); return () => { active = false; }; }, [role, profile?.id, profile?.preferred_city, profile?.base_city, refreshKey]);
   const meta = ROLE_META[role];
   const Icon = meta.icon;
