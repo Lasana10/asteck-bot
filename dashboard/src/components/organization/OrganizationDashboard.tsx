@@ -59,9 +59,8 @@ export function OrganizationDashboard({ activeTab = 'home', membership, profile,
       if (complianceResult.data) setCompliance(complianceResult.data);
 
       const operatorIds = organizationMembers
-        .map((entry: any) => entry.profiles)
-        .filter((entry: any) => entry?.role === 'operator')
-        .map((entry: any) => entry.id);
+        .map((entry: any) => entry.profile_id || entry.profiles?.id)
+        .filter(Boolean);
 
       if (operatorIds.length) {
         const vehicleResult = await supabase
@@ -91,8 +90,12 @@ export function OrganizationDashboard({ activeTab = 'home', membership, profile,
   const records = compliance?.records || [];
   const summary = compliance?.summary || {};
   const activeOperators = useMemo(
-    () => members.filter((entry: any) => entry.profiles?.role === 'operator' && entry.profiles?.is_active !== false).length,
-    [members],
+    () => new Set(
+      vehicles
+        .filter((vehicle: any) => vehicle.operator_id)
+        .map((vehicle: any) => vehicle.operator_id),
+    ).size,
+    [vehicles],
   );
   const availableVehicles = vehicles.filter((vehicle: any) => vehicle.is_available).length;
 
