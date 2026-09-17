@@ -1496,6 +1496,10 @@ function AppShell() {
         const pending = sessionStorage.getItem('afat_pending_role_intent');
         const completionRole = pending || normalizeAfatRole(userRole || userProfile?.role);
         localStorage.setItem(`onboarded_${sessionUser.id}_${completionRole}`, 'true');
+        // Preserve the canonical profile-role onboarding marker used by the
+        // existing AFAT boot contract while capability-specific onboarding
+        // can additionally track a pending requested workspace.
+        localStorage.setItem(`onboarded_${sessionUser.id}_${normalizeAfatRole(userProfile?.role)}`, 'true');
       }
       setShowOnboarding(false);
     };
