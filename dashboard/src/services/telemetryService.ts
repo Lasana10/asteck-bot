@@ -1,5 +1,6 @@
-import { getApiBaseUrl, publishMapSignal, supabase } from '../supabaseClient';
+import { publishMapSignal } from '../supabaseClient';
 import { offlineSync } from './offlineSync';
+import { enqueueJourneySample, flushJourneySamples } from './journeyTelemetryQueue';
 
 /**
  * Real-device telemetry only. Browser geolocation is published to the live map
@@ -23,6 +24,7 @@ export class TelemetryService {
   }
 
   public start(userId: string, dispatchAssignmentId?: string | null) {
+    if (this.currentUser !== userId) this.stop();
     this.currentUser = userId;
     if (dispatchAssignmentId !== undefined) this.setActiveDispatchAssignment(dispatchAssignmentId);
     if (this.watchId !== null) return;
@@ -54,51 +56,14 @@ export class TelemetryService {
       this.watchId = null;
     }
     this.activeDispatchAssignmentId = null;
-  }
-
-  private async publishJourneySample(payload: {
-    latitude: number;
-    longitude: number;
-    accuracy: number | null;
-    speed: number | null;
-    heading: number | null;
-    timestamp: string;
-  }) {
-    const assignmentId = this.activeDispatchAssignmentId;
-    if (!assignmentId || !navigator.onLine) return;
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) return;
-
-    const response = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/journey/sample`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        latitude: payload.latitude,
-        longitude: payload.longitude,
-        accuracy_m: payload.accuracy,
-        speed_kph: payload.speed,
-        heading: payload.heading,
-        recorded_at: payload.timestamp,
-      }),
-    }).catch(() => null);
-
-    if (!response) return;
-    if (response.status === 409 || response.status === 403 || response.status === 404) {
-      // The server is authoritative about whether this user still belongs to an
-      // active journey. Stop journey-specific publication, but keep ordinary map
-      // telemetry running.
-      this.activeDispatchAssignmentId = null;
-      return;
-    }
-    if (!response.ok) console.warn('Journey telemetry sample was not accepted.', response.status);
+    this.currentUser = null;
+    this.lastUploadTime = 0;
   }
 
   private async handlePosition(pos: GeolocationPosition) {
+    if (!this.currentUser) return;
+    const userId = this.currentUser;
+    const assignmentId = this.activeDispatchAssignmentId;
     const { latitude, longitude, altitude, speed, heading, accuracy } = pos.coords;
     const now = Date.now();
     const currentInterval = speed != null && speed > 5.5 ? this.fastInterval : this.minInterval;
@@ -121,6 +86,12 @@ export class TelemetryService {
 
     this.lastUploadTime = now;
 
+    if (assignmentId) {
+      try {
+        enqueueJourneySample(userId, assignmentId, { latitude, longitude, accuracy_m: accuracy, speed_kph: speedKph, heading, recorded_at: timestamp });
+        void flushJourneySamples(userId).catch(console.error);
+      } catch (error) { console.error('Journey sample could not be queued', error); }
+    }
     if (navigator.onLine) {
       const { error } = await publishMapSignal({
         signal_type: 'movement',
@@ -138,7 +109,6 @@ export class TelemetryService {
         console.error('Telemetry Upload Error:', error.message);
         await offlineSync.enqueue('INSERT_TELEMETRY', payload);
       }
-      await this.publishJourneySample({ latitude, longitude, accuracy, speed: speedKph, heading, timestamp });
     } else {
       await offlineSync.enqueue('INSERT_TELEMETRY', payload);
     }

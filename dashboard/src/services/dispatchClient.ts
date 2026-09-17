@@ -190,3 +190,22 @@ export async function transitionDispatch(input: {
     }),
   });
 }
+
+export type JourneyClosure = {
+  id: string; receipt_number: string; state_version: number;
+  payment_state: string; payment_verification: 'unverified' | 'cash_confirmed' | 'provider_confirmed';
+  payment_reference: string | null; proof_reference: string | null;
+  rating: number | null; dispute_reason: string | null; updated_at: string;
+};
+export type ClosurePatch = {
+  payment_state?: 'pending' | 'cash_due' | 'mobile_money_pending';
+  payment_reference?: string; proof_reference?: string; rating?: number; dispute_reason?: string; confirm_cash?: boolean;
+};
+export function fetchJourneyClosure(assignmentId: string) {
+  return request<{ closure: JourneyClosure | null; provider_live: false; permissions: { feedback: boolean; dispute: boolean; confirm_cash: boolean } }>(`/dispatch/${encodeURIComponent(assignmentId)}/closure`);
+}
+export function saveJourneyClosure(assignmentId: string, version: number, patch: ClosurePatch, idempotencyKey: string) {
+  return request<{ closure: JourneyClosure; provider_live: false }>(`/dispatch/${encodeURIComponent(assignmentId)}/closure`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ ...patch, expected_version: version }),
+  });
+}

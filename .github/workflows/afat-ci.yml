@@ -55,5 +55,6 @@ jobs:
           VITE_TURNSTILE_SITE_KEY: 0x4AAAAAAATESTKEY
           VITE_API_URL: https://asteck-bot.onrender.com
         run: npm run build
+      - run: npm ci
       - working-directory: dashboard
         run: npm test -- --passWithNoTests
