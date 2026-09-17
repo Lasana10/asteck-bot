@@ -1023,18 +1023,25 @@ export async function submitIncident(incidentData: any) {
   return { data, error };
 }
 
-export async function sendPanicAlert(alertData: any) {
+export async function sendPanicAlert(alertData: {
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy_m?: number | null;
+  dispatch_assignment_id?: string | null;
+  source?: string;
+}) {
   try {
+    const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/sos/panic`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(alertData),
     });
     const data = await res.json();
-    if (!res.ok) return { data: null, error: { message: data.error || 'SOS dispatch failed.' } };
-    return { data, error: null };
+    if (!res.ok) return { data: null, error: { message: data.error || 'SOS dispatch failed.' }, status: res.status };
+    return { data, error: null, status: res.status };
   } catch (err: any) {
-    return { data: null, error: { message: err.message || 'Network error.' } };
+    return { data: null, error: { message: err.message || 'Network error.' }, status: 0 };
   }
 }
 
