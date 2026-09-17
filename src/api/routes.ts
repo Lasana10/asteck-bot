@@ -3194,7 +3194,7 @@ router.get('/compliance/summary/:profileId', async (req: Request, res: Response)
     const access = await requireAuthRole(req, res);
     if (!access) return;
     const { profileId } = req.params;
-    const isStaff = ['admin', 'planner'].includes(String(access.profile.role));
+    const isStaff = ['admin', 'planner'].includes(String(access.workspaceRole || access.profile.role));
     if (!isStaff && access.profile.id !== profileId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
