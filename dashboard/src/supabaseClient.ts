@@ -1982,7 +1982,7 @@ export async function updateCompanyLifecycle(
 export async function fetchMyAccessApplications() {
   try {
     const authHeaders = await authenticatedApiHeaders();
-    const res = await fetch(\`\${getApiBaseUrl()}/api/access/applications/mine\`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/access/applications/mine`, {
       headers: { ...authHeaders },
     });
     const data = await res.json();
@@ -2003,7 +2003,7 @@ export async function submitAccessApplication(payload: {
 }) {
   try {
     const authHeaders = await authenticatedApiHeaders();
-    const res = await fetch(\`\${getApiBaseUrl()}/api/access/applications\`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/access/applications`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
@@ -2019,7 +2019,7 @@ export async function submitAccessApplication(payload: {
 export async function fetchAccessApprovalInbox(status = 'submitted,under_review,needs_information') {
   try {
     const authHeaders = await authenticatedApiHeaders();
-    const res = await fetch(\`\${getApiBaseUrl()}/api/ops/access/applications?status=\${encodeURIComponent(status)}\`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/access/applications?status=${encodeURIComponent(status)}`, {
       headers: { ...authHeaders },
     });
     const data = await res.json();
@@ -2038,7 +2038,7 @@ export async function reviewAccessApplication(applicationId: string, payload: {
 }) {
   try {
     const authHeaders = await authenticatedApiHeaders();
-    const res = await fetch(\`\${getApiBaseUrl()}/api/ops/access/applications/\${applicationId}\`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/access/applications/${applicationId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
