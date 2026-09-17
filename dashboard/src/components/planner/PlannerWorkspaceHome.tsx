@@ -43,7 +43,7 @@ export function PlannerWorkspaceHome({
       </Surface>
 
       <div className="min-h-[620px]">
-        <InteractiveMap role="planner" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay showInformal />
+        <InteractiveMap role="planner" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} atlasNodes={live.atlasNodes} atlasEdges={live.atlasEdges} realtimeOverlay showInformal />
       </div>
 
       <Surface className="p-5">
@@ -59,7 +59,7 @@ export function PlannerWorkspaceHome({
         </div>
         <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4">
           <p className="text-[9px] font-black uppercase text-white/35">Evidence provenance</p>
-          <p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length} live records. Unknown values remain unknown.</p>
+          <p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length + live.atlasNodes.length + live.atlasEdges.length} evidence records. Unknown values remain unknown.</p>
         </div>
         <button onClick={() => onNavigate('bookings')} className="mt-5 min-h-12 w-full rounded-xl bg-violet-500 text-xs font-black">Open dispatch board</button>
         <button onClick={() => onNavigate('notifications')} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 text-xs font-black text-white/70">Review disruptions</button>
