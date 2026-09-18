@@ -3,6 +3,7 @@ import {
   fetchActiveDispatches,
   fetchComplianceRadar,
   fetchDemandRadar,
+  fetchFieldReportQueue,
   fetchLiveMapOps,
   fetchMobilityMapFeed,
   fetchOpsReportCenter,
@@ -68,29 +69,35 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
         }
 
         if (role === 'planner') {
-          const [demand, dispatches] = await Promise.all([
+          const [demand, dispatches, fieldReports] = await Promise.all([
             fetchDemandRadar(),
             fetchActiveDispatches(),
+            fetchFieldReportQueue(),
           ]);
           if (active) setOperations({
             demand: demand.data,
             dispatches: dispatches.data?.dispatches || [],
+            fieldReports: fieldReports.data?.reports || [],
           });
           if (demand.error) errors.push(`Demand radar: ${demand.error.message}`);
           if (dispatches.error) errors.push(`Dispatch board: ${dispatches.error.message}`);
+          if (fieldReports.error) errors.push(`Field operations: ${fieldReports.error.message}`);
         }
 
         if (role === 'admin') {
-          const [reports, compliance] = await Promise.all([
+          const [reports, compliance, fieldReports] = await Promise.all([
             fetchOpsReportCenter(),
             fetchComplianceRadar(),
+            fetchFieldReportQueue(),
           ]);
           if (active) setOperations({
             reports: reports.data,
             compliance: compliance.data,
+            fieldReports: fieldReports.data?.reports || [],
           });
           if (reports.error) errors.push(`Reports: ${reports.error.message}`);
           if (compliance.error) errors.push(`Compliance: ${compliance.error.message}`);
+          if (fieldReports.error) errors.push(`Field operations: ${fieldReports.error.message}`);
         }
       } catch (error: any) {
         errors.push(error?.message || 'AFAT live services could not be refreshed.');
