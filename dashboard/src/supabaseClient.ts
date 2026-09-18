@@ -1728,6 +1728,20 @@ export async function submitFieldReport(assignmentId: string, payload: {
   }
 }
 
+export async function fetchFieldReportQueue(status = 'submitted,triaged') {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/field-reports?status=${encodeURIComponent(status)}`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Field operations queue unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function reviewFieldReport(reportId: string, payload: {
   status: 'triaged' | 'verified' | 'rejected' | 'resolved';
   resolution_notes?: string;
