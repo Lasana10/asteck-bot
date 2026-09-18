@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, KeyRound, Receipt, ShieldCheck, Star, XCircle } from 'lucide-react';
 import { createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
+import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
+import { FarePaymentPanel } from '../shared/FarePaymentPanel';
 
 type Props = {
   assignment: any | null;
@@ -109,6 +111,8 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Truth source</p><p className="mt-1 text-xs font-black">Live dispatch record</p></div>
       </div>
 
+      <div className="mt-4"><FarePaymentPanel mode="passenger" assignment={assignment} onChanged={onChanged} /></div>
+
       {status === 'arrived' && (
         <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-400/10 p-4">
           <div className="flex items-start gap-3"><KeyRound className="mt-0.5 h-5 w-5 text-amber-200" /><div className="flex-1"><p className="text-sm font-black">Verify the correct pickup</p><p className="mt-1 text-xs leading-5 text-white/50">Generate a six-digit code only when the assigned operator is physically with you. AFAT stores only its hash.</p></div></div>
@@ -119,6 +123,7 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       {status === 'pickup_verified' && <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-4"><CheckCircle2 className="h-5 w-5 text-emerald-200" /><p className="text-xs font-bold text-emerald-50">Pickup identity verified. The assigned operator can now start the journey.</p></div>}
       {status === 'in_journey' && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-50"><strong>Journey active.</strong> AFAT can resume this dispatch after a reload and real-device GPS samples queue when connectivity drops.</div>}
       {status === 'emergency' && <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-400/25 bg-red-500/10 p-4"><AlertTriangle className="mt-0.5 h-5 w-5 text-red-200" /><p className="text-xs leading-5 text-red-50">Emergency state is active for this journey. Journey completion should not erase its incident evidence.</p></div>}
+      {['arrived','pickup_verified','in_journey','emergency','disputed','completed'].includes(status) && <div className="mt-4"><JourneyFieldReportPanel assignmentId={assignment.id} onSubmitted={onChanged} /></div>}
 
       {['completed','disputed'].includes(status) && (
         <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">

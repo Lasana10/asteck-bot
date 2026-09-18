@@ -31,12 +31,14 @@ export class PaymentService {
   private pawaPayBaseUrl: string;
 
   constructor() {
-    this.apiKey = process.env.PAWAPAY_API_TOKEN || process.env.PAYMENT_API_KEY || '';
+    this.apiKey = process.env.PAWAPAY_API_TOKEN || process.env.PAWAPAY_API_KEY || process.env.PAYMENT_API_KEY || '';
     this.provider = process.env.PAYMENT_PROVIDER || 'pawapay'; // pawapay | campay | africastalking
     const pawaPayEnv = (process.env.PAWAPAY_ENV || process.env.NODE_ENV || 'sandbox').toLowerCase();
-    this.pawaPayBaseUrl =
+    this.pawaPayBaseUrl = (
+      process.env.PAWAPAY_API_URL ||
       process.env.PAWAPAY_BASE_URL ||
-      (pawaPayEnv === 'production' ? 'https://api.pawapay.io/v2' : 'https://api.sandbox.pawapay.io/v2');
+      (pawaPayEnv === 'production' ? 'https://api.pawapay.io' : 'https://api.sandbox.pawapay.io')
+    ).replace(/\/$/, '');
   }
 
   private normalizeCameroonPhone(phone: string) {
@@ -104,7 +106,7 @@ export class PaymentService {
       try {
         const mobileProvider = this.inferCameroonProvider(formattedPhone, requestedNetwork);
 
-        const response = await fetch(`${this.pawaPayBaseUrl}/deposits`, {
+        const response = await fetch(`${this.pawaPayBaseUrl}/v2/deposits`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${this.apiKey}`,
@@ -121,7 +123,13 @@ export class PaymentService {
                 provider: mobileProvider
               }
             },
-            customerMessage: `AFAT ${recipientDescription}`.slice(0, 160)
+            clientReferenceId: `AFAT-${transactionId}`.slice(0, 50),
+            customerMessage: `AFAT ${recipientDescription}`.replace(/\s+/g, ' ').trim().slice(0, 22) || 'AFAT ride payment',
+            metadata: [
+              { system: 'AFAT' },
+              { reference: transactionId },
+              { description: recipientDescription.slice(0, 120) }
+            ]
           }),
         });
 
@@ -211,7 +219,7 @@ export class PaymentService {
 
     if (this.provider === 'pawapay' && this.apiKey) {
       try {
-        const response = await fetch(`${this.pawaPayBaseUrl}/payouts`, {
+        const response = await fetch(`${this.pawaPayBaseUrl}/v2/payouts`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${this.apiKey}`,
@@ -302,6 +310,28 @@ export class PaymentService {
     };
   }
 
+  async checkPawaPayAvailability(): Promise<{ configured: boolean; environment: string; cameroonAvailable: boolean; status?: number; message: string }> {
+    const environment = (process.env.PAWAPAY_ENV || 'sandbox').toLowerCase();
+    if (!this.apiKey || this.provider !== 'pawapay') {
+      return { configured: false, environment, cameroonAvailable: false, message: 'PawaPay is not configured.' };
+    }
+
+    try {
+      const response = await fetch(`${this.pawaPayBaseUrl}/v2/availability`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        signal: AbortSignal.timeout(12000),
+      });
+      const data: any = await response.json().catch(() => null);
+      if (!response.ok) {
+        return { configured: true, environment, cameroonAvailable: false, status: response.status, message: `PawaPay availability returned HTTP ${response.status}.` };
+      }
+      const cameroonAvailable = Array.isArray(data) && data.some((entry: any) => entry?.country === 'CMR');
+      return { configured: true, environment, cameroonAvailable, status: response.status, message: cameroonAvailable ? 'PawaPay reports Cameroon availability.' : 'PawaPay responded, but Cameroon was not listed as available.' };
+    } catch (error: any) {
+      return { configured: true, environment, cameroonAvailable: false, message: error?.message || 'PawaPay availability check failed.' };
+    }
+  }
+
   /**
    * Check the status of a previously initiated payment
    */
@@ -310,7 +340,7 @@ export class PaymentService {
 
     if (this.provider === 'pawapay' && this.apiKey) {
        try {
-         const response = await fetch(`${this.pawaPayBaseUrl}/deposits/${transactionId}`, {
+         const response = await fetch(`${this.pawaPayBaseUrl}/v2/deposits/${encodeURIComponent(transactionId)}`, {
            headers: { 'Authorization': `Bearer ${this.apiKey}` },
          });
          const data = await response.json();

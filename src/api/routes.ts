@@ -489,7 +489,9 @@ async function appendPaymentEvent(entry: any) {
 
 function validateWebhookSecret(req: Request) {
   const expected = process.env.PAWAPAY_WEBHOOK_SECRET || process.env.AFAT_WEBHOOK_SECRET;
-  if (!expected) return true;
+  if (!expected) {
+    return process.env.NODE_ENV !== 'production' || process.env.AFAT_ALLOW_UNSIGNED_PAWAPAY_CALLBACKS === 'true';
+  }
 
   const provided = String(
     req.headers['x-afat-webhook-secret'] ||
@@ -1787,7 +1789,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
 
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('id, passenger_id, price_paid, status, payment_status')
+      .select('id, passenger_id, price_xaf, price_paid, status, payment_status')
       .eq('id', booking_id)
       .eq('passenger_id', session.profile.id)
       .maybeSingle();
@@ -1795,11 +1797,12 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
     if (bookingError || !booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
-    if (booking.status !== 'pending' || !['unpaid', 'failed'].includes(String(booking.payment_status))) {
-      return res.status(409).json({ error: 'Booking is not ready for payment' });
+    const payableStatuses = ['pending','accepted','confirmed','boarded','in_progress','completed'];
+    if (!payableStatuses.includes(String(booking.status || '')) || !['unpaid', 'failed'].includes(String(booking.payment_status))) {
+      return res.status(409).json({ error: 'Booking is not ready for mobile-money payment' });
     }
 
-    const parsedAmount = Number(booking.price_paid);
+    const parsedAmount = Number(booking.price_xaf ?? booking.price_paid);
     if (!Number.isInteger(parsedAmount) || parsedAmount <= 0) {
       return res.status(409).json({ error: 'Booking has no valid server-side fare' });
     }
@@ -1818,7 +1821,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       })
       .eq('id', booking_id)
       .eq('passenger_id', session.profile.id)
-      .eq('status', 'pending')
+      .in('status', ['pending','accepted','confirmed','boarded','in_progress','completed'])
       .in('payment_status', ['unpaid', 'failed'])
       .select('id')
       .maybeSingle();
@@ -1879,11 +1882,12 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/payment/provider-readiness', (_req: Request, res: Response) => {
+router.get('/payment/provider-readiness', async (_req: Request, res: Response) => {
   const provider = process.env.PAYMENT_PROVIDER || 'pawapay';
-  const hasPawaPay = Boolean(process.env.PAWAPAY_API_TOKEN || process.env.PAYMENT_API_KEY);
+  const hasPawaPay = Boolean(process.env.PAWAPAY_API_TOKEN || process.env.PAWAPAY_API_KEY || process.env.PAYMENT_API_KEY);
   const hasAT = Boolean(process.env.AT_API_KEY && process.env.AT_USERNAME);
   const pawaPayEnv = process.env.PAWAPAY_ENV || (process.env.NODE_ENV === 'production' ? 'production' : 'sandbox');
+  const providerProbe = hasPawaPay ? await paymentService.checkPawaPayAvailability() : null;
 
   res.status(200).json({
     success: true,
@@ -1894,12 +1898,93 @@ router.get('/payment/provider-readiness', (_req: Request, res: Response) => {
       pawapay: hasPawaPay,
       africastalking: hasAT
     },
+    provider_probe: providerProbe,
+    callback_security: {
+      secret_configured: Boolean(process.env.PAWAPAY_WEBHOOK_SECRET || process.env.AFAT_WEBHOOK_SECRET),
+      unsigned_callbacks_explicitly_allowed: process.env.AFAT_ALLOW_UNSIGNED_PAWAPAY_CALLBACKS === 'true',
+    },
     mode: hasPawaPay || hasAT ? 'live_or_hybrid' : 'stub',
     recommendation: hasPawaPay
-      ? 'PawaPay is configured.'
-      : 'Configure PAYMENT_API_KEY (PawaPay) for live collection.'
+      ? 'PawaPay credentials are configured; use provider reconciliation as the settlement source of truth.'
+      : 'Configure PAWAPAY_API_TOKEN or PAWAPAY_API_KEY for live collection.'
   });
 });
+router.post('/payment/reconcile', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAuthRole(req, res);
+    if (!session) return;
+    const bookingId = String(req.body?.booking_id || '').trim();
+    if (!bookingId) return res.status(400).json({ error: 'booking_id is required' });
+
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id,passenger_id,operator_id,transaction_id,payment_status,price_xaf,price_paid,status')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (bookingError) throw bookingError;
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const workspaceRole = String(session.workspaceRole || session.profile.role || '').toLowerCase();
+    const isStaff = ['planner','admin'].includes(workspaceRole);
+    if (!isStaff && booking.passenger_id !== session.profile.id && booking.operator_id !== session.profile.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!booking.transaction_id) {
+      return res.status(409).json({ error: 'No mobile-money transaction is attached to this booking.' });
+    }
+
+    const providerResult = await paymentService.checkPaymentStatus(booking.transaction_id);
+    const rawStatus = String(providerResult.rawStatus || providerResult.message || '').toUpperCase();
+
+    await appendPaymentEvent({
+      booking_id: booking.id,
+      provider: providerResult.provider || 'pawapay',
+      external_id: booking.transaction_id,
+      event_type: 'status_reconciled',
+      event_status: rawStatus || 'UNKNOWN',
+      amount_xaf: Number(booking.price_xaf ?? booking.price_paid ?? 0) || null,
+      metadata: {
+        source: 'authenticated_reconciliation',
+        requested_by: session.profile.id,
+        workspace_role: workspaceRole,
+      },
+    });
+
+    let reconciledBooking = booking;
+    if (rawStatus === 'COMPLETED') {
+      const { data, error } = await supabase.rpc('afat_confirm_mobile_payment', {
+        p_booking_id: booking.id,
+        p_transaction_id: booking.transaction_id,
+        p_provider: 'pawapay',
+      });
+      if (error) throw error;
+      reconciledBooking = data || booking;
+    } else if (['FAILED','REJECTED','CANCELLED'].includes(rawStatus) && booking.payment_status === 'collection_pending') {
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({ payment_status: 'failed', updated_at: new Date().toISOString() })
+        .eq('id', booking.id)
+        .eq('transaction_id', booking.transaction_id)
+        .eq('payment_status', 'collection_pending')
+        .select('*')
+        .maybeSingle();
+      if (error) throw error;
+      reconciledBooking = data || booking;
+    }
+
+    return res.status(200).json({
+      success: true,
+      provider: providerResult.provider || 'pawapay',
+      provider_status: rawStatus || 'UNKNOWN',
+      booking: reconciledBooking,
+      settled: rawStatus === 'COMPLETED',
+    });
+  } catch (error: any) {
+    console.error('Payment reconciliation error:', error);
+    return res.status(502).json({ error: error?.message || 'Payment reconciliation failed' });
+  }
+});
+
 
 router.get('/mobility/departures', async (_req: Request, res: Response) => {
   try {
@@ -1983,11 +2068,23 @@ router.post('/webhook/pawapay', async (req: Request, res: Response) => {
 
     console.log(`💰 PawaPay webhook: ${transactionId} (Ext: ${externalId || 'lookup-by-transaction'}) → ${status}`);
 
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('id, operator_id, price_paid, payment_status')
-      .eq(externalId ? 'id' : 'transaction_id', externalId || transactionId)
-      .maybeSingle();
+    let booking: any = null;
+    if (transactionId) {
+      const { data } = await supabase
+        .from('bookings')
+        .select('id, operator_id, price_xaf, price_paid, payment_status')
+        .eq('transaction_id', transactionId)
+        .maybeSingle();
+      booking = data || null;
+    }
+    if (!booking && externalId && /^[0-9a-f-]{36}$/i.test(String(externalId))) {
+      const { data } = await supabase
+        .from('bookings')
+        .select('id, operator_id, price_xaf, price_paid, payment_status')
+        .eq('id', externalId)
+        .maybeSingle();
+      booking = data || null;
+    }
 
     await appendPaymentEvent({
       booking_id: booking?.id || externalId || null,
@@ -1995,7 +2092,7 @@ router.post('/webhook/pawapay', async (req: Request, res: Response) => {
       external_id: transactionId || null,
       event_type: 'callback_received',
       event_status: status || 'UNKNOWN',
-      amount_xaf: Number(booking?.price_paid || 0) || null,
+      amount_xaf: Number(booking?.price_xaf ?? booking?.price_paid ?? 0) || null,
       metadata: req.body,
     });
 
@@ -2017,7 +2114,7 @@ router.post('/webhook/pawapay', async (req: Request, res: Response) => {
           payment_status: 'failed',
           updated_at: new Date().toISOString()
         })
-        .eq(externalId ? 'id' : 'transaction_id', externalId || transactionId);
+        .eq(booking?.id ? 'id' : 'transaction_id', booking?.id || transactionId);
     }
 
     res.status(200).json({ received: true });

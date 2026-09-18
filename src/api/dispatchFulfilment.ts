@@ -203,6 +203,289 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
   }
 });
 
+
+
+router.get('/dispatch/:assignmentId/fare-quote', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    const { data: assignment, error: assignmentError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,dispatcher_id,status')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (assignmentError) throw assignmentError;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+
+    let participant = ['planner','admin'].includes(role)
+      || assignment.operator_id === access.profile.id
+      || assignment.dispatcher_id === access.profile.id;
+    if (!participant) participant = await passengerOwnsBooking(access.profile.id, assignment.booking_id);
+    if (!participant) return res.status(403).json({ error: 'Forbidden' });
+
+    await supabase
+      .from('afat_fare_quotes')
+      .update({ status: 'expired', updated_at: new Date().toISOString() })
+      .eq('dispatch_assignment_id', assignmentId)
+      .eq('status', 'proposed')
+      .lt('expires_at', new Date().toISOString());
+
+    const { data, error } = await supabase
+      .from('afat_fare_quotes')
+      .select('*')
+      .eq('dispatch_assignment_id', assignmentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return res.status(200).json({ quote: data || null });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Fare quote unavailable.' });
+  }
+});
+
+router.post('/dispatch/:assignmentId/fare-quote', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    if (!['operator','planner','admin'].includes(role)) {
+      return res.status(403).json({ error: 'Only the assigned Operator or AFAT operations staff can propose a fare.' });
+    }
+
+    const amountXaf = Number(req.body?.amount_xaf);
+    if (!Number.isInteger(amountXaf) || amountXaf < 50 || amountXaf > 10000000) {
+      return res.status(400).json({ error: 'Fare must be an integer amount in XAF.' });
+    }
+    const fareSource = String(req.body?.fare_source || '').trim().toLowerCase() || 'operator_quote';
+    const rationale = String(req.body?.rationale || '').trim().slice(0, 1000) || null;
+
+    const { data, error } = await supabase.rpc('afat_propose_fare_quote', {
+      p_assignment_id: assignmentId,
+      p_actor_profile_id: access.profile.id,
+      p_actor_workspace: role,
+      p_amount_xaf: amountXaf,
+      p_fare_source: fareSource,
+      p_rationale: rationale,
+    });
+    if (error) throw error;
+    return res.status(201).json({ quote: data });
+  } catch (error: any) {
+    const mapped = publicDispatchError(error);
+    return res.status(mapped.status).json({ error: error?.message || mapped.error || 'Fare quote could not be created.' });
+  }
+});
+
+router.post('/dispatch/:assignmentId/fare-quote/decision', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['commuter']);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+    if (!['accepted','rejected'].includes(decision)) {
+      return res.status(400).json({ error: 'Fare decision must be accepted or rejected.' });
+    }
+
+    const { data, error } = await supabase.rpc('afat_decide_fare_quote', {
+      p_assignment_id: assignmentId,
+      p_passenger_id: access.profile.id,
+      p_decision: decision,
+    });
+    if (error) throw error;
+    return res.status(200).json({
+      quote: data?.quote || null,
+      booking: data?.booking || null,
+      payable: decision === 'accepted',
+    });
+  } catch (error: any) {
+    const mapped = publicDispatchError(error);
+    return res.status(mapped.status).json({ error: error?.message || mapped.error || 'Fare decision could not be saved.' });
+  }
+});
+
+router.get('/dispatch/:assignmentId/field-reports', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    const { data: assignment, error: assignmentError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,dispatcher_id')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (assignmentError) throw assignmentError;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+
+    let participant = ['planner','admin'].includes(role)
+      || assignment.operator_id === access.profile.id
+      || assignment.dispatcher_id === access.profile.id;
+    if (!participant) participant = await passengerOwnsBooking(access.profile.id, assignment.booking_id);
+    if (!participant) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .select('*')
+      .eq('dispatch_assignment_id', assignmentId)
+      .order('recorded_at', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    return res.status(200).json({ reports: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field reports unavailable.' });
+  }
+});
+
+router.post('/dispatch/:assignmentId/field-report', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    if (!['commuter','operator','planner','admin'].includes(role)) {
+      return res.status(403).json({ error: 'This workspace cannot submit field evidence.' });
+    }
+
+    const reportType = String(req.body?.report_type || '').trim().toLowerCase();
+    const allowedTypes = new Set([
+      'road_obstruction','crash','unsafe_pickup','security_concern','vehicle_issue',
+      'service_problem','route_issue','medical','other'
+    ]);
+    if (!allowedTypes.has(reportType)) return res.status(400).json({ error: 'Unsupported field report type.' });
+
+    const severity = Number(req.body?.severity ?? 2);
+    if (!Number.isInteger(severity) || severity < 1 || severity > 5) {
+      return res.status(400).json({ error: 'Severity must be an integer from 1 to 5.' });
+    }
+
+    const description = String(req.body?.description || '').trim().slice(0, 2000);
+    const title = String(req.body?.title || '').trim().slice(0, 180) || null;
+    const latitude = finiteCoordinate(req.body?.latitude, -90, 90);
+    const longitude = finiteCoordinate(req.body?.longitude, -180, 180);
+    const accuracy = req.body?.accuracy_m == null ? null : Number(req.body.accuracy_m);
+    const recordedAt = new Date(typeof req.body?.recorded_at === 'string' ? req.body.recorded_at : Date.now());
+    if (Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Invalid recorded_at.' });
+    if ((latitude == null) !== (longitude == null)) return res.status(400).json({ error: 'Latitude and longitude must be supplied together.' });
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > 5000)) {
+      return res.status(400).json({ error: 'accuracy_m is outside the accepted range.' });
+    }
+
+    const { data: assignment, error: assignmentError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,dispatcher_id,status')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (assignmentError) throw assignmentError;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+
+    let participant = ['planner','admin'].includes(role)
+      || assignment.operator_id === access.profile.id
+      || assignment.dispatcher_id === access.profile.id;
+    if (!participant) participant = await passengerOwnsBooking(access.profile.id, assignment.booking_id);
+    if (!participant) return res.status(403).json({ error: 'Only dispatch participants or AFAT operations staff can submit field evidence.' });
+
+    const { data: journey, error: journeyError } = await supabase
+      .from('afat_journeys')
+      .select('id,status,started_at,completed_at')
+      .eq('dispatch_assignment_id', assignmentId)
+      .maybeSingle();
+    if (journeyError && journeyError.code !== 'PGRST116') throw journeyError;
+
+    if (['commuter','operator'].includes(role) && !['arrived','pickup_verified','in_journey','emergency','disputed','completed'].includes(String(assignment.status || '').toLowerCase())) {
+      return res.status(409).json({ error: 'Journey-linked field reporting becomes available from pickup arrival onward.' });
+    }
+
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .insert({
+        dispatch_assignment_id: assignmentId,
+        journey_id: journey?.id || null,
+        booking_id: assignment.booking_id || null,
+        reporter_profile_id: access.profile.id,
+        reporter_workspace: role,
+        report_type: reportType,
+        severity,
+        title,
+        description: description || null,
+        latitude,
+        longitude,
+        accuracy_m: accuracy,
+        recorded_at: recordedAt.toISOString(),
+        source: role === 'operator' ? 'operator_app' : role === 'planner' ? 'planner_console' : role === 'admin' ? 'admin_console' : 'journey_app',
+        evidence: {
+          dispatch_status: assignment.status,
+          journey_status: journey?.status || null,
+          has_location: latitude != null && longitude != null,
+          location_accuracy_m: accuracy,
+        },
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    return res.status(201).json({ report: data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field report could not be recorded.' });
+  }
+});
+
+
+router.get('/ops/field-reports', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['planner','admin']);
+  if (!access) return;
+  try {
+    const requestedStatuses = String(req.query.status || 'submitted,triaged')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => ['submitted','triaged','verified','rejected','resolved'].includes(value));
+    const statuses = requestedStatuses.length ? requestedStatuses : ['submitted','triaged'];
+    const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 200);
+
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .select('*, profiles:reporter_profile_id(id,full_name,preferred_city), dispatch_assignments:dispatch_assignment_id(id,status,operator_id,vehicle_id,booking_id)')
+      .in('status', statuses)
+      .order('severity', { ascending: false })
+      .order('recorded_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return res.status(200).json({ reports: data || [], statuses });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field operations queue unavailable.' });
+  }
+});
+
+router.patch('/field-reports/:reportId', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['planner','admin']);
+  if (!access) return;
+  try {
+    const reportId = String(req.params.reportId || '').trim();
+    const nextStatus = String(req.body?.status || '').trim().toLowerCase();
+    if (!['triaged','verified','rejected','resolved'].includes(nextStatus)) {
+      return res.status(400).json({ error: 'Unsupported field report review state.' });
+    }
+    const notes = String(req.body?.resolution_notes || '').trim().slice(0, 2000) || null;
+    const { data, error } = await supabase.rpc('afat_review_field_report', {
+      p_report_id: reportId,
+      p_reviewer_id: access.profile.id,
+      p_status: nextStatus,
+      p_resolution_notes: notes,
+    });
+    if (error) throw error;
+    return res.status(200).json({
+      report: data?.report || null,
+      incident: data?.incident || null,
+      promoted_to_live_incident: Boolean(data?.incident?.id),
+    });
+  } catch (error: any) {
+    const mapped = publicDispatchError(error);
+    return res.status(mapped.status).json({ error: error?.message || mapped.error || 'Field report review failed.' });
+  }
+});
+
 router.post('/dispatch/:assignmentId/pickup-code', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['commuter']);
   if (!access) return;
