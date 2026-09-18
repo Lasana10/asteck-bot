@@ -1689,6 +1689,64 @@ export async function transitionDispatch(
   }
 }
 
+export async function fetchFieldReports(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${assignmentId}/field-reports`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Field reports unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function submitFieldReport(assignmentId: string, payload: {
+  report_type: 'road_obstruction' | 'crash' | 'unsafe_pickup' | 'security_concern' | 'vehicle_issue' | 'service_problem' | 'route_issue' | 'medical' | 'other';
+  severity: number;
+  title?: string;
+  description?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy_m?: number | null;
+  recorded_at?: string;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${assignmentId}/field-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Field report failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function reviewFieldReport(reportId: string, payload: {
+  status: 'triaged' | 'verified' | 'rejected' | 'resolved';
+  resolution_notes?: string;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/field-reports/${reportId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Field report review failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function createPickupCode(assignmentId: string) {
   try {
     const authHeaders = await authenticatedApiHeaders();
