@@ -1778,6 +1778,7 @@ export async function submitFieldReport(assignmentId: string, payload: {
   longitude?: number | null;
   accuracy_m?: number | null;
   recorded_at?: string;
+  mutation_id?: string;
 }) {
   try {
     const authHeaders = await authenticatedApiHeaders();
@@ -2101,6 +2102,20 @@ export async function fetchPaymentProviderReadiness() {
     const res = await fetch(`${getApiBaseUrl()}/api/payment/provider-readiness`);
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Payment readiness fetch failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchOperationalHealth() {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/operational-health`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Operational health unavailable.' } };
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };

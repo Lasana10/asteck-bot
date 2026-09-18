@@ -2,6 +2,7 @@ import React from 'react';
 import { Activity, AlertTriangle, BarChart3, CheckCircle2, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { FieldReportTriageList } from '../shared/FieldReportTriageList';
+import { OperationalHealthPanel } from '../shared/OperationalHealthPanel';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -72,6 +73,10 @@ export function PlannerWorkspaceTabs({
               </article>
             ))}
             {!live.incidents.length && <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No validated movement failure requires action.</p>}
+          </div>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <p className="mb-3 text-[9px] font-black uppercase tracking-widest text-amber-200">Operational health</p>
+            <OperationalHealthPanel health={operations?.health} />
           </div>
           <div className="mt-6 border-t border-white/10 pt-5">
             <p className="mb-3 text-[9px] font-black uppercase tracking-widest text-amber-200">Journey field reports</p>
