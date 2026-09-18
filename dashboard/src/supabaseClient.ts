@@ -2108,6 +2108,20 @@ export async function fetchPaymentProviderReadiness() {
   }
 }
 
+export async function fetchOperationalHealth() {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/ops/operational-health`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Operational health unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchComplianceRadar() {
   try {
     const authHeaders = await authenticatedApiHeaders();
