@@ -363,6 +363,10 @@ router.post('/dispatch/:assignmentId/field-report', async (req: Request, res: Re
 
     const description = String(req.body?.description || '').trim().slice(0, 2000);
     const title = String(req.body?.title || '').trim().slice(0, 180) || null;
+    const mutationId = String(req.body?.mutation_id || req.header('Idempotency-Key') || '').trim();
+    if (mutationId && (mutationId.length < 8 || mutationId.length > 200)) {
+      return res.status(400).json({ error: 'mutation_id must be 8-200 characters when supplied.' });
+    }
     const latitude = finiteCoordinate(req.body?.latitude, -90, 90);
     const longitude = finiteCoordinate(req.body?.longitude, -180, 180);
     const accuracy = req.body?.accuracy_m == null ? null : Number(req.body.accuracy_m);
@@ -398,35 +402,61 @@ router.post('/dispatch/:assignmentId/field-report', async (req: Request, res: Re
       return res.status(409).json({ error: 'Journey-linked field reporting becomes available from pickup arrival onward.' });
     }
 
+    if (mutationId) {
+      const { data: existing, error: existingError } = await supabase
+        .from('afat_field_reports')
+        .select('*')
+        .eq('reporter_profile_id', access.profile.id)
+        .eq('mutation_id', mutationId)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing) return res.status(200).json({ report: existing, replayed: true });
+    }
+
+    const payload = {
+      dispatch_assignment_id: assignmentId,
+      journey_id: journey?.id || null,
+      booking_id: assignment.booking_id || null,
+      reporter_profile_id: access.profile.id,
+      reporter_workspace: role,
+      report_type: reportType,
+      severity,
+      title,
+      description: description || null,
+      latitude,
+      longitude,
+      accuracy_m: accuracy,
+      recorded_at: recordedAt.toISOString(),
+      source: role === 'operator' ? 'operator_app' : role === 'planner' ? 'planner_console' : role === 'admin' ? 'admin_console' : 'journey_app',
+      mutation_id: mutationId || null,
+      evidence: {
+        dispatch_status: assignment.status,
+        journey_status: journey?.status || null,
+        has_location: latitude != null && longitude != null,
+        location_accuracy_m: accuracy,
+      },
+    };
+
     const { data, error } = await supabase
       .from('afat_field_reports')
-      .insert({
-        dispatch_assignment_id: assignmentId,
-        journey_id: journey?.id || null,
-        booking_id: assignment.booking_id || null,
-        reporter_profile_id: access.profile.id,
-        reporter_workspace: role,
-        report_type: reportType,
-        severity,
-        title,
-        description: description || null,
-        latitude,
-        longitude,
-        accuracy_m: accuracy,
-        recorded_at: recordedAt.toISOString(),
-        source: role === 'operator' ? 'operator_app' : role === 'planner' ? 'planner_console' : role === 'admin' ? 'admin_console' : 'journey_app',
-        evidence: {
-          dispatch_status: assignment.status,
-          journey_status: journey?.status || null,
-          has_location: latitude != null && longitude != null,
-          location_accuracy_m: accuracy,
-        },
-      })
+      .insert(payload)
       .select('*')
       .single();
-    if (error) throw error;
+    if (error) {
+      if (mutationId && error.code === '23505') {
+        const { data: existing, error: existingError } = await supabase
+          .from('afat_field_reports')
+          .select('*')
+          .eq('reporter_profile_id', access.profile.id)
+          .eq('mutation_id', mutationId)
+          .single();
+        if (existingError) throw existingError;
+        return res.status(200).json({ report: existing, replayed: true });
+      }
+      throw error;
+    }
 
-    return res.status(201).json({ report: data });
+    return res.status(201).json({ report: data, replayed: false });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Field report could not be recorded.' });
   }
