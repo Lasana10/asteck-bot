@@ -330,6 +330,32 @@ router.post('/dispatch/:assignmentId/field-report', async (req: Request, res: Re
   }
 });
 
+
+router.get('/ops/field-reports', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['planner','admin']);
+  if (!access) return;
+  try {
+    const requestedStatuses = String(req.query.status || 'submitted,triaged')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => ['submitted','triaged','verified','rejected','resolved'].includes(value));
+    const statuses = requestedStatuses.length ? requestedStatuses : ['submitted','triaged'];
+    const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 200);
+
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .select('*, profiles:reporter_profile_id(id,full_name,preferred_city), dispatch_assignments:dispatch_assignment_id(id,status,operator_id,vehicle_id,booking_id)')
+      .in('status', statuses)
+      .order('severity', { ascending: false })
+      .order('recorded_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return res.status(200).json({ reports: data || [], statuses });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field operations queue unavailable.' });
+  }
+});
+
 router.patch('/field-reports/:reportId', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['planner','admin']);
   if (!access) return;
