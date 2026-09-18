@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, KeyRound, Receipt, ShieldCheck, Star, XCircle } from 'lucide-react';
 import { createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
+import { FarePaymentPanel } from '../shared/FarePaymentPanel';
 
 type Props = {
   assignment: any | null;
@@ -109,6 +110,8 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><Clock3 className="h-4 w-4 text-blue-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Current step</p><p className="mt-1 text-xs font-black">{human(status)}</p></div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Truth source</p><p className="mt-1 text-xs font-black">Live dispatch record</p></div>
       </div>
+
+      <div className="mt-4"><FarePaymentPanel mode="passenger" assignment={assignment} onChanged={onChanged} /></div>
 
       {status === 'arrived' && (
         <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-400/10 p-4">
