@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, Building2, CheckCircle2, FileCheck2, Landmark, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
+import { FieldReportTriageList } from './FieldReportTriageList';
 
 type Role = 'organization' | 'government' | 'admin';
 type Tab = 'bookings' | 'notifications' | 'profile';
@@ -27,6 +28,7 @@ export function InstitutionalWorkspaceTabs({
   live,
   operations,
   onSignOut,
+  onChanged,
 }: {
   role: Role;
   activeTab: Tab;
@@ -35,11 +37,13 @@ export function InstitutionalWorkspaceTabs({
   live: RoleWorkspaceLiveFeed;
   operations: any;
   onSignOut: () => void;
+  onChanged?: () => void;
 }) {
   const copy = COPY[role];
   const Icon = copy.icon;
   const identity = role === 'organization' ? membership?.companies : role === 'government' ? membership?.partner : profile;
   const adminReports = operations?.reports?.reports || [];
+  const fieldReports = operations?.fieldReports || [];
   const compliance = operations?.compliance?.summary || {};
   const queueItems = role === 'admin'
     ? adminReports
@@ -92,6 +96,10 @@ export function InstitutionalWorkspaceTabs({
             ))}
             {!noticeItems.length && <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No {copy.notices.toLowerCase()} item requires attention.</p>}
           </div>
+          {role === 'admin' && <div className="mt-6 border-t border-white/10 pt-5">
+            <p className="mb-3 text-[9px] font-black uppercase tracking-widest text-amber-200">Journey field evidence</p>
+            <FieldReportTriageList reports={fieldReports} onChanged={onChanged} />
+          </div>}
         </Surface>
       </div>
     );
