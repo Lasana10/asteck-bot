@@ -3474,6 +3474,122 @@ router.get('/ops/compliance-radar', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/ops/operational-health', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['admin', 'planner']);
+  if (!access) return;
+
+  try {
+    const now = Date.now();
+    const dispatchCutoff = new Date(now - 20 * 60 * 1000).toISOString();
+    const paymentCutoff = new Date(now - 10 * 60 * 1000).toISOString();
+    const telemetryCutoff = new Date(now - 8 * 60 * 1000).toISOString();
+
+    const [
+      stuckDispatchResult,
+      pendingPaymentResult,
+      activeJourneyResult,
+      recentSamplesResult,
+      fieldReportResult,
+      staleVehicleResult,
+    ] = await Promise.all([
+      supabase
+        .from('dispatch_assignments')
+        .select('id,status,operator_id,vehicle_id,booking_id,updated_at')
+        .in('status', ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','reassigned'])
+        .lt('updated_at', dispatchCutoff)
+        .order('updated_at', { ascending: true })
+        .limit(50),
+      supabase
+        .from('bookings')
+        .select('id,transaction_id,payment_status,price_xaf,updated_at')
+        .eq('payment_status', 'collection_pending')
+        .lt('updated_at', paymentCutoff)
+        .order('updated_at', { ascending: true })
+        .limit(50),
+      supabase
+        .from('afat_journeys')
+        .select('id,dispatch_assignment_id,passenger_id,operator_id,vehicle_id,status,started_at,updated_at')
+        .eq('status', 'active')
+        .order('updated_at', { ascending: true })
+        .limit(100),
+      supabase
+        .from('afat_journey_samples')
+        .select('journey_id,recorded_at')
+        .gte('recorded_at', telemetryCutoff)
+        .limit(1000),
+      supabase
+        .from('afat_field_reports')
+        .select('id,dispatch_assignment_id,report_type,severity,status,recorded_at')
+        .in('status', ['submitted','triaged'])
+        .order('severity', { ascending: false })
+        .order('recorded_at', { ascending: true })
+        .limit(100),
+      supabase
+        .from('vehicles')
+        .select('id,operator_id,plate_number,type,is_available,last_ping_at,status,clearance_status')
+        .eq('is_available', true)
+        .or(`last_ping_at.is.null,last_ping_at.lt.${telemetryCutoff}`)
+        .limit(100),
+    ]);
+
+    const errors = [
+      stuckDispatchResult.error,
+      pendingPaymentResult.error,
+      activeJourneyResult.error,
+      recentSamplesResult.error,
+      fieldReportResult.error,
+      staleVehicleResult.error,
+    ].filter(Boolean);
+    if (errors.length) throw errors[0];
+
+    const sampledJourneys = new Set((recentSamplesResult.data || []).map((sample: any) => sample.journey_id));
+    const journeysWithoutRecentEvidence = (activeJourneyResult.data || [])
+      .filter((journey: any) => !sampledJourneys.has(journey.id));
+
+    const stuckDispatches = stuckDispatchResult.data || [];
+    const pendingPayments = pendingPaymentResult.data || [];
+    const fieldReports = fieldReportResult.data || [];
+    const staleVehicles = staleVehicleResult.data || [];
+
+    const critical =
+      journeysWithoutRecentEvidence.length
+      + fieldReports.filter((report: any) => Number(report.severity || 0) >= 4).length;
+    const warning =
+      stuckDispatches.length
+      + pendingPayments.length
+      + staleVehicles.length
+      + fieldReports.filter((report: any) => Number(report.severity || 0) < 4).length;
+
+    return res.status(200).json({
+      success: true,
+      generated_at: new Date().toISOString(),
+      thresholds: {
+        dispatch_stuck_minutes: 20,
+        payment_pending_minutes: 10,
+        journey_evidence_stale_minutes: 8,
+      },
+      summary: {
+        critical,
+        warning,
+        healthy: critical === 0 && warning === 0,
+        stuck_dispatches: stuckDispatches.length,
+        stale_payments: pendingPayments.length,
+        journeys_without_recent_evidence: journeysWithoutRecentEvidence.length,
+        unreviewed_field_reports: fieldReports.length,
+        stale_available_vehicles: staleVehicles.length,
+      },
+      stuck_dispatches: stuckDispatches,
+      stale_payments: pendingPayments,
+      journeys_without_recent_evidence: journeysWithoutRecentEvidence,
+      field_reports: fieldReports,
+      stale_available_vehicles: staleVehicles,
+    });
+  } catch (error: any) {
+    console.error('Operational health error:', error);
+    return res.status(500).json({ error: error?.message || 'Operational health unavailable.' });
+  }
+});
+
 router.get('/dispatch/active', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['admin', 'planner']);
   if (!access) return;
