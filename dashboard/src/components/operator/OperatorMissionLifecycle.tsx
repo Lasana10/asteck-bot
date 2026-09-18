@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, KeyRound, Receipt, Route, ShieldCheck, Wal
 import { fetchJourneyClosure, transitionDispatch, updateJourneyClosure, verifyPickupCode } from '../../supabaseClient';
 import { telemetry } from '../../services/telemetryService';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
+import { FarePaymentPanel } from '../shared/FarePaymentPanel';
 
 type Props = {
   assignment: any | null;
@@ -95,6 +96,8 @@ export function OperatorMissionLifecycle({ assignment, onChanged }: Props) {
       <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Authoritative mission</p><h3 className="mt-2 text-xl font-black">Dispatch {String(assignment.id).slice(0, 8)}</h3><p className="mt-1 text-xs text-white/40">{human(status)}</p></div><span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-[9px] font-black uppercase text-emerald-100">{human(status)}</span></div>
 
       <div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl border border-white/10 bg-black/20 p-4"><Route className="h-4 w-4 text-emerald-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Mission state</p><p className="mt-1 text-xs font-black">{human(status)}</p></div><div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Authority</p><p className="mt-1 text-xs font-black">Assigned operator</p></div></div>
+
+      <div className="mt-4"><FarePaymentPanel mode="operator" assignment={assignment} onChanged={onChanged} /></div>
 
       {['accepted','assigned'].includes(status) && <button disabled={busy} onClick={() => advance('en_route','Operator departing for verified pickup')} className="mt-4 min-h-12 w-full rounded-xl bg-emerald-400 px-4 text-xs font-black text-slate-950 disabled:opacity-40">Navigate to pickup</button>}
       {status === 'en_route' && <button disabled={busy} onClick={() => advance('arrived','Operator arrived at pickup point')} className="mt-4 min-h-12 w-full rounded-xl bg-emerald-400 px-4 text-xs font-black text-slate-950 disabled:opacity-40">I am at the pickup point</button>}
