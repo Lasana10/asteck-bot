@@ -85,7 +85,7 @@ export function JourneyFieldReportPanel({
           accuracy_m: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
         });
         setLocating(false);
-        setNotice(\`Location captured with about \${Math.round(position.coords.accuracy || 0)} m accuracy.\`);
+        setNotice(`Location captured with about ${Math.round(position.coords.accuracy || 0)} m accuracy.`);
       },
       () => {
         setLocating(false);
@@ -158,7 +158,7 @@ export function JourneyFieldReportPanel({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className={\`rounded-xl border border-amber-300/20 bg-amber-300/10 font-black text-amber-100 \${compact ? 'min-h-10 px-3 text-[9px] uppercase' : 'min-h-11 px-4 text-[10px] uppercase'}\`}
+          className={`rounded-xl border border-amber-300/20 bg-amber-300/10 font-black text-amber-100 ${compact ? 'min-h-10 px-3 text-[9px] uppercase' : 'min-h-11 px-4 text-[10px] uppercase'}`}
         >
           <AlertTriangle className="mr-2 inline h-3.5 w-3.5" />
           Report what is happening
