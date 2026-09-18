@@ -42,6 +42,9 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - working-directory: dashboard
         run: npm ci
+      - name: Dashboard dependency audit (diagnostic)
+        working-directory: dashboard
+        run: npm audit --json || true
       - working-directory: dashboard
         run: npm run test:env:missing
       - working-directory: dashboard
