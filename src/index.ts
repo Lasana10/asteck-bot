@@ -16,6 +16,7 @@ import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import { CronService } from './services/CronJobs';
 import { apiRateLimiter, requestLogger, sanitizeInput, securityHeaders } from './middleware/security';
 import { getSupabaseRuntimeDiagnostics } from './infra/supabase';
+import { PaymentService } from './services/payment';
 
 dotenv.config();
 Sentry.init({ dsn: process.env.SENTRY_DSN, integrations: [nodeProfilingIntegration()], tracesSampleRate: 1.0, profilesSampleRate: 1.0 });
@@ -23,6 +24,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 const apiVersion = process.env.AFAT_API_VERSION || 'v1';
 const buildVersion = process.env.RENDER_GIT_COMMIT || process.env.CF_PAGES_COMMIT_SHA || process.env.GIT_COMMIT || 'local';
+const paymentService = new PaymentService();
 const requiredApiRoutes = ['POST /api/auth/supabase-profile','POST /api/auth/qa-bypass','POST /api/auth/send-otp','POST /api/auth/verify-otp','POST /api/onboard/passenger/register','POST /api/onboard/driver/register','POST /api/onboard/company/register','POST /api/ops/map-signal','GET /api/atlas/nearby','POST /api/atlas/observations','GET /api/dispatch','GET /api/dispatch/candidates','POST /api/dispatch/:assignmentId/candidate','GET /api/dispatch/:assignmentId','POST /api/dispatch/:assignmentId/transition','POST /api/dispatch/:assignmentId/journey/sample','GET /api/dispatch/:assignmentId/closure','POST /api/dispatch/:assignmentId/closure','GET /health','GET /health/live','GET /health/ready','GET /health/contract'];
 app.disable('x-powered-by');
 const allowedOrigins=[process.env.FRONTEND_URL,process.env.CLOUDFLARE_PREVIEW_URL,'https://asteck-bot.pages.dev','https://c56d4984.asteck-bot.pages.dev','https://asteck-bot.asanadaniel8.workers.dev','https://dashboard.afat.cm','http://localhost:5173','http://localhost:3000'].filter(Boolean) as string[];
@@ -35,7 +37,7 @@ async function startBot(){try{const telegramService=new TelegramService();schedu
 async function main(){const missing:string[]=[];if(!process.env.TELEGRAM_BOT_TOKEN)missing.push('TELEGRAM_BOT_TOKEN');if(!process.env.SUPABASE_URL)missing.push('SUPABASE_URL');if(!process.env.SUPABASE_SERVICE_ROLE_KEY&&!process.env.SUPABASE_SECRET_KEY&&!process.env.SUPABASE_SERVICE_KEY&&!process.env.SUPABASE_KEY)missing.push('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY');if(missing.length){console.error('Missing environment variables:',missing.join(', '));process.exit(1);}CronService.init();
 app.get('/health',(_req,res)=>res.status(200).json({status:'UP',service:'AFAT',version:apiVersion,build:buildVersion,api_mount:'/api',contract:'/health/contract'}));
 app.get('/health/live',(_req,res)=>res.status(200).json({status:'live',service:'AFAT',build:buildVersion,timestamp:new Date().toISOString()}));
-app.get('/health/ready',async(_req,res)=>{try{const {error}=await import('./infra/supabase').then(({supabase})=>supabase.from('profiles').select('id',{count:'exact',head:true}).limit(1));if(error)throw error;res.status(200).json({status:'ready',service:'AFAT',dependencies:{database:'ready'},build:buildVersion});}catch(error:any){res.status(503).json({status:'degraded',service:'AFAT',dependencies:{database:'unavailable'},error:error?.message||'Readiness check failed',build:buildVersion});}});
+app.get('/health/ready',async(_req,res)=>{try{const {error}=await import('./infra/supabase').then(({supabase})=>supabase.from('profiles').select('id',{count:'exact',head:true}).limit(1));if(error)throw error;const payments=await paymentService.checkPawaPayAvailability();res.status(200).json({status:'ready',service:'AFAT',dependencies:{database:'ready',payments:{provider:'pawapay',configured:payments.configured,environment:payments.environment,cameroon_available:payments.cameroonAvailable,provider_status:payments.status||null,message:payments.message}},build:buildVersion});}catch(error:any){res.status(503).json({status:'degraded',service:'AFAT',dependencies:{database:'unavailable'},error:error?.message||'Readiness check failed',build:buildVersion});}});
 app.get('/health/contract',(_req,res)=>res.status(200).json({status:'contract_ready',service:'AFAT',version:apiVersion,api_mount:'/api',build:buildVersion,database_authority:getSupabaseRuntimeDiagnostics(),required_routes:requiredApiRoutes,auth_contract:{session_authority:'supabase_jwt',profile_bootstrap:'POST /api/auth/supabase-profile',public_qa_bypass:process.env.AFAT_ALLOW_QA_BYPASS==='true'?'enabled':'disabled_or_local_only'}}));
 app.get('/',(_req,res)=>res.send('AFAT World-Class Traffic Intelligence is Running.'));
 app.use('/api', secureMapSignalRoutes);
