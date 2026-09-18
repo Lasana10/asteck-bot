@@ -260,68 +260,22 @@ router.post('/dispatch/:assignmentId/fare-quote', async (req: Request, res: Resp
     if (!Number.isInteger(amountXaf) || amountXaf < 50 || amountXaf > 10000000) {
       return res.status(400).json({ error: 'Fare must be an integer amount in XAF.' });
     }
-
-    const { data: assignment, error: assignmentError } = await supabase
-      .from('dispatch_assignments')
-      .select('id,booking_id,operator_id,dispatcher_id,status')
-      .eq('id', assignmentId)
-      .maybeSingle();
-    if (assignmentError) throw assignmentError;
-    if (!assignment?.booking_id) return res.status(404).json({ error: 'Dispatch booking not found.' });
-    if (!['accepted','assigned','en_route','arrived'].includes(String(assignment.status || '').toLowerCase())) {
-      return res.status(409).json({ error: 'Fare can be proposed only after dispatch acceptance and before the journey starts.' });
-    }
-    if (role === 'operator' && assignment.operator_id !== access.profile.id) {
-      return res.status(403).json({ error: 'Only the assigned Operator can propose this fare.' });
-    }
-
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select('id,passenger_id,payment_status')
-      .eq('id', assignment.booking_id)
-      .maybeSingle();
-    if (bookingError) throw bookingError;
-    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
-    if (['paid','paid_momo'].includes(String(booking.payment_status || '').toLowerCase())) {
-      return res.status(409).json({ error: 'A provider-confirmed payment already exists for this booking.' });
-    }
-
-    await supabase
-      .from('afat_fare_quotes')
-      .update({ status: 'superseded', updated_at: new Date().toISOString() })
-      .eq('dispatch_assignment_id', assignmentId)
-      .eq('status', 'proposed');
-
-    const requestedSource = String(req.body?.fare_source || '').trim().toLowerCase();
-    const staffSources = new Set(['regulated_tariff','zone_rule','institution_contract','manual_dispatch']);
-    const fareSource = role === 'operator'
-      ? 'operator_quote'
-      : staffSources.has(requestedSource)
-        ? requestedSource
-        : 'manual_dispatch';
+    const fareSource = String(req.body?.fare_source || '').trim().toLowerCase() || 'operator_quote';
     const rationale = String(req.body?.rationale || '').trim().slice(0, 1000) || null;
-    const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
-    const { data, error } = await supabase
-      .from('afat_fare_quotes')
-      .insert({
-        dispatch_assignment_id: assignmentId,
-        booking_id: booking.id,
-        operator_id: assignment.operator_id || null,
-        passenger_id: booking.passenger_id,
-        amount_xaf: amountXaf,
-        fare_source: fareSource,
-        rationale,
-        status: 'proposed',
-        proposed_by: access.profile.id,
-        expires_at: expiresAt,
-      })
-      .select('*')
-      .single();
+    const { data, error } = await supabase.rpc('afat_propose_fare_quote', {
+      p_assignment_id: assignmentId,
+      p_actor_profile_id: access.profile.id,
+      p_actor_workspace: role,
+      p_amount_xaf: amountXaf,
+      p_fare_source: fareSource,
+      p_rationale: rationale,
+    });
     if (error) throw error;
     return res.status(201).json({ quote: data });
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Fare quote could not be created.' });
+    const mapped = publicDispatchError(error);
+    return res.status(mapped.status).json({ error: error?.message || mapped.error || 'Fare quote could not be created.' });
   }
 });
 
@@ -335,65 +289,20 @@ router.post('/dispatch/:assignmentId/fare-quote/decision', async (req: Request, 
       return res.status(400).json({ error: 'Fare decision must be accepted or rejected.' });
     }
 
-    const { data: assignment, error: assignmentError } = await supabase
-      .from('dispatch_assignments')
-      .select('id,booking_id,status')
-      .eq('id', assignmentId)
-      .maybeSingle();
-    if (assignmentError) throw assignmentError;
-    if (!assignment?.booking_id) return res.status(404).json({ error: 'Dispatch booking not found.' });
-    if (!(await passengerOwnsBooking(access.profile.id, assignment.booking_id))) {
-      return res.status(403).json({ error: 'Only the Passenger can decide this fare.' });
-    }
-
-    const { data: quote, error: quoteError } = await supabase
-      .from('afat_fare_quotes')
-      .select('*')
-      .eq('dispatch_assignment_id', assignmentId)
-      .eq('status', 'proposed')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (quoteError) throw quoteError;
-    if (!quote) return res.status(404).json({ error: 'No active fare quote is available.' });
-    if (new Date(quote.expires_at).getTime() <= Date.now()) {
-      await supabase.from('afat_fare_quotes').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', quote.id);
-      return res.status(409).json({ error: 'This fare quote expired. Ask for a new quote.' });
-    }
-
-    const nowIso = new Date().toISOString();
-    const { data: decided, error } = await supabase
-      .from('afat_fare_quotes')
-      .update({
-        status: decision,
-        accepted_by: decision === 'accepted' ? access.profile.id : null,
-        accepted_at: decision === 'accepted' ? nowIso : null,
-        rejected_at: decision === 'rejected' ? nowIso : null,
-        updated_at: nowIso,
-      })
-      .eq('id', quote.id)
-      .eq('status', 'proposed')
-      .select('*')
-      .single();
+    const { data, error } = await supabase.rpc('afat_decide_fare_quote', {
+      p_assignment_id: assignmentId,
+      p_passenger_id: access.profile.id,
+      p_decision: decision,
+    });
     if (error) throw error;
-
-    if (decision === 'accepted') {
-      const { error: bookingError } = await supabase
-        .from('bookings')
-        .update({
-          price_xaf: quote.amount_xaf,
-          price_paid: quote.amount_xaf,
-          payment_status: 'unpaid',
-          updated_at: nowIso,
-        })
-        .eq('id', assignment.booking_id)
-        .in('payment_status', ['pending','unpaid','failed']);
-      if (bookingError) throw bookingError;
-    }
-
-    return res.status(200).json({ quote: decided, payable: decision === 'accepted' });
+    return res.status(200).json({
+      quote: data?.quote || null,
+      booking: data?.booking || null,
+      payable: decision === 'accepted',
+    });
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Fare decision could not be saved.' });
+    const mapped = publicDispatchError(error);
+    return res.status(mapped.status).json({ error: error?.message || mapped.error || 'Fare decision could not be saved.' });
   }
 });
 
