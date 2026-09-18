@@ -468,22 +468,21 @@ router.patch('/field-reports/:reportId', async (req: Request, res: Response) => 
       return res.status(400).json({ error: 'Unsupported field report review state.' });
     }
     const notes = String(req.body?.resolution_notes || '').trim().slice(0, 2000) || null;
-    const { data, error } = await supabase
-      .from('afat_field_reports')
-      .update({
-        status: nextStatus,
-        reviewed_by: access.profile.id,
-        reviewed_at: new Date().toISOString(),
-        resolution_notes: notes,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', reportId)
-      .select('*')
-      .single();
+    const { data, error } = await supabase.rpc('afat_review_field_report', {
+      p_report_id: reportId,
+      p_reviewer_id: access.profile.id,
+      p_status: nextStatus,
+      p_resolution_notes: notes,
+    });
     if (error) throw error;
-    return res.status(200).json({ report: data });
+    return res.status(200).json({
+      report: data?.report || null,
+      incident: data?.incident || null,
+      promoted_to_live_incident: Boolean(data?.incident?.id),
+    });
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Field report review failed.' });
+    const mapped = publicDispatchError(error);
+    return res.status(mapped.status).json({ error: error?.message || mapped.error || 'Field report review failed.' });
   }
 });
 
