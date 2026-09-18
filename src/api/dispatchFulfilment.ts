@@ -203,6 +203,162 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
   }
 });
 
+
+router.get('/dispatch/:assignmentId/field-reports', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    const { data: assignment, error: assignmentError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,dispatcher_id')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (assignmentError) throw assignmentError;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+
+    let participant = ['planner','admin'].includes(role)
+      || assignment.operator_id === access.profile.id
+      || assignment.dispatcher_id === access.profile.id;
+    if (!participant) participant = await passengerOwnsBooking(access.profile.id, assignment.booking_id);
+    if (!participant) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .select('*')
+      .eq('dispatch_assignment_id', assignmentId)
+      .order('recorded_at', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    return res.status(200).json({ reports: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field reports unavailable.' });
+  }
+});
+
+router.post('/dispatch/:assignmentId/field-report', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    if (!['commuter','operator','planner','admin'].includes(role)) {
+      return res.status(403).json({ error: 'This workspace cannot submit field evidence.' });
+    }
+
+    const reportType = String(req.body?.report_type || '').trim().toLowerCase();
+    const allowedTypes = new Set([
+      'road_obstruction','crash','unsafe_pickup','security_concern','vehicle_issue',
+      'service_problem','route_issue','medical','other'
+    ]);
+    if (!allowedTypes.has(reportType)) return res.status(400).json({ error: 'Unsupported field report type.' });
+
+    const severity = Number(req.body?.severity ?? 2);
+    if (!Number.isInteger(severity) || severity < 1 || severity > 5) {
+      return res.status(400).json({ error: 'Severity must be an integer from 1 to 5.' });
+    }
+
+    const description = String(req.body?.description || '').trim().slice(0, 2000);
+    const title = String(req.body?.title || '').trim().slice(0, 180) || null;
+    const latitude = finiteCoordinate(req.body?.latitude, -90, 90);
+    const longitude = finiteCoordinate(req.body?.longitude, -180, 180);
+    const accuracy = req.body?.accuracy_m == null ? null : Number(req.body.accuracy_m);
+    const recordedAt = new Date(typeof req.body?.recorded_at === 'string' ? req.body.recorded_at : Date.now());
+    if (Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Invalid recorded_at.' });
+    if ((latitude == null) !== (longitude == null)) return res.status(400).json({ error: 'Latitude and longitude must be supplied together.' });
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > 5000)) {
+      return res.status(400).json({ error: 'accuracy_m is outside the accepted range.' });
+    }
+
+    const { data: assignment, error: assignmentError } = await supabase
+      .from('dispatch_assignments')
+      .select('id,booking_id,operator_id,dispatcher_id,status')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (assignmentError) throw assignmentError;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+
+    let participant = ['planner','admin'].includes(role)
+      || assignment.operator_id === access.profile.id
+      || assignment.dispatcher_id === access.profile.id;
+    if (!participant) participant = await passengerOwnsBooking(access.profile.id, assignment.booking_id);
+    if (!participant) return res.status(403).json({ error: 'Only dispatch participants or AFAT operations staff can submit field evidence.' });
+
+    const { data: journey, error: journeyError } = await supabase
+      .from('afat_journeys')
+      .select('id,status,started_at,completed_at')
+      .eq('dispatch_assignment_id', assignmentId)
+      .maybeSingle();
+    if (journeyError && journeyError.code !== 'PGRST116') throw journeyError;
+
+    if (['commuter','operator'].includes(role) && !['arrived','pickup_verified','in_journey','emergency','disputed','completed'].includes(String(assignment.status || '').toLowerCase())) {
+      return res.status(409).json({ error: 'Journey-linked field reporting becomes available from pickup arrival onward.' });
+    }
+
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .insert({
+        dispatch_assignment_id: assignmentId,
+        journey_id: journey?.id || null,
+        booking_id: assignment.booking_id || null,
+        reporter_profile_id: access.profile.id,
+        reporter_workspace: role,
+        report_type: reportType,
+        severity,
+        title,
+        description: description || null,
+        latitude,
+        longitude,
+        accuracy_m: accuracy,
+        recorded_at: recordedAt.toISOString(),
+        source: role === 'operator' ? 'operator_app' : role === 'planner' ? 'planner_console' : role === 'admin' ? 'admin_console' : 'journey_app',
+        evidence: {
+          dispatch_status: assignment.status,
+          journey_status: journey?.status || null,
+          has_location: latitude != null && longitude != null,
+          location_accuracy_m: accuracy,
+        },
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    return res.status(201).json({ report: data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field report could not be recorded.' });
+  }
+});
+
+router.patch('/field-reports/:reportId', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res, ['planner','admin']);
+  if (!access) return;
+  try {
+    const reportId = String(req.params.reportId || '').trim();
+    const nextStatus = String(req.body?.status || '').trim().toLowerCase();
+    if (!['triaged','verified','rejected','resolved'].includes(nextStatus)) {
+      return res.status(400).json({ error: 'Unsupported field report review state.' });
+    }
+    const notes = String(req.body?.resolution_notes || '').trim().slice(0, 2000) || null;
+    const { data, error } = await supabase
+      .from('afat_field_reports')
+      .update({
+        status: nextStatus,
+        reviewed_by: access.profile.id,
+        reviewed_at: new Date().toISOString(),
+        resolution_notes: notes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', reportId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return res.status(200).json({ report: data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Field report review failed.' });
+  }
+});
+
 router.post('/dispatch/:assignmentId/pickup-code', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['commuter']);
   if (!access) return;
