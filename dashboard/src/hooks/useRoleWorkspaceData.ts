@@ -5,6 +5,7 @@ import {
   fetchDemandRadar,
   fetchFieldReportQueue,
   fetchLiveMapOps,
+  fetchOperationalHealth,
   fetchMobilityMapFeed,
   fetchOpsReportCenter,
   fetchParticipantDispatches,
@@ -69,35 +70,41 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
         }
 
         if (role === 'planner') {
-          const [demand, dispatches, fieldReports] = await Promise.all([
+          const [demand, dispatches, fieldReports, health] = await Promise.all([
             fetchDemandRadar(),
             fetchActiveDispatches(),
             fetchFieldReportQueue(),
+            fetchOperationalHealth(),
           ]);
           if (active) setOperations({
             demand: demand.data,
             dispatches: dispatches.data?.dispatches || [],
             fieldReports: fieldReports.data?.reports || [],
+            health: health.data || null,
           });
           if (demand.error) errors.push(`Demand radar: ${demand.error.message}`);
           if (dispatches.error) errors.push(`Dispatch board: ${dispatches.error.message}`);
           if (fieldReports.error) errors.push(`Field operations: ${fieldReports.error.message}`);
+          if (health.error) errors.push(`Operational health: ${health.error.message}`);
         }
 
         if (role === 'admin') {
-          const [reports, compliance, fieldReports] = await Promise.all([
+          const [reports, compliance, fieldReports, health] = await Promise.all([
             fetchOpsReportCenter(),
             fetchComplianceRadar(),
             fetchFieldReportQueue(),
+            fetchOperationalHealth(),
           ]);
           if (active) setOperations({
             reports: reports.data,
             compliance: compliance.data,
             fieldReports: fieldReports.data?.reports || [],
+            health: health.data || null,
           });
           if (reports.error) errors.push(`Reports: ${reports.error.message}`);
           if (compliance.error) errors.push(`Compliance: ${compliance.error.message}`);
           if (fieldReports.error) errors.push(`Field operations: ${fieldReports.error.message}`);
+          if (health.error) errors.push(`Operational health: ${health.error.message}`);
         }
       } catch (error: any) {
         errors.push(error?.message || 'AFAT live services could not be refreshed.');
