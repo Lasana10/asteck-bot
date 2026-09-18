@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, KeyRound, Receipt, ShieldCheck, Star, XCircle } from 'lucide-react';
 import { createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
+import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
 
 type Props = {
   assignment: any | null;
@@ -119,6 +120,7 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       {status === 'pickup_verified' && <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-4"><CheckCircle2 className="h-5 w-5 text-emerald-200" /><p className="text-xs font-bold text-emerald-50">Pickup identity verified. The assigned operator can now start the journey.</p></div>}
       {status === 'in_journey' && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-50"><strong>Journey active.</strong> AFAT can resume this dispatch after a reload and real-device GPS samples queue when connectivity drops.</div>}
       {status === 'emergency' && <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-400/25 bg-red-500/10 p-4"><AlertTriangle className="mt-0.5 h-5 w-5 text-red-200" /><p className="text-xs leading-5 text-red-50">Emergency state is active for this journey. Journey completion should not erase its incident evidence.</p></div>}
+      {['arrived','pickup_verified','in_journey','emergency','disputed','completed'].includes(status) && <div className="mt-4"><JourneyFieldReportPanel assignmentId={assignment.id} onSubmitted={onChanged} /></div>}
 
       {['completed','disputed'].includes(status) && (
         <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
