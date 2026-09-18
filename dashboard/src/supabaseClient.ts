@@ -1778,6 +1778,7 @@ export async function submitFieldReport(assignmentId: string, payload: {
   longitude?: number | null;
   accuracy_m?: number | null;
   recorded_at?: string;
+  mutation_id?: string;
 }) {
   try {
     const authHeaders = await authenticatedApiHeaders();
