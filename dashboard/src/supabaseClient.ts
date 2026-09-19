@@ -1969,6 +1969,32 @@ export type AfatPlaceCandidate = {
   meeting_points: AfatMeetingPoint[];
 };
 
+export async function discoverAfatPlaces(params: {
+  query?: string;
+  city?: string;
+  latitude?: number;
+  longitude?: number;
+  limit?: number;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const query = new URLSearchParams();
+    if (params.query) query.set('q', params.query);
+    if (params.city) query.set('city', params.city);
+    if (Number.isFinite(params.latitude)) query.set('lat', String(params.latitude));
+    if (Number.isFinite(params.longitude)) query.set('lon', String(params.longitude));
+    if (params.limit) query.set('limit', String(params.limit));
+    const res = await fetch(`${getApiBaseUrl()}/api/place/discover?${query.toString()}`, {
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Place discovery failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function resolveAfatPlace(payload: { query: string; city?: string; vehicle_type?: string }) {
   try {
     const authHeaders = await authenticatedApiHeaders();

@@ -206,6 +206,149 @@ function meetingPointExplanation(point: any) {
   return notes;
 }
 
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const radius = 6371000;
+  const toRad = (value: number) => value * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * radius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function finiteCoordinate(value: unknown, min: number, max: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
+}
+
+router.get('/place/discover', async (req: Request, res: Response) => {
+  try {
+    const queryText = String(req.query.q || '').trim();
+    const city = normalize(req.query.city || 'yaounde');
+    const latitude = finiteCoordinate(req.query.lat, -90, 90);
+    const longitude = finiteCoordinate(req.query.lon, -180, 180);
+    const limit = Math.min(Math.max(Number(req.query.limit || 8), 1), 12);
+
+    const [{ data: places, error: placesError }, { data: ledgerPlaces, error: ledgerError }] = await Promise.all([
+      supabase
+        .from('afat_places')
+        .select('id,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,afat_meeting_points(*)')
+        .neq('status', 'retired')
+        .limit(180),
+      supabase
+        .from('afat_address_ledger')
+        .select('id,canonical_label,aliases,description,city,zone_label,latitude,longitude,address_type,access_notes,confidence,successful_pickups,failed_pickups,status,source')
+        .in('status', ['candidate', 'verified'])
+        .limit(240),
+    ]);
+    if (placesError) throw placesError;
+    if (ledgerError) throw ledgerError;
+
+    const scoredCurated = (places || []).map((place: any) => {
+      const lat = Number(place.latitude);
+      const lon = Number(place.longitude);
+      const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon);
+      const distanceM = latitude != null && longitude != null && hasCoordinates
+        ? haversineMeters(latitude, longitude, lat, lon)
+        : null;
+      const textScore = queryText
+        ? lexicalScore(queryText, [place.canonical_name, ...(place.aliases || []), place.description, place.zone_label, place.city])
+        : 0;
+      const cityScore = !city || normalize(place.city) === city ? 12 : 0;
+      const pickupBalance = Number(place.successful_pickups || 0) - Number(place.failed_pickups || 0);
+      const historyScore = clamp(Math.round(pickupBalance / 2), 0, 14);
+      const proximityScore = distanceM == null ? 0 : distanceM <= 500 ? 18 : distanceM <= 1500 ? 12 : distanceM <= 3500 ? 7 : 0;
+      const base = Number(place.base_confidence || 50);
+      const score = clamp(Math.round(base * 0.45 + textScore + cityScore + historyScore + proximityScore));
+      const meetingPoints = (place.afat_meeting_points || [])
+        .filter((point: any) => point.status === 'active')
+        .map((point: any) => ({
+          ...point,
+          suitability_score: meetingPointScore(point),
+          suitability_explanation: meetingPointExplanation(point),
+        }))
+        .sort((a: any, b: any) => Number(b.suitability_score || 0) - Number(a.suitability_score || 0));
+
+      return {
+        id: place.id,
+        name: place.canonical_name,
+        description: place.description,
+        city: place.city,
+        zone_label: place.zone_label,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        vehicle_access: place.vehicle_access,
+        confidence: score,
+        confidence_label: confidenceLabel(score),
+        successful_pickups: place.successful_pickups || 0,
+        distance_m: distanceM == null ? null : Math.round(distanceM),
+        source: 'afat_places',
+        meeting_points: meetingPoints,
+        explanation: [
+          queryText ? (textScore >= 20 ? 'Strong landmark or alias match' : 'Related local place') : 'Nearby verified place',
+          distanceM == null ? 'Distance unavailable until a start point is known' : `${Math.round(distanceM)} m from your start point`,
+          historyScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup history',
+        ],
+      };
+    }).filter((item: any) => queryText ? item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
+
+    const scoredLedger = (ledgerPlaces || []).map((place: any) => {
+      const lat = Number(place.latitude);
+      const lon = Number(place.longitude);
+      const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon);
+      const distanceM = latitude != null && longitude != null && hasCoordinates
+        ? haversineMeters(latitude, longitude, lat, lon)
+        : null;
+      const textScore = queryText
+        ? lexicalScore(queryText, [place.canonical_label, ...(place.aliases || []), place.description, place.zone_label, place.city])
+        : 0;
+      const cityScore = !city || normalize(place.city) === city ? 10 : 0;
+      const proximityScore = distanceM == null ? 0 : distanceM <= 500 ? 16 : distanceM <= 1500 ? 10 : distanceM <= 3500 ? 6 : 0;
+      const score = clamp(Math.round(Number(place.confidence || 50) * 0.58 + textScore + cityScore + proximityScore));
+      return {
+        id: place.id,
+        name: place.canonical_label,
+        description: place.description,
+        city: place.city,
+        zone_label: place.zone_label,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        vehicle_access: place.access_notes || 'local access evidence',
+        confidence: score,
+        confidence_label: confidenceLabel(score),
+        successful_pickups: place.successful_pickups || 0,
+        distance_m: distanceM == null ? null : Math.round(distanceM),
+        source: 'afat_address_ledger',
+        meeting_points: [],
+        explanation: [
+          queryText ? (textScore >= 20 ? 'Strong local alias match' : 'Related local address') : 'Nearby local address evidence',
+          distanceM == null ? 'Distance unavailable until a start point is known' : `${Math.round(distanceM)} m from your start point`,
+          place.source ? `Source: ${place.source}` : 'AFAT address ledger',
+        ],
+      };
+    }).filter((item: any) => queryText ? item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
+
+    const results = [...scoredCurated, ...scoredLedger]
+      .sort((a: any, b: any) => {
+        if (!queryText && a.distance_m != null && b.distance_m != null && Math.abs(a.distance_m - b.distance_m) > 250) {
+          return a.distance_m - b.distance_m;
+        }
+        return Number(b.confidence || 0) - Number(a.confidence || 0);
+      })
+      .slice(0, limit);
+
+    return res.status(200).json({
+      query: queryText,
+      city,
+      origin: latitude != null && longitude != null ? { latitude, longitude } : null,
+      results,
+      mode: queryText ? 'suggestions' : 'nearby',
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'AFAT place discovery unavailable.' });
+  }
+});
+
 router.post('/place/resolve', async (req: Request, res: Response) => {
   try {
     const query = String(req.body?.query || '').trim();

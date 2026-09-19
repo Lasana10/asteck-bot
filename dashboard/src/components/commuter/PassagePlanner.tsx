@@ -3,6 +3,7 @@ import { Bike, Car, CheckCircle, Clock, Footprints, MapPin, Navigation2, Search,
 import {
   confirmAfatPlace,
   createPassageIntent,
+  discoverAfatPlaces,
   resolveAfatPlace,
 } from '../../supabaseClient';
 import type { AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
@@ -68,6 +69,17 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [routeOptions, setRouteOptions] = useState<Partial<Record<AfatRouteMode, AfatCanonicalRoute>>>({});
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeMessage, setRouteMessage] = useState('');
+  const [suggestions, setSuggestions] = useState<AfatPlaceCandidate[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [recentPlaces, setRecentPlaces] = useState<AfatPlaceCandidate[]>(() => {
+    try {
+      const raw = localStorage.getItem('afat_recent_places_v1');
+      return raw ? JSON.parse(raw).slice(0, 5) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     setDestination(initialDestination);
@@ -81,6 +93,46 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   }, [initialDestination]);
 
   useEffect(() => { setOriginLabel(originText); }, [originText]);
+
+  useEffect(() => {
+    let active = true;
+    const query = destination.trim();
+    if (selectedPlace && query === selectedPlace.name) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      if (query.length > 0 && query.length < 2) {
+        setSuggestions([]);
+        return;
+      }
+      setSuggestionLoading(true);
+      const { data, error } = await discoverAfatPlaces({
+        query: query || undefined,
+        city: profile?.preferred_city || 'yaounde',
+        latitude: originFix?.latitude,
+        longitude: originFix?.longitude,
+        limit: 7,
+      });
+      if (!active) return;
+      setSuggestionLoading(false);
+      if (error) {
+        setSuggestions([]);
+        return;
+      }
+      const discovered = (data?.results || []) as AfatPlaceCandidate[];
+      const fallback = !query && !discovered.length ? recentPlaces : discovered;
+      setSuggestions(fallback);
+      setSuggestionsOpen(Boolean(fallback.length));
+    }, query ? 280 : 450);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [destination, originFix?.latitude, originFix?.longitude, profile?.preferred_city, selectedPlace?.id, recentPlaces]);
 
   const destinationPoint = useMemo(() => pointFrom(selectedPlace, selectedPlace?.name), [selectedPlace]);
   const meetingPoint = useMemo(() => pointFrom(selectedMeetingPoint, selectedMeetingPoint?.name), [selectedMeetingPoint]);
@@ -150,6 +202,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const selectCandidate = (candidate: AfatPlaceCandidate) => {
+    setDestination(candidate.name);
+    setSuggestions([]);
+    setSuggestionsOpen(false);
+    const nextRecents = [candidate, ...recentPlaces.filter((item) => item.id !== candidate.id)].slice(0, 5);
+    setRecentPlaces(nextRecents);
+    try { localStorage.setItem('afat_recent_places_v1', JSON.stringify(nextRecents)); } catch {}
     setSelectedPlace(candidate);
     const bestMeetingPoint = [...(candidate.meeting_points || [])]
       .sort((a, b) => Number(b.suitability_score || 0) - Number(a.suitability_score || 0))[0] || null;
@@ -211,9 +269,55 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       <Navigation2 className="h-5 w-5 text-blue-300" />
     </div>
 
-    <div className="grid gap-3 md:grid-cols-[1fr_170px]">
-      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4"><Search className="h-4 w-4 text-white/35" /><input value={destination} onChange={(event) => setDestination(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && resolveDestination()} placeholder="Mendong market, school gate, pharmacy…" className="min-h-14 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/25" /></div>
-      <button onClick={resolveDestination} disabled={loading || destination.trim().length < 3} className="min-h-14 rounded-2xl bg-blue-600 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{loading ? 'Finding…' : 'Find place'}</button>
+    <div className="relative">
+      <div className="grid gap-3 md:grid-cols-[1fr_170px]">
+        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4">
+          <Search className="h-4 w-4 text-white/35" />
+          <input
+            value={destination}
+            onFocus={() => setSuggestionsOpen(Boolean(suggestions.length))}
+            onChange={(event) => {
+              setDestination(event.target.value);
+              setSelectedPlace(null);
+              setSelectedMeetingPoint(null);
+              setCanonicalRoute(null);
+              setRouteOptions({});
+            }}
+            onKeyDown={(event) => event.key === 'Enter' && resolveDestination()}
+            placeholder="Mendong market, school gate, pharmacy…"
+            className="min-h-14 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/25"
+          />
+          {suggestionLoading && <span className="text-[8px] font-black uppercase text-cyan-200">Searching…</span>}
+        </div>
+        <button onClick={resolveDestination} disabled={loading || destination.trim().length < 3} className="min-h-14 rounded-2xl bg-blue-600 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{loading ? 'Finding…' : 'Find place'}</button>
+      </div>
+
+      {suggestionsOpen && !!suggestions.length && !selectedPlace && (
+        <div className="absolute inset-x-0 top-[62px] z-40 max-h-80 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-2xl md:right-[182px]">
+          <p className="px-3 pb-2 pt-1 text-[8px] font-black uppercase tracking-widest text-white/30">
+            {destination.trim() ? 'AFAT suggestions' : originFix ? 'Nearby verified places' : 'Recent places'}
+          </p>
+          {suggestions.map((candidate) => (
+            <button
+              key={candidate.id}
+              type="button"
+              onClick={() => selectCandidate(candidate)}
+              className="flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left hover:bg-white/5"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-xs font-black text-white">{candidate.name}</p>
+                <p className="mt-1 text-[10px] text-white/40">
+                  {candidate.zone_label || candidate.city}
+                  {(candidate as any).distance_m != null ? ` · ${Math.round(Number((candidate as any).distance_m))} m away` : ''}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-blue-300/15 bg-blue-400/10 px-2 py-1 text-[8px] font-black uppercase text-blue-100">
+                {matchLabel(Number(candidate.confidence || 0))}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
 
     <div className="mt-3">
