@@ -103,3 +103,12 @@ export async function promoteTrustedAtlasCandidate(candidateId: string, name?: s
     p_city_key: cityKey,
   });
 }
+
+
+export async function resolveAtlasEvidenceConflict(conflictId: string, decision: 'resolve' | 'dismiss', notes?: string) {
+  return supabase.rpc('afat_resolve_evidence_conflict', {
+    p_conflict_id: conflictId,
+    p_decision: decision,
+    p_notes: notes || null,
+  });
+}
