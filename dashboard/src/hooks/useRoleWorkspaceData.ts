@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  fetchAccessApprovalInbox,
   fetchActiveDispatches,
   fetchComplianceRadar,
   fetchDemandRadar,
@@ -81,19 +82,22 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
             dispatches: dispatches.data?.dispatches || [],
             fieldReports: fieldReports.data?.reports || [],
             health: health.data || null,
+            accessApplications: accessApprovals.data?.applications || [],
           });
           if (demand.error) errors.push(`Demand radar: ${demand.error.message}`);
           if (dispatches.error) errors.push(`Dispatch board: ${dispatches.error.message}`);
           if (fieldReports.error) errors.push(`Field operations: ${fieldReports.error.message}`);
           if (health.error) errors.push(`Operational health: ${health.error.message}`);
+          if (accessApprovals.error) errors.push(`Access approvals: ${accessApprovals.error.message}`);
         }
 
         if (role === 'admin') {
-          const [reports, compliance, fieldReports, health] = await Promise.all([
+          const [reports, compliance, fieldReports, health, accessApprovals] = await Promise.all([
             fetchOpsReportCenter(),
             fetchComplianceRadar(),
             fetchFieldReportQueue(),
             fetchOperationalHealth(),
+            fetchAccessApprovalInbox(),
           ]);
           if (active) setOperations({
             reports: reports.data,
