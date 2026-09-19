@@ -10,6 +10,7 @@ import { LivingAtlasMap } from './LivingAtlasMap';
 import { FieldMapper } from './FieldMapper';
 import { MappingEvidenceReview } from './MappingEvidenceReview';
 import AtlasIngestionControl from './AtlasIngestionControl';
+import { AtlasPrivacyPanel } from './AtlasPrivacyPanel';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -98,6 +99,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
     {canContribute&&<AtlasContributionPanel defaultMode={defaultMode as any} />}
     {canContribute&&<FieldMapper cityKey={city?.city_key||'cm-yaounde'} defaultMode={defaultMode} />}
     {canContribute&&<RoadConditionReporter mode={role==='operator'?'taxi':'walk'} />}
+    {canContribute&&<AtlasPrivacyPanel />}
 
     <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
       <div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">{t('atlas.missions')}</p><h2 className="mt-2 text-xl font-black">Small checks that reduce uncertainty</h2></div>{canPlan&&<button onClick={refreshCity} disabled={busy} className="min-h-10 rounded-xl bg-violet-500 px-3 text-[9px] font-black uppercase">Refresh city learning</button>}</div>
