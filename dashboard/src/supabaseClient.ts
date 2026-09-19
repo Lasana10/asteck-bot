@@ -1948,6 +1948,9 @@ export type AfatMeetingPoint = {
   walk_minutes: number;
   confidence: number;
   successful_pickups: number;
+  failed_pickups?: number;
+  suitability_score?: number;
+  suitability_explanation?: string[];
 };
 
 export type AfatPlaceCandidate = {
