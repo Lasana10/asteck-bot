@@ -1,7 +1,8 @@
 import React from 'react';
-import { Bell, CheckCircle2, MapPin, Route, ShieldCheck, UserCircle } from 'lucide-react';
+import { Bell, MapPin, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { DispatchWorkspace } from '../shared/DispatchWorkspace';
+import { AtlasContributionPanel } from '../shared/AtlasContributionPanel';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -28,25 +29,26 @@ export function PassengerWorkspaceTabs({
   onSignOut: () => void;
   onChanged?: () => void;
 }) {
-  const dispatches = operations?.participantDispatches || [];
-
   if (activeTab === 'profile') {
     return (
-      <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
-        <Surface className="p-6">
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-300">Passenger identity</p>
-          <h1 className="mt-2 text-3xl font-black">{profile?.full_name || 'AFAT passenger'}</h1>
-          <p className="mt-2 text-sm text-white/45">Passenger identity and mobility preferences stay separate from elevated capabilities.</p>
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            <State icon={UserCircle} label="Identity" value={profile?.verification_status || 'basic'} />
-            <State icon={ShieldCheck} label="Access" value="Passenger" />
-          </div>
-          <button onClick={onSignOut} className="mt-5 min-h-12 w-full rounded-xl border border-white/10 bg-white/5 text-xs font-black">Sign out securely</button>
-        </Surface>
-        <Surface className="p-6">
-          <h2 className="text-sm font-black uppercase tracking-wider">Passenger boundary</h2>
-          <p className="mt-4 text-sm leading-7 text-white/50">Requesting Operator or Planner access does not remove Passenger access. Approved capabilities are added to the same identity and can be switched without a second account.</p>
-        </Surface>
+      <div className="space-y-5">
+        <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
+          <Surface className="p-6">
+            <p className="text-[10px] font-black uppercase tracking-widest text-blue-300">Passenger identity</p>
+            <h1 className="mt-2 text-3xl font-black">{profile?.full_name || 'AFAT passenger'}</h1>
+            <p className="mt-2 text-sm text-white/45">Your Passenger account stays simple even if you later gain Operator, Planner or mapping capabilities.</p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <State icon={UserCircle} label="Identity" value={profile?.verification_status || 'basic'} />
+              <State icon={ShieldCheck} label="Access" value="Passenger" />
+            </div>
+            <button onClick={onSignOut} className="mt-5 min-h-12 w-full rounded-xl border border-white/10 bg-white/5 text-xs font-black">Sign out securely</button>
+          </Surface>
+          <Surface className="p-6">
+            <h2 className="text-sm font-black uppercase tracking-wider">Your AFAT access</h2>
+            <p className="mt-4 text-sm leading-7 text-white/50">You can keep normal Passenger access while applying for other roles. AFAT does not require separate accounts for every capability.</p>
+          </Surface>
+        </div>
+        <AtlasContributionPanel defaultMode="walk" />
       </div>
     );
   }
@@ -81,8 +83,8 @@ export function PassengerWorkspaceTabs({
     <div className="space-y-5">
       <Surface className="p-5 sm:p-6">
         <p className="text-[10px] font-black uppercase tracking-widest text-blue-300">Trips</p>
-        <h1 className="mt-2 text-3xl font-black">Your journey is the dispatch</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Request, matching, pickup, movement, payment and closure live in one authoritative timeline. When there is no journey, start from Plan instead of opening an empty command screen.</p>
+        <h1 className="mt-2 text-3xl font-black">Your active and recent journeys</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Request, matching, pickup, movement, payment and closure stay in one journey timeline. When you need a new trip, start from Home.</p>
       </Surface>
       <DispatchWorkspace role="commuter" profile={profile} onChanged={onChanged} />
     </div>
