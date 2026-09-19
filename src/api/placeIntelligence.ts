@@ -177,6 +177,35 @@ function confidenceLabel(confidence: number) {
   return 'low';
 }
 
+function meetingPointScore(point: any) {
+  const confidence = clamp(Number(point?.confidence || 0));
+  const successes = Math.max(0, Number(point?.successful_pickups || 0));
+  const failures = Math.max(0, Number(point?.failed_pickups || 0));
+  const total = successes + failures;
+  const reliability = total > 0 ? successes / total : 0.5;
+  const reliabilityScore = Math.round(reliability * 28);
+  const evidenceDepth = Math.min(12, Math.round(Math.log2(total + 1) * 4));
+  const walkMinutes = Math.max(0, Number(point?.walk_minutes || 0));
+  const walkingPenalty = Math.min(16, Math.max(0, walkMinutes - 2) * 2);
+  const modeCoverage = Array.isArray(point?.access_modes) ? point.access_modes.filter(Boolean).length : 0;
+  const modeCoverageScore = Math.min(10, modeCoverage * 2);
+  return clamp(Math.round(confidence * 0.5 + reliabilityScore + evidenceDepth + modeCoverageScore - walkingPenalty));
+}
+
+function meetingPointExplanation(point: any) {
+  const successes = Math.max(0, Number(point?.successful_pickups || 0));
+  const failures = Math.max(0, Number(point?.failed_pickups || 0));
+  const total = successes + failures;
+  const accessModes = Array.isArray(point?.access_modes) ? point.access_modes.filter(Boolean) : [];
+  const notes: string[] = [];
+  if (total > 0) notes.push(`${successes}/${total} recorded pickups succeeded`);
+  else notes.push('Pickup history is still limited');
+  if (Number(point?.walk_minutes || 0) <= 3) notes.push('Short passenger walk');
+  else notes.push(`About ${Number(point?.walk_minutes || 0)} min walk`);
+  if (accessModes.length) notes.push(`Supports ${accessModes.join(', ')}`);
+  return notes;
+}
+
 router.post('/place/resolve', async (req: Request, res: Response) => {
   try {
     const query = String(req.body?.query || '').trim();
@@ -217,7 +246,15 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
         const confidence = clamp(Math.round(Number(place.base_confidence || 50) * 0.55 + textScore + cityScore + evidenceScore - accessPenalty));
         const meetingPoints = (place.afat_meeting_points || [])
           .filter((point: any) => point.status === 'active')
-          .sort((a: any, b: any) => Number(b.confidence || 0) - Number(a.confidence || 0));
+          .map((point: any) => ({
+            ...point,
+            suitability_score: meetingPointScore(point),
+            suitability_explanation: meetingPointExplanation(point),
+          }))
+          .sort((a: any, b: any) =>
+            Number(b.suitability_score || 0) - Number(a.suitability_score || 0)
+            || Number(b.confidence || 0) - Number(a.confidence || 0)
+          );
 
         return {
           id: place.id,
@@ -280,7 +317,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
       candidates,
       needs_correction: candidates.length === 0 || Number(candidates[0]?.confidence || 0) < 60,
       message: candidates.length
-        ? `AFAT found ${candidates.length} possible place${candidates.length === 1 ? '' : 's'}.`
+        ? `AFAT found ${candidates.length} possible place${candidates.length === 1 ? '' : 's'} and ranked confirmed meeting points by reliability.`
         : 'AFAT could not verify this description yet. Request a correction or mapping mission.',
     });
   } catch (error: any) {
