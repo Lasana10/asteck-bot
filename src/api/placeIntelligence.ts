@@ -545,6 +545,108 @@ router.post('/place/confirm', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/passages/preflight', async (req: Request, res: Response) => {
+  try {
+    const mode = normalize(req.query.mode || 'car');
+    const pickupLat = finiteCoordinate(req.query.pickup_lat, -90, 90);
+    const pickupLng = finiteCoordinate(req.query.pickup_lng, -180, 180);
+    const distanceM = Math.max(0, Number(req.query.distance_m || 0));
+    const modeAliases: Record<string, string[]> = {
+      car: ['car','taxi'],
+      moto: ['moto','motorcycle','bike'],
+      minibus: ['minibus','bus','shared'],
+    };
+    const acceptedTypes = modeAliases[mode] || [mode];
+
+    const { data: vehicles, error: vehicleError } = await supabase
+      .from('vehicles')
+      .select('id,type,is_available,current_lat,current_lng,last_ping_at,clearance_status')
+      .eq('is_available', true)
+      .limit(200);
+    if (vehicleError) throw vehicleError;
+
+    const now = Date.now();
+    const candidates = (vehicles || []).filter((vehicle: any) => {
+      const type = normalize(vehicle.type);
+      if (!acceptedTypes.some((value) => type.includes(value))) return false;
+      if (!vehicle.last_ping_at) return false;
+      const ageMs = now - new Date(vehicle.last_ping_at).getTime();
+      return Number.isFinite(ageMs) && ageMs <= 15 * 60 * 1000;
+    });
+
+    let nearbySupply = candidates.length;
+    if (pickupLat != null && pickupLng != null) {
+      nearbySupply = candidates.filter((vehicle: any) => {
+        const lat = Number(vehicle.current_lat);
+        const lng = Number(vehicle.current_lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+        return haversineMeters(pickupLat, pickupLng, lat, lng) <= 7000;
+      }).length;
+    }
+
+    const { data: recentBookings, error: bookingError } = await supabase
+      .from('bookings')
+      .select('price_xaf,vehicle_id,completed_at,created_at')
+      .not('price_xaf', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (bookingError) throw bookingError;
+
+    const vehicleIds = [...new Set((recentBookings || []).map((item: any) => item.vehicle_id).filter(Boolean))];
+    let typeByVehicle = new Map<string,string>();
+    if (vehicleIds.length) {
+      const { data: fareVehicles, error: fareVehicleError } = await supabase
+        .from('vehicles')
+        .select('id,type')
+        .in('id', vehicleIds);
+      if (fareVehicleError) throw fareVehicleError;
+      typeByVehicle = new Map((fareVehicles || []).map((item: any) => [String(item.id), normalize(item.type)]));
+    }
+
+    const historicalPrices = (recentBookings || [])
+      .filter((item: any) => {
+        const type = typeByVehicle.get(String(item.vehicle_id || '')) || '';
+        return acceptedTypes.some((value) => type.includes(value));
+      })
+      .map((item: any) => Number(item.price_xaf))
+      .filter((value: number) => Number.isFinite(value) && value > 0)
+      .sort((a: number,b: number) => a-b);
+
+    const percentile = (values: number[], p: number) => {
+      if (!values.length) return null;
+      const index = Math.min(values.length - 1, Math.max(0, Math.round((values.length - 1) * p)));
+      return values[index];
+    };
+
+    return res.status(200).json({
+      mode,
+      distance_m: Number.isFinite(distanceM) ? Math.round(distanceM) : null,
+      supply: {
+        observed: nearbySupply,
+        state: nearbySupply > 0 ? 'live_supply_observed' : 'none_observed',
+        telemetry_window_minutes: 15,
+        radius_m: pickupLat != null && pickupLng != null ? 7000 : null,
+      },
+      fare: historicalPrices.length >= 3 ? {
+        state: 'historical_range',
+        currency: 'XAF',
+        low: percentile(historicalPrices, 0.25),
+        median: percentile(historicalPrices, 0.5),
+        high: percentile(historicalPrices, 0.75),
+        sample_size: historicalPrices.length,
+        authoritative: false,
+      } : {
+        state: 'insufficient_evidence',
+        currency: 'XAF',
+        sample_size: historicalPrices.length,
+        authoritative: false,
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Mobility preflight unavailable.' });
+  }
+});
+
 router.post('/passages/intents', async (req: Request, res: Response) => {
   try {
     const identity = await resolveIdentity(req);

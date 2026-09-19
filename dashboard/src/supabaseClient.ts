@@ -1969,6 +1969,27 @@ export type AfatPlaceCandidate = {
   meeting_points: AfatMeetingPoint[];
 };
 
+export async function fetchPassagePreflight(params: {
+  mode: string;
+  pickupLatitude?: number;
+  pickupLongitude?: number;
+  distanceM?: number;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const query = new URLSearchParams({ mode: params.mode });
+    if (Number.isFinite(params.pickupLatitude)) query.set('pickup_lat', String(params.pickupLatitude));
+    if (Number.isFinite(params.pickupLongitude)) query.set('pickup_lng', String(params.pickupLongitude));
+    if (Number.isFinite(params.distanceM)) query.set('distance_m', String(params.distanceM));
+    const res = await fetch(`${getApiBaseUrl()}/api/passages/preflight?${query.toString()}`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Mobility preflight failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function discoverAfatPlaces(params: {
   query?: string;
   city?: string;
