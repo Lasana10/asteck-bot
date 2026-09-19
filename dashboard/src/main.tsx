@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { AfatLocaleProvider } from './localization';
 
 // ═══ BULLETPROOF BOOT SEQUENCE ═══
 // React MUST mount first. Everything else is secondary.
@@ -44,7 +45,9 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <AfatLocaleProvider>
+        <App />
+      </AfatLocaleProvider>
     </ErrorBoundary>
   </React.StrictMode>,
 );
