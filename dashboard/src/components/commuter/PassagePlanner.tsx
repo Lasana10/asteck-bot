@@ -4,6 +4,7 @@ import {
   confirmAfatPlace,
   createPassageIntent,
   discoverAfatPlaces,
+  fetchPassagePreflight,
   resolveAfatPlace,
 } from '../../supabaseClient';
 import type { AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
@@ -40,6 +41,18 @@ function matchLabel(confidence: number) {
   return 'Possible match';
 }
 
+function meetingSupportsMode(point: AfatMeetingPoint, mode: AfatRouteMode) {
+  const modes = (point.access_modes || []).map((value) => String(value).toLowerCase());
+  if (!modes.length) return true;
+  const aliases: Record<string,string[]> = {
+    walk: ['walk','pedestrian','foot'],
+    moto: ['moto','motorcycle','bike'],
+    car: ['car','taxi','vehicle'],
+    minibus: ['minibus','bus','shared'],
+  };
+  return (aliases[mode] || [mode]).some((alias) => modes.some((value) => value.includes(alias)));
+}
+
 function routeMessageFor(route: AfatCanonicalRoute | null) {
   if (!route) return '';
   if (route.status === 'ok') {
@@ -72,6 +85,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [suggestions, setSuggestions] = useState<AfatPlaceCandidate[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [preflight, setPreflight] = useState<Record<string, any>>({});
   const [recentPlaces, setRecentPlaces] = useState<AfatPlaceCandidate[]>(() => {
     try {
       const raw = localStorage.getItem('afat_recent_places_v1');
@@ -184,6 +198,40 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     return () => { active = false; };
   }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude]);
+
+  useEffect(() => {
+    let active = true;
+    if (!originFix || !arrivalPoint) {
+      setPreflight({});
+      return;
+    }
+    const modes: AfatRouteMode[] = ['moto','car','minibus'];
+    Promise.all(modes.map(async (mode) => {
+      const route = routeOptions[mode];
+      if (!route || route.status !== 'ok') return [mode, null] as const;
+      const { data } = await fetchPassagePreflight({
+        mode,
+        pickupLatitude: originFix.latitude,
+        pickupLongitude: originFix.longitude,
+        distanceM: route.distance_m,
+      });
+      return [mode, data] as const;
+    })).then((entries) => {
+      if (!active) return;
+      setPreflight(Object.fromEntries(entries.filter(([, value]) => value)));
+    });
+    return () => { active = false; };
+  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, routeOptions]);
+
+  useEffect(() => {
+    if (!selectedPlace?.meeting_points?.length) return;
+    const compatible = selectedPlace.meeting_points
+      .filter((point) => meetingSupportsMode(point, vehicleType))
+      .sort((a, b) => Number(b.suitability_score || 0) - Number(a.suitability_score || 0));
+    if (compatible.length && (!selectedMeetingPoint || !meetingSupportsMode(selectedMeetingPoint, vehicleType))) {
+      setSelectedMeetingPoint(compatible[0]);
+    }
+  }, [vehicleType, selectedPlace?.id, selectedMeetingPoint?.id]);
 
   const resolveDestination = async () => {
     if (destination.trim().length < 3) return;
@@ -367,6 +415,18 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
                 <p className="mt-1 text-[9px] leading-4 text-white/40">
                   {!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + ' min' : 'ETA learning'}` : 'No trusted path'}
                 </p>
+                {available && dispatchable && preflight[mode] && (
+                  <div className="mt-2 space-y-1 text-[8px] font-bold uppercase tracking-wide">
+                    <p className={preflight[mode]?.supply?.observed > 0 ? 'text-emerald-200' : 'text-amber-200'}>
+                      {preflight[mode]?.supply?.observed > 0 ? `${preflight[mode].supply.observed} live supply observed` : 'No live supply observed'}
+                    </p>
+                    <p className="text-white/35">
+                      {preflight[mode]?.fare?.state === 'historical_range'
+                        ? `${preflight[mode].fare.low}–${preflight[mode].fare.high} XAF historical · not final`
+                        : 'Fare evidence insufficient'}
+                    </p>
+                  </div>
+                )}
                 {available && !dispatchable && <p className="mt-2 text-[8px] font-black uppercase text-amber-200/75">Route preview</p>}
               </button>
             );
@@ -385,7 +445,13 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     {selectedPlace && <div className="mt-4 space-y-3">
       <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/8 p-4"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black text-white">{selectedPlace.name}</p><p className="mt-1 text-[10px] text-white/45">{selectedPlace.zone_label || selectedPlace.city}</p></div><CheckCircle className="h-5 w-5 text-emerald-300" /></div></div>
       <PlaceMediaStrip placeId={selectedPlace.id} placeName={selectedPlace.name} compact />
-      {selectedPlace.meeting_points.map((candidateMeetingPoint, index) => {
+      {[...selectedPlace.meeting_points]
+        .sort((a, b) => {
+          const aCompatible = meetingSupportsMode(a, vehicleType) ? 1 : 0;
+          const bCompatible = meetingSupportsMode(b, vehicleType) ? 1 : 0;
+          return bCompatible - aCompatible || Number(b.suitability_score || 0) - Number(a.suitability_score || 0);
+        })
+        .map((candidateMeetingPoint, index) => {
         const suitability = Number(candidateMeetingPoint.suitability_score || candidateMeetingPoint.confidence || 0);
         return (
           <button
@@ -399,7 +465,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs font-black text-white">{candidateMeetingPoint.name}</p>
                   <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-[8px] font-black uppercase text-cyan-100">
-                    {index === 0 ? 'Recommended · ' : ''}{suitability}/100
+                    {meetingSupportsMode(candidateMeetingPoint, vehicleType) ? (index === 0 ? 'Best for mode · ' : '') : 'Limited for mode · '}{suitability}/100
                   </span>
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-white/55">{candidateMeetingPoint.instructions}</p>
