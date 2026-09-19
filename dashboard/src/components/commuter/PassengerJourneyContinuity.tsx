@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, KeyRound, Receipt, Share2, ShieldAlert, ShieldCheck, Star, XCircle } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, CarFront, CheckCircle2, Clock3, KeyRound, Receipt, Share2, ShieldAlert, ShieldCheck, Star, UserRoundCheck, XCircle } from 'lucide-react';
 import { createGuardianToken, createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
 import { FarePaymentPanel } from '../shared/FarePaymentPanel';
@@ -156,6 +156,51 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><Clock3 className="h-4 w-4 text-blue-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Current step</p><p className="mt-1 text-xs font-black">{human(status)}</p></div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Truth source</p><p className="mt-1 text-xs font-black">Live dispatch record</p></div>
       </div>
+
+      {(assignment.operator || assignment.vehicle) && (
+        <div className="mt-4 rounded-xl border border-emerald-300/15 bg-emerald-400/[0.055] p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Your assigned ride</p>
+              <p className="mt-2 text-lg font-black text-white">{assignment.operator?.full_name || 'Assigned AFAT operator'}</p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-black uppercase tracking-wider">
+                {assignment.operator?.verification_status && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-2 py-1 text-emerald-100">
+                    <UserRoundCheck className="h-3 w-3" />
+                    {human(assignment.operator.verification_status)}
+                  </span>
+                )}
+                {assignment.vehicle?.clearance_status && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-cyan-100">
+                    <BadgeCheck className="h-3 w-3" />
+                    {human(assignment.vehicle.clearance_status)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <CarFront className="h-6 w-6 shrink-0 text-emerald-200" />
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[8px] font-black uppercase tracking-wider text-white/30">Vehicle</p>
+              <p className="mt-1 text-xs font-black">{assignment.vehicle?.type ? human(assignment.vehicle.type) : 'Vehicle details pending'}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[8px] font-black uppercase tracking-wider text-white/30">Plate</p>
+              <p className="mt-1 text-xs font-black">{assignment.vehicle?.plate_number || 'Pending'}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[8px] font-black uppercase tracking-wider text-white/30">Vehicle rating</p>
+              <p className="mt-1 text-xs font-black">{assignment.vehicle?.rating != null ? Number(assignment.vehicle.rating).toFixed(1) : 'Not enough data'}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[8px] font-black uppercase tracking-wider text-white/30">Pickup trust</p>
+              <p className="mt-1 text-xs font-black">{status === 'arrived' ? 'Verify with code' : status === 'pickup_verified' || status === 'in_journey' ? 'Verified' : 'Waiting for arrival'}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-400/[0.055] p-4">
         <div className="flex items-start gap-3">

@@ -30,6 +30,20 @@ export type DispatchAssignment = {
   failure_reason?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  operator?: {
+    id: string;
+    full_name?: string | null;
+    avatar_url?: string | null;
+    verification_status?: string | null;
+  } | null;
+  vehicle?: {
+    id: string;
+    operator_id?: string | null;
+    plate_number?: string | null;
+    type?: string | null;
+    rating?: number | null;
+    clearance_status?: string | null;
+  } | null;
 };
 
 export type DispatchEvent = {
