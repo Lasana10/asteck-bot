@@ -9,6 +9,12 @@ const dictionaries: Record<AfatLocale, Record<string,string>> = {
     'atlas.contribute':'Contribute movement','atlas.missions':'Nearby missions','atlas.reputation':'Contributor trust',
     'atlas.city':'City learning','atlas.predictions':'What AFAT needs to verify next',
     'atlas.private':'Private contribution','atlas.review':'Trusted review','atlas.public':'Public mapping',
+    'atlas.map':'Living Atlas map','atlas.fieldMapper':'Field Mapper','atlas.fieldMapperTitle':'Record what the base map misses',
+    'atlas.fieldPhoto':'Add optional field photo','atlas.recordPlace':'Record this place','atlas.evidenceReview':'Field evidence review',
+    'atlas.evidenceReviewTitle':'Human review before map promotion','atlas.liveOps':'Live Operations',
+    'atlas.liveOpsTitle':'Dispatch, supply, journeys and failures in one control room','atlas.sourceIngestion':'Atlas source ingestion',
+    'atlas.sourceIngestionTitle':'OpenStreetMap → City Genesis candidate topology','atlas.privacy':'Contribution privacy',
+    'atlas.privacyTitle':'You control the raw trace','atlas.savePrivacy':'Save privacy settings',
   },
   fr: {
     'nav.home':'Accueil','nav.trips':'Trajets','nav.safety':'Sécurité','nav.account':'Compte','nav.atlas':'Atlas',
@@ -16,6 +22,12 @@ const dictionaries: Record<AfatLocale, Record<string,string>> = {
     'atlas.contribute':'Contribuer un déplacement','atlas.missions':'Missions à proximité','atlas.reputation':'Confiance contributeur',
     'atlas.city':'Apprentissage de la ville','atlas.predictions':'Ce qu’AFAT doit vérifier ensuite',
     'atlas.private':'Contribution privée','atlas.review':'Révision de confiance','atlas.public':'Cartographie publique',
+    'atlas.map':'Carte de l’Atlas vivant','atlas.fieldMapper':'Cartographie terrain','atlas.fieldMapperTitle':'Enregistrez ce que la carte de base ne montre pas',
+    'atlas.fieldPhoto':'Ajouter une photo de terrain','atlas.recordPlace':'Enregistrer ce lieu','atlas.evidenceReview':'Révision des preuves terrain',
+    'atlas.evidenceReviewTitle':'Révision humaine avant intégration à la carte','atlas.liveOps':'Opérations en direct',
+    'atlas.liveOpsTitle':'Répartition, offre, trajets et incidents dans un seul centre de contrôle','atlas.sourceIngestion':'Import des sources Atlas',
+    'atlas.sourceIngestionTitle':'OpenStreetMap → topologie candidate City Genesis','atlas.privacy':'Confidentialité des contributions',
+    'atlas.privacyTitle':'Vous contrôlez la trace GPS brute','atlas.savePrivacy':'Enregistrer les paramètres de confidentialité',
   },
 };
 
