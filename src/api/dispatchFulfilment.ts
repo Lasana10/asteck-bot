@@ -37,6 +37,34 @@ async function passengerOwnsBooking(profileId: string, bookingId?: string | null
   return data?.passenger_id === profileId;
 }
 
+async function enrichDispatchTrust<T extends Record<string, any>>(assignments: T[]) {
+  if (!assignments.length) return assignments;
+
+  const operatorIds = [...new Set(assignments.map((item) => item.operator_id).filter(Boolean))];
+  const vehicleIds = [...new Set(assignments.map((item) => item.vehicle_id).filter(Boolean))];
+
+  const [profilesResult, vehiclesResult] = await Promise.all([
+    operatorIds.length
+      ? supabase.from('profiles').select('id,full_name,avatar_url,verification_status').in('id', operatorIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    vehicleIds.length
+      ? supabase.from('vehicles').select('id,operator_id,plate_number,type,rating,clearance_status').in('id', vehicleIds)
+      : Promise.resolve({ data: [], error: null } as any),
+  ]);
+
+  if (profilesResult.error) throw profilesResult.error;
+  if (vehiclesResult.error) throw vehiclesResult.error;
+
+  const profiles = new Map((profilesResult.data || []).map((item: any) => [item.id, item]));
+  const vehicles = new Map((vehiclesResult.data || []).map((item: any) => [item.id, item]));
+
+  return assignments.map((assignment) => ({
+    ...assignment,
+    operator: assignment.operator_id ? profiles.get(assignment.operator_id) || null : null,
+    vehicle: assignment.vehicle_id ? vehicles.get(assignment.vehicle_id) || null : null,
+  }));
+}
+
 async function loadDispatchForRanking(assignmentId: string) {
   const { data, error } = await supabase.from('dispatch_assignments').select('id,status,pickup_lat,pickup_lng,priority,operator_id,vehicle_id,state_version').eq('id', assignmentId).maybeSingle();
   if (error) throw error;
@@ -64,7 +92,8 @@ router.get('/dispatch', async (req: Request, res: Response) => {
     }
     const { data, error } = await query;
     if (error) throw error;
-    return res.json({ dispatches: data || [], role, active_states: ACTIVE_DISPATCH_STATES });
+    const dispatches = await enrichDispatchTrust(data || []);
+    return res.json({ dispatches, role, active_states: ACTIVE_DISPATCH_STATES });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Dispatch workspace unavailable.' });
   }
@@ -152,7 +181,8 @@ router.get('/dispatch/:assignmentId', async (req: Request, res: Response) => {
     if (eventsError) throw eventsError;
     const { data: journey, error: journeyError } = await supabase.from('afat_journeys').select('*').eq('dispatch_assignment_id', assignmentId).maybeSingle();
     if (journeyError && journeyError.code !== 'PGRST116') throw journeyError;
-    return res.json({ assignment, events: events || [], journey: journey || null });
+    const [trustedAssignment] = await enrichDispatchTrust([assignment]);
+    return res.json({ assignment: trustedAssignment, events: events || [], journey: journey || null });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Dispatch assignment unavailable.' });
   }
