@@ -14,9 +14,11 @@ import { PassengerWorkspaceTabs } from '../commuter/PassengerWorkspaceTabs';
 import { OperatorWorkspaceTabs } from '../operator/OperatorWorkspaceTabs';
 import { PlannerWorkspaceTabs } from '../planner/PlannerWorkspaceTabs';
 import { InstitutionalWorkspaceTabs } from './InstitutionalWorkspaceTabs';
+import { AtlasWorkspace } from './AtlasWorkspace';
+import { LanguageSwitcher } from '../../localization';
 
 export type AdaptiveWorkspaceRole = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
-type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
+type WorkspaceTab = 'home' | 'bookings' | 'atlas' | 'notifications' | 'profile';
 type LiveFeed = RoleWorkspaceLiveFeed;
 
 type Props = {
@@ -52,7 +54,7 @@ function WorkspaceHeader({ role, profile, onSignOut, loading, onRefresh }: { rol
     <div className="mx-auto flex max-w-[1540px] items-center justify-between gap-4">
       <div className="flex min-w-0 items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-400/10"><AFATLogo className="h-6 w-6 text-cyan-100" /></div><div className="min-w-0"><div className="flex items-center gap-2"><p className="text-base font-black">AFAT</p><StatusPill>{meta.label}</StatusPill></div><p className="truncate text-[9px] font-black uppercase tracking-[0.18em] text-white/30">African Movement Operating System</p></div></div>
       <div className="hidden min-w-0 flex-1 justify-center px-6 lg:flex"><div className="flex w-full max-w-xl items-center gap-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><Search className="h-4 w-4 text-white/30" /><span className="truncate text-xs text-white/35">Search places, journeys, vehicles, evidence or decisions</span></div></div>
-      <div className="flex items-center gap-2"><button type="button" onClick={onRefresh} aria-label="Refresh live workspace" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/55"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button><div className="hidden text-right sm:block"><p className="max-w-40 truncate text-xs font-black">{profile?.full_name || profile?.email || 'AFAT member'}</p><p className={`text-[9px] font-black uppercase tracking-wider ${meta.accent}`}>{meta.label}</p></div><button type="button" onClick={onSignOut} aria-label="Sign out" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/55"><LogOut className="h-4 w-4" /></button></div>
+      <div className="flex items-center gap-2"><LanguageSwitcher /><button type="button" onClick={onRefresh} aria-label="Refresh live workspace" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/55"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button><div className="hidden text-right sm:block"><p className="max-w-40 truncate text-xs font-black">{profile?.full_name || profile?.email || 'AFAT member'}</p><p className={`text-[9px] font-black uppercase tracking-wider ${meta.accent}`}>{meta.label}</p></div><button type="button" onClick={onSignOut} aria-label="Sign out" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/55"><LogOut className="h-4 w-4" /></button></div>
     </div>
   </header>;
 }
@@ -66,6 +68,8 @@ export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home'
   const { live, missions, operations, loading, serviceErrors, refresh } = useRoleWorkspaceData(role, profile);
   const meta = ROLE_META[role]; const Icon = meta.icon; const participantDispatches = operations?.participantDispatches || []; const currentDispatch = participantDispatches.find((item: any) => ['queued','offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','reassigned','emergency','disputed'].includes(String(item.status || '').toLowerCase())) || participantDispatches[0] || null; const home = useMemo(() => { if (role === 'commuter') return <PassengerWorkspaceHome profile={profile} live={live} currentDispatch={currentDispatch} onNavigate={onNavigate} onChanged={refresh} />; if (role === 'operator') return <OperatorWorkspaceHome profile={profile} live={live} missions={missions} currentDispatch={currentDispatch} onNavigate={onNavigate} onChanged={refresh} />; if (role === 'planner') return <PlannerWorkspaceHome live={live} operations={operations} onNavigate={onNavigate} />; if (role === 'organization' || role === 'government' || role === 'admin') return <InstitutionalWorkspaceHome role={role} membership={membership} live={live} operations={operations} onNavigate={onNavigate} />; return null; }, [role, profile, membership, live, missions, operations, onNavigate]);
   const tabs = activeTab === 'home' ? null
+    : activeTab === 'atlas' && ['commuter','operator','planner','admin','government'].includes(role)
+      ? <AtlasWorkspace role={role as any} profile={profile} />
     : role === 'commuter'
       ? <PassengerWorkspaceTabs activeTab={activeTab} profile={profile} live={live} operations={operations} onSignOut={onSignOut} onChanged={refresh} />
       : role === 'operator'
