@@ -48,7 +48,7 @@ async function enrichDispatchTrust<T extends Record<string, any>>(assignments: T
       ? supabase.from('profiles').select('id,full_name,avatar_url,verification_status').in('id', operatorIds)
       : Promise.resolve({ data: [], error: null } as any),
     vehicleIds.length
-      ? supabase.from('vehicles').select('id,operator_id,plate_number,type,rating,clearance_status').in('id', vehicleIds)
+      ? supabase.from('vehicles').select('id,operator_id,plate_number,type,rating,clearance_status,current_lat,current_lng,last_ping_at').in('id', vehicleIds)
       : Promise.resolve({ data: [], error: null } as any),
   ]);
 

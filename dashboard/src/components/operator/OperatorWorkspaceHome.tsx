@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Car, Clock3, MapPin, Radio, ShieldCheck, Wallet } from 'lucide-react';
 import { InteractiveMap } from '../shared/InteractiveMap';
+import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import { OperatorMissionLifecycle } from './OperatorMissionLifecycle';
 import { supabase, updatePassageIntentStatus } from '../../supabaseClient';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
@@ -83,9 +84,12 @@ export function OperatorWorkspaceHome({
 
   return (
     <div className="space-y-5">
-      {currentDispatch && <OperatorMissionLifecycle assignment={currentDispatch} onChanged={onChanged} />}
+      {currentDispatch && <>
+        <ActiveDispatchMap assignment={currentDispatch} role="operator" incidents={live.incidents} liveTracks={live.tracks} />
+        <OperatorMissionLifecycle assignment={currentDispatch} onChanged={onChanged} />
+      </>}
 
-      <div className="min-h-[500px] sm:min-h-[620px]">
+      {!currentDispatch && <div className="min-h-[500px] sm:min-h-[620px]">
         <InteractiveMap
           role="operator"
           mapMode="intel"
@@ -95,7 +99,7 @@ export function OperatorWorkspaceHome({
           realtimeOverlay
           showInformal
         />
-      </div>
+      </div>}
 
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <Surface className="bg-gradient-to-br from-emerald-500/[0.13] to-transparent p-5 sm:p-6">
