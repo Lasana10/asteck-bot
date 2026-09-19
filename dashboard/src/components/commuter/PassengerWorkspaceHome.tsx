@@ -2,6 +2,7 @@ import React from 'react';
 import { Car, MapPin, ShieldCheck } from 'lucide-react';
 import { PassagePlanner } from './PassagePlanner';
 import { PassengerJourneyContinuity } from './PassengerJourneyContinuity';
+import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
 type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
@@ -31,9 +32,10 @@ export function PassengerWorkspaceHome({
 }) {
   return (
     <div className="space-y-5">
-      {currentDispatch && (
+      {currentDispatch && <>
+        <ActiveDispatchMap assignment={currentDispatch} role="commuter" incidents={live.incidents} liveTracks={live.tracks} />
         <PassengerJourneyContinuity assignment={currentDispatch} onChanged={onChanged} />
-      )}
+      </>}
 
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 shadow-xl backdrop-blur-xl sm:p-5">
         <div className="grid grid-cols-3 gap-3">
