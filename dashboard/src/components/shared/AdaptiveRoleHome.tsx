@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 
 import { AFATLogo } from './AFATLogo';
-import { ROLE_FLOW } from '../../utils/roleWorkspace';
 import { useRoleWorkspaceData, type RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { PassengerWorkspaceHome } from '../commuter/PassengerWorkspaceHome';
 import { OperatorWorkspaceHome } from '../operator/OperatorWorkspaceHome';
@@ -58,11 +57,6 @@ function WorkspaceHeader({ role, profile, onSignOut, loading, onRefresh }: { rol
   </header>;
 }
 
-function RoleFlow({ role, activeTab, onNavigate }: { role: AdaptiveWorkspaceRole; activeTab: WorkspaceTab; onNavigate: Props['onNavigate'] }) {
-  const tabs: WorkspaceTab[] = ['home', 'bookings', 'notifications', 'profile'];
-  return <div className="grid grid-cols-4 gap-2">{ROLE_FLOW[role].map((label, i) => <button key={label} type="button" onClick={() => onNavigate(tabs[i])} className={`min-h-14 rounded-xl border px-3 py-2 text-left transition ${activeTab === tabs[i] ? 'border-cyan-300/30 bg-cyan-400/10 text-white' : 'border-white/10 bg-black/15 text-white/38 hover:bg-white/5'}`}><span className="block text-[8px] font-black uppercase tracking-widest text-white/25">0{i + 1}</span><span className="mt-1 block text-[10px] font-black uppercase sm:text-xs">{label}</span></button>)}</div>;
-}
-
 function RealityBar({ live, loading, errors }: { live: LiveFeed; loading: boolean; errors: string[] }) {
   const records = live.incidents.length + live.tracks.length + live.checkpoints.length;
   return <div className="flex flex-wrap items-center gap-2"><StatusPill tone={loading ? 'warn' : errors.length ? 'warn' : 'good'}>{loading ? 'Refreshing live services' : errors.length ? 'Partial live service' : 'Live services connected'}</StatusPill><StatusPill>{records} map records</StatusPill><StatusPill>{live.incidents.length} conditions</StatusPill><StatusPill>{live.tracks.length} moving assets</StatusPill><StatusPill>{live.checkpoints.length} meeting points</StatusPill></div>;
@@ -79,5 +73,5 @@ export function AdaptiveRoleHome({ role, profile, membership, activeTab = 'home'
         : role === 'planner'
           ? <PlannerWorkspaceTabs activeTab={activeTab} profile={profile} live={live} operations={operations} onSignOut={onSignOut} onChanged={refresh} />
           : <InstitutionalWorkspaceTabs role={role as 'organization' | 'government' | 'admin'} activeTab={activeTab} profile={profile} membership={membership} live={live} operations={operations} onSignOut={onSignOut} onChanged={refresh} />;
-  return <div className="min-h-screen bg-[#050812] text-white"><WorkspaceHeader role={role} profile={profile} onSignOut={onSignOut} loading={loading} onRefresh={refresh} /><main className="mx-auto max-w-[1540px] px-4 pb-28 pt-5 sm:px-7"><div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><div className="flex items-center gap-2"><Icon className={`h-4 w-4 ${meta.accent}`} /><p className={`text-[10px] font-black uppercase tracking-[0.25em] ${meta.accent}`}>{meta.eyebrow}</p></div><h2 className="mt-2 text-2xl font-black tracking-tight">{meta.label} workspace</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">{meta.promise}</p></div><RealityBar live={live} loading={loading} errors={serviceErrors} /></div><RoleFlow role={role} activeTab={activeTab} onNavigate={onNavigate} />{serviceErrors.length > 0 && <div className="mb-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4"><div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" /><div><p className="text-xs font-black text-amber-100">AFAT is operating with partial live data.</p><p className="mt-1 text-xs leading-5 text-white/45">{serviceErrors.join(' · ')}</p></div></div></div>}<div className="mt-5">{activeTab === 'home' ? home : tabs}</div></main></div>;
+  return <div className="min-h-screen bg-[#050812] text-white"><WorkspaceHeader role={role} profile={profile} onSignOut={onSignOut} loading={loading} onRefresh={refresh} /><main className="mx-auto max-w-[1540px] px-4 pb-28 pt-5 sm:px-7"><div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><div className="flex items-center gap-2"><Icon className={`h-4 w-4 ${meta.accent}`} /><p className={`text-[10px] font-black uppercase tracking-[0.25em] ${meta.accent}`}>{meta.eyebrow}</p></div><h2 className="mt-2 text-2xl font-black tracking-tight">{meta.label} workspace</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">{meta.promise}</p></div><RealityBar live={live} loading={loading} errors={serviceErrors} /></div>{serviceErrors.length > 0 && <div className="mb-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4"><div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" /><div><p className="text-xs font-black text-amber-100">AFAT is operating with partial live data.</p><p className="mt-1 text-xs leading-5 text-white/45">{serviceErrors.join(' · ')}</p></div></div></div>}<div className="mt-5">{activeTab === 'home' ? home : tabs}</div></main></div>;
 }
