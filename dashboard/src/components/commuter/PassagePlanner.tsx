@@ -72,6 +72,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [suggestions, setSuggestions] = useState<AfatPlaceCandidate[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [recentPlaces, setRecentPlaces] = useState<AfatPlaceCandidate[]>(() => {
+    try {
+      const raw = localStorage.getItem('afat_recent_places_v1');
+      return raw ? JSON.parse(raw).slice(0, 5) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     setDestination(initialDestination);
@@ -114,15 +122,17 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         setSuggestions([]);
         return;
       }
-      setSuggestions((data?.results || []) as AfatPlaceCandidate[]);
-      setSuggestionsOpen(Boolean((data?.results || []).length));
+      const discovered = (data?.results || []) as AfatPlaceCandidate[];
+      const fallback = !query && !discovered.length ? recentPlaces : discovered;
+      setSuggestions(fallback);
+      setSuggestionsOpen(Boolean(fallback.length));
     }, query ? 280 : 450);
 
     return () => {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [destination, originFix?.latitude, originFix?.longitude, profile?.preferred_city, selectedPlace?.id]);
+  }, [destination, originFix?.latitude, originFix?.longitude, profile?.preferred_city, selectedPlace?.id, recentPlaces]);
 
   const destinationPoint = useMemo(() => pointFrom(selectedPlace, selectedPlace?.name), [selectedPlace]);
   const meetingPoint = useMemo(() => pointFrom(selectedMeetingPoint, selectedMeetingPoint?.name), [selectedMeetingPoint]);
@@ -195,6 +205,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setDestination(candidate.name);
     setSuggestions([]);
     setSuggestionsOpen(false);
+    const nextRecents = [candidate, ...recentPlaces.filter((item) => item.id !== candidate.id)].slice(0, 5);
+    setRecentPlaces(nextRecents);
+    try { localStorage.setItem('afat_recent_places_v1', JSON.stringify(nextRecents)); } catch {}
     setSelectedPlace(candidate);
     const bestMeetingPoint = [...(candidate.meeting_points || [])]
       .sort((a, b) => Number(b.suitability_score || 0) - Number(a.suitability_score || 0))[0] || null;
@@ -282,7 +295,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       {suggestionsOpen && !!suggestions.length && !selectedPlace && (
         <div className="absolute inset-x-0 top-[62px] z-40 max-h-80 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-2xl md:right-[182px]">
           <p className="px-3 pb-2 pt-1 text-[8px] font-black uppercase tracking-widest text-white/30">
-            {destination.trim() ? 'AFAT suggestions' : 'Nearby verified places'}
+            {destination.trim() ? 'AFAT suggestions' : originFix ? 'Nearby verified places' : 'Recent places'}
           </p>
           {suggestions.map((candidate) => (
             <button
