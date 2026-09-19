@@ -29,24 +29,28 @@ export function PlannerWorkspaceHome({
 
   return (
     <div className="space-y-5">
-      <Surface className="p-4 sm:p-5">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <Surface className="bg-gradient-to-br from-violet-500/[0.14] to-transparent p-5 sm:p-6">
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-violet-300/75">Planner control</p>
+        <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-black sm:text-3xl">Decide what needs intervention now</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">Planning is not passive monitoring. Start from demand, active dispatches and validated failures; use the map as evidence for a decision, not as the whole product.</p>
+          </div>
+          <button onClick={() => onNavigate('bookings')} className="min-h-12 rounded-xl bg-violet-500 px-5 text-xs font-black">Open dispatch control</button>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <Metric icon={Activity} label="Demand pressure" value={pressure} />
           <Metric icon={Radio} label="Active dispatches" value={dispatches.length} />
-          <Metric icon={Activity} label="Validated conditions" value={situations.length} />
+          <Metric icon={Activity} label="Validated failures" value={situations.length} />
         </div>
       </Surface>
-
-      <div className="min-h-[520px] sm:min-h-[640px]">
-        <InteractiveMap role="planner" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay showInformal />
-      </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <Surface className="p-5">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Validated situation queue</p>
-              <h2 className="mt-2 text-2xl font-black">What needs action now</h2>
+              <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Action queue</p>
+              <h2 className="mt-2 text-2xl font-black">What needs a planner decision</h2>
             </div>
             <button onClick={() => onNavigate('notifications')} className="min-h-10 rounded-xl border border-white/10 px-3 text-[9px] font-black uppercase text-white/65">All disruptions</button>
           </div>
@@ -62,24 +66,33 @@ export function PlannerWorkspaceHome({
                 </div>
               </article>
             ))}
-            {!situations.length && <p className="rounded-xl border border-dashed border-white/15 p-6 text-sm text-white/35">No validated movement failure is in the live queue.</p>}
+            {!situations.length && <p className="rounded-xl border border-dashed border-white/15 p-6 text-sm text-white/35">No validated movement failure is waiting for intervention.</p>}
           </div>
         </Surface>
 
         <Surface className="p-5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Operational decision</p>
-          <h2 className="mt-2 text-2xl font-black">Act only on current evidence</h2>
+          <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Decision support</p>
+          <h2 className="mt-2 text-2xl font-black">Evidence before action</h2>
           <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
             <p className="text-[9px] font-black uppercase text-white/35">Engine recommendation</p>
             <p className="mt-2 text-sm font-bold capitalize">{String(recommendation).replace(/_/g, ' ')}</p>
           </div>
           <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4">
             <p className="text-[9px] font-black uppercase text-white/35">Evidence provenance</p>
-            <p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length} live records. AFAT does not promote unknowns into facts.</p>
+            <p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length} live records. Unknowns remain unknown until AFAT receives trusted evidence.</p>
           </div>
-          <button onClick={() => onNavigate('bookings')} className="mt-5 min-h-12 w-full rounded-xl bg-violet-500 text-xs font-black">Open operational dispatch</button>
         </Surface>
       </div>
+
+      <Surface className="overflow-hidden p-0">
+        <div className="border-b border-white/10 px-5 py-4">
+          <p className="text-[9px] font-black uppercase tracking-widest text-cyan-200/70">Network evidence map</p>
+          <p className="mt-1 text-xs text-white/40">Inspect vehicle movement, validated conditions and checkpoints in spatial context after the work queue identifies what matters.</p>
+        </div>
+        <div className="min-h-[500px] sm:min-h-[620px]">
+          <InteractiveMap role="planner" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay showInformal />
+        </div>
+      </Surface>
     </div>
   );
 }
