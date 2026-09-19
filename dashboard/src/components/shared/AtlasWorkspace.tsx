@@ -58,7 +58,12 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
   const refreshCity=async()=>{
     setBusy(true);
     const {data,error}=await supabase.rpc('afat_refresh_city_learning',{p_city_key:city?.city_key||'cm-yaounde'});
-    if(!error) await supabase.rpc('afat_generate_evidence_predictions',{p_city:city?.city_name||'Yaoundé',p_limit:20});
+    if(!error) {
+      await Promise.all([
+        supabase.rpc('afat_generate_evidence_predictions',{p_city:city?.city_name||'Yaoundé',p_limit:20}),
+        supabase.rpc('afat_generate_micro_missions',{p_limit:12}),
+      ]);
+    }
     setBusy(false); setNotice(error?error.message:`City learning refreshed: ${data?.learning_stage||'updated'} · ${data?.operational_confidence||0}% confidence.`); await load();
   };
 
