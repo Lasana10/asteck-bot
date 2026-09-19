@@ -6,6 +6,10 @@ import { AtlasLearningControl } from '../planner/AtlasLearningControl';
 import { RoadConditionReporter } from './RoadConditionReporter';
 import { CityGenesisPanel } from '../admin/CityGenesisPanel';
 import { useAfatLocale } from '../../localization';
+import { LivingAtlasMap } from './LivingAtlasMap';
+import { FieldMapper } from './FieldMapper';
+import { MappingEvidenceReview } from './MappingEvidenceReview';
+import AtlasIngestionControl from './AtlasIngestionControl';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -66,6 +70,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       await Promise.all([
         supabase.rpc('afat_generate_evidence_predictions',{p_city:city?.city_name||'Yaoundé',p_limit:20}),
         supabase.rpc('afat_generate_micro_missions',{p_limit:12}),
+        supabase.rpc('afat_refresh_edge_mode_learning',{p_city:city?.city_name||'Yaoundé'}),
+        supabase.rpc('afat_reconcile_candidate_clusters',{p_city_key:city?.city_key||'cm-yaounde'}),
       ]);
     }
     setBusy(false); setNotice(error?error.message:`City learning refreshed: ${data?.learning_stage||'updated'} · ${data?.operational_confidence||0}% confidence.`); await load();
@@ -87,7 +93,10 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       </div>
     </section>
 
+    <LivingAtlasMap cityKey={city?.city_key||'cm-yaounde'} />
+
     {canContribute&&<AtlasContributionPanel defaultMode={defaultMode as any} />}
+    {canContribute&&<FieldMapper cityKey={city?.city_key||'cm-yaounde'} defaultMode={defaultMode} />}
     {canContribute&&<RoadConditionReporter mode={role==='operator'?'taxi':'walk'} />}
 
     <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
@@ -105,7 +114,9 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
     </section>
 
     {canPlan&&<AtlasLearningControl />}
+    {canPlan&&<MappingEvidenceReview />}
 
+    {role==='admin'&&<AtlasIngestionControl />}
     {role==='admin'&&<CityGenesisPanel onCreated={load} />}
 
     {canPlan&&<section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
