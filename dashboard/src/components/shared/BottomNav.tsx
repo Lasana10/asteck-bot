@@ -13,7 +13,7 @@ interface Props {
 // ── Per-role tab definitions ────────────────────────────────────
 const TAB_CONFIG: Record<string, { id: string; label: string; icon: React.ElementType }[]> = {
   commuter: [
-    { id: 'home',          label: 'Plan',        icon: Home },
+    { id: 'home',          label: 'Explore',     icon: Map },
     { id: 'bookings',      label: 'Trips',       icon: Ticket },
     { id: 'notifications', label: 'Safety',      icon: Radio },
     { id: 'profile',       label: 'Me',          icon: User },

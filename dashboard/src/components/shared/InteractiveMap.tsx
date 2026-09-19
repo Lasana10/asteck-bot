@@ -9,6 +9,7 @@ import {
   Popup,
 } from 'maplibre-gl';
 import { supabase, subscribeToMovementLogs, subscribeToVehicles } from '../../supabaseClient';
+import { fetchAtlasNearby, type AtlasNearbyResponse } from '../../services/atlasClient';
 
 type PointLike = {
   latitude?: number;
@@ -148,6 +149,7 @@ export function InteractiveMap({
   const markerRefs = useRef<Marker[]>([]);
   const [liveTracks, setLiveTracks] = useState<PointLike[]>([]);
   const [liveVehicles, setLiveVehicles] = useState<PointLike[]>([]);
+  const [atlas, setAtlas] = useState<AtlasNearbyResponse | null>(null);
 
   useEffect(() => {
     if (!realtimeOverlay) {
@@ -187,6 +189,21 @@ export function InteractiveMap({
   const activeSignalCount = liveTracks.length + liveVehicles.length + incidents.length;
 
   useEffect(() => {
+    if (!['operator','planner','admin'].includes(role)) {
+      setAtlas(null);
+      return;
+    }
+    const first = allSignals.map(extractPoint).find(Boolean);
+    const latitude = first?.latitude ?? DEFAULT_CENTER[1];
+    const longitude = first?.longitude ?? DEFAULT_CENTER[0];
+    let active = true;
+    fetchAtlasNearby({ latitude, longitude, radiusM: role === 'planner' ? 5000 : 3200, limit: role === 'planner' ? 220 : 160 })
+      .then((graph) => { if (active) setAtlas(graph); })
+      .catch(() => { if (active) setAtlas(null); });
+    return () => { active = false; };
+  }, [role, allSignals]);
+
+  useEffect(() => {
     if (!containerRef.current) return;
     const basemap = BASEMAPS[mapMode] || BASEMAPS.standard;
     const map = new MapLibreMap({
@@ -224,6 +241,34 @@ export function InteractiveMap({
     const render = () => {
       markerRefs.current.forEach((marker) => marker.remove());
       markerRefs.current = [];
+
+      const atlasNodes = new Map<string, any>();
+      (atlas?.nodes || []).forEach((node: any) => {
+        if (node?.id && Number.isFinite(Number(node.latitude)) && Number.isFinite(Number(node.longitude))) atlasNodes.set(node.id, node);
+      });
+      const atlasFeatures = (atlas?.edges || []).map((edge: any) => {
+        const from = atlasNodes.get(edge.from_node_id);
+        const to = atlasNodes.get(edge.to_node_id);
+        if (!from || !to) return null;
+        return {
+          type: 'Feature',
+          properties: { confidence: Number(edge.confidence || 0), evidence_status: edge.evidence_status || '' },
+          geometry: { type: 'LineString', coordinates: [[Number(from.longitude), Number(from.latitude)], [Number(to.longitude), Number(to.latitude)]] },
+        };
+      }).filter(Boolean);
+      const atlasCollection = { type: 'FeatureCollection', features: atlasFeatures };
+      const atlasSource = map.getSource('afat-ops-atlas') as GeoJSONSource | undefined;
+      if (atlasSource) atlasSource.setData(atlasCollection as any);
+      else if (atlasFeatures.length) {
+        map.addSource('afat-ops-atlas', { type: 'geojson', data: atlasCollection as any });
+        map.addLayer({ id: 'afat-ops-atlas-shadow', type: 'line', source: 'afat-ops-atlas', paint: { 'line-color': '#020617', 'line-width': 6, 'line-opacity': 0.5 } });
+        map.addLayer({ id: 'afat-ops-atlas-line', type: 'line', source: 'afat-ops-atlas', paint: {
+          'line-color': ['case', ['>=', ['get','confidence'], 80], '#38bdf8', ['>=', ['get','confidence'], 60], '#22c55e', '#64748b'] as any,
+          'line-width': role === 'planner' ? 3 : 2.4,
+          'line-opacity': 0.72,
+        }});
+      }
+
       const addMarker = (point: PointLike, fallback: string, color: string, size: number, ring = false) => {
         const coords = extractPoint(point);
         if (!coords) return;
@@ -260,7 +305,7 @@ export function InteractiveMap({
       }
     };
     if (map.loaded()) render(); else map.once('load', render);
-  }, [allSignals, checkpoints, hazardSignals, movementSignals, primaryVehicle, routePath, showInformal, vehicleSignals]);
+  }, [allSignals, atlas, checkpoints, hazardSignals, movementSignals, primaryVehicle, role, routePath, showInformal, vehicleSignals]);
 
   return (
     <div className="sentinel-atlas-container relative h-full min-h-[260px] overflow-hidden rounded-[28px] border border-white/10 bg-[#05070b] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
@@ -279,6 +324,7 @@ export function InteractiveMap({
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-blue-300">{vehicleSignals.length}</span> moving nodes</div>
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-emerald-300">{hazardSignals.length}</span> hazard signals</div>
         <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-cyan-300">{checkpoints.length}</span> checkpoints</div>
+        {atlas && <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/70 backdrop-blur-xl"><span className="text-violet-300">{atlas.edges.length}</span> atlas links</div>}
         {driveMode && <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-emerald-200 backdrop-blur-xl">live dispatch feed</div>}
         <div className="ml-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/45 backdrop-blur-xl">{mapMode === 'satellite' || mapMode === 'hybrid' ? <Navigation2 className="h-3 w-3" /> : <MapPin className="h-3 w-3" />}{mapMode}</div>
       </div>

@@ -28,54 +28,58 @@ export function PlannerWorkspaceHome({
   const recommendation = operations?.demand?.summary?.recommendation || 'No live recommendation';
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.58fr_1.08fr_0.72fr]">
-      <Surface className="p-5">
-        <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Validated situation queue</p>
-        <div className="mt-4 space-y-3">
-          {situations.map((item: any, index: number) => (
-            <article key={item.id || index} className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <p className="text-sm font-black">{item.name || item.type || 'Movement condition'}</p>
-              <p className="mt-2 text-[10px] uppercase text-white/35">{item.status || 'validated'} · severity {item.severity || '—'}</p>
-            </article>
-          ))}
-          {!situations.length && <p className="rounded-xl border border-dashed border-white/15 p-6 text-sm text-white/35">No validated movement failure is in the live queue.</p>}
+    <div className="space-y-5">
+      <Surface className="p-4 sm:p-5">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Metric icon={Activity} label="Demand pressure" value={pressure} />
+          <Metric icon={Radio} label="Active dispatches" value={dispatches.length} />
+          <Metric icon={Activity} label="Validated conditions" value={situations.length} />
         </div>
       </Surface>
 
-      <div className="min-h-[620px]">
+      <div className="min-h-[520px] sm:min-h-[640px]">
         <InteractiveMap role="planner" mapMode="intel" incidents={live.incidents} tracks={live.tracks} checkpoints={live.checkpoints} realtimeOverlay showInformal />
       </div>
 
-      <Surface className="p-5">
-        <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">City operations posture</p>
-        <h2 className="mt-2 text-2xl font-black">Decide from current evidence</h2>
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <Metric icon={Activity} label="Demand pressure" value={pressure} />
-          <Metric icon={Radio} label="Active dispatches" value={dispatches.length} />
-        </div>
-        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-[9px] font-black uppercase text-white/35">Engine recommendation</p>
-          <p className="mt-2 text-sm font-bold capitalize">{String(recommendation).replace(/_/g, ' ')}</p>
-        </div>
-        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4">
-          <p className="text-[9px] font-black uppercase text-white/35">Evidence provenance</p>
-          <p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length} live records. Unknown values remain unknown.</p>
-        </div>
-        <button onClick={() => onNavigate('bookings')} className="mt-5 min-h-12 w-full rounded-xl bg-violet-500 text-xs font-black">Open dispatch board</button>
-        <button onClick={() => onNavigate('notifications')} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 text-xs font-black text-white/70">Review disruptions</button>
-      </Surface>
-
-      <Surface className="xl:col-span-3 p-4">
-        <p className="mb-3 text-[9px] font-black uppercase tracking-widest text-white/35">Intervention lifecycle</p>
-        <div className="grid grid-cols-5 gap-2">
-          {['Detect', 'Simulate', 'Approve', 'Dispatch', 'Measure'].map((step, index) => (
-            <div key={step} className={`rounded-xl border p-3 ${index === 0 && situations.length ? 'border-violet-300/30 bg-violet-500/10' : index === 3 && dispatches.length ? 'border-cyan-300/30 bg-cyan-500/10' : 'border-white/10 bg-black/20'}`}>
-              <span className="text-[8px] font-black text-white/30">0{index + 1}</span>
-              <p className="mt-1 text-[9px] font-black uppercase sm:text-xs">{step}</p>
+      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-5">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Validated situation queue</p>
+              <h2 className="mt-2 text-2xl font-black">What needs action now</h2>
             </div>
-          ))}
-        </div>
-      </Surface>
+            <button onClick={() => onNavigate('notifications')} className="min-h-10 rounded-xl border border-white/10 px-3 text-[9px] font-black uppercase text-white/65">All disruptions</button>
+          </div>
+          <div className="mt-4 space-y-3">
+            {situations.map((item: any, index: number) => (
+              <article key={item.id || index} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-black">{item.name || item.type || 'Movement condition'}</p>
+                    <p className="mt-2 text-[10px] uppercase text-white/35">{item.status || 'validated'} · severity {item.severity || '—'}</p>
+                  </div>
+                  <span className="rounded-full border border-violet-300/20 bg-violet-500/10 px-2 py-1 text-[8px] font-black uppercase text-violet-100">Verified</span>
+                </div>
+              </article>
+            ))}
+            {!situations.length && <p className="rounded-xl border border-dashed border-white/15 p-6 text-sm text-white/35">No validated movement failure is in the live queue.</p>}
+          </div>
+        </Surface>
+
+        <Surface className="p-5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-violet-300">Operational decision</p>
+          <h2 className="mt-2 text-2xl font-black">Act only on current evidence</h2>
+          <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+            <p className="text-[9px] font-black uppercase text-white/35">Engine recommendation</p>
+            <p className="mt-2 text-sm font-bold capitalize">{String(recommendation).replace(/_/g, ' ')}</p>
+          </div>
+          <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4">
+            <p className="text-[9px] font-black uppercase text-white/35">Evidence provenance</p>
+            <p className="mt-2 text-xs leading-5 text-white/55">{live.incidents.length + live.tracks.length + live.checkpoints.length} live records. AFAT does not promote unknowns into facts.</p>
+          </div>
+          <button onClick={() => onNavigate('bookings')} className="mt-5 min-h-12 w-full rounded-xl bg-violet-500 text-xs font-black">Open operational dispatch</button>
+        </Surface>
+      </div>
     </div>
   );
 }
