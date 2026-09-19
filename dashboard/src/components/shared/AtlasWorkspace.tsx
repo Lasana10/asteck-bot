@@ -9,6 +9,7 @@ import { useAfatLocale } from '../../localization';
 import { LivingAtlasMap } from './LivingAtlasMap';
 import { FieldMapper } from './FieldMapper';
 import { MappingEvidenceReview } from './MappingEvidenceReview';
+import AtlasIngestionControl from './AtlasIngestionControl';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -115,6 +116,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
     {canPlan&&<AtlasLearningControl />}
     {canPlan&&<MappingEvidenceReview />}
 
+    {role==='admin'&&<AtlasIngestionControl />}
     {role==='admin'&&<CityGenesisPanel onCreated={load} />}
 
     {canPlan&&<section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
