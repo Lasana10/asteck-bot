@@ -151,8 +151,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const selectCandidate = (candidate: AfatPlaceCandidate) => {
     setSelectedPlace(candidate);
-    setSelectedMeetingPoint(candidate.meeting_points?.[0] || null);
-    setStatusText(candidate.meeting_points?.length ? 'Confirm the meeting point that both you and the driver should use.' : 'This place is known, but a reliable pickup point has not been confirmed yet.');
+    const bestMeetingPoint = [...(candidate.meeting_points || [])]
+      .sort((a, b) => Number(b.suitability_score || 0) - Number(a.suitability_score || 0))[0] || null;
+    setSelectedMeetingPoint(bestMeetingPoint);
+    setStatusText(bestMeetingPoint
+      ? 'AFAT selected the strongest verified meeting point from pickup history, access and walking burden. You can choose another below.'
+      : 'This place is known, but a reliable pickup point has not been confirmed yet.');
   };
 
   const markNoneCorrect = async () => {
@@ -277,7 +281,38 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     {selectedPlace && <div className="mt-4 space-y-3">
       <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/8 p-4"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black text-white">{selectedPlace.name}</p><p className="mt-1 text-[10px] text-white/45">{selectedPlace.zone_label || selectedPlace.city}</p></div><CheckCircle className="h-5 w-5 text-emerald-300" /></div></div>
       <PlaceMediaStrip placeId={selectedPlace.id} placeName={selectedPlace.name} compact />
-      {selectedPlace.meeting_points.map((candidateMeetingPoint) => <button key={candidateMeetingPoint.id} onClick={() => setSelectedMeetingPoint(candidateMeetingPoint)} className={`w-full rounded-2xl border p-4 text-left ${selectedMeetingPoint?.id === candidateMeetingPoint.id ? 'border-blue-400/40 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}><div className="flex items-start gap-3"><MapPin className="mt-0.5 h-4 w-4 text-orange-300" /><div className="flex-1"><p className="text-xs font-black text-white">{candidateMeetingPoint.name}</p><p className="mt-1 text-[11px] leading-relaxed text-white/55">{candidateMeetingPoint.instructions}</p><p className="mt-2 text-[10px] font-bold text-blue-200/70">About {candidateMeetingPoint.walk_minutes} min walk{Number(candidateMeetingPoint.successful_pickups || 0) > 0 ? ` · ${candidateMeetingPoint.successful_pickups} successful pickups` : ''}</p></div></div></button>)}
+      {selectedPlace.meeting_points.map((candidateMeetingPoint, index) => {
+        const suitability = Number(candidateMeetingPoint.suitability_score || candidateMeetingPoint.confidence || 0);
+        return (
+          <button
+            key={candidateMeetingPoint.id}
+            onClick={() => setSelectedMeetingPoint(candidateMeetingPoint)}
+            className={`w-full rounded-2xl border p-4 text-left ${selectedMeetingPoint?.id === candidateMeetingPoint.id ? 'border-blue-400/40 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}
+          >
+            <div className="flex items-start gap-3">
+              <MapPin className="mt-0.5 h-4 w-4 text-orange-300" />
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-black text-white">{candidateMeetingPoint.name}</p>
+                  <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-[8px] font-black uppercase text-cyan-100">
+                    {index === 0 ? 'Recommended · ' : ''}{suitability}/100
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-white/55">{candidateMeetingPoint.instructions}</p>
+                <p className="mt-2 text-[10px] font-bold text-blue-200/70">
+                  About {candidateMeetingPoint.walk_minutes} min walk
+                  {Number(candidateMeetingPoint.successful_pickups || 0) > 0 ? ` · ${candidateMeetingPoint.successful_pickups} successful pickups` : ''}
+                </p>
+                {!!candidateMeetingPoint.suitability_explanation?.length && (
+                  <p className="mt-2 text-[10px] leading-4 text-white/40">
+                    {candidateMeetingPoint.suitability_explanation.slice(0, 3).join(' · ')}
+                  </p>
+                )}
+              </div>
+            </div>
+          </button>
+        );
+      })}
       {!selectedPlace.meeting_points.length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This landmark is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before requesting transport.</div>}
       <div className="flex gap-3"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button></div>
