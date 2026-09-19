@@ -3,9 +3,11 @@ import { Award, BrainCircuit, MapPinned, RefreshCw, Route, ShieldCheck, Sparkles
 import { supabase } from '../../supabaseClient';
 import { AtlasContributionPanel } from './AtlasContributionPanel';
 import { AtlasLearningControl } from '../planner/AtlasLearningControl';
+import { RoadConditionReporter } from './RoadConditionReporter';
+import { CityGenesisPanel } from '../admin/CityGenesisPanel';
 import { useAfatLocale } from '../../localization';
 
-export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin';profile:any}){
+export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
   const [missions,setMissions]=useState<any[]>([]);
   const [reputation,setReputation]=useState<any>(null);
@@ -15,6 +17,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
   const [busy,setBusy]=useState(false);
 
   const canPlan=role==='planner'||role==='admin';
+  const canContribute=role==='commuter'||role==='operator';
+  const canClaimMission=role==='commuter'||role==='operator';
   const defaultMode=role==='operator'?'taxi':'walk';
 
   const load=async()=>{
@@ -83,7 +87,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       </div>
     </section>
 
-    <AtlasContributionPanel defaultMode={defaultMode as any} />
+    {canContribute&&<AtlasContributionPanel defaultMode={defaultMode as any} />}
+    {canContribute&&<RoadConditionReporter mode={role==='operator'?'taxi':'walk'} />}
 
     <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
       <div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">{t('atlas.missions')}</p><h2 className="mt-2 text-xl font-black">Small checks that reduce uncertainty</h2></div>{canPlan&&<button onClick={refreshCity} disabled={busy} className="min-h-10 rounded-xl bg-violet-500 px-3 text-[9px] font-black uppercase">Refresh city learning</button>}</div>
@@ -91,7 +96,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
         {missions.slice(0,8).map(m=><article key={m.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black">{m.title}</p><p className="mt-2 text-xs leading-5 text-white/50">{m.question}</p></div><span className="rounded-full border border-white/10 px-2 py-1 text-[8px] font-black uppercase text-white/45">{m.status}</span></div>
           <div className="mt-3 flex gap-2">
-            {m.status==='open'&&<button onClick={()=>claim(m.id)} disabled={busy} className="min-h-9 rounded-lg bg-emerald-400 px-3 text-[9px] font-black uppercase text-slate-950">Take mission</button>}
+            {canClaimMission&&m.status==='open'&&<button onClick={()=>claim(m.id)} disabled={busy} className="min-h-9 rounded-lg bg-emerald-400 px-3 text-[9px] font-black uppercase text-slate-950">Take mission</button>}
             {m.id===myMission?.id&&<button onClick={submit} disabled={busy} className="min-h-9 rounded-lg bg-cyan-300 px-3 text-[9px] font-black uppercase text-slate-950">Verify here</button>}
           </div>
         </article>)}
@@ -100,6 +105,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
     </section>
 
     {canPlan&&<AtlasLearningControl />}
+
+    {role==='admin'&&<CityGenesisPanel onCreated={load} />}
 
     {canPlan&&<section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
       <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-violet-200"/><p className="text-[10px] font-black uppercase tracking-widest text-violet-300">{t('atlas.predictions')}</p></div>
