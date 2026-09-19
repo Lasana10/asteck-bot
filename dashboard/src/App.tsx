@@ -1254,7 +1254,7 @@ function AppShell() {
   // commuter -> admin flash on Google sign-in.
   const [loading, setLoading] = useState(true);
   const [bootResolved, setBootResolved] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'notifications' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'book' | 'bookings' | 'atlas' | 'notifications' | 'profile'>('home');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isProtocolHubOpen, setIsProtocolHubOpen] = useState(false);
   const [isRegistrationHubOpen, setIsRegistrationHubOpen] = useState(false);
@@ -1724,7 +1724,7 @@ function AppShell() {
       Boolean(publicPartnerMembership?.partner),
     );
     const activeWorkspaceTabStorageKey = workspaceTabStorageKey(workspaceRole);
-    const navigateWorkspace = (tab: 'home' | 'book' | 'bookings' | 'notifications' | 'profile') => {
+    const navigateWorkspace = (tab: 'home' | 'book' | 'bookings' | 'atlas' | 'notifications' | 'profile') => {
       localStorage.setItem(activeWorkspaceTabStorageKey, tab);
       setActiveTab(tab);
     };
