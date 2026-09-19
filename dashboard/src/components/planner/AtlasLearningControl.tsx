@@ -109,9 +109,10 @@ export function AtlasLearningControl() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-6">
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
         <Metric label="Low confidence roads" value={summary.low_confidence_edges ?? '—'} />
         <Metric label="Stale roads" value={summary.stale_edges ?? '—'} />
+        <Metric label="Provisional roads" value={summary.provisional_edges ?? '—'} />
         <Metric label="Candidate features" value={summary.candidate_features ?? '—'} />
         <Metric label="Evidence conflicts" value={summary.open_conflicts ?? '—'} />
         <Metric label="Weak places" value={summary.weak_places ?? '—'} />
