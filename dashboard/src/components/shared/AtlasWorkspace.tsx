@@ -70,6 +70,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
         supabase.rpc('afat_generate_evidence_predictions',{p_city:city?.city_name||'Yaoundé',p_limit:20}),
         supabase.rpc('afat_generate_micro_missions',{p_limit:12}),
         supabase.rpc('afat_refresh_edge_mode_learning',{p_city:city?.city_name||'Yaoundé'}),
+        supabase.rpc('afat_reconcile_candidate_clusters',{p_city_key:city?.city_key||'cm-yaounde'}),
       ]);
     }
     setBusy(false); setNotice(error?error.message:`City learning refreshed: ${data?.learning_stage||'updated'} · ${data?.operational_confidence||0}% confidence.`); await load();
