@@ -43,6 +43,9 @@ export type DispatchAssignment = {
     type?: string | null;
     rating?: number | null;
     clearance_status?: string | null;
+    current_lat?: number | null;
+    current_lng?: number | null;
+    last_ping_at?: string | null;
   } | null;
 };
 
