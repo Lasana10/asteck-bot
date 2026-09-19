@@ -76,3 +76,30 @@ export async function createAtlasMappingMission(input: {
     p_expires_at: input.expiresAt || null,
   });
 }
+
+
+export async function startCityAtlasContributionSession(input: {
+  cityKey?: string;
+  movementMode: AtlasContributionMode;
+  purpose?: AtlasContributionPurpose;
+  privacyMode?: AtlasPrivacyMode;
+  campaignId?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  return supabase.rpc('afat_start_city_contribution_session', {
+    p_city_key: input.cityKey || 'cm-yaounde',
+    p_movement_mode: input.movementMode,
+    p_purpose: input.purpose || 'community_movement',
+    p_privacy_mode: input.privacyMode || 'private_aggregate',
+    p_campaign_id: input.campaignId || null,
+    p_metadata: input.metadata || {},
+  });
+}
+
+export async function promoteTrustedAtlasCandidate(candidateId: string, name?: string, cityKey = 'cm-yaounde') {
+  return supabase.rpc('afat_promote_trusted_candidate', {
+    p_candidate_id: candidateId,
+    p_name: name || null,
+    p_city_key: cityKey,
+  });
+}
