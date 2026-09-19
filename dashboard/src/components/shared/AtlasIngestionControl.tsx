@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DatabaseZap, MapPinned, RefreshCw, Route, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
+import { useAfatLocale } from '../../localization';
 
 const YAOUNDE_PRESETS: Record<string,{label:string;south:number;west:number;north:number;east:number}> = {
   central:{label:'Central Yaoundé',south:3.84,west:11.495,north:3.89,east:11.545},
@@ -11,6 +12,7 @@ const YAOUNDE_PRESETS: Record<string,{label:string;south:number;west:number;nort
 };
 
 export function AtlasIngestionControl(){
+ const {t}=useAfatLocale();
  const [cities,setCities]=useState<any[]>([]); const [cityKey,setCityKey]=useState('cm-yaounde'); const [scope,setScope]=useState('central');
  const [bbox,setBbox]=useState({south:'3.84',west:'11.495',north:'3.89',east:'11.545'});
  const [running,setRunning]=useState(false); const [result,setResult]=useState<any>(null);
@@ -25,7 +27,7 @@ export function AtlasIngestionControl(){
  };
  return <section className="rounded-[1.5rem] border border-emerald-300/15 bg-emerald-500/[0.04] p-5">
    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-    <div><div className="flex items-center gap-2 text-emerald-200"><DatabaseZap className="h-4 w-4"/><p className="text-[9px] font-black uppercase tracking-[0.22em]">Atlas source ingestion</p></div><h2 className="mt-2 text-lg font-black">OpenStreetMap → City Genesis candidate topology</h2><p className="mt-1 max-w-3xl text-xs leading-5 text-white/40">Imports a controlled road cell for any registered AFAT city. OSM remains attributed source evidence; topology stays candidate-only until AFAT review and corroboration.</p></div>
+    <div><div className="flex items-center gap-2 text-emerald-200"><DatabaseZap className="h-4 w-4"/><p className="text-[9px] font-black uppercase tracking-[0.22em]">{t('atlas.sourceIngestion')}</p></div><h2 className="mt-2 text-lg font-black">{t('atlas.sourceIngestionTitle')}</h2><p className="mt-1 max-w-3xl text-xs leading-5 text-white/40">Imports a controlled road cell for any registered AFAT city. OSM remains attributed source evidence; topology stays candidate-only until AFAT review and corroboration.</p></div>
     <div className="flex items-center gap-2 rounded-lg border border-emerald-300/15 bg-black/20 px-3 py-2 text-[9px] font-bold text-emerald-100/70"><ShieldCheck className="h-3.5 w-3.5"/>JWT + planner/admin gate</div>
    </div>
    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
