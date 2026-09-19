@@ -4,6 +4,7 @@ import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { FieldReportTriageList } from '../shared/FieldReportTriageList';
 import { OperationalHealthPanel } from '../shared/OperationalHealthPanel';
 import { DispatchWorkspace } from '../shared/DispatchWorkspace';
+import { LiveOperationsControl } from '../shared/LiveOperationsControl';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -99,6 +100,7 @@ export function PlannerWorkspaceTabs({
           <State icon={Activity} label="Demand pressure" value={demand.pressure ?? 0} />
         </div>
       </Surface>
+      <LiveOperationsControl />
       <DispatchWorkspace role="planner" profile={profile} onChanged={onChanged} />
     </div>
   );
