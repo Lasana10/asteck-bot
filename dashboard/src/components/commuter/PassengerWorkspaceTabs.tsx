@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bell, CheckCircle2, MapPin, Route, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
+import { DispatchWorkspace } from '../shared/DispatchWorkspace';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -18,12 +19,14 @@ export function PassengerWorkspaceTabs({
   live,
   operations,
   onSignOut,
+  onChanged,
 }: {
   activeTab: Tab;
   profile: any;
   live: RoleWorkspaceLiveFeed;
   operations: any;
   onSignOut: () => void;
+  onChanged?: () => void;
 }) {
   const dispatches = operations?.participantDispatches || [];
 
@@ -75,32 +78,13 @@ export function PassengerWorkspaceTabs({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.68fr_1.32fr]">
-      <Surface className="p-6">
-        <p className="text-[10px] font-black uppercase tracking-widest text-blue-300">My journeys</p>
-        <h1 className="mt-2 text-3xl font-black">One passenger timeline</h1>
-        <p className="mt-2 text-sm leading-6 text-white/45">Request, dispatch, pickup, journey, closure and receipt stay attached to the same real movement record.</p>
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <State icon={Route} label="Journey records" value={dispatches.length} />
-          <State icon={MapPin} label="Visible meeting points" value={live.checkpoints.length} />
-        </div>
+    <div className="space-y-5">
+      <Surface className="p-5 sm:p-6">
+        <p className="text-[10px] font-black uppercase tracking-widest text-blue-300">Trips</p>
+        <h1 className="mt-2 text-3xl font-black">Your journey is the dispatch</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Request, matching, pickup, movement, payment and closure live in one authoritative timeline. When there is no journey, start from Plan instead of opening an empty command screen.</p>
       </Surface>
-      <Surface className="p-5">
-        <div className="space-y-3">
-          {dispatches.slice(0, 12).map((item: any, index: number) => (
-            <article key={item.id || index} className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-blue-300" />
-                <div>
-                  <p className="text-sm font-black">{item.status ? String(item.status).replace(/_/g, ' ') : 'Journey record'}</p>
-                  <p className="mt-1 text-xs text-white/40">Dispatch {String(item.id || '').slice(0, 8) || 'pending'} · booking {String(item.booking_id || '').slice(0, 8) || 'pending'}</p>
-                </div>
-              </div>
-            </article>
-          ))}
-          {!dispatches.length && <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No journey exists yet. Create a passage from Home to start.</p>}
-        </div>
-      </Surface>
+      <DispatchWorkspace role="commuter" profile={profile} onChanged={onChanged} />
     </div>
   );
 }
