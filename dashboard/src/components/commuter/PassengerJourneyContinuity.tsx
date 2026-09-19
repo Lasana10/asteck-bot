@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, KeyRound, Receipt, ShieldCheck, Star, XCircle } from 'lucide-react';
-import { createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
+import { AlertTriangle, CheckCircle2, Clock3, KeyRound, Receipt, Share2, ShieldAlert, ShieldCheck, Star, XCircle } from 'lucide-react';
+import { createGuardianToken, createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
 import { FarePaymentPanel } from '../shared/FarePaymentPanel';
+import { EmergencySOS } from '../shared/EmergencySOS';
 
 type Props = {
   assignment: any | null;
@@ -21,6 +22,9 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
   const [pickupCode, setPickupCode] = useState('');
   const [pickupExpiry, setPickupExpiry] = useState('');
   const [closure, setClosure] = useState<any>(null);
+  const [sosOpen, setSosOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
 
   useEffect(() => {
     setNotice('');
@@ -82,6 +86,48 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
     setNotice('Show this code only to the assigned operator when you are together at pickup.');
   };
 
+  const shareJourney = async () => {
+    const bookingId = assignment?.booking_id;
+    if (!bookingId) {
+      setNotice('This dispatch does not yet have a shareable booking record.');
+      return;
+    }
+
+    setShareBusy(true);
+    setNotice('');
+    const { data, error } = await createGuardianToken(bookingId, 180);
+    setShareBusy(false);
+    if (error) {
+      setNotice(error.message);
+      return;
+    }
+
+    const url = String(data?.watch_url || '').trim();
+    if (!url) {
+      setNotice('AFAT created the guardian token but no watch link was returned.');
+      return;
+    }
+
+    setShareUrl(url);
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'AFAT journey watch',
+          text: 'Follow my AFAT journey status.',
+          url,
+        });
+        setNotice('Guardian watch link shared.');
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        setNotice('Guardian watch link copied. Send it to someone you trust.');
+      } else {
+        setNotice('Guardian watch link ready below.');
+      }
+    } catch {
+      setNotice('Guardian watch link ready below.');
+    }
+  };
+
   const rate = async (rating: number) => {
     if (!closure) return;
     setBusy(true); setNotice('');
@@ -109,6 +155,42 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><Clock3 className="h-4 w-4 text-blue-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Current step</p><p className="mt-1 text-xs font-black">{human(status)}</p></div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Truth source</p><p className="mt-1 text-xs font-black">Live dispatch record</p></div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-400/[0.055] p-4">
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="mt-0.5 h-5 w-5 text-cyan-200" />
+          <div className="flex-1">
+            <p className="text-sm font-black text-white">Safety toolkit</p>
+            <p className="mt-1 text-xs leading-5 text-white/45">Use the tools for this exact journey: share a temporary watch link, verify pickup and send an authenticated SOS when needed.</p>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={shareBusy || !assignment?.booking_id}
+            onClick={() => void shareJourney()}
+            className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-4 text-[10px] font-black uppercase text-white/70 disabled:opacity-40"
+          >
+            <Share2 className="mr-2 inline h-3.5 w-3.5" />
+            {shareBusy ? 'Creating link…' : 'Share journey'}
+          </button>
+          {isActive && (
+            <button
+              type="button"
+              onClick={() => setSosOpen(true)}
+              className="min-h-11 rounded-xl border border-red-400/20 bg-red-400/10 px-4 text-[10px] font-black uppercase text-red-100"
+            >
+              <ShieldAlert className="mr-2 inline h-3.5 w-3.5" />
+              Emergency SOS
+            </button>
+          )}
+        </div>
+        {shareUrl && (
+          <div className="mt-3 break-all rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[10px] text-cyan-100/70">
+            {shareUrl}
+          </div>
+        )}
       </div>
 
       <div className="mt-4"><FarePaymentPanel mode="passenger" assignment={assignment} onChanged={onChanged} /></div>
@@ -139,6 +221,14 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
         {canDispute && <button disabled={busy} onClick={dispute} className="min-h-11 rounded-xl border border-red-400/20 bg-red-400/10 px-4 text-[10px] font-black uppercase text-red-100 disabled:opacity-40">Report journey issue</button>}
       </div>
       {notice && <p role="status" className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/60">{notice}</p>}
+      {sosOpen && (
+        <EmergencySOS
+          userId={String(assignment.passenger_id || '')}
+          userName="AFAT passenger"
+          activeDispatchId={assignment.id}
+          onClose={() => setSosOpen(false)}
+        />
+      )}
     </section>
   );
 }
