@@ -8,6 +8,7 @@ import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
 import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
+import { LiveOperationsControl } from '../shared/LiveOperationsControl';
 
 interface Props {
   onSignOut: () => void;
@@ -598,6 +599,8 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
 
     return (
     <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full animate-in fade-in duration-500 pt-24">
+        <LiveOperationsControl />
+
         <OperationsMissionControl
           role="admin"
           city="cameroon"
