@@ -3,6 +3,7 @@ import { AlertTriangle, Building2, CheckCircle2, FileCheck2, Landmark, ShieldChe
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { FieldReportTriageList } from './FieldReportTriageList';
 import { OperationalHealthPanel } from './OperationalHealthPanel';
+import { DispatchWorkspace } from './DispatchWorkspace';
 
 type Role = 'organization' | 'government' | 'admin';
 type Tab = 'bookings' | 'notifications' | 'profile';
@@ -108,6 +109,19 @@ export function InstitutionalWorkspaceTabs({
             </div>
           </>}
         </Surface>
+      </div>
+    );
+  }
+
+  if (activeTab === 'bookings' && role === 'admin') {
+    return (
+      <div className="space-y-5">
+        <Surface className="p-5 sm:p-6">
+          <p className="text-[10px] font-black uppercase tracking-widest text-rose-300">Dispatch oversight</p>
+          <h1 className="mt-2 text-3xl font-black">Govern operational exceptions without replacing Planner authority</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Admin can inspect and resolve system-level dispatch integrity issues while every action remains auditable.</p>
+        </Surface>
+        <DispatchWorkspace role="admin" profile={profile} onChanged={onChanged} />
       </div>
     );
   }
