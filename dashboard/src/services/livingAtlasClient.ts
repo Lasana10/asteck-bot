@@ -53,3 +53,26 @@ export async function fetchAtlasKnowledgeGaps(limit = 50) {
     p_limit: limit,
   });
 }
+
+
+export async function reviewAtlasCandidate(candidateId: string, decision: 'corroborate' | 'trust' | 'reject', notes?: string) {
+  return supabase.rpc('afat_review_candidate_feature', {
+    p_candidate_id: candidateId,
+    p_decision: decision,
+    p_notes: notes || null,
+  });
+}
+
+export async function createAtlasMappingMission(input: {
+  title: string;
+  description?: string;
+  rewardPointsPerKm?: number;
+  expiresAt?: string | null;
+}) {
+  return supabase.rpc('afat_create_mapping_mission', {
+    p_title: input.title,
+    p_description: input.description || null,
+    p_reward_points_per_km: input.rewardPointsPerKm ?? 10,
+    p_expires_at: input.expiresAt || null,
+  });
+}
