@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle, Clock, MapPin, Navigation2, Search, ShieldAlert } from 'lucide-react';
+import { Bike, Car, CheckCircle, Clock, Footprints, MapPin, Navigation2, Search, ShieldAlert } from 'lucide-react';
 import {
   confirmAfatPlace,
   createPassageIntent,
@@ -65,6 +65,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
   const [canonicalRoute, setCanonicalRoute] = useState<AfatCanonicalRoute | null>(null);
+  const [routeOptions, setRouteOptions] = useState<Partial<Record<AfatRouteMode, AfatCanonicalRoute>>>({});
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeMessage, setRouteMessage] = useState('');
 
@@ -74,6 +75,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
     setCanonicalRoute(null);
+    setRouteOptions({});
     setRouteMessage('');
     setStatusText('');
   }, [initialDestination]);
@@ -88,34 +90,48 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     let active = true;
     if (!originFix || !arrivalPoint) {
       setCanonicalRoute(null);
+      setRouteOptions({});
       setRouteMessage('');
       return;
     }
 
+    const modes: AfatRouteMode[] = ['walk', 'moto', 'car', 'minibus'];
     setRouteLoading(true);
     setRouteMessage('');
-    fetchCanonicalAfatRoute({
-      originLatitude: originFix.latitude,
-      originLongitude: originFix.longitude,
-      destinationLatitude: arrivalPoint.latitude,
-      destinationLongitude: arrivalPoint.longitude,
-      mode: vehicleType,
-      snapRadiusM: 1200,
-    })
-      .then((route) => {
-        if (!active) return;
-        setCanonicalRoute(route);
-        setRouteMessage(routeMessageFor(route));
-      })
-      .catch((error: any) => {
-        if (!active) return;
-        setCanonicalRoute(null);
-        setRouteMessage(error?.message || 'AFAT could not calculate the connected route.');
-      })
-      .finally(() => { if (active) setRouteLoading(false); });
+
+    Promise.all(modes.map(async (mode) => {
+      try {
+        const route = await fetchCanonicalAfatRoute({
+          originLatitude: originFix.latitude,
+          originLongitude: originFix.longitude,
+          destinationLatitude: arrivalPoint.latitude,
+          destinationLongitude: arrivalPoint.longitude,
+          mode,
+          snapRadiusM: 1200,
+        });
+        return [mode, route] as const;
+      } catch {
+        return [mode, { status: 'unavailable', mode, reason: 'route_request_failed' } as AfatCanonicalRoute] as const;
+      }
+    })).then((entries) => {
+      if (!active) return;
+      const next = Object.fromEntries(entries) as Partial<Record<AfatRouteMode, AfatCanonicalRoute>>;
+      setRouteOptions(next);
+      const selected = next[vehicleType] || next.car || null;
+      setCanonicalRoute(selected);
+      setRouteMessage(routeMessageFor(selected));
+      if (selected?.status !== 'ok') {
+        const firstDispatchable = (['moto','car','minibus'] as AfatRouteMode[]).find((mode) => next[mode]?.status === 'ok');
+        if (firstDispatchable) {
+          setVehicleType(firstDispatchable);
+          setCanonicalRoute(next[firstDispatchable] || null);
+          setRouteMessage(routeMessageFor(next[firstDispatchable] || null));
+        }
+      }
+    }).finally(() => { if (active) setRouteLoading(false); });
 
     return () => { active = false; };
-  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, vehicleType]);
+  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude]);
 
   const resolveDestination = async () => {
     if (destination.trim().length < 3) return;
@@ -124,7 +140,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
     setCanonicalRoute(null);
-    const { data, error } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde', vehicle_type: vehicleType });
+    setRouteOptions({});
+    const { data, error } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde' });
     setLoading(false);
     if (error) { setCandidates([]); setStatusText(error.message); return; }
     const relevantCandidates = filterRelevantPlaceCandidates(destination, data?.candidates || []);
@@ -195,12 +212,61 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       <button onClick={resolveDestination} disabled={loading || destination.trim().length < 3} className="min-h-14 rounded-2xl bg-blue-600 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{loading ? 'Finding…' : 'Find place'}</button>
     </div>
 
-    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-      <label className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"><span className="text-[9px] font-black uppercase tracking-widest text-white/35">Arrive by</span><input type="datetime-local" value={arrivalTarget} onChange={(event) => setArrivalTarget(event.target.value)} className="mt-1 block w-full bg-transparent text-xs font-bold text-white outline-none" /></label>
-      <label className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"><span className="text-[9px] font-black uppercase tracking-widest text-white/35">How are you moving?</span><select value={vehicleType} onChange={(event) => setVehicleType(event.target.value as AfatRouteMode)} className="mt-1 block w-full bg-slate-950 text-xs font-bold text-white outline-none"><option value="car">Car / taxi</option><option value="moto">Motorcycle</option><option value="minibus">Shared / minibus</option></select></label>
+    <div className="mt-3">
+      <label className="block rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+        <span className="text-[9px] font-black uppercase tracking-widest text-white/35">Arrive by</span>
+        <input type="datetime-local" value={arrivalTarget} onChange={(event) => setArrivalTarget(event.target.value)} className="mt-1 block w-full bg-transparent text-xs font-bold text-white outline-none" />
+      </label>
     </div>
 
     <div className="mt-4"><PassengerSpatialMap city={profile?.preferred_city || 'yaounde'} destination={destinationPoint} meetingPoint={meetingPoint} route={canonicalRoute} routeLoading={routeLoading} routeMessage={routeMessage} onOriginResolved={(origin) => { setOriginFix(origin); setOriginLabel(origin.label); }} /></div>
+
+    {originFix && arrivalPoint && (
+      <div className="mt-4">
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.18em] text-white/35">Ways to move</p>
+            <p className="mt-1 text-xs text-white/45">Choose from routes AFAT can actually connect. Unknown remains unknown.</p>
+          </div>
+          {routeLoading && <span className="text-[9px] font-black uppercase text-cyan-200">Checking routes…</span>}
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {([
+            ['walk', Footprints, 'Walk'],
+            ['moto', Bike, 'Moto'],
+            ['car', Car, 'Taxi / car'],
+            ['minibus', Navigation2, 'Shared'],
+          ] as const).map(([mode, Icon, label]) => {
+            const option = routeOptions[mode];
+            const available = option?.status === 'ok';
+            const selected = vehicleType === mode;
+            const km = Number(option?.distance_m || 0) / 1000;
+            const dispatchable = mode !== 'walk';
+            return (
+              <button
+                key={mode}
+                type="button"
+                disabled={!available}
+                onClick={() => {
+                  setVehicleType(mode);
+                  setCanonicalRoute(option || null);
+                  setRouteMessage(routeMessageFor(option || null));
+                }}
+                className={`rounded-2xl border p-3 text-left transition disabled:opacity-35 ${selected ? 'border-cyan-300/45 bg-cyan-400/12' : 'border-white/10 bg-white/[0.025]'}`}
+              >
+                <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} />
+                <p className="mt-3 text-xs font-black text-white">{label}</p>
+                <p className="mt-1 text-[9px] leading-4 text-white/40">
+                  {!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + ' min' : 'ETA learning'}` : 'No trusted path'}
+                </p>
+                {available && !dispatchable && <p className="mt-2 text-[8px] font-black uppercase text-amber-200/75">Route preview</p>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
     {statusText && <div className="mt-4 rounded-2xl border border-blue-400/15 bg-blue-500/8 px-4 py-3 text-xs font-semibold leading-relaxed text-blue-100/75">{statusText}</div>}
 
     {!!candidates.length && !selectedPlace && <div className="mt-4 space-y-3">
@@ -214,7 +280,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       {selectedPlace.meeting_points.map((candidateMeetingPoint) => <button key={candidateMeetingPoint.id} onClick={() => setSelectedMeetingPoint(candidateMeetingPoint)} className={`w-full rounded-2xl border p-4 text-left ${selectedMeetingPoint?.id === candidateMeetingPoint.id ? 'border-blue-400/40 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}><div className="flex items-start gap-3"><MapPin className="mt-0.5 h-4 w-4 text-orange-300" /><div className="flex-1"><p className="text-xs font-black text-white">{candidateMeetingPoint.name}</p><p className="mt-1 text-[11px] leading-relaxed text-white/55">{candidateMeetingPoint.instructions}</p><p className="mt-2 text-[10px] font-bold text-blue-200/70">About {candidateMeetingPoint.walk_minutes} min walk{Number(candidateMeetingPoint.successful_pickups || 0) > 0 ? ` · ${candidateMeetingPoint.successful_pickups} successful pickups` : ''}</p></div></div></button>)}
       {!selectedPlace.meeting_points.length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This landmark is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before requesting transport.</div>}
-      <div className="flex gap-3"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix} className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button></div>
+      <div className="flex gap-3"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button></div>
     </div>}
   </section>;
 }
