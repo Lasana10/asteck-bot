@@ -1,5 +1,5 @@
 export type WorkspaceRole = 'commuter' | 'operator' | 'organization' | 'government' | 'planner' | 'admin';
-export type WorkspaceTab = 'home' | 'book' | 'bookings' | 'notifications' | 'profile';
+export type WorkspaceTab = 'home' | 'book' | 'bookings' | 'atlas' | 'notifications' | 'profile';
 
 export function resolveWorkspaceRole(
   platformRole: string,
@@ -14,7 +14,7 @@ export function resolveWorkspaceRole(
 }
 
 export function restoreWorkspaceTab(savedTab: string | null): WorkspaceTab {
-  return savedTab === 'bookings' || savedTab === 'notifications' || savedTab === 'profile' ? savedTab : 'home';
+  return savedTab === 'bookings' || savedTab === 'atlas' || savedTab === 'notifications' || savedTab === 'profile' ? savedTab : 'home';
 }
 
 export function workspaceTabStorageKey(role: WorkspaceRole): string {
