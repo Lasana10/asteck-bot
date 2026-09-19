@@ -5,6 +5,7 @@ import {
   fetchAtlasKnowledgeGaps,
   reviewAtlasCandidate,
   promoteTrustedAtlasCandidate,
+  resolveAtlasEvidenceConflict,
 } from '../../services/livingAtlasClient';
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
@@ -34,6 +35,7 @@ export function AtlasLearningControl() {
   const summary = data?.summary || {};
   const edges = data?.edges || [];
   const candidates = data?.candidates || [];
+  const conflicts = data?.conflicts || [];
 
   const review = async (candidateId: string, decision: 'corroborate' | 'trust' | 'reject') => {
     setActingId(candidateId);
@@ -58,6 +60,18 @@ export function AtlasLearningControl() {
       return;
     }
     setNotice(`Trusted geography promoted into the routable Atlas as ${result?.evidence_status || 'corroborated'} evidence.`);
+    await load();
+  };
+
+  const resolveConflict = async (conflictId: string, decision: 'resolve' | 'dismiss') => {
+    setActingId(conflictId);
+    const { data: result, error } = await resolveAtlasEvidenceConflict(conflictId, decision);
+    setActingId(null);
+    if (error) {
+      setNotice(error.message || 'Evidence conflict review failed.');
+      return;
+    }
+    setNotice(`Evidence conflict ${result?.status || decision}.`);
     await load();
   };
 
@@ -95,10 +109,11 @@ export function AtlasLearningControl() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-6">
         <Metric label="Low confidence roads" value={summary.low_confidence_edges ?? '—'} />
         <Metric label="Stale roads" value={summary.stale_edges ?? '—'} />
         <Metric label="Candidate features" value={summary.candidate_features ?? '—'} />
+        <Metric label="Evidence conflicts" value={summary.open_conflicts ?? '—'} />
         <Metric label="Weak places" value={summary.weak_places ?? '—'} />
         <Metric label="Pickup failures" value={summary.pickup_failures ?? '—'} />
       </div>
@@ -138,6 +153,23 @@ export function AtlasLearningControl() {
             ))}
             {!candidates.length && <p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No candidate road or path is waiting for corroboration.</p>}
           </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="mb-3 flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-200" /><p className="text-[9px] font-black uppercase tracking-widest text-white/45">Evidence contradictions</p></div>
+        <div className="space-y-2">
+          {conflicts.slice(0,6).map((conflict:any) => <article key={conflict.id} className="rounded-xl border border-amber-300/15 bg-amber-400/[0.06] p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div><p className="text-sm font-black capitalize">{String(conflict.conflict_type || 'evidence conflict').replace(/_/g,' ')}</p><p className="mt-1 text-xs text-white/45">Independent evidence disagrees. Preserve both observations, then close the contradiction only after review.</p></div>
+              <span className="rounded-full border border-amber-300/15 px-2 py-1 text-[8px] font-black uppercase text-amber-100">severity {Math.round(Number(conflict.severity || 0)*100)}%</span>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button onClick={() => resolveConflict(conflict.id,'resolve')} disabled={actingId===conflict.id} className="min-h-9 rounded-lg bg-amber-300 px-3 text-[8px] font-black uppercase text-slate-950 disabled:opacity-35">Resolve after review</button>
+              <button onClick={() => resolveConflict(conflict.id,'dismiss')} disabled={actingId===conflict.id} className="min-h-9 rounded-lg border border-white/10 px-3 text-[8px] font-black uppercase text-white/55 disabled:opacity-35">Dismiss</button>
+            </div>
+          </article>)}
+          {!conflicts.length && <p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No unresolved Atlas contradiction is waiting for review.</p>}
         </div>
       </div>
 
