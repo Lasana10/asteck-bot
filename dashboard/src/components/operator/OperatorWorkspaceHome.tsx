@@ -82,33 +82,30 @@ export function OperatorWorkspaceHome({
 
   const missionLocked = Boolean(currentDispatch && !['completed','cancelled','expired','declined','no_show'].includes(String(currentDispatch.status || '').toLowerCase()));
 
-  return (
-    <div className="space-y-5">
-      {currentDispatch && <>
+  if (currentDispatch) {
+    return (
+      <div className="space-y-5">
+        <Surface className="bg-gradient-to-br from-emerald-500/[0.14] to-transparent p-5 sm:p-6">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300/75">Mission in progress</p>
+          <h1 className="mt-2 text-2xl font-black sm:text-3xl">Complete the current passenger movement</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">Navigation, pickup state, passenger confirmation and journey completion stay together until the mission closes.</p>
+        </Surface>
         <ActiveDispatchMap assignment={currentDispatch} role="operator" incidents={live.incidents} liveTracks={live.tracks} />
         <OperatorMissionLifecycle assignment={currentDispatch} onChanged={onChanged} />
-      </>}
+      </div>
+    );
+  }
 
-      {!currentDispatch && <div className="min-h-[500px] sm:min-h-[620px]">
-        <InteractiveMap
-          role="operator"
-          mapMode="intel"
-          incidents={live.incidents}
-          tracks={live.tracks}
-          checkpoints={live.checkpoints}
-          realtimeOverlay
-          showInformal
-        />
-      </div>}
-
+  return (
+    <div className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <Surface className="bg-gradient-to-br from-emerald-500/[0.13] to-transparent p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/70">Service state</p>
-              <h1 className="mt-2 text-2xl font-black">{vehicle?.is_available ? 'Online for verified demand' : 'Offline'}</h1>
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/70">Start shift</p>
+              <h1 className="mt-2 text-2xl font-black">{vehicle?.is_available ? 'Ready for verified demand' : 'Go online when ready'}</h1>
               <p className="mt-2 text-xs leading-5 text-white/45">
-                {vehicle ? `${vehicle.plate_number || 'Plate pending'} · ${vehicle.type || 'vehicle'} · ${vehicle.status || 'reviewed'}` : 'No approved vehicle is attached.'}
+                {vehicle ? `${vehicle.plate_number || 'Plate pending'} · ${vehicle.type || 'vehicle'} · ${vehicle.status || 'reviewed'}` : 'No approved vehicle is attached. Vehicle readiness must be resolved before dispatch work.'}
               </p>
             </div>
             <button onClick={toggleOnline} disabled={busy || !vehicle || missionLocked} className={`min-h-11 rounded-xl px-5 text-xs font-black disabled:opacity-35 ${vehicle?.is_available ? 'bg-emerald-400 text-slate-950' : 'border border-white/10 bg-white/5'}`}>
@@ -119,20 +116,20 @@ export function OperatorWorkspaceHome({
             <Metric icon={Radio} label="Eligible requests" value={missions.length} />
             <Metric icon={Car} label="Visible supply" value={live.tracks.length} />
           </div>
-          {missionLocked && <p className="mt-4 rounded-xl border border-amber-300/15 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">Finish or resolve the current mission before taking another request.</p>}
+          {!vehicle && <p className="mt-4 rounded-xl border border-amber-300/15 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">Attach and approve a vehicle before this workspace offers live missions.</p>}
         </Surface>
 
         <Surface className="p-5">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Next eligible request</p>
-              <h2 className="mt-2 text-xl font-black">{mission?.destination_text || 'No open request'}</h2>
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Next job</p>
+              <h2 className="mt-2 text-xl font-black">{mission?.destination_text || 'No verified request waiting'}</h2>
             </div>
-            <button onClick={() => onNavigate('bookings')} className="min-h-10 rounded-xl border border-white/10 px-3 text-[9px] font-black uppercase text-white/65">Missions</button>
+            <button onClick={() => onNavigate('bookings')} className="min-h-10 rounded-xl border border-white/10 px-3 text-[9px] font-black uppercase text-white/65">All missions</button>
           </div>
-          <p className="mt-2 text-sm text-white/45">{mission ? `${mission.origin_text || 'Origin pending'} → ${mission.destination_text || 'Destination pending'}` : 'AFAT will show only a real request eligible for this Operator and vehicle.'}</p>
+          <p className="mt-2 text-sm text-white/45">{mission ? `${mission.origin_text || 'Origin pending'} → ${mission.destination_text || 'Destination pending'}` : 'Stay available. AFAT will surface only work this operator and vehicle are eligible to perform.'}</p>
           {mission && <div className="mt-4 grid grid-cols-2 gap-3">
-            <Metric icon={MapPin} label="Meeting point" value={mission?.meeting_point_text || mission?.origin_text || '—'} />
+            <Metric icon={MapPin} label="Pickup" value={mission?.meeting_point_text || mission?.origin_text || '—'} />
             <Metric icon={Wallet} label="Fare authority" value={mission?.fare_amount ? `${mission.fare_amount} ${mission.currency || 'XAF'}` : 'Awaiting authority'} />
             <Metric icon={Clock3} label="Request state" value={mission?.status ? String(mission.status).replace(/_/g, ' ') : '—'} />
             <Metric icon={ShieldCheck} label="Evidence" value={mission?.id ? 'Server verified' : '—'} />
@@ -141,5 +138,24 @@ export function OperatorWorkspaceHome({
           {notice && <p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/60">{notice}</p>}
         </Surface>
       </div>
+
+      <Surface className="overflow-hidden p-0">
+        <div className="border-b border-white/10 px-5 py-4">
+          <p className="text-[9px] font-black uppercase tracking-widest text-cyan-200/70">Operating map</p>
+          <p className="mt-1 text-xs text-white/40">Use the map to understand supply, road conditions and meeting points after shift readiness and job state are clear.</p>
+        </div>
+        <div className="min-h-[460px] sm:min-h-[580px]">
+          <InteractiveMap
+            role="operator"
+            mapMode="intel"
+            incidents={live.incidents}
+            tracks={live.tracks}
+            checkpoints={live.checkpoints}
+            realtimeOverlay
+            showInformal
+          />
+        </div>
+      </Surface>
     </div>
-  );}
+  );
+}

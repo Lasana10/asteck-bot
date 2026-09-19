@@ -1,7 +1,8 @@
 import React from 'react';
-import { AlertTriangle, Car, CheckCircle2, Radio, ShieldCheck, UserCircle } from 'lucide-react';
+import { AlertTriangle, Car, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { DispatchWorkspace } from '../shared/DispatchWorkspace';
+import { AtlasContributionPanel } from '../shared/AtlasContributionPanel';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -30,24 +31,25 @@ export function OperatorWorkspaceTabs({
   onSignOut: () => void;
   onChanged?: () => void;
 }) {
-  const dispatches = operations?.participantDispatches || [];
-
   if (activeTab === 'profile') {
     return (
-      <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
-        <Surface className="p-6">
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">Operator authority</p>
-          <h1 className="mt-2 text-3xl font-black">{profile?.full_name || 'AFAT operator'}</h1>
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <State icon={UserCircle} label="Identity" value={profile?.verification_status || 'pending'} />
-            <State icon={ShieldCheck} label="Operator status" value={profile?.operator_application_status || 'not approved'} />
-          </div>
-          <button onClick={onSignOut} className="mt-5 min-h-12 w-full rounded-xl border border-white/10 bg-white/5 text-xs font-black">Sign out securely</button>
-        </Surface>
-        <Surface className="p-6">
-          <h2 className="text-sm font-black uppercase tracking-wider">Service boundary</h2>
-          <p className="mt-4 text-sm leading-7 text-white/50">Going online requires approved Operator authority and a usable vehicle. A mission cannot be accepted while another active dispatch is still open.</p>
-        </Surface>
+      <div className="space-y-5">
+        <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
+          <Surface className="p-6">
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">Operator identity</p>
+            <h1 className="mt-2 text-3xl font-black">{profile?.full_name || 'AFAT operator'}</h1>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <State icon={UserCircle} label="Identity" value={profile?.verification_status || 'pending'} />
+              <State icon={ShieldCheck} label="Operator status" value={profile?.operator_application_status || 'not approved'} />
+            </div>
+            <button onClick={onSignOut} className="mt-5 min-h-12 w-full rounded-xl border border-white/10 bg-white/5 text-xs font-black">Sign out securely</button>
+          </Surface>
+          <Surface className="p-6">
+            <h2 className="text-sm font-black uppercase tracking-wider">Service access</h2>
+            <p className="mt-4 text-sm leading-7 text-white/50">Going online requires approved Operator access and a usable vehicle. Mapping contribution is separate: you can help AFAT learn the city even while doing normal non-AFAT work.</p>
+          </Surface>
+        </div>
+        <AtlasContributionPanel defaultMode="taxi" />
       </div>
     );
   }
@@ -82,8 +84,8 @@ export function OperatorWorkspaceTabs({
     <div className="space-y-5">
       <Surface className="p-5 sm:p-6">
         <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">Missions</p>
-        <h1 className="mt-2 text-3xl font-black">One mission control surface</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Offers, acceptance, approach, arrival, secure pickup, live journey and closure are operated here. Open demand remains visible on Home; committed work lives here.</p>
+        <h1 className="mt-2 text-3xl font-black">Committed work</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Offers, acceptance, approach, arrival, secure pickup, live journey and closure are operated here. New eligible work remains on Home.</p>
       </Surface>
       <DispatchWorkspace role="operator" profile={profile} onChanged={onChanged} />
     </div>
