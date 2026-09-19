@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
-import { DispatchPortal } from './components/shared/DispatchPortal';
 import './index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -46,7 +45,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <App />
-      <DispatchPortal />
     </ErrorBoundary>
   </React.StrictMode>,
 );

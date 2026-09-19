@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, Car, CheckCircle2, Radio, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
+import { DispatchWorkspace } from '../shared/DispatchWorkspace';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -19,6 +20,7 @@ export function OperatorWorkspaceTabs({
   missions,
   operations,
   onSignOut,
+  onChanged,
 }: {
   activeTab: Tab;
   profile: any;
@@ -26,6 +28,7 @@ export function OperatorWorkspaceTabs({
   missions: any[];
   operations: any;
   onSignOut: () => void;
+  onChanged?: () => void;
 }) {
   const dispatches = operations?.participantDispatches || [];
 
@@ -76,44 +79,13 @@ export function OperatorWorkspaceTabs({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.68fr_1.32fr]">
-      <Surface className="p-6">
-        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">Mission control</p>
-        <h1 className="mt-2 text-3xl font-black">Verified work only</h1>
-        <p className="mt-2 text-sm leading-6 text-white/45">Open demand and accepted dispatches are separate queues so an Operator can see what is available versus what is already committed.</p>
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <State icon={Radio} label="Open requests" value={missions.length} />
-          <State icon={Car} label="My dispatches" value={dispatches.length} />
-        </div>
+    <div className="space-y-5">
+      <Surface className="p-5 sm:p-6">
+        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">Missions</p>
+        <h1 className="mt-2 text-3xl font-black">One mission control surface</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">Offers, acceptance, approach, arrival, secure pickup, live journey and closure are operated here. Open demand remains visible on Home; committed work lives here.</p>
       </Surface>
-      <Surface className="p-5">
-        <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Current dispatches</p>
-        <div className="mt-3 space-y-3">
-          {dispatches.slice(0, 10).map((item: any, index: number) => (
-            <article key={item.id || index} className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-300" />
-                <div>
-                  <p className="text-sm font-black">{String(item.status || 'dispatch').replace(/_/g, ' ')}</p>
-                  <p className="mt-1 text-xs text-white/40">{String(item.id || '').slice(0, 8)} · vehicle {String(item.vehicle_id || '').slice(0, 8) || 'pending'}</p>
-                </div>
-              </div>
-            </article>
-          ))}
-          {!dispatches.length && <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No verified mission is assigned to this Operator.</p>}
-        </div>
-
-        <p className="mt-6 text-[9px] font-black uppercase tracking-widest text-white/35">Eligible demand</p>
-        <div className="mt-3 space-y-3">
-          {missions.slice(0, 10).map((item: any, index: number) => (
-            <article key={item.id || index} className="rounded-xl border border-emerald-300/10 bg-emerald-400/[0.04] p-4">
-              <p className="text-sm font-black">{item.destination_text || 'Destination pending'}</p>
-              <p className="mt-1 text-xs text-white/40">{item.origin_text || 'Origin pending'} · {String(item.status || 'requested').replace(/_/g, ' ')}</p>
-            </article>
-          ))}
-          {!missions.length && <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-white/35">No verified open request is eligible right now.</p>}
-        </div>
-      </Surface>
+      <DispatchWorkspace role="operator" profile={profile} onChanged={onChanged} />
     </div>
   );
 }

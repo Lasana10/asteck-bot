@@ -8,7 +8,6 @@ import {
 import type { AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
 import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
-import { AtlasContextPanel } from './AtlasContextPanel';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
 import { fetchCanonicalAfatRoute, type AfatCanonicalRoute, type AfatRouteMode } from '../../services/canonicalRouteClient';
 
@@ -19,7 +18,7 @@ type Props = {
   onPassageCreated?: (passage: any) => void;
 };
 
-type OriginFix = { latitude: number; longitude: number; accuracy: number; label: string };
+type OriginFix = { latitude: number; longitude: number; accuracy?: number | null; label: string; source?: 'gps' | 'manual' };
 
 function pointFrom(value: any, fallbackName?: string) {
   if (!value) return null;
@@ -173,7 +172,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         place_explanation: selectedPlace.explanation,
         meeting_instructions: selectedMeetingPoint.instructions,
         atlas_origin_label: originLabel || null,
-        origin_accuracy_m: originFix.accuracy,
+        origin_accuracy_m: originFix.accuracy ?? null,
+        origin_source: originFix.source || 'gps',
         canonical_route_status: canonicalRoute?.status || null,
         canonical_route_distance_m: canonicalRoute?.status === 'ok' ? canonicalRoute.distance_m || null : null,
       },
@@ -202,7 +202,6 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     <div className="mt-4"><PassengerSpatialMap city={profile?.preferred_city || 'yaounde'} destination={destinationPoint} meetingPoint={meetingPoint} route={canonicalRoute} routeLoading={routeLoading} routeMessage={routeMessage} onOriginResolved={(origin) => { setOriginFix(origin); setOriginLabel(origin.label); }} /></div>
     {statusText && <div className="mt-4 rounded-2xl border border-blue-400/15 bg-blue-500/8 px-4 py-3 text-xs font-semibold leading-relaxed text-blue-100/75">{statusText}</div>}
-    <AtlasContextPanel city={profile?.preferred_city || 'yaounde'} onOriginResolved={({ label }) => setOriginLabel(label)} />
 
     {!!candidates.length && !selectedPlace && <div className="mt-4 space-y-3">
       {candidates.map((candidate, index) => <button key={candidate.id} onClick={() => selectCandidate(candidate)} className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-blue-400/35"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black text-white">{index + 1}. {candidate.name}</p><p className="mt-1 text-[11px] font-semibold text-white/45">{candidate.zone_label || candidate.city} · {candidate.vehicle_access} access</p></div><span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-[9px] font-black uppercase text-blue-200">{matchLabel(Number(candidate.confidence || 0))}</span></div>{candidate.explanation?.length ? <p className="mt-3 text-[11px] leading-relaxed text-white/50">{candidate.explanation.slice(0, 2).join(' · ')}</p> : null}{Number(candidate.successful_pickups || 0) > 0 && <p className="mt-2 text-[10px] font-bold text-emerald-300/70">Recently used for {candidate.successful_pickups} successful pickup{candidate.successful_pickups === 1 ? '' : 's'}</p>}</button>)}
