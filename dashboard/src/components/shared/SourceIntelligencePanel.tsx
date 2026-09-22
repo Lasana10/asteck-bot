@@ -24,6 +24,7 @@ export function SourceIntelligencePanel({cityKey='cm-yaounde'}:{cityKey?:string}
   const [busy,setBusy]=useState(false);
   const [reviewBusy,setReviewBusy]=useState<string|null>(null);
   const [reviews,setReviews]=useState<ReviewRow[]>([]);
+  const [signal,setSignal]=useState({source:'google_maps_reference',type:'geometry_gap',lat:'',lng:'',headline:'',detail:''});
   const [notice,setNotice]=useState('');
 
   const load=async()=>{
@@ -48,6 +49,25 @@ export function SourceIntelligencePanel({cityKey='cm-yaounde'}:{cityKey?:string}
       await load();
     }else setNotice(error.message);
     setBusy(false);
+  };
+
+  const useCurrentLocation=()=>{
+    if(!navigator.geolocation){setNotice('Location is not available on this device.');return;}
+    navigator.geolocation.getCurrentPosition(pos=>setSignal(x=>({...x,lat:String(pos.coords.latitude),lng:String(pos.coords.longitude)})),err=>setNotice(err.message),{enableHighAccuracy:true,timeout:15000});
+  };
+  const submitSignal=async()=>{
+    const lat=Number(signal.lat),lng=Number(signal.lng);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)||!signal.headline.trim()){setNotice('Reference signals require valid coordinates and a short headline.');return;}
+    setBusy(true);setNotice('');
+    const {data:result,error}=await supabase.rpc('afat_register_source_signal',{
+      p_city_key:cityKey,p_source_key:signal.source,p_signal_type:signal.type,p_latitude:lat,p_longitude:lng,
+      p_headline:signal.headline.trim(),p_detail:signal.detail.trim()||null,p_external_ref:null,
+      p_severity:55,p_uncertainty:75,p_demand_value:45,p_freshness_risk:55,p_verification_cost:40,p_observed_at:new Date().toISOString(),
+    });
+    setBusy(false);
+    if(error){setNotice(error.message);return;}
+    setNotice('Reference signal registered as AFAT uncertainty · information value '+Math.round(Number(result?.information_value||0))+'. No proprietary geometry was copied.');
+    setSignal(x=>({...x,headline:'',detail:''}));await load();
   };
 
   const reviewMission=async(missionId:string,decision:'accept'|'reject')=>{
@@ -96,6 +116,19 @@ export function SourceIntelligencePanel({cityKey='cm-yaounde'}:{cityKey?:string}
         <div className="mt-3 grid gap-2">{reference.map(s=><SourceCard key={s.source_key} source={s}/>)}</div>
       </div>
     </div>
+
+    {reference.length>0&&<div className="rounded-2xl border border-amber-300/15 bg-amber-400/[0.04] p-4">
+      <div><p className="text-[9px] font-black uppercase tracking-widest text-amber-200">Reference discrepancy gateway</p><h3 className="mt-1 text-lg font-black">Turn external differences into AFAT-owned verification</h3><p className="mt-1 text-[10px] leading-4 text-white/40">For reference-only providers, AFAT stores the fact that a discrepancy was noticed—not copied provider geometry or imagery.</p></div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <select value={signal.source} onChange={e=>setSignal(x=>({...x,source:e.target.value}))} className="min-h-10 rounded-xl border border-white/10 bg-slate-950/80 px-3 text-xs text-white">{reference.map(x=><option key={x.source_key} value={x.source_key}>{x.display_name}</option>)}</select>
+        <select value={signal.type} onChange={e=>setSignal(x=>({...x,type:e.target.value}))} className="min-h-10 rounded-xl border border-white/10 bg-slate-950/80 px-3 text-xs text-white"><option value="geometry_gap">Geometry gap</option><option value="place_gap">Place gap</option><option value="entrance_gap">Entrance gap</option><option value="visual_gap">Visual coverage gap</option><option value="freshness_gap">Freshness gap</option><option value="mode_gap">Mode gap</option></select>
+        <button onClick={useCurrentLocation} className="min-h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-[9px] font-black uppercase">Use current location</button>
+        <input value={signal.lat} onChange={e=>setSignal(x=>({...x,lat:e.target.value}))} inputMode="decimal" placeholder="Latitude" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs text-white"/>
+        <input value={signal.lng} onChange={e=>setSignal(x=>({...x,lng:e.target.value}))} inputMode="decimal" placeholder="Longitude" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs text-white"/>
+        <input value={signal.headline} onChange={e=>setSignal(x=>({...x,headline:e.target.value}))} placeholder="What appears different?" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs text-white"/>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><input value={signal.detail} onChange={e=>setSignal(x=>({...x,detail:e.target.value}))} placeholder="Optional context—do not paste proprietary coordinates/content" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs text-white"/><button onClick={submitSignal} disabled={busy} className="min-h-10 rounded-xl bg-amber-300 px-4 text-[9px] font-black uppercase text-slate-950 disabled:opacity-40">Create verification gap</button></div>
+    </div>}
 
     <div className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.04] p-4">
       <div className="flex items-end justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Human evidence gate</p><h3 className="mt-1 text-lg font-black">Field evidence awaiting review</h3><p className="mt-1 text-[10px] leading-4 text-white/40">One accepted independent mission can corroborate a provisional edge. Verification requires a second accepted mission from a different contributor.</p></div><span className="rounded-full bg-emerald-300/10 px-2 py-1 text-[9px] font-black text-emerald-100">{reviews.length} pending</span></div>
