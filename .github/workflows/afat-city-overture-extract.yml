@@ -1,0 +1,137 @@
+name: AFAT City Overture Extract
+
+on:
+  workflow_dispatch:
+    inputs:
+      city_key:
+        description: AFAT city key (for artifact naming)
+        required: true
+        default: cm-yaounde
+      bbox:
+        description: West,south,east,north
+        required: true
+        default: "11.44,3.77,11.62,3.98"
+      feature_types:
+        description: Comma-separated Overture types
+        required: true
+        default: "place,segment,connector,building"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Overture client
+        run: python -m pip install "overturemaps==1.0.2"
+      - name: Extract and normalize bounded city data
+        env:
+          AFAT_CITY_KEY: ${{ inputs.city_key }}
+          AFAT_BBOX: ${{ inputs.bbox }}
+          AFAT_TYPES: ${{ inputs.feature_types }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/afat-overture-city/raw
+          IFS=',' read -ra TYPES <<< "$AFAT_TYPES"
+          for TYPE in "${TYPES[@]}"; do
+            TYPE="$(echo "$TYPE" | xargs)"
+            [ -z "$TYPE" ] && continue
+            overturemaps download --bbox="$AFAT_BBOX" -f geojson --type="$TYPE" -o "artifacts/afat-overture-city/raw/$TYPE.geojson"
+          done
+          python - <<'PY'
+          import hashlib, json, os, pathlib, re, unicodedata, urllib.request
+          root=pathlib.Path("artifacts/afat-overture-city/raw")
+          out=pathlib.Path("artifacts/afat-overture-city/normalized.json")
+          city_key=os.environ["AFAT_CITY_KEY"]
+          bbox=[float(x.strip()) for x in os.environ["AFAT_BBOX"].split(",")]
+          if len(bbox)!=4: raise SystemExit("bbox must be west,south,east,north")
+          try:
+              with urllib.request.urlopen("https://stac.overturemaps.org/catalog.json",timeout=20) as r:
+                  catalog=json.load(r)
+              latest=str(catalog.get("latest") or "latest-stac")
+              release=re.search(r"(20\d\d-\d\d-\d\d\.\d+)",latest)
+              release=release.group(1) if release else latest
+          except Exception:
+              release="latest-stac"
+          def norm(v):
+              v=unicodedata.normalize("NFKD",str(v or "")).encode("ascii","ignore").decode().lower()
+              return re.sub(r"\s+"," ",re.sub(r"[^a-z0-9]+"," ",v)).strip()
+          records=[]
+          upstream={}
+          for path in sorted(root.glob("*.geojson")):
+              kind=path.stem
+              data=json.loads(path.read_text(encoding="utf-8"))
+              for feature in data.get("features",[]):
+                  props=feature.get("properties") or {}
+                  fid=str(feature.get("id") or "")
+                  if not fid: continue
+                  names=props.get("names") or {}
+                  name=names.get("primary") if isinstance(names,dict) else None
+                  name=name or f"Overture {kind} {fid[:8]}"
+                  sources=props.get("sources") or []
+                  first=sources[0] if sources and isinstance(sources[0],dict) else {}
+                  dataset=first.get("dataset")
+                  if dataset: upstream[dataset]=upstream.get(dataset,0)+1
+                  if kind=="place":
+                      category=props.get("basic_category") or ((props.get("categories") or {}).get("primary") if isinstance(props.get("categories"),dict) else None) or "place"
+                      addresses=props.get("addresses") or []
+                      address=addresses[0].get("freeform") if addresses and isinstance(addresses[0],dict) else None
+                      confidence=float(props.get("confidence") or .5)
+                      feature_kind="point"
+                  elif kind=="segment":
+                      category="transportation:"+str(props.get("class") or props.get("subtype") or "segment")
+                      address=None; confidence=.60; feature_kind="line"
+                  elif kind=="connector":
+                      category="transportation_connector"; address=None; confidence=.60; feature_kind="point"
+                  elif kind=="building":
+                      category="building_footprint"; address=None; confidence=.58
+                      gt=(feature.get("geometry") or {}).get("type","")
+                      feature_kind="multipolygon" if gt=="MultiPolygon" else "polygon"
+                  else:
+                      category=kind; address=None; confidence=.5
+                      gt=(feature.get("geometry") or {}).get("type","")
+                      feature_kind={"Point":"point","LineString":"line","Polygon":"polygon","MultiPolygon":"multipolygon"}.get(gt,"point")
+                  body=json.dumps({"id":fid,"geometry":feature.get("geometry"),"properties":props},sort_keys=True,separators=(",",":"),ensure_ascii=False)
+                  records.append({
+                      "external_feature_id":fid,
+                      "dataset_version":release,
+                      "canonical_name":name,
+                      "normalized_name":norm(name) or fid.lower(),
+                      "alternate_names":[],
+                      "source_category":str(category),
+                      "source_address":address,
+                      "source_confidence":confidence,
+                      "source_properties":props,
+                      "record_fingerprint":hashlib.sha256(body.encode()).hexdigest(),
+                      "source_feature_kind":feature_kind,
+                      "geometry":feature.get("geometry"),
+                      "source_license":first.get("license"),
+                      "attribution_text":"Overture Maps Foundation"+(f"; upstream {dataset}" if dataset else "")
+                  })
+          manifest={
+              "city_key":city_key,
+              "bbox":bbox,
+              "source":"Overture Maps Foundation",
+              "release":release,
+              "client":"overturemaps==1.0.2",
+              "record_count":len(records),
+              "upstream_counts":upstream,
+              "trust_rule":"Candidate/source evidence only. Upstream provenance controls independence; distribution through Overture does not itself create corroboration."
+          }
+          out.write_text(json.dumps({"manifest":manifest,"records":records},ensure_ascii=False,separators=(",",":"))+"\n",encoding="utf-8")
+          print(json.dumps(manifest,indent=2))
+          PY
+      - name: Upload normalized AFAT extract
+        uses: actions/upload-artifact@v4
+        with:
+          name: afat-overture-${{ inputs.city_key }}
+          path: artifacts/afat-overture-city/normalized.json
+          if-no-files-found: error
+          retention-days: 14
