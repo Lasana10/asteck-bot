@@ -13,8 +13,12 @@ export function CityGenesisPanel({onCreated}:{onCreated?:()=>void}){
       p_timezone:form.timezone,p_currency_code:form.currency,p_default_language:form.language,
       p_supported_languages:[form.language],p_transport_modes:['walk','moto','taxi','car','minibus','bus'],p_local_terms:{},
     });
-    setBusy(false); setNotice(error?error.message:`${data?.city_key||form.key} registered in City Genesis at seed stage.`);
-    if(!error) onCreated?.();
+    if(!error){
+      const seeded=await supabase.rpc('afat_seed_city_source_plan',{p_city_key:data?.city_key||form.key});
+      setNotice(seeded.error?`${data?.city_key||form.key} registered, but source-plan bootstrap needs attention: ${seeded.error.message}`:`${data?.city_key||form.key} registered with its global source strategy.`);
+      onCreated?.();
+    }else setNotice(error.message);
+    setBusy(false);
   };
   return <section className="rounded-[1.5rem] border border-blue-300/15 bg-blue-400/[0.04] p-5">
     <div className="flex items-start gap-3"><Globe2 className="h-5 w-5 text-blue-200"/><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-200">City Genesis</p><h2 className="mt-1 text-lg font-black">Start AFAT in another city</h2><p className="mt-1 text-xs leading-5 text-white/45">Create the local learning profile first. Source ingestion, observation, verification and operations then grow against this city context rather than copying Yaoundé facts.</p></div></div>
