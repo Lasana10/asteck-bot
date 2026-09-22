@@ -11,6 +11,7 @@ import { FieldMapper } from './FieldMapper';
 import { MappingEvidenceReview } from './MappingEvidenceReview';
 import AtlasIngestionControl from './AtlasIngestionControl';
 import { AtlasPrivacyPanel } from './AtlasPrivacyPanel';
+import { SourceIntelligencePanel } from './SourceIntelligencePanel';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -115,6 +116,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       </div>
     </section>
 
+    {canPlan&&<SourceIntelligencePanel cityKey={city?.city_key||'cm-yaounde'} />}
     {canPlan&&<AtlasLearningControl />}
     {canPlan&&<MappingEvidenceReview />}
 
