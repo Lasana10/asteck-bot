@@ -2,8 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL=Deno.env.get("SUPABASE_URL")!;
-const ANON=Deno.env.get("SUPABASE_ANON_KEY")||"";
-const SERVICE=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||"";
+function keyFromJson(name:string,key:string){try{return JSON.parse(Deno.env.get(name)||"{}")[key]||"";}catch{return "";}}
+const ANON=Deno.env.get("SUPABASE_ANON_KEY")||keyFromJson("SUPABASE_PUBLISHABLE_KEYS","default");
+const SERVICE=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||keyFromJson("SUPABASE_SECRET_KEYS","default");
 function json(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8"}});}
 function finite(v:unknown){const n=Number(v);return Number.isFinite(n)?n:null;}
 
