@@ -14,6 +14,7 @@ export function ReachLinkPage({slug,token}:{slug:string;token:string}){
  useEffect(()=>{let active=true;resolveAfatReachLink(slug,token).then(({data,error})=>{if(!active)return;if(error)setError(error.message);else setData(data);});return()=>{active=false;};},[slug,token]);
 
  const target=data?.meeting_point||data?.access_point||data?.place;
+ const handoffUrl=data?`/?destination=${encodeURIComponent(data.place?.canonical_name||'')}&place_ref=${encodeURIComponent(data.place?.place_ref||'')}&intent=${encodeURIComponent(data.intent_type||'go')}`:'/';
  const lat=Number(target?.latitude);
  const lon=Number(target?.longitude);
 
@@ -54,7 +55,7 @@ export function ReachLinkPage({slug,token}:{slug:string;token:string}){
    </div>
 
    <section className="mt-4 rounded-[1.5rem] border border-emerald-300/15 bg-emerald-400/[0.05] p-5">
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-200"/><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Continue with AFAT</p></div><p className="mt-2 text-sm text-white/50">{data.booking_supported?'You can open AFAT to navigate this destination or book available transport.':'Open AFAT for navigation.'}</p></div><a href="/" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-300 px-5 text-xs font-black text-slate-950"><Route className="h-4 w-4"/>Open AFAT <ArrowRight className="h-4 w-4"/></a></div>
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-200"/><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Continue with AFAT</p></div><p className="mt-2 text-sm text-white/50">{data.booking_supported?'You can open AFAT to navigate this destination or book available transport.':'Open AFAT for navigation.'}</p></div><a href={handoffUrl} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-300 px-5 text-xs font-black text-slate-950"><Route className="h-4 w-4"/>Navigate or book <ArrowRight className="h-4 w-4"/></a></div>
    </section>
   </main>
  </div>;

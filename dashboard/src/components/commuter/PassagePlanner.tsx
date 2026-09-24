@@ -23,6 +23,7 @@ type Props = {
   profile: any;
   originText?: string;
   initialDestination?: string;
+  initialIntent?: 'go'|'meet'|'pickup'|'dropoff'|'send'|'deliver'|'board'|'explore';
   onPassageCreated?: (passage: any) => void;
 };
 
@@ -73,13 +74,13 @@ function routeMessageFor(route: AfatCanonicalRoute | null) {
   return copy[route.reason || ''] || 'A trusted AFAT route is not available for these points yet.';
 }
 
-export function PassagePlanner({ profile, originText = '', initialDestination = '', onPassageCreated }: Props) {
+export function PassagePlanner({ profile, originText = '', initialDestination = '', initialIntent = 'go', onPassageCreated }: Props) {
   const [destination, setDestination] = useState(initialDestination);
   const [originLabel, setOriginLabel] = useState(originText);
   const [originFix, setOriginFix] = useState<OriginFix | null>(null);
   const [arrivalTarget, setArrivalTarget] = useState('');
   const [vehicleType, setVehicleType] = useState<AfatRouteMode>('car');
-  const [intentType, setIntentType] = useState<'go'|'meet'|'pickup'|'dropoff'|'send'|'deliver'|'board'|'explore'>('go');
+  const [intentType, setIntentType] = useState<'go'|'meet'|'pickup'|'dropoff'|'send'|'deliver'|'board'|'explore'>(initialIntent);
   const [candidates, setCandidates] = useState<AfatPlaceCandidate[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<AfatPlaceCandidate | null>(null);
   const [selectedMeetingPoint, setSelectedMeetingPoint] = useState<AfatMeetingPoint | null>(null);
@@ -118,6 +119,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   }, [initialDestination]);
 
   useEffect(() => { setOriginLabel(originText); }, [originText]);
+  useEffect(() => { setIntentType(initialIntent); }, [initialIntent]);
 
   useEffect(() => {
     let active = true;

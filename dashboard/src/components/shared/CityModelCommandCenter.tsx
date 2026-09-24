@@ -25,15 +25,18 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
  const [probe,setProbe]=useState<Probe[]>([]);
  const [sourcesOpen,setSourcesOpen]=useState(false);
  const [reachability,setReachability]=useState<any>({});
+ const [demand,setDemand]=useState<any>({});
 
  const load=async()=>{
-  const [cityModel,reachabilityModel]=await Promise.all([
+  const [cityModel,reachabilityModel,demandModel]=await Promise.all([
    supabase.rpc('afat_city_model_snapshot',{p_city_key:cityKey}),
    supabase.rpc('afat_reachability_gap_snapshot',{p_city_key:cityKey}),
+   supabase.rpc('afat_reachability_demand_snapshot',{p_city_key:cityKey}),
   ]);
   if(cityModel.error){setNotice(cityModel.error.message);return;}
   setData(cityModel.data||{});
   if(!reachabilityModel.error)setReachability(reachabilityModel.data||{});
+  if(!demandModel.error)setDemand(demandModel.data||{});
  };
  useEffect(()=>{void load();},[cityKey]);
 
@@ -41,6 +44,8 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
   setBusy(true);setNotice('');
   const {data:built,error}=await supabase.rpc('afat_build_city_model',{p_city_key:cityKey});
   if(error){setBusy(false);setNotice(error.message);return;}
+  const reachBuild=await supabase.rpc('afat_refresh_reachability_city',{p_city_key:cityKey,p_mission_limit:24});
+  if(reachBuild.error){setBusy(false);setNotice(reachBuild.error.message);return;}
   const [providers,deafrica]=await Promise.all([
    supabase.functions.invoke('afat-provider-reference-query',{body:{action:'probe',city_key:cityKey}}),
    supabase.functions.invoke('afat-deafrica-discovery',{body:{action:'discover',city_key:cityKey,days:365}})
@@ -50,7 +55,8 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
   const pOk=providerRows.filter((x:any)=>x.ok).length;
   const pSkip=providerRows.filter((x:any)=>x.skipped).length;
   const deCount=Number(deafrica.data?.discoveries?.length||0);
-  setNotice(`City model refreshed · provider probes ${pOk} working / ${pSkip} skipped by relevance · Digital Earth Africa ${deCount} product families checked.`);
+  const reachMissions=Number(reachBuild.data?.missions?.missions_created||0);
+  setNotice(`City model refreshed · ${reachBuild.data?.places_refreshed||0} destinations re-linked · ${reachMissions} reachability missions created · provider probes ${pOk} working / ${pSkip} skipped · Digital Earth Africa ${deCount} product families checked.`);
   if(built?.snapshot)setData(built.snapshot);else await load();
   setBusy(false);
  };
@@ -86,6 +92,11 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
    </div>
    {Number(reachability?.weak_access_links||0)>0&&<p className="mt-3 rounded-xl border border-amber-300/10 bg-amber-400/[0.06] p-2 text-[9px] text-amber-100/70">{reachability.weak_access_links} access or meeting links still need a stronger Atlas connection.</p>}
   </div>
+
+  {Array.isArray(demand?.top_unresolved)&&demand.top_unresolved.length>0&&<div className="mt-5 rounded-2xl border border-amber-300/10 bg-amber-400/[0.035] p-3">
+   <div className="flex items-center justify-between gap-3"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-200">What people cannot find yet</p><span className="text-[8px] uppercase text-white/30">{demand.open_count||0} open</span></div>
+   <div className="mt-3 space-y-2">{demand.top_unresolved.slice(0,5).map((item:any)=><div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-3"><div className="flex items-start justify-between gap-3"><p className="text-xs font-black">{item.query_text}</p><span className="rounded-full bg-amber-300/10 px-2 py-1 text-[8px] font-black text-amber-100">×{item.demand_count}</span></div><p className="mt-1 text-[8px] uppercase tracking-wide text-white/30">{String(item.intent_type||'go').replace(/_/g,' ')} · {item.requested_mode||'any mode'} · unresolved demand only</p></div>)}</div>
+  </div>}
 
   <div className="mt-5">
    <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Target className="h-4 w-4 text-amber-200"/><p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-200">Verify next</p></div><span className="text-[9px] text-white/30">highest value</span></div>

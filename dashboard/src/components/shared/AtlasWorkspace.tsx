@@ -16,6 +16,7 @@ import { CitySourcePlanPanel } from './CitySourcePlanPanel';
 import { CityModelCommandCenter } from './CityModelCommandCenter';
 import { DestinationClaimReview } from './DestinationClaimReview';
 import { TransitGraphPanel } from './TransitGraphPanel';
+import { DestinationGraphPanel } from './DestinationGraphPanel';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -127,6 +128,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       </div>
     </section>
 
+    {canPlan&&<DestinationGraphPanel/>}
     {canPlan&&<TransitGraphPanel cityKey={cityKey}/>} 
 
     {canPlan&&<details className="rounded-[1.6rem] border border-white/10 bg-slate-950/60 p-4"><summary className="cursor-pointer text-xs font-black uppercase tracking-[0.18em] text-cyan-200">Advanced source + evidence operations</summary><div className="mt-5 space-y-5"><CitySourcePlanPanel cityKey={cityKey}/><SourceIntelligencePanel cityKey={cityKey}/><DestinationClaimReview/><AtlasLearningControl/><MappingEvidenceReview/></div></details>}
