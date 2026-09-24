@@ -593,7 +593,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
             <p className="text-xs font-black">{access.name}</p><p className="mt-1 text-[9px] uppercase text-white/35">{access.access_type} · {Math.round(Number(access.confidence||0))}% evidence</p>{access.instructions&&<p className="mt-2 text-[10px] leading-4 text-white/50">{access.instructions}</p>}
           </button>)}
         </div>
-      </div>
+      </div>}
       {[...selectedPlace.meeting_points]
         .sort((a, b) => {
           const aCompatible = meetingSupportsMode(a, vehicleType) ? 1 : 0;
