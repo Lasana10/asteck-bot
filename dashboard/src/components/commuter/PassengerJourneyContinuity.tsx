@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, BadgeCheck, CarFront, CheckCircle2, Clock3, KeyRound, Receipt, Share2, ShieldAlert, ShieldCheck, Star, UserRoundCheck, XCircle } from 'lucide-react';
-import { createGuardianToken, createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
+import { answerContextualPrompt, createGuardianToken, createPickupCode, fetchContextualPrompt, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
 import { FarePaymentPanel } from '../shared/FarePaymentPanel';
 import { EmergencySOS } from '../shared/EmergencySOS';
@@ -25,14 +25,17 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
   const [sosOpen, setSosOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  const [contextualPrompt, setContextualPrompt] = useState<any>(null);
 
   useEffect(() => {
     setNotice('');
     setPickupCode('');
     setPickupExpiry('');
     setClosure(null);
+    setContextualPrompt(null);
     if (!assignment?.id || !['completed','disputed'].includes(String(assignment.status))) return;
     fetchJourneyClosure(assignment.id).then(({ data }) => setClosure(data?.closure || null));
+    fetchContextualPrompt(assignment.id).then(({ data }) => setContextualPrompt(data?.prompt || null));
   }, [assignment?.id, assignment?.status]);
 
   if (!assignment) {
@@ -126,6 +129,16 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
     } catch {
       setNotice('Guardian watch link ready below.');
     }
+  };
+
+  const answerPrompt = async (answerId: string) => {
+    if (!contextualPrompt?.id) return;
+    setBusy(true); setNotice('');
+    const { data, error } = await answerContextualPrompt(contextualPrompt.id, answerId);
+    setBusy(false);
+    if (error) return setNotice(error.message);
+    setContextualPrompt(data?.confirmation || { ...contextualPrompt, status: 'answered', answer: { id: answerId } });
+    setNotice('Thanks. AFAT saved that as journey evidence, not automatic map truth.');
   };
 
   const rate = async (rating: number) => {
@@ -251,6 +264,17 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       {status === 'in_journey' && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-50"><strong>Journey active.</strong> AFAT can resume this dispatch after a reload and real-device GPS samples queue when connectivity drops.</div>}
       {status === 'emergency' && <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-400/25 bg-red-500/10 p-4"><AlertTriangle className="mt-0.5 h-5 w-5 text-red-200" /><p className="text-xs leading-5 text-red-50">Emergency state is active for this journey. Journey completion should not erase its incident evidence.</p></div>}
       {['arrived','pickup_verified','in_journey','emergency','disputed','completed'].includes(status) && <div className="mt-4"><JourneyFieldReportPanel assignmentId={assignment.id} onSubmitted={onChanged} /></div>}
+
+      {['completed','disputed'].includes(status) && contextualPrompt && contextualPrompt.status === 'open' && (
+        <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-400/[0.055] p-4">
+          <p className="text-[9px] font-black uppercase tracking-widest text-cyan-200">One useful check</p>
+          <h4 className="mt-2 text-sm font-black text-white">{contextualPrompt.question}</h4>
+          <p className="mt-1 text-[10px] leading-4 text-white/40">AFAT asks only because this answer can reduce uncertainty. One answer remains evidence, not verified truth.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(Array.isArray(contextualPrompt.answer_options)?contextualPrompt.answer_options:[]).map((option:any)=><button key={option.id} disabled={busy} onClick={()=>answerPrompt(String(option.id))} className="min-h-10 rounded-xl border border-cyan-300/15 bg-cyan-400/10 px-3 text-[9px] font-black text-cyan-50 disabled:opacity-40">{option.label}</button>)}
+          </div>
+        </div>
+      )}
 
       {['completed','disputed'].includes(status) && (
         <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
