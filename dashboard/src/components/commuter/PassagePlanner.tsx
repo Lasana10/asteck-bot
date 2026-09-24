@@ -12,6 +12,7 @@ import {
   recordUnresolvedDestination,
   resolveAfatDestinationIntent,
   resolveAfatPlace,
+  supabase,
 } from '../../supabaseClient';
 import type { AfatAccessPoint, AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
 import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
@@ -86,6 +87,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [selectedAccessPoint, setSelectedAccessPoint] = useState<AfatAccessPoint | null>(null);
   const [shareNotice, setShareNotice] = useState('');
   const [claimNotice, setClaimNotice] = useState('');
+  const [transitGraph,setTransitGraph]=useState<any>({nodes:[],lines:[]});
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
   const [canonicalRoute, setCanonicalRoute] = useState<AfatCanonicalRoute | null>(null);
@@ -261,6 +263,24 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     return () => { active = false; };
   }, [selectedPlace?.id, intentType, vehicleType]);
 
+
+  useEffect(() => {
+    let active=true;
+    if(intentType!=='board'||!selectedPlace?.id){setTransitGraph({nodes:[],lines:[]});return;}
+    supabase.rpc('afat_transit_graph_snapshot',{p_city_key:'cm-yaounde'}).then(({data,error})=>{
+      if(!active||error||!data)return;
+      setTransitGraph(data);
+    });
+    return()=>{active=false;};
+  },[intentType,selectedPlace?.id]);
+
+  const transitAtDestination=useMemo(()=>{
+    if(intentType!=='board'||!selectedPlace?.id)return {nodes:[],lines:[]};
+    const nodes=(transitGraph.nodes||[]).filter((node:any)=>String(node.place_id||'')===String(selectedPlace.id));
+    const ids=new Set(nodes.map((node:any)=>String(node.id)));
+    const lines=(transitGraph.lines||[]).filter((line:any)=>(line.nodes||[]).some((item:any)=>ids.has(String(item.node_id))));
+    return {nodes,lines};
+  },[intentType,selectedPlace?.id,transitGraph]);
 
   const resolveDestination = async () => {
     if (destination.trim().length < 3) return;
@@ -499,7 +519,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
         <p className="text-[9px] font-black uppercase tracking-widest text-white/35">What do you need to do?</p>
         <div className="mt-2 flex flex-wrap gap-2">
-          {(['go','meet','pickup','deliver','board','explore'] as const).map(intent=><button key={intent} type="button" onClick={()=>setIntentType(intent)} className={`rounded-xl border px-3 py-2 text-[9px] font-black uppercase ${intentType===intent?'border-cyan-300/30 bg-cyan-300/12 text-cyan-100':'border-white/10 bg-black/20 text-white/40'}`}>{intent}</button>)}
+          {(['go','meet','pickup','dropoff','send','deliver','board','explore'] as const).map(intent=><button key={intent} type="button" onClick={()=>setIntentType(intent)} className={`rounded-xl border px-3 py-2 text-[9px] font-black uppercase ${intentType===intent?'border-cyan-300/30 bg-cyan-300/12 text-cyan-100':'border-white/10 bg-black/20 text-white/40'}`}>{intent}</button>)}
         </div>
       </div>
     </div>
@@ -632,6 +652,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
           </button>
         );
       })}
+      {intentType==='board'&&<div className="rounded-2xl border border-sky-300/15 bg-sky-400/[0.05] p-3">
+        <p className="text-[9px] font-black uppercase tracking-widest text-sky-200">Transit serving this destination</p>
+        {transitAtDestination.lines.length?<div className="mt-2 grid gap-2 sm:grid-cols-2">{transitAtDestination.lines.map((line:any)=><div key={line.id} className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs font-black">{line.name}</p><p className="mt-1 text-[9px] uppercase text-white/35">{String(line.mode||'transit').replace(/_/g,' ')} · {String(line.evidence_status||'limited').replace(/_/g,' ')}</p></div>)}</div>:<p className="mt-2 text-xs leading-5 text-white/45">No reviewed transit line is linked to this destination yet. AFAT will not invent a bus, minibus or informal line that has not been observed and reviewed.</p>}
+      </div>}
       {!selectedPlace.meeting_points.length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This landmark is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before requesting transport.</div>}
       <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Navigate only</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Book transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>
