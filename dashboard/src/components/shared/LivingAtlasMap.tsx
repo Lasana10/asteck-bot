@@ -98,7 +98,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
         }});
       }
       if(layers.reachability){
-        const destinations=(reach.destinations||[]).filter((p:any)=>Number.isFinite(Number(p.longitude))&&Number.isFinite(Number(p.latitude))).map((p:any)=>({type:'Feature',properties:{id:p.id,name:p.name||'Destination',place_ref:p.place_ref||'',kind:p.destination_kind||'place',reachability_state:p.reachability_state||'learning',evidence_status:p.evidence_status||'limited',confidence:p.evidence_status==='field_verified'?90:p.evidence_status==='corroborated'?70:40},geometry:{type:'Point',coordinates:[Number(p.longitude),Number(p.latitude)]}}));
+        const destinations=(reach.destinations||[]).filter((p:any)=>Number.isFinite(Number(p.longitude))&&Number.isFinite(Number(p.latitude))).map((p:any)=>({type:'Feature',properties:{id:p.id,name:p.name||'Destination',place_ref:p.place_ref||'',kind:p.destination_kind||'place',reachability_state:p.reachability_state||'learning',evidence_status:p.evidence_status||'limited'},geometry:{type:'Point',coordinates:[Number(p.longitude),Number(p.latitude)]}}));
         if(destinations.length){
           map.addSource('afat-destinations',{type:'geojson',data:{type:'FeatureCollection',features:destinations} as any});
           map.addLayer({id:'afat-destinations',type:'circle',source:'afat-destinations',paint:{
@@ -123,7 +123,8 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
         const p=f.properties||{};
         const ml=typeof p.mode_learning==='string'?JSON.parse(p.mode_learning||'[]'):p.mode_learning||[];
         const extra=Array.isArray(ml)&&ml.length?'<br/>'+ml.slice(0,3).map((x:any)=>`${x.mode}: ${x.traversals} traversals · ${Math.round(Number(x.confidence||0))}%`).join('<br/>'):'';
-        new Popup({closeButton:false,offset:10}).setLngLat(e.lngLat).setHTML(`<div style="font-size:12px"><strong>${p.name||p.label||p.feature_type||'AFAT evidence'}</strong><br/>${p.evidence_status||p.status||p.type||''} · ${Math.round(Number(p.confidence||0))}%${extra}</div>`).addTo(map);
+        const confidence=p.confidence==null||p.confidence===''?'':` · ${Math.round(Number(p.confidence||0))}%`;
+        new Popup({closeButton:false,offset:10}).setLngLat(e.lngLat).setHTML(`<div style="font-size:12px"><strong>${p.name||p.label||p.feature_type||'AFAT evidence'}</strong><br/>${p.evidence_status||p.status||p.type||''}${confidence}${extra}</div>`).addTo(map);
       };
       ['atlas-edges','atlas-candidates','atlas-points','afat-destinations','afat-access-points','afat-meeting-points'].forEach(id=>{
         if(map.getLayer(id)){map.on('click',id,popup);map.on('mouseenter',id,()=>{map.getCanvas().style.cursor='pointer';});map.on('mouseleave',id,()=>{map.getCanvas().style.cursor='';});}
