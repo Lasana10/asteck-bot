@@ -25,15 +25,18 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
  const [probe,setProbe]=useState<Probe[]>([]);
  const [sourcesOpen,setSourcesOpen]=useState(false);
  const [reachability,setReachability]=useState<any>({});
+ const [transit,setTransit]=useState<any>({nodes:[],lines:[]});
 
  const load=async()=>{
-  const [cityModel,reachabilityModel]=await Promise.all([
+  const [cityModel,reachabilityModel,transitModel]=await Promise.all([
    supabase.rpc('afat_city_model_snapshot',{p_city_key:cityKey}),
    supabase.rpc('afat_reachability_gap_snapshot',{p_city_key:cityKey}),
+   supabase.rpc('afat_transit_graph_snapshot',{p_city_key:cityKey}),
   ]);
   if(cityModel.error){setNotice(cityModel.error.message);return;}
   setData(cityModel.data||{});
   if(!reachabilityModel.error)setReachability(reachabilityModel.data||{});
+  if(!transitModel.error)setTransit(transitModel.data||{nodes:[],lines:[]});
  };
  useEffect(()=>{void load();},[cityKey]);
 
@@ -41,16 +44,18 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
   setBusy(true);setNotice('');
   const {data:built,error}=await supabase.rpc('afat_build_city_model',{p_city_key:cityKey});
   if(error){setBusy(false);setNotice(error.message);return;}
-  const [providers,deafrica]=await Promise.all([
+  const [providers,deafrica,reachabilityMissions]=await Promise.all([
    supabase.functions.invoke('afat-provider-reference-query',{body:{action:'probe',city_key:cityKey}}),
-   supabase.functions.invoke('afat-deafrica-discovery',{body:{action:'discover',city_key:cityKey,days:365}})
+   supabase.functions.invoke('afat-deafrica-discovery',{body:{action:'discover',city_key:cityKey,days:365}}),
+   supabase.rpc('afat_generate_reachability_missions',{p_city_key:cityKey,p_limit:24}),
   ]);
   const providerRows=Array.isArray(providers.data?.providers)?providers.data.providers:[];
   setProbe(providerRows);
   const pOk=providerRows.filter((x:any)=>x.ok).length;
   const pSkip=providerRows.filter((x:any)=>x.skipped).length;
   const deCount=Number(deafrica.data?.discoveries?.length||0);
-  setNotice(`City model refreshed · provider probes ${pOk} working / ${pSkip} skipped by relevance · Digital Earth Africa ${deCount} product families checked.`);
+  const missionCount=Number(reachabilityMissions.data?.missions_created||0);
+  setNotice(`City model refreshed · provider probes ${pOk} working / ${pSkip} skipped by relevance · Digital Earth Africa ${deCount} product families checked · ${missionCount} reachability missions generated.`);
   if(built?.snapshot)setData(built.snapshot);else await load();
   setBusy(false);
  };
@@ -85,6 +90,7 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
     <Metric icon={ShieldCheck} label="Claims review" value={reachability?.open_claims??0}/>
    </div>
    {Number(reachability?.weak_access_links||0)>0&&<p className="mt-3 rounded-xl border border-amber-300/10 bg-amber-400/[0.06] p-2 text-[9px] text-amber-100/70">{reachability.weak_access_links} access or meeting links still need a stronger Atlas connection.</p>}
+   <p className="mt-3 text-[9px] text-cyan-100/55">Informal transit graph · {(transit?.lines||[]).length} lines · {(transit?.nodes||[]).length} boarding/transfer nodes</p>
   </div>
 
   <div className="mt-5">
