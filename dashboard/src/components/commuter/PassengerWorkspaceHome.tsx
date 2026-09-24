@@ -3,6 +3,7 @@ import { ArrowRight, Car, MapPin, Navigation2, Share2, ShieldCheck, Sparkles } f
 import { PassagePlanner } from './PassagePlanner';
 import { PassengerJourneyContinuity } from './PassengerJourneyContinuity';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
+import { ContextualConfirmation } from '../shared/ContextualConfirmation';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
 type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
@@ -30,6 +31,7 @@ export function PassengerWorkspaceHome({
         </section>
         <ActiveDispatchMap assignment={currentDispatch} role="commuter" incidents={live.incidents} liveTracks={live.tracks} />
         <PassengerJourneyContinuity assignment={currentDispatch} onChanged={onChanged} />
+        <ContextualConfirmation assignment={currentDispatch} />
       </div>
     );
   }
