@@ -1202,6 +1202,22 @@ router.post('/place/:id/intent-resolution', async (req: Request, res: Response) 
   }
 });
 
+router.get('/place/my-claims', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const { data, error } = await supabase.from('afat_destination_claims')
+      .select('*, afat_places(id,place_ref,canonical_name,aliases,description,city,zone_label,destination_kind,reachability_state,local_directions,metadata)')
+      .eq('claimant_id', identity.id)
+      .order('created_at',{ascending:false})
+      .limit(50);
+    if (error) throw error;
+    return res.json({ claims: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Your destination claims are unavailable.' });
+  }
+});
+
 router.get('/place/claims', async (req: Request, res: Response) => {
   try {
     const identity = await resolveIdentity(req);
