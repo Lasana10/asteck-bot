@@ -15,14 +15,14 @@ type TabDef={ id:string; label:string; labelKey?:string; icon:React.ElementType 
 
 const TAB_CONFIG: Record<string, TabDef[]> = {
   commuter: [
-    { id:'home',label:'Explore',labelKey:'nav.home',icon:Map },
+    { id:'home',label:'Map',labelKey:'nav.home',icon:Map },
     { id:'bookings',label:'Trips',labelKey:'nav.trips',icon:Ticket },
-    { id:'atlas',label:'Atlas',labelKey:'nav.atlas',icon:MapPinned },
+    { id:'atlas',label:'Improve',labelKey:'nav.atlas',icon:MapPinned },
     { id:'notifications',label:'Safety',labelKey:'nav.safety',icon:Radio },
     { id:'profile',label:'Me',labelKey:'nav.account',icon:User },
   ],
   operator: [
-    { id:'home',label:'Terminal',labelKey:'nav.home',icon:Home },
+    { id:'home',label:'Go',labelKey:'nav.home',icon:Home },
     { id:'bookings',label:'Missions',labelKey:'nav.trips',icon:QrCode },
     { id:'atlas',label:'Atlas',labelKey:'nav.atlas',icon:MapPinned },
     { id:'notifications',label:'Alerts',labelKey:'nav.safety',icon:Radio },
