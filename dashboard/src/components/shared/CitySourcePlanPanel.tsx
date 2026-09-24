@@ -9,8 +9,9 @@ export function CitySourcePlanPanel({cityKey='cm-yaounde'}:{cityKey?:string}){
  const [data,setData]=useState<Snapshot>({}); const [busy,setBusy]=useState(''); const [notice,setNotice]=useState('');
  const [batchSource,setBatchSource]=useState('overture_maps'); const [uploadProgress,setUploadProgress]=useState('');
  const load=async()=>{const {data,error}=await supabase.rpc('afat_city_source_plan_snapshot',{p_city_key:cityKey});if(error){setNotice(error.message);return;}setData(data||{});};
- useEffect(()=>{void load();},[cityKey]);
- const seed=async()=>{setBusy('seed');const {error}=await supabase.rpc('afat_seed_city_source_plan',{p_city_key:cityKey});setBusy('');setNotice(error?error.message:'City source strategy refreshed.');await load();};
+ const syncProviderStatus=async()=>{const {error}=await supabase.functions.invoke('afat-provider-reference-query',{body:{action:'status',city_key:cityKey}});if(!error)await load();};
+ useEffect(()=>{void (async()=>{await load();await syncProviderStatus();})();},[cityKey]);
+ const seed=async()=>{setBusy('seed');const {error}=await supabase.rpc('afat_seed_city_source_plan',{p_city_key:cityKey});if(!error)await syncProviderStatus();setBusy('');setNotice(error?error.message:'City source strategy and provider readiness refreshed.');await load();};
  const sentinel=async()=>{if(!data.bounds){setNotice('Seed city map bounds first with OSM or another approved source.');return;}setBusy('sentinel');const {data:result,error}=await supabase.functions.invoke('afat-copernicus-scene-discovery',{body:{city_key:cityKey,bbox:data.bounds,days:30,limit:20}});setBusy('');setNotice(error?error.message:`Sentinel discovery: ${result?.scene_count||0} scenes · latest ${result?.latest_scene_at||'unknown'}.`);await load();};
  const landsat=async()=>{if(!data.bounds){setNotice('Seed city map bounds first with OSM or another approved source.');return;}setBusy('landsat');const {data:result,error}=await supabase.functions.invoke('afat-landsat-scene-discovery',{body:{city_key:cityKey,bbox:data.bounds,days:60,limit:20}});setBusy('');setNotice(error?error.message:`Landsat discovery: ${result?.scene_count||0} scenes · latest ${result?.latest_scene_at||'unknown'}.`);await load();};
  const uploadExtract=async(file:File|null)=>{

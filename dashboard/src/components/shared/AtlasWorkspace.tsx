@@ -13,6 +13,7 @@ import AtlasIngestionControl from './AtlasIngestionControl';
 import { AtlasPrivacyPanel } from './AtlasPrivacyPanel';
 import { SourceIntelligencePanel } from './SourceIntelligencePanel';
 import { CitySourcePlanPanel } from './CitySourcePlanPanel';
+import { CityModelCommandCenter } from './CityModelCommandCenter';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -95,6 +96,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
         <Metric icon={Route} label={t('atlas.missions')} value={missions.length} />
       </div>
     </section>
+
+    {canPlan&&<CityModelCommandCenter cityKey={city?.city_key||'cm-yaounde'} />}
 
     <LivingAtlasMap cityKey={city?.city_key||'cm-yaounde'} />
 
