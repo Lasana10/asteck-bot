@@ -336,7 +336,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       destination_text: destination.trim(),
       arrival_target: arrivalTarget ? new Date(arrivalTarget).toISOString() : undefined,
       selected_place_id: selectedPlace.id,
-      meeting_point_id: selectedMeetingPoint.id,
+      meeting_point_id: selectedMeetingPoint?.id,
       place_confidence: selectedPlace.confidence,
       requested_vehicle_type: vehicleType,
       metadata: {
