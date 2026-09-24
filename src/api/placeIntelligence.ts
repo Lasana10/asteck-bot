@@ -232,7 +232,7 @@ router.get('/place/discover', async (req: Request, res: Response) => {
     const [{ data: places, error: placesError }, { data: ledgerPlaces, error: ledgerError }] = await Promise.all([
       supabase
         .from('afat_places')
-        .select('id,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,afat_meeting_points(*)')
+        .select('id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,destination_kind,reachability_state,local_directions,afat_meeting_points(*),afat_access_points(*)')
         .neq('status', 'retired')
         .limit(180),
       supabase
@@ -271,6 +271,11 @@ router.get('/place/discover', async (req: Request, res: Response) => {
 
       return {
         id: place.id,
+        place_ref: place.place_ref,
+        destination_kind: place.destination_kind || 'place',
+        reachability_state: place.reachability_state || 'learning',
+        local_directions: place.local_directions || null,
+        access_points: (place.afat_access_points || []).filter((point: any) => point.active !== false),
         name: place.canonical_name,
         description: place.description,
         city: place.city,
@@ -361,7 +366,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
 
     const { data: places, error } = await supabase
       .from('afat_places')
-      .select('*, afat_meeting_points(*)')
+      .select('*, afat_meeting_points(*), afat_access_points(*)')
       .neq('status', 'retired')
       .limit(100);
 
@@ -401,6 +406,11 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
 
         return {
           id: place.id,
+          place_ref: place.place_ref,
+          destination_kind: place.destination_kind || 'place',
+          reachability_state: place.reachability_state || 'learning',
+          local_directions: place.local_directions || null,
+          access_points: (place.afat_access_points || []).filter((point: any) => point.active !== false),
           name: place.canonical_name,
           description: place.description,
           city: place.city,
@@ -910,6 +920,270 @@ router.post('/passages/intents/:id/outcome', async (req: Request, res: Response)
     res.status(201).json({ outcome, passage_status: nextStatus, recovery_required: !successful });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Passage outcome recording failed.' });
+  }
+});
+
+
+router.get('/place/:id/reachability', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+
+    const { data: place, error: placeError } = await supabase
+      .from('afat_places')
+      .select('id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,destination_kind,reachability_state,vehicle_access,evidence_status,local_directions,status')
+      .eq('id', req.params.id)
+      .neq('status', 'retired')
+      .maybeSingle();
+    if (placeError) throw placeError;
+    if (!place) return res.status(404).json({ error: 'Destination not found.' });
+
+    const [{ data: accessPoints, error: accessError }, { data: meetingPoints, error: meetingError }] = await Promise.all([
+      supabase.from('afat_access_points').select('*').eq('place_id', place.id).eq('active', true).order('confidence', { ascending: false }),
+      supabase.from('afat_meeting_points').select('*').eq('place_id', place.id).neq('status', 'retired').order('confidence', { ascending: false }),
+    ]);
+    if (accessError) throw accessError;
+    if (meetingError) throw meetingError;
+
+    return res.json({ place, access_points: accessPoints || [], meeting_points: meetingPoints || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Reachability lookup failed.' });
+  }
+});
+
+router.post('/intent/sessions', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const payload = req.body || {};
+    const allowed = new Set(['go','meet','pickup','dropoff','send','deliver','board','explore']);
+    const intentType = String(payload.intent_type || 'go');
+    if (!allowed.has(intentType)) return res.status(400).json({ error: 'Unsupported intent.' });
+
+    const { data, error } = await supabase.from('afat_intent_sessions').insert({
+      user_id: identity.id,
+      intent_type: intentType,
+      place_id: payload.place_id || null,
+      access_point_id: payload.access_point_id || null,
+      meeting_point_id: payload.meeting_point_id || null,
+      movement_mode: payload.movement_mode || null,
+      origin_lat: payload.origin_lat == null ? null : Number(payload.origin_lat),
+      origin_lng: payload.origin_lng == null ? null : Number(payload.origin_lng),
+      context: payload.context || {},
+    }).select().single();
+    if (error) throw error;
+    return res.status(201).json({ intent: data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Intent session could not be created.' });
+  }
+});
+
+router.post('/place/unresolved', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const payload = req.body || {};
+    const queryText = String(payload.query_text || '').trim();
+    if (queryText.length < 3) return res.status(400).json({ error: 'Describe the destination more clearly.' });
+    const normalizedQuery = normalize(queryText);
+    const city = String(payload.city || '').trim() || null;
+    const intentType = String(payload.intent_type || 'go');
+    const fingerprint = crypto.createHash('sha256')
+      .update([normalizedQuery, normalize(city || ''), intentType].join(':'))
+      .digest('hex');
+
+    const { data: existing } = await supabase.from('afat_unresolved_destination_demand')
+      .select('id,demand_count')
+      .eq('fingerprint', fingerprint)
+      .maybeSingle();
+
+    if (existing?.id) {
+      const { data, error } = await supabase.from('afat_unresolved_destination_demand')
+        .update({
+          demand_count: Number(existing.demand_count || 0) + 1,
+          last_seen_at: new Date().toISOString(),
+          requested_mode: payload.requested_mode || null,
+          evidence: { ...(payload.evidence || {}), last_user_id: identity.id },
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return res.json({ demand: data, replayed: true });
+    }
+
+    const { data, error } = await supabase.from('afat_unresolved_destination_demand').insert({
+      user_id: identity.id,
+      query_text: queryText,
+      normalized_query: normalizedQuery,
+      city,
+      intent_type: intentType,
+      origin_lat: payload.origin_lat == null ? null : Number(payload.origin_lat),
+      origin_lng: payload.origin_lng == null ? null : Number(payload.origin_lng),
+      requested_mode: payload.requested_mode || null,
+      fingerprint,
+      evidence: payload.evidence || {},
+    }).select().single();
+    if (error) throw error;
+    return res.status(201).json({ demand: data, replayed: false });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Unresolved destination could not be recorded.' });
+  }
+});
+
+router.post('/place/propose', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const payload = req.body || {};
+    const name = String(payload.name || '').trim();
+    const city = String(payload.city || '').trim();
+    const latitude = finiteCoordinate(payload.latitude, -90, 90);
+    const longitude = finiteCoordinate(payload.longitude, -180, 180);
+    if (name.length < 3 || city.length < 2 || latitude == null || longitude == null) {
+      return res.status(400).json({ error: 'Name, city and a real map position are required.' });
+    }
+
+    const placeRef = 'AFAT-' + crypto.randomBytes(6).toString('hex').toUpperCase();
+    const { data, error } = await supabase.from('afat_places').insert({
+      place_ref: placeRef,
+      canonical_name: name,
+      aliases: Array.isArray(payload.aliases) ? payload.aliases.filter(Boolean).slice(0, 12) : [],
+      description: payload.description || null,
+      city,
+      zone_label: payload.zone_label || null,
+      latitude,
+      longitude,
+      place_type: payload.place_type || 'destination',
+      destination_kind: payload.destination_kind || 'other',
+      vehicle_access: payload.vehicle_access || 'unknown',
+      base_confidence: 35,
+      status: 'unverified',
+      evidence_status: 'limited',
+      reachability_state: 'learning',
+      local_directions: payload.local_directions || null,
+      metadata: {
+        source: 'user_demand_proposal',
+        created_by: identity.id,
+        intent_type: payload.intent_type || 'go',
+        evidence: payload.evidence || {},
+      },
+    }).select().single();
+    if (error) throw error;
+
+    return res.status(201).json({
+      destination: data,
+      truth_state: 'provisional',
+      message: 'Destination recorded as provisional evidence. It is not verified until independent evidence confirms it.',
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Destination proposal failed.' });
+  }
+});
+
+router.post('/place/:id/claim', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const claimType = String(req.body?.claim_type || 'business');
+    if (!new Set(['business','organization','resident','manager','institution']).has(claimType)) {
+      return res.status(400).json({ error: 'Unsupported claim type.' });
+    }
+    const { data: place } = await supabase.from('afat_places').select('id').eq('id', req.params.id).neq('status','retired').maybeSingle();
+    if (!place) return res.status(404).json({ error: 'Destination not found.' });
+
+    const { data, error } = await supabase.from('afat_destination_claims').insert({
+      place_id: place.id,
+      claimant_id: identity.id,
+      claim_type: claimType,
+      evidence: req.body?.evidence || {},
+    }).select().single();
+    if (error) throw error;
+    return res.status(201).json({ claim: data, authoritative: false });
+  } catch (error: any) {
+    if (error?.code === '23505') return res.status(409).json({ error: 'An active claim already exists for this destination and account.' });
+    return res.status(500).json({ error: error?.message || 'Destination claim failed.' });
+  }
+});
+
+router.post('/reach-links', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const payload = req.body || {};
+    const placeId = String(payload.place_id || '');
+    const { data: place } = await supabase.from('afat_places').select('id,place_ref,canonical_name').eq('id', placeId).neq('status','retired').maybeSingle();
+    if (!place) return res.status(404).json({ error: 'Destination not found.' });
+
+    const rawToken = crypto.randomBytes(24).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const publicSlug = crypto.randomBytes(8).toString('base64url');
+    const { data, error } = await supabase.from('afat_reach_links').insert({
+      created_by: identity.id,
+      place_id: place.id,
+      access_point_id: payload.access_point_id || null,
+      meeting_point_id: payload.meeting_point_id || null,
+      intent_type: payload.intent_type || 'meet',
+      token_hash: tokenHash,
+      public_slug: publicSlug,
+      label: payload.label || null,
+      expires_at: payload.expires_at || null,
+      max_uses: payload.max_uses || null,
+    }).select('id,public_slug,label,intent_type,expires_at,max_uses').single();
+    if (error) throw error;
+    return res.status(201).json({
+      reach_link: {
+        ...data,
+        token: rawToken,
+        place_ref: place.place_ref,
+        destination_name: place.canonical_name,
+        path: '/r/' + publicSlug + '?token=' + encodeURIComponent(rawToken),
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'ReachLink could not be created.' });
+  }
+});
+
+router.get('/reach-links/:slug', async (req: Request, res: Response) => {
+  try {
+    const rawToken = String(req.query.token || '');
+    if (rawToken.length < 16) return res.status(404).json({ error: 'ReachLink not found.' });
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    const { data: link, error } = await supabase.from('afat_reach_links')
+      .select('*')
+      .eq('public_slug', req.params.slug)
+      .eq('token_hash', tokenHash)
+      .eq('status','active')
+      .maybeSingle();
+    if (error) throw error;
+    if (!link) return res.status(404).json({ error: 'ReachLink not found.' });
+    if (link.expires_at && new Date(link.expires_at).getTime() <= Date.now()) return res.status(410).json({ error: 'ReachLink expired.' });
+    if (link.max_uses && Number(link.use_count || 0) >= Number(link.max_uses)) return res.status(410).json({ error: 'ReachLink usage limit reached.' });
+
+    const [{ data: place }, { data: access }, { data: meeting }] = await Promise.all([
+      supabase.from('afat_places').select('id,place_ref,canonical_name,description,city,zone_label,latitude,longitude,destination_kind,reachability_state,vehicle_access,evidence_status,local_directions').eq('id',link.place_id).maybeSingle(),
+      link.access_point_id ? supabase.from('afat_access_points').select('id,access_type,name,instructions,latitude,longitude,access_modes,confidence,evidence_status').eq('id',link.access_point_id).maybeSingle() : Promise.resolve({data:null,error:null} as any),
+      link.meeting_point_id ? supabase.from('afat_meeting_points').select('id,point_type,name,instructions,latitude,longitude,access_modes,walk_minutes,confidence,evidence_status').eq('id',link.meeting_point_id).maybeSingle() : Promise.resolve({data:null,error:null} as any),
+    ]);
+    if (!place) return res.status(404).json({ error: 'Shared destination no longer exists.' });
+
+    await supabase.from('afat_reach_links').update({
+      use_count: Number(link.use_count || 0) + 1,
+      last_used_at: new Date().toISOString(),
+    }).eq('id', link.id).eq('use_count', link.use_count);
+
+    return res.json({
+      intent_type: link.intent_type,
+      label: link.label,
+      place,
+      access_point: access || null,
+      meeting_point: meeting || null,
+      booking_supported: true,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'ReachLink could not be resolved.' });
   }
 });
 
