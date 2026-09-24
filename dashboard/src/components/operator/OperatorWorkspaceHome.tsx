@@ -103,13 +103,13 @@ export function OperatorWorkspaceHome({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/70">Start shift</p>
-              <h1 className="mt-2 text-2xl font-black">{vehicle?.is_available ? 'Ready for verified demand' : 'Go online when ready'}</h1>
+              <h1 className="mt-2 text-3xl font-black">{vehicle?.is_available ? 'You’re online.' : 'Go online.'}</h1>
               <p className="mt-2 text-xs leading-5 text-white/45">
-                {vehicle ? `${vehicle.plate_number || 'Plate pending'} · ${vehicle.type || 'vehicle'} · ${vehicle.status || 'reviewed'}` : 'No approved vehicle is attached. Vehicle readiness must be resolved before dispatch work.'}
+                {vehicle ? `${vehicle.plate_number || 'Plate pending'} · ${vehicle.type || 'vehicle'} · ${vehicle.status || 'reviewed'} · AFAT will route only work this vehicle can perform.` : 'No approved vehicle is attached. Vehicle readiness must be resolved before dispatch work.'}
               </p>
             </div>
             <button onClick={toggleOnline} disabled={busy || !vehicle || missionLocked} className={`min-h-11 rounded-xl px-5 text-xs font-black disabled:opacity-35 ${vehicle?.is_available ? 'bg-emerald-400 text-slate-950' : 'border border-white/10 bg-white/5'}`}>
-              {vehicle?.is_available ? 'Online' : 'Go online'}
+              {vehicle?.is_available ? 'ONLINE' : 'GO ONLINE'}
             </button>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3">
@@ -142,7 +142,7 @@ export function OperatorWorkspaceHome({
       <Surface className="overflow-hidden p-0">
         <div className="border-b border-white/10 px-5 py-4">
           <p className="text-[9px] font-black uppercase tracking-widest text-cyan-200/70">Operating map</p>
-          <p className="mt-1 text-xs text-white/40">Use the map to understand supply, road conditions and meeting points after shift readiness and job state are clear.</p>
+          <p className="mt-1 text-xs text-white/40">Your operating surface: passenger meeting points, road conditions, live supply and access reality stay spatial instead of becoming another wall of cards.</p>
         </div>
         <div className="min-h-[460px] sm:min-h-[580px]">
           <InteractiveMap
