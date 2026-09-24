@@ -15,6 +15,7 @@ import { SourceIntelligencePanel } from './SourceIntelligencePanel';
 import { CitySourcePlanPanel } from './CitySourcePlanPanel';
 import { CityModelCommandCenter } from './CityModelCommandCenter';
 import { DestinationClaimReview } from './DestinationClaimReview';
+import { TransitGraphPanel } from './TransitGraphPanel';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -125,6 +126,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
         {!missions.length&&<p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No nearby verification mission is open right now.</p>}
       </div>
     </section>
+
+    {canPlan&&<TransitGraphPanel cityKey={cityKey}/>} 
 
     {canPlan&&<details className="rounded-[1.6rem] border border-white/10 bg-slate-950/60 p-4"><summary className="cursor-pointer text-xs font-black uppercase tracking-[0.18em] text-cyan-200">Advanced source + evidence operations</summary><div className="mt-5 space-y-5"><CitySourcePlanPanel cityKey={cityKey}/><SourceIntelligencePanel cityKey={cityKey}/><DestinationClaimReview/><AtlasLearningControl/><MappingEvidenceReview/></div></details>}
 
