@@ -20,6 +20,10 @@ export function PassengerWorkspaceHome({
   onNavigate: (tab: WorkspaceTab) => void;
   onChanged: () => void;
 }) {
+  const handoffParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const initialDestination = handoffParams.get('destination') || '';
+  const initialIntent = handoffParams.get('intent') || 'go';
+
   if (currentDispatch) {
     return (
       <div className="space-y-4">
@@ -53,6 +57,8 @@ export function PassengerWorkspaceHome({
 
       <PassagePlanner
         profile={profile}
+        initialDestination={initialDestination}
+        initialIntent={initialIntent as any}
         onPassageCreated={() => {
           onChanged();
           onNavigate('bookings');
