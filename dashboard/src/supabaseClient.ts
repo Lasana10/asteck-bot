@@ -2075,6 +2075,35 @@ export async function updateClaimedDestinationProfile(placeId: string, payload: 
   }
 }
 
+
+export async function fetchContextualPrompt(dispatchId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(dispatchId)}/contextual-prompt`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Contextual confirmation unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function answerContextualPrompt(promptId: string, answerId: string, note?: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/contextual-prompts/${encodeURIComponent(promptId)}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ answer_id: answerId, note }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Contextual confirmation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchAfatReachability(placeId: string) {
   try {
     const authHeaders = await authenticatedApiHeaders();
