@@ -1106,6 +1106,196 @@ router.post('/place/:id/claim', async (req: Request, res: Response) => {
   }
 });
 
+
+router.post('/place/:id/intent-resolution', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+
+    const intentType = String(req.body?.intent_type || 'go');
+    const mode = normalize(req.body?.mode || 'car');
+    if (!new Set(['go','meet','pickup','dropoff','send','deliver','board','explore']).has(intentType)) {
+      return res.status(400).json({ error: 'Unsupported intent.' });
+    }
+
+    const { data: place, error: placeError } = await supabase.from('afat_places')
+      .select('id,place_ref,canonical_name,latitude,longitude,reachability_state,evidence_status,status')
+      .eq('id', req.params.id)
+      .neq('status','retired')
+      .maybeSingle();
+    if (placeError) throw placeError;
+    if (!place) return res.status(404).json({ error: 'Destination not found.' });
+
+    const [{ data: accessPoints, error: accessError }, { data: meetingPoints, error: meetingError }] = await Promise.all([
+      supabase.from('afat_access_points').select('*').eq('place_id', place.id).eq('active', true),
+      supabase.from('afat_meeting_points').select('*').eq('place_id', place.id).in('status', ['active','review']),
+    ]);
+    if (accessError) throw accessError;
+    if (meetingError) throw meetingError;
+
+    const modeMatches = (values: unknown) => {
+      const modes = Array.isArray(values) ? values.map(normalize) : [];
+      if (!modes.length) return true;
+      const aliases: Record<string,string[]> = {
+        car:['car','taxi','vehicle'], moto:['moto','motorcycle','bike'], walk:['walk','pedestrian','foot'], minibus:['minibus','bus','shared'],
+      };
+      return (aliases[mode] || [mode]).some((alias) => modes.some((value) => value.includes(alias)));
+    };
+    const evidenceWeight = (state: unknown) => {
+      const value = String(state || '');
+      if (value === 'field_verified') return 24;
+      if (value === 'corroborated') return 16;
+      if (value === 'limited') return 5;
+      if (value === 'stale') return -6;
+      if (value === 'disputed') return -24;
+      return 0;
+    };
+
+    const rankedAccess = (accessPoints || [])
+      .filter((point: any) => modeMatches(point.access_modes))
+      .map((point: any) => {
+        let intentBonus = 0;
+        if (intentType === 'deliver' && point.access_type === 'delivery') intentBonus = 22;
+        else if (['pickup','dropoff'].includes(intentType) && ['vehicle','moto'].includes(point.access_type)) intentBonus = 18;
+        else if (mode === 'walk' && point.access_type === 'pedestrian') intentBonus = 18;
+        else if (['car','minibus'].includes(mode) && point.access_type === 'vehicle') intentBonus = 18;
+        else if (mode === 'moto' && point.access_type === 'moto') intentBonus = 18;
+        const graphBonus = point.atlas_edge_id ? Math.max(0, 12 - Math.min(12, Number(point.snap_distance_m || 0) / 15)) : 0;
+        return { ...point, suitability_score: clamp(Math.round(Number(point.confidence || 0) * 0.55 + evidenceWeight(point.evidence_status) + intentBonus + graphBonus)) };
+      })
+      .sort((a: any,b: any) => b.suitability_score - a.suitability_score);
+
+    const rankedMeetings = (meetingPoints || [])
+      .filter((point: any) => modeMatches(point.access_modes))
+      .map((point: any) => {
+        let intentBonus = 0;
+        if (intentType === 'board' && ['boarding','transfer'].includes(point.point_type)) intentBonus = 22;
+        else if (['meet','pickup'].includes(intentType) && ['pickup','waiting','entrance_meet'].includes(point.point_type)) intentBonus = 20;
+        else if (intentType === 'dropoff' && point.point_type === 'dropoff') intentBonus = 20;
+        else if (intentType === 'deliver' && point.point_type === 'delivery') intentBonus = 20;
+        const success = Number(point.successful_pickups || 0);
+        const failure = Number(point.failed_pickups || 0);
+        const outcomeBonus = Math.min(18, success * 2) - Math.min(24, failure * 4);
+        const safetyBonus = Math.max(-8, Math.min(8, (Number(point.safety_score || 50) - 50) / 6));
+        return { ...point, suitability_score: clamp(Math.round(Number(point.confidence || 0) * 0.45 + evidenceWeight(point.evidence_status) + intentBonus + outcomeBonus + safetyBonus)) };
+      })
+      .sort((a: any,b: any) => b.suitability_score - a.suitability_score);
+
+    const accessPoint = rankedAccess[0] || null;
+    const meetingPoint = rankedMeetings[0] || null;
+    const targetKind = ['meet','pickup','board'].includes(intentType) && meetingPoint
+      ? 'meeting_point'
+      : accessPoint ? 'access_point' : meetingPoint ? 'meeting_point' : 'destination';
+
+    return res.json({
+      intent_type: intentType,
+      mode,
+      target_kind: targetKind,
+      place,
+      access_point: accessPoint,
+      meeting_point: meetingPoint,
+      automatic_truth: false,
+      alternatives: { access_points: rankedAccess.slice(1,4), meeting_points: rankedMeetings.slice(1,4) },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Intent resolution failed.' });
+  }
+});
+
+router.get('/place/claims', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    if (!isPrivileged(identity)) return res.status(403).json({ error: 'Planner or admin access required.' });
+    const status = String(req.query.status || '').trim();
+    let query = supabase.from('afat_destination_claims')
+      .select('*, afat_places(id,place_ref,canonical_name,city,zone_label,destination_kind,reachability_state)')
+      .order('created_at',{ascending:true})
+      .limit(100);
+    if (status) query = query.eq('status',status);
+    else query = query.in('status',['submitted','review']);
+    const { data, error } = await query;
+    if (error) throw error;
+    return res.json({ claims: data || [] });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Destination claims unavailable.' });
+  }
+});
+
+router.patch('/place/claims/:claimId', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    if (!isPrivileged(identity)) return res.status(403).json({ error: 'Planner or admin access required.' });
+    const decision = String(req.body?.decision || '');
+    const nextStatus = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'revoke' ? 'revoked' : decision === 'review' ? 'review' : null;
+    if (!nextStatus) return res.status(400).json({ error: 'Unsupported claim decision.' });
+
+    const { data: current, error: currentError } = await supabase.from('afat_destination_claims')
+      .select('id,place_id,claimant_id,status')
+      .eq('id',req.params.claimId)
+      .maybeSingle();
+    if (currentError) throw currentError;
+    if (!current) return res.status(404).json({ error: 'Destination claim not found.' });
+
+    const { data, error } = await supabase.from('afat_destination_claims').update({
+      status: nextStatus,
+      reviewed_by: identity.id,
+      reviewed_at: new Date().toISOString(),
+      review_notes: req.body?.notes ? String(req.body.notes).slice(0,1000) : null,
+      updated_at: new Date().toISOString(),
+    }).eq('id',current.id).select().single();
+    if (error) throw error;
+    return res.json({ claim: data, place_truth_changed: false });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Claim review failed.' });
+  }
+});
+
+router.patch('/place/:id/claimed-profile', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const { data: claim, error: claimError } = await supabase.from('afat_destination_claims')
+      .select('id,claim_type,status')
+      .eq('place_id',req.params.id)
+      .eq('claimant_id',identity.id)
+      .eq('status','approved')
+      .maybeSingle();
+    if (claimError) throw claimError;
+    if (!claim) return res.status(403).json({ error: 'An approved destination claim is required.' });
+
+    const { data: place, error: placeError } = await supabase.from('afat_places')
+      .select('id,aliases,metadata')
+      .eq('id',req.params.id)
+      .maybeSingle();
+    if (placeError) throw placeError;
+    if (!place) return res.status(404).json({ error: 'Destination not found.' });
+
+    const aliases = Array.isArray(req.body?.aliases) ? req.body.aliases.map((value: any) => String(value).trim()).filter(Boolean).slice(0,20) : place.aliases;
+    const ownerProfile = {
+      ...(place.metadata?.owner_profile || {}),
+      official_name: req.body?.official_name ? String(req.body.official_name).slice(0,180) : place.metadata?.owner_profile?.official_name,
+      opening_hours: req.body?.opening_hours || place.metadata?.owner_profile?.opening_hours || null,
+      contact: req.body?.contact || place.metadata?.owner_profile?.contact || null,
+      delivery_notes: req.body?.delivery_notes ? String(req.body.delivery_notes).slice(0,800) : place.metadata?.owner_profile?.delivery_notes || null,
+      updated_by_claim: claim.id,
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await supabase.from('afat_places').update({
+      aliases,
+      description: req.body?.description == null ? undefined : String(req.body.description).slice(0,1200),
+      local_directions: req.body?.local_directions == null ? undefined : String(req.body.local_directions).slice(0,1200),
+      metadata: { ...(place.metadata || {}), owner_profile: ownerProfile },
+      updated_at: new Date().toISOString(),
+    }).eq('id',place.id).select('id,place_ref,canonical_name,aliases,description,local_directions,metadata').single();
+    if (error) throw error;
+    return res.json({ place: data, coordinates_changed: false, evidence_status_changed: false });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Claimed destination profile update failed.' });
+  }
+});
+
 router.post('/reach-links', async (req: Request, res: Response) => {
   try {
     const identity = await resolveIdentity(req);
