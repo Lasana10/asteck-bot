@@ -2007,6 +2007,18 @@ export async function resolveAfatDestinationIntent(placeId: string, payload: {
   }
 }
 
+export async function fetchMyDestinationClaims() {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/my-claims`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Your destination claims are unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchDestinationClaims(status?: string) {
   try {
     const authHeaders = await authenticatedApiHeaders();
