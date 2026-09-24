@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bike, Car, CheckCircle, Clock, Footprints, MapPin, Navigation2, Search, Share2, ShieldAlert } from 'lucide-react';
 import {
+  claimAfatDestination,
   confirmAfatPlace,
   createAfatReachLink,
   createPassageIntent,
   discoverAfatPlaces,
   fetchPassagePreflight,
+  proposeAfatDestination,
   recordAfatIntent,
   recordUnresolvedDestination,
+  resolveAfatDestinationIntent,
   resolveAfatPlace,
 } from '../../supabaseClient';
 import type { AfatAccessPoint, AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
@@ -82,6 +85,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [selectedMeetingPoint, setSelectedMeetingPoint] = useState<AfatMeetingPoint | null>(null);
   const [selectedAccessPoint, setSelectedAccessPoint] = useState<AfatAccessPoint | null>(null);
   const [shareNotice, setShareNotice] = useState('');
+  const [claimNotice, setClaimNotice] = useState('');
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
   const [canonicalRoute, setCanonicalRoute] = useState<AfatCanonicalRoute | null>(null);
@@ -241,6 +245,23 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     }
   }, [vehicleType, selectedPlace?.id, selectedMeetingPoint?.id]);
 
+  useEffect(() => {
+    let active = true;
+    if (!selectedPlace?.id) return;
+    resolveAfatDestinationIntent(selectedPlace.id, { intent_type: intentType, mode: vehicleType }).then(({ data, error }) => {
+      if (!active || error || !data) return;
+      if (data.access_point) setSelectedAccessPoint(data.access_point as AfatAccessPoint);
+      if (data.meeting_point) setSelectedMeetingPoint(data.meeting_point as AfatMeetingPoint);
+      if (data.target_kind === 'access_point' && data.access_point) {
+        setStatusText(`AFAT recommends ${data.access_point.name} for this ${intentType} trip and ${vehicleType} mode.`);
+      } else if (data.target_kind === 'meeting_point' && data.meeting_point) {
+        setStatusText(`AFAT recommends ${data.meeting_point.name} as the meeting point for this ${intentType} trip.`);
+      }
+    });
+    return () => { active = false; };
+  }, [selectedPlace?.id, intentType, vehicleType]);
+
+
   const resolveDestination = async () => {
     if (destination.trim().length < 3) return;
     setLoading(true);
@@ -352,6 +373,45 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       context: { execution: 'navigation_only', route_distance_m: canonicalRoute.distance_m || null },
     });
     setStatusText(error ? error.message : 'Navigation intent saved. You can use the AFAT route without booking transport.');
+  };
+
+
+  const proposeHere = async () => {
+    if (!originFix || destination.trim().length < 3) {
+      setStatusText('Confirm your real current position first. AFAT will not invent a location for an unknown destination.');
+      return;
+    }
+    setLoading(true);
+    const { data, error } = await proposeAfatDestination({
+      name: destination.trim(),
+      city: profile?.preferred_city || 'Yaoundé',
+      latitude: originFix.latitude,
+      longitude: originFix.longitude,
+      destination_kind: 'other',
+      intent_type: intentType,
+      evidence: { source_surface: 'passage_planner', location_source: originFix.source || 'gps', accuracy_m: originFix.accuracy ?? null },
+    });
+    if (error) {
+      setLoading(false);
+      setStatusText(error.message);
+      return;
+    }
+    const { data: resolved } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde', vehicle_type: vehicleType });
+    setLoading(false);
+    const next = filterRelevantPlaceCandidates(destination, resolved?.candidates || []);
+    setCandidates(next);
+    if (next[0]) selectCandidate(next[0]);
+    else setStatusText(`Provisional destination ${data?.destination?.place_ref || ''} recorded. It remains unverified until independent evidence confirms it.`);
+  };
+
+  const submitClaim = async () => {
+    if (!selectedPlace) return;
+    setClaimNotice('');
+    const { error } = await claimAfatDestination(selectedPlace.id, {
+      claim_type: selectedPlace.destination_kind === 'business' ? 'business' : 'manager',
+      evidence: { source_surface: 'passage_planner', requested_at: new Date().toISOString() },
+    });
+    setClaimNotice(error ? error.message : 'Claim submitted for review. Claiming a place does not change its map truth or coordinates.');
   };
 
   const shareReach = async () => {
@@ -506,6 +566,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     {statusText && <div className="mt-4 rounded-2xl border border-blue-400/15 bg-blue-500/8 px-4 py-3 text-xs font-semibold leading-relaxed text-blue-100/75">{statusText}</div>}
 
+    {!candidates.length && !selectedPlace && destination.trim().length>=3 && statusText.includes('unresolved') && <div className="mt-3 rounded-2xl border border-amber-300/15 bg-amber-400/[0.05] p-4">
+      <p className="text-sm font-black text-amber-100">AFAT does not know this destination confidently yet.</p>
+      <p className="mt-1 text-xs leading-5 text-white/45">The demand is recorded. If you are physically at the destination now, you can add its real position as provisional evidence.</p>
+      <button type="button" onClick={proposeHere} disabled={!originFix||loading} className="mt-3 min-h-10 rounded-xl bg-amber-300 px-4 text-[9px] font-black uppercase text-slate-950 disabled:opacity-35">I am here · add this destination</button>
+    </div>}
+
     {!!candidates.length && !selectedPlace && <div className="mt-4 space-y-3">
       {candidates.map((candidate, index) => <button key={candidate.id} onClick={() => selectCandidate(candidate)} className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-blue-400/35"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black text-white">{index + 1}. {candidate.name}</p><p className="mt-1 text-[11px] font-semibold text-white/45">{candidate.zone_label || candidate.city} · {candidate.vehicle_access} access</p></div><span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-[9px] font-black uppercase text-blue-200">{matchLabel(Number(candidate.confidence || 0))}</span></div>{candidate.explanation?.length ? <p className="mt-3 text-[11px] leading-relaxed text-white/50">{candidate.explanation.slice(0, 2).join(' · ')}</p> : null}{Number(candidate.successful_pickups || 0) > 0 && <p className="mt-2 text-[10px] font-bold text-emerald-300/70">Recently used for {candidate.successful_pickups} successful pickup{candidate.successful_pickups === 1 ? '' : 's'}</p>}</button>)}
       <button onClick={markNoneCorrect} className="w-full rounded-2xl border border-amber-400/20 bg-amber-500/8 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-amber-200">None of these</button>
@@ -514,6 +580,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     {selectedPlace && <div className="mt-4 space-y-3">
       <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/8 p-4"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black text-white">{selectedPlace.name}</p><p className="mt-1 text-[10px] text-white/45">{selectedPlace.zone_label || selectedPlace.city}</p></div><CheckCircle className="h-5 w-5 text-emerald-300" /></div></div>
       <PlaceMediaStrip placeId={selectedPlace.id} placeName={selectedPlace.name} compact />
+      <details className="rounded-2xl border border-white/10 bg-white/[0.025] p-3">
+        <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-white/45">Own or manage this destination?</summary>
+        <p className="mt-3 text-xs leading-5 text-white/45">Submit a claim to manage public operational details such as directions and hours. AFAT keeps map coordinates and evidence status under independent verification.</p>
+        <button type="button" onClick={submitClaim} className="mt-3 min-h-10 rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-4 text-[9px] font-black uppercase text-cyan-100">Submit management claim</button>
+        {claimNotice&&<p className="mt-2 text-[10px] text-cyan-100/70">{claimNotice}</p>}
+      </details>
       {!!selectedPlace.access_points?.length && <div className="rounded-2xl border border-violet-300/15 bg-violet-400/[0.05] p-3">
         <p className="text-[9px] font-black uppercase tracking-widest text-violet-200">How to enter</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
