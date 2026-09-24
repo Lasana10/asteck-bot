@@ -298,14 +298,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const createPassage = async () => {
-    if (!profile?.id || !selectedPlace || !selectedMeetingPoint) return;
+    if (!profile?.id || !selectedPlace || !arrivalPoint) return;
     if (!originFix) {
       setStatusText('Use the location button on the map to confirm where the operator should collect you.');
       return;
     }
     setLoading(true);
     setStatusText('Confirming your pickup point…');
-    await confirmAfatPlace({ profile_id: profile.id, query_text: destination.trim(), city: selectedPlace.city, place_id: selectedPlace.id, meeting_point_id: selectedMeetingPoint.id, confidence: selectedPlace.confidence, resolution_status: 'selected' });
+    await confirmAfatPlace({ profile_id: profile.id, query_text: destination.trim(), city: selectedPlace.city, place_id: selectedPlace.id, meeting_point_id: selectedMeetingPoint?.id, confidence: selectedPlace.confidence, resolution_status: 'selected' });
     const { data, error } = await createPassageIntent({
       passenger_id: profile.id,
       origin_text: originLabel || undefined,
@@ -320,7 +320,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       requested_vehicle_type: vehicleType,
       metadata: {
         place_explanation: selectedPlace.explanation,
-        meeting_instructions: selectedMeetingPoint.instructions,
+        meeting_instructions: selectedMeetingPoint?.instructions || null,
         intent_type: intentType,
         access_point_id: selectedAccessPoint?.id || null,
         access_instructions: selectedAccessPoint?.instructions || null,
@@ -334,7 +334,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setLoading(false);
     if (error) { setStatusText(error.message); return; }
     setStatusText('Transport requested. AFAT created the dispatch and is matching an approved operator.');
-    void recordAfatIntent({intent_type:intentType,place_id:selectedPlace.id,access_point_id:selectedAccessPoint?.id,meeting_point_id:selectedMeetingPoint.id,movement_mode:vehicleType,origin_lat:originFix.latitude,origin_lng:originFix.longitude,context:{passage_id:data?.passage?.id||null,execution:'booking'}});
+    void recordAfatIntent({intent_type:intentType,place_id:selectedPlace.id,access_point_id:selectedAccessPoint?.id,meeting_point_id:selectedMeetingPoint?.id,movement_mode:vehicleType,origin_lat:originFix.latitude,origin_lng:originFix.longitude,context:{passage_id:data?.passage?.id||null,execution:'booking'}});
     onPassageCreated?.(data?.passage);
   };
 
@@ -562,7 +562,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       })}
       {!selectedPlace.meeting_points.length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This landmark is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before requesting transport.</div>}
-      <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Navigate only</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Book transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>
+      <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Navigate only</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Book transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>
       {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
   </section>;
