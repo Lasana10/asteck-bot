@@ -20,6 +20,7 @@ type SpatialPoint = {
 type Props = {
   destination?: SpatialPoint | null;
   meetingPoint?: SpatialPoint | null;
+  accessPoint?: SpatialPoint | null;
   city?: string | null;
   route?: AfatCanonicalRoute | null;
   routeLoading?: boolean;
@@ -33,7 +34,7 @@ type Props = {
   }) => void;
 };
 
-type MarkerKind = 'origin' | 'destination' | 'meeting';
+type MarkerKind = 'origin' | 'destination' | 'meeting' | 'access';
 type BasemapMode = 'standard' | 'satellite' | 'intel';
 
 const YAOUNDE_CENTER: [number, number] = [11.514, 3.866];
@@ -82,13 +83,13 @@ function mapCenter(city?: string | null): [number, number] {
 
 function markerElement(kind: MarkerKind) {
   const element = document.createElement('div');
-  element.setAttribute('aria-label', kind === 'origin' ? 'Your start point' : kind === 'meeting' ? 'Recommended meeting point' : 'Destination');
-  element.style.width = kind === 'meeting' ? '22px' : '18px';
-  element.style.height = kind === 'meeting' ? '22px' : '18px';
+  element.setAttribute('aria-label', kind === 'origin' ? 'Your start point' : kind === 'meeting' ? 'Recommended meeting point' : kind === 'access' ? 'Recommended access point' : 'Destination');
+  element.style.width = kind === 'meeting' || kind === 'access' ? '22px' : '18px';
+  element.style.height = kind === 'meeting' || kind === 'access' ? '22px' : '18px';
   element.style.borderRadius = '9999px';
   element.style.border = '3px solid rgba(255,255,255,0.96)';
   element.style.boxShadow = '0 6px 18px rgba(2,6,23,0.45)';
-  element.style.background = kind === 'origin' ? '#38bdf8' : kind === 'meeting' ? '#f59e0b' : '#34d399';
+  element.style.background = kind === 'origin' ? '#38bdf8' : kind === 'meeting' ? '#f59e0b' : kind === 'access' ? '#a78bfa' : '#34d399';
   return element;
 }
 
@@ -163,6 +164,7 @@ function atlasNodeCollection(atlas: AtlasNearbyResponse | null) {
 export function PassengerSpatialMap({
   destination,
   meetingPoint,
+  accessPoint,
   city = 'yaounde',
   route = null,
   routeLoading = false,
@@ -182,12 +184,13 @@ export function PassengerSpatialMap({
   const [atlasError, setAtlasError] = useState('');
   const [manualMode, setManualMode] = useState(false);
 
-  const arrivalPoint = useMemo(() => validPoint(meetingPoint) ? meetingPoint : destination, [meetingPoint, destination]);
+  const arrivalPoint = useMemo(() => validPoint(meetingPoint) ? meetingPoint : validPoint(accessPoint) ? accessPoint : destination, [meetingPoint, accessPoint, destination]);
   const routePoints = useMemo(() => routeToLatLngs(route), [route]);
   const originPoint = validPoint(origin);
   const destinationPoint = validPoint(destination);
   const meeting = validPoint(meetingPoint);
-  const hasArrival = Boolean(meeting || destinationPoint);
+  const access = validPoint(accessPoint);
+  const hasArrival = Boolean(meeting || access || destinationPoint);
   const hasRoute = route?.status === 'ok' && routePoints.length > 1;
   const atlasEdges = useMemo(() => atlasEdgeCollection(atlas), [atlas]);
   const atlasNodes = useMemo(() => atlasNodeCollection(atlas), [atlas]);
@@ -399,6 +402,7 @@ export function PassengerSpatialMap({
       origin?.source === 'manual' ? 'Selected manually' : `GPS accuracy ±${Math.round(Number(origin?.accuracy || 0))} m`,
     );
     if (destinationPoint) addMarker('destination', destinationPoint.longitude, destinationPoint.latitude, destination?.name || 'Destination');
+    if (access) addMarker('access', access.longitude, access.latitude, accessPoint?.name || 'Recommended access point', accessPoint?.instructions);
     if (meeting) addMarker('meeting', meeting.longitude, meeting.latitude, meetingPoint?.name || 'Recommended meeting point', meetingPoint?.instructions);
 
     if (coordinates.length > 1) {
@@ -429,8 +433,12 @@ export function PassengerSpatialMap({
     destination?.longitude,
     meetingPoint?.latitude,
     meetingPoint?.longitude,
+    accessPoint?.latitude,
+    accessPoint?.longitude,
     meetingPoint?.instructions,
     meetingPoint?.name,
+    accessPoint?.instructions,
+    accessPoint?.name,
     destination?.name,
     arrivalPoint,
     routePoints,
@@ -487,7 +495,7 @@ export function PassengerSpatialMap({
             {hasRoute ? <Route className="h-4 w-4 text-cyan-300" /> : <Navigation2 className="h-4 w-4 text-blue-300" />}
             <p className="text-[9px] font-black uppercase tracking-[0.18em] text-white/45">{hasRoute ? 'AFAT route' : 'AFAT Atlas'}</p>
           </div>
-          <p className="mt-1 truncate text-sm font-black text-white">{meetingPoint?.name || destination?.name || (String(city).toLowerCase().includes('douala') ? 'Douala' : 'Yaoundé')}</p>
+          <p className="mt-1 truncate text-sm font-black text-white">{meetingPoint?.name || accessPoint?.name || destination?.name || (String(city).toLowerCase().includes('douala') ? 'Douala' : 'Yaoundé')}</p>
           {hasRoute && <p className="mt-1 text-[11px] font-bold text-cyan-100/85">{formatDistance(route?.distance_m)} · {route?.eta_seconds ? `${Math.ceil(route.eta_seconds / 60)} min` : 'ETA calibrating from real journeys'}</p>}
           {!hasRoute && <p className="mt-1 text-[10px] text-white/50">{atlasLoading ? 'Loading trusted mobility graph…' : `${trustedNodeCount} places · ${trustedEdgeCount} trusted links`}</p>}
         </div>

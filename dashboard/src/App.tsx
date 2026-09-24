@@ -11,6 +11,7 @@ import { isLocalReviewAllowed, isLoopbackHost } from './utils/productionTruth';
 import { AdaptiveRoleHome } from './components/shared/AdaptiveRoleHome';
 import { resolveWorkspaceRole, restoreWorkspaceTab, workspaceTabStorageKey } from './utils/workspaceNavigation';
 import { canUseOperatorConsole, hasPendingOperatorApplication } from './utils/roleAccess';
+import { ReachLinkPage } from './components/shared/ReachLinkPage';
 
 const AICopilot = React.lazy(() => import('./components/shared/AICopilot').then(module => ({ default: module.AICopilot })));
 const GuardianWatchPage = React.lazy(() => import('./components/shared/GuardianWatchPage').then(module => ({ default: module.GuardianWatchPage })));
@@ -1219,9 +1220,15 @@ function AccessLevelStrip({ accessLevel, profile }: { accessLevel: AccessLevel; 
 export default function App() {
   const pathname = window.location.pathname || '/';
   const watchMatch = pathname.match(/^\/watch\/([^/]+)$/);
+  const reachMatch = pathname.match(/^\/r\/([^/]+)$/);
 
   if (pathname === '/auth/callback') {
     return <AuthCallback />;
+  }
+
+  if (reachMatch?.[1]) {
+    const token = new URLSearchParams(window.location.search).get('token') || '';
+    return <ReachLinkPage slug={decodeURIComponent(reachMatch[1])} token={token} />;
   }
 
   if (watchMatch?.[1]) {

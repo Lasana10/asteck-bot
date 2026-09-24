@@ -3,6 +3,7 @@ import { Bell, MapPin, ShieldCheck, UserCircle } from 'lucide-react';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { DispatchWorkspace } from '../shared/DispatchWorkspace';
 import { AtlasContributionPanel } from '../shared/AtlasContributionPanel';
+import { ClaimedDestinationsPanel } from '../shared/ClaimedDestinationsPanel';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -48,6 +49,7 @@ export function PassengerWorkspaceTabs({
             <p className="mt-4 text-sm leading-7 text-white/50">You can keep normal Passenger access while applying for other roles. AFAT does not require separate accounts for every capability.</p>
           </Surface>
         </div>
+        <ClaimedDestinationsPanel />
         <AtlasContributionPanel defaultMode="walk" />
       </div>
     );

@@ -24,11 +24,16 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
  const [notice,setNotice]=useState('');
  const [probe,setProbe]=useState<Probe[]>([]);
  const [sourcesOpen,setSourcesOpen]=useState(false);
+ const [reachability,setReachability]=useState<any>({});
 
  const load=async()=>{
-  const {data,error}=await supabase.rpc('afat_city_model_snapshot',{p_city_key:cityKey});
-  if(error){setNotice(error.message);return;}
-  setData(data||{});
+  const [cityModel,reachabilityModel]=await Promise.all([
+   supabase.rpc('afat_city_model_snapshot',{p_city_key:cityKey}),
+   supabase.rpc('afat_reachability_gap_snapshot',{p_city_key:cityKey}),
+  ]);
+  if(cityModel.error){setNotice(cityModel.error.message);return;}
+  setData(cityModel.data||{});
+  if(!reachabilityModel.error)setReachability(reachabilityModel.data||{});
  };
  useEffect(()=>{void load();},[cityKey]);
 
@@ -69,6 +74,17 @@ export function CityModelCommandCenter({cityKey='cm-yaounde'}:{cityKey?:string})
    <Metric icon={Activity} label="Working" value={m.sources_working}/>
    <Metric icon={AlertTriangle} label="Uncertainty" value={m.important_uncertainties}/>
    <Metric icon={ShieldCheck} label="Review" value={m.evidence_awaiting_review}/>
+  </div>
+
+  <div className="mt-5 rounded-2xl border border-violet-300/10 bg-violet-400/[0.04] p-3">
+   <div className="flex items-center justify-between gap-3"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-violet-200">Reachability gaps</p><span className="text-[8px] uppercase text-white/30">last-metre reality</span></div>
+   <div className="mt-3 grid grid-cols-2 gap-2">
+    <Metric icon={Target} label="No access" value={reachability?.destinations_without_access??0}/>
+    <Metric icon={Target} label="No meeting" value={reachability?.destinations_without_meeting??0}/>
+    <Metric icon={AlertTriangle} label="Unresolved demand" value={reachability?.unresolved_demand??0}/>
+    <Metric icon={ShieldCheck} label="Claims review" value={reachability?.open_claims??0}/>
+   </div>
+   {Number(reachability?.weak_access_links||0)>0&&<p className="mt-3 rounded-xl border border-amber-300/10 bg-amber-400/[0.06] p-2 text-[9px] text-amber-100/70">{reachability.weak_access_links} access or meeting links still need a stronger Atlas connection.</p>}
   </div>
 
   <div className="mt-5">

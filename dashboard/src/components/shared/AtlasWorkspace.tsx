@@ -14,6 +14,7 @@ import { AtlasPrivacyPanel } from './AtlasPrivacyPanel';
 import { SourceIntelligencePanel } from './SourceIntelligencePanel';
 import { CitySourcePlanPanel } from './CitySourcePlanPanel';
 import { CityModelCommandCenter } from './CityModelCommandCenter';
+import { DestinationClaimReview } from './DestinationClaimReview';
 
 export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'planner'|'admin'|'government';profile:any}){
   const {t}=useAfatLocale();
@@ -125,7 +126,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       </div>
     </section>
 
-    {canPlan&&<details className="rounded-[1.6rem] border border-white/10 bg-slate-950/60 p-4"><summary className="cursor-pointer text-xs font-black uppercase tracking-[0.18em] text-cyan-200">Advanced source + evidence operations</summary><div className="mt-5 space-y-5"><CitySourcePlanPanel cityKey={cityKey}/><SourceIntelligencePanel cityKey={cityKey}/><AtlasLearningControl/><MappingEvidenceReview/></div></details>}
+    {canPlan&&<details className="rounded-[1.6rem] border border-white/10 bg-slate-950/60 p-4"><summary className="cursor-pointer text-xs font-black uppercase tracking-[0.18em] text-cyan-200">Advanced source + evidence operations</summary><div className="mt-5 space-y-5"><CitySourcePlanPanel cityKey={cityKey}/><SourceIntelligencePanel cityKey={cityKey}/><DestinationClaimReview/><AtlasLearningControl/><MappingEvidenceReview/></div></details>}
 
     {role==='admin'&&<details className="rounded-[1.6rem] border border-rose-300/10 bg-slate-950/60 p-4"><summary className="cursor-pointer text-xs font-black uppercase tracking-[0.18em] text-rose-200">Administrative ingestion + city genesis</summary><div className="mt-5 space-y-5"><AtlasIngestionControl/><CityGenesisPanel onCreated={load}/></div></details>}
 
