@@ -1987,6 +1987,82 @@ export type AfatPlaceCandidate = {
 };
 
 
+
+export async function resolveAfatDestinationIntent(placeId: string, payload: {
+  intent_type: 'go' | 'meet' | 'pickup' | 'dropoff' | 'send' | 'deliver' | 'board' | 'explore';
+  mode: string;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/${encodeURIComponent(placeId)}/intent-resolution`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Intent resolution failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function fetchDestinationClaims(status?: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const query = status ? `?status=${encodeURIComponent(status)}` : '';
+    const res = await fetch(`${getApiBaseUrl()}/api/place/claims${query}`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Destination claims unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function reviewDestinationClaim(claimId: string, payload: {
+  decision: 'approve' | 'reject' | 'review' | 'revoke';
+  notes?: string;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/claims/${encodeURIComponent(claimId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Claim review failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function updateClaimedDestinationProfile(placeId: string, payload: {
+  official_name?: string;
+  aliases?: string[];
+  description?: string;
+  local_directions?: string;
+  opening_hours?: unknown;
+  contact?: unknown;
+  delivery_notes?: string;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/${encodeURIComponent(placeId)}/claimed-profile`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Claimed destination update failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchAfatReachability(placeId: string) {
   try {
     const authHeaders = await authenticatedApiHeaders();
