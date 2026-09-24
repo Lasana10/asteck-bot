@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bike, Car, CheckCircle, Clock, Footprints, MapPin, Navigation2, Search, ShieldAlert } from 'lucide-react';
+import { Bike, Car, CheckCircle, Clock, Footprints, MapPin, Navigation2, Search, Share2, ShieldAlert } from 'lucide-react';
 import {
   confirmAfatPlace,
+  createAfatReachLink,
   createPassageIntent,
   discoverAfatPlaces,
   fetchPassagePreflight,
+  recordAfatIntent,
+  recordUnresolvedDestination,
   resolveAfatPlace,
 } from '../../supabaseClient';
-import type { AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
+import type { AfatAccessPoint, AfatMeetingPoint, AfatPlaceCandidate } from '../../supabaseClient';
 import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
@@ -73,9 +76,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [originFix, setOriginFix] = useState<OriginFix | null>(null);
   const [arrivalTarget, setArrivalTarget] = useState('');
   const [vehicleType, setVehicleType] = useState<AfatRouteMode>('car');
+  const [intentType, setIntentType] = useState<'go'|'meet'|'pickup'|'dropoff'|'send'|'deliver'|'board'|'explore'>('go');
   const [candidates, setCandidates] = useState<AfatPlaceCandidate[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<AfatPlaceCandidate | null>(null);
   const [selectedMeetingPoint, setSelectedMeetingPoint] = useState<AfatMeetingPoint | null>(null);
+  const [selectedAccessPoint, setSelectedAccessPoint] = useState<AfatAccessPoint | null>(null);
+  const [shareNotice, setShareNotice] = useState('');
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
   const [canonicalRoute, setCanonicalRoute] = useState<AfatCanonicalRoute | null>(null);
@@ -100,6 +106,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setCandidates([]);
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
+    setSelectedAccessPoint(null);
     setCanonicalRoute(null);
     setRouteOptions({});
     setRouteMessage('');
@@ -150,7 +157,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const destinationPoint = useMemo(() => pointFrom(selectedPlace, selectedPlace?.name), [selectedPlace]);
   const meetingPoint = useMemo(() => pointFrom(selectedMeetingPoint, selectedMeetingPoint?.name), [selectedMeetingPoint]);
-  const arrivalPoint = meetingPoint || destinationPoint;
+  const accessPoint = useMemo(() => pointFrom(selectedAccessPoint, selectedAccessPoint?.name), [selectedAccessPoint]);
+  const arrivalPoint = (intentType==='meet'||intentType==='pickup'||intentType==='board') ? (meetingPoint || accessPoint || destinationPoint) : (accessPoint || meetingPoint || destinationPoint);
 
   useEffect(() => {
     let active = true;
@@ -239,6 +247,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setStatusText('Finding the place and the easiest way to meet there…');
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
+    setSelectedAccessPoint(null);
     setCanonicalRoute(null);
     setRouteOptions({});
     const { data, error } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde' });
@@ -246,7 +255,18 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     if (error) { setCandidates([]); setStatusText(error.message); return; }
     const relevantCandidates = filterRelevantPlaceCandidates(destination, data?.candidates || []);
     setCandidates(relevantCandidates);
-    setStatusText(relevantCandidates.length ? 'Choose the place you mean.' : 'We could not confirm that place yet. Add a clearer landmark, gate, junction or nearby business rather than guessing.');
+    if (!relevantCandidates.length && profile?.id) {
+      void recordUnresolvedDestination({
+        query_text: destination.trim(),
+        city: profile?.preferred_city || 'yaounde',
+        intent_type: intentType,
+        origin_lat: originFix?.latitude,
+        origin_lng: originFix?.longitude,
+        requested_mode: vehicleType,
+        evidence: { surface: 'passage_planner', automatic_truth: false },
+      });
+    }
+    setStatusText(relevantCandidates.length ? 'Choose the place you mean.' : 'AFAT could not confirm that destination yet. The demand has been recorded as unresolved evidence instead of guessing.');
   };
 
   const selectCandidate = (candidate: AfatPlaceCandidate) => {
@@ -260,15 +280,18 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     const bestMeetingPoint = [...(candidate.meeting_points || [])]
       .sort((a, b) => Number(b.suitability_score || 0) - Number(a.suitability_score || 0))[0] || null;
     setSelectedMeetingPoint(bestMeetingPoint);
-    setStatusText(bestMeetingPoint
-      ? 'AFAT selected the strongest verified meeting point from pickup history, access and walking burden. You can choose another below.'
-      : 'This place is known, but a reliable pickup point has not been confirmed yet.');
+    const bestAccessPoint = [...(candidate.access_points || [])].sort((a,b)=>Number(b.confidence||0)-Number(a.confidence||0))[0] || null;
+    setSelectedAccessPoint(bestAccessPoint);
+    setStatusText(bestMeetingPoint || bestAccessPoint
+      ? 'AFAT selected the strongest known access or meeting point for this destination. You can change it below.'
+      : 'This destination is known, but AFAT still needs stronger last-metre access evidence.');
   };
 
   const markNoneCorrect = async () => {
     await confirmAfatPlace({ profile_id: profile?.id, query_text: destination.trim(), city: profile?.preferred_city || 'yaounde', resolution_status: 'none_correct', feedback: 'Passenger rejected all ranked candidates.' });
     setSelectedPlace(null);
     setSelectedMeetingPoint(null);
+    setSelectedAccessPoint(null);
     setCandidates([]);
     setCanonicalRoute(null);
     setStatusText('Thanks. AFAT will keep this place unresolved instead of sending someone to the wrong location.');
@@ -298,6 +321,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       metadata: {
         place_explanation: selectedPlace.explanation,
         meeting_instructions: selectedMeetingPoint.instructions,
+        intent_type: intentType,
+        access_point_id: selectedAccessPoint?.id || null,
+        access_instructions: selectedAccessPoint?.instructions || null,
         atlas_origin_label: originLabel || null,
         origin_accuracy_m: originFix.accuracy ?? null,
         origin_source: originFix.source || 'gps',
@@ -308,7 +334,44 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setLoading(false);
     if (error) { setStatusText(error.message); return; }
     setStatusText('Transport requested. AFAT created the dispatch and is matching an approved operator.');
+    void recordAfatIntent({intent_type:intentType,place_id:selectedPlace.id,access_point_id:selectedAccessPoint?.id,meeting_point_id:selectedMeetingPoint.id,movement_mode:vehicleType,origin_lat:originFix.latitude,origin_lng:originFix.longitude,context:{passage_id:data?.passage?.id||null,execution:'booking'}});
     onPassageCreated?.(data?.passage);
+  };
+
+
+  const navigateOnly = async () => {
+    if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok') return;
+    const { error } = await recordAfatIntent({
+      intent_type: intentType,
+      place_id: selectedPlace.id,
+      access_point_id: selectedAccessPoint?.id,
+      meeting_point_id: selectedMeetingPoint?.id,
+      movement_mode: vehicleType,
+      origin_lat: originFix.latitude,
+      origin_lng: originFix.longitude,
+      context: { execution: 'navigation_only', route_distance_m: canonicalRoute.distance_m || null },
+    });
+    setStatusText(error ? error.message : 'Navigation intent saved. You can use the AFAT route without booking transport.');
+  };
+
+  const shareReach = async () => {
+    if (!selectedPlace) return;
+    setShareNotice('');
+    const { data, error } = await createAfatReachLink({
+      place_id: selectedPlace.id,
+      access_point_id: selectedAccessPoint?.id,
+      meeting_point_id: selectedMeetingPoint?.id,
+      intent_type: intentType,
+      label: selectedPlace.name,
+    });
+    if (error || !data?.reach_link?.path) { setShareNotice(error?.message || 'Could not create ReachLink.'); return; }
+    const url = new URL(data.reach_link.path, window.location.origin).toString();
+    try {
+      if (navigator.share) await navigator.share({ title: selectedPlace.name, text: 'Reach this place with AFAT', url });
+      else { await navigator.clipboard.writeText(url); setShareNotice('AFAT ReachLink copied.'); }
+    } catch {
+      setShareNotice('ReachLink ready to share.');
+    }
   };
 
   return <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl sm:p-5">
@@ -368,14 +431,20 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       )}
     </div>
 
-    <div className="mt-3">
+    <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1.4fr]">
       <label className="block rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
         <span className="text-[9px] font-black uppercase tracking-widest text-white/35">Arrive by</span>
         <input type="datetime-local" value={arrivalTarget} onChange={(event) => setArrivalTarget(event.target.value)} className="mt-1 block w-full bg-transparent text-xs font-bold text-white outline-none" />
       </label>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+        <p className="text-[9px] font-black uppercase tracking-widest text-white/35">What do you need to do?</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(['go','meet','pickup','deliver','board','explore'] as const).map(intent=><button key={intent} type="button" onClick={()=>setIntentType(intent)} className={`rounded-xl border px-3 py-2 text-[9px] font-black uppercase ${intentType===intent?'border-cyan-300/30 bg-cyan-300/12 text-cyan-100':'border-white/10 bg-black/20 text-white/40'}`}>{intent}</button>)}
+        </div>
+      </div>
     </div>
 
-    <div className="mt-4"><PassengerSpatialMap city={profile?.preferred_city || 'yaounde'} destination={destinationPoint} meetingPoint={meetingPoint} route={canonicalRoute} routeLoading={routeLoading} routeMessage={routeMessage} onOriginResolved={(origin) => { setOriginFix(origin); setOriginLabel(origin.label); }} /></div>
+    <div className="mt-4"><PassengerSpatialMap city={profile?.preferred_city || 'yaounde'} destination={destinationPoint} meetingPoint={meetingPoint} accessPoint={accessPoint} route={canonicalRoute} routeLoading={routeLoading} routeMessage={routeMessage} onOriginResolved={(origin) => { setOriginFix(origin); setOriginLabel(origin.label); }} /></div>
 
     {originFix && arrivalPoint && (
       <div className="mt-4">
@@ -445,6 +514,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     {selectedPlace && <div className="mt-4 space-y-3">
       <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/8 p-4"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black text-white">{selectedPlace.name}</p><p className="mt-1 text-[10px] text-white/45">{selectedPlace.zone_label || selectedPlace.city}</p></div><CheckCircle className="h-5 w-5 text-emerald-300" /></div></div>
       <PlaceMediaStrip placeId={selectedPlace.id} placeName={selectedPlace.name} compact />
+      {!!selectedPlace.access_points?.length && <div className="rounded-2xl border border-violet-300/15 bg-violet-400/[0.05] p-3">
+        <p className="text-[9px] font-black uppercase tracking-widest text-violet-200">How to enter</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {selectedPlace.access_points.map((access)=><button key={access.id} type="button" onClick={()=>setSelectedAccessPoint(access)} className={`rounded-xl border p-3 text-left ${selectedAccessPoint?.id===access.id?'border-violet-300/40 bg-violet-400/10':'border-white/10 bg-black/20'}`}>
+            <p className="text-xs font-black">{access.name}</p><p className="mt-1 text-[9px] uppercase text-white/35">{access.access_type} · {Math.round(Number(access.confidence||0))}% evidence</p>{access.instructions&&<p className="mt-2 text-[10px] leading-4 text-white/50">{access.instructions}</p>}
+          </button>)}
+        </div>
+      </div>
       {[...selectedPlace.meeting_points]
         .sort((a, b) => {
           const aCompatible = meetingSupportsMode(a, vehicleType) ? 1 : 0;
@@ -485,7 +562,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       })}
       {!selectedPlace.meeting_points.length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This landmark is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before requesting transport.</div>}
-      <div className="flex gap-3"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button></div>
+      <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Navigate only</button><button onClick={createPassage} disabled={loading || !selectedMeetingPoint || !originFix || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Book transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>
+      {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
   </section>;
 }
