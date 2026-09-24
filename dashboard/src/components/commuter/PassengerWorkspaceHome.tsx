@@ -1,21 +1,11 @@
 import React from 'react';
-import { Car, MapPin, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Car, MapPin, Navigation2, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import { PassagePlanner } from './PassagePlanner';
 import { PassengerJourneyContinuity } from './PassengerJourneyContinuity';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
 type WorkspaceTab = 'home' | 'bookings' | 'notifications' | 'profile';
-
-function Metric({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-      <Icon className="h-4 w-4 text-cyan-200" />
-      <p className="mt-3 text-2xl font-black">{value}</p>
-      <p className="mt-1 text-[8px] font-black uppercase tracking-wider text-white/30">{label}</p>
-    </div>
-  );
-}
 
 export function PassengerWorkspaceHome({
   profile,
@@ -32,11 +22,11 @@ export function PassengerWorkspaceHome({
 }) {
   if (currentDispatch) {
     return (
-      <div className="space-y-5">
-        <section className="rounded-[1.5rem] border border-blue-300/15 bg-gradient-to-br from-blue-500/[0.12] to-cyan-400/[0.03] p-5 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-200/75">Active journey</p>
-          <h1 className="mt-2 text-2xl font-black sm:text-3xl">Your movement is now the primary workspace</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">Map, pickup verification, journey state, payment and closure stay together until this passage is resolved.</p>
+      <div className="space-y-4">
+        <section className="rounded-[1.8rem] border border-blue-300/15 bg-gradient-to-br from-blue-500/[0.14] via-slate-950/80 to-cyan-400/[0.05] p-5 sm:p-6">
+          <div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-cyan-100">Active movement</span><span className="text-[10px] text-white/35">Pickup → journey → payment → closure</span></div>
+          <h1 className="mt-3 text-2xl font-black sm:text-3xl">Everything for this journey stays in one place.</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">Live map, meeting point, operator state and journey controls remain visible until you arrive.</p>
         </section>
         <ActiveDispatchMap assignment={currentDispatch} role="commuter" incidents={live.incidents} liveTracks={live.tracks} />
         <PassengerJourneyContinuity assignment={currentDispatch} onChanged={onChanged} />
@@ -45,11 +35,20 @@ export function PassengerWorkspaceHome({
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-[1.5rem] border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[0.12] to-blue-500/[0.03] p-5 sm:p-6">
-        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-200/75">Plan a passage</p>
-        <h1 className="mt-2 text-2xl font-black sm:text-3xl">Where do you need to go?</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">Choose a real destination first. AFAT then resolves trusted routes, meeting points, observed supply and fare evidence before you commit.</p>
+    <div className="space-y-4">
+      <section className="overflow-hidden rounded-[1.8rem] border border-cyan-300/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(2,6,23,0.98))] p-5 shadow-2xl sm:p-7">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-cyan-100">AFAT Maps + Move</span><span className="text-[10px] text-white/35">Find it · reach it · book if you want</span></div>
+            <h1 className="mt-4 max-w-4xl text-3xl font-black tracking-tight sm:text-5xl">Where are you going?</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/50 sm:text-base">Search the place you actually mean. AFAT resolves the useful entrance, meeting point and connected mobility options before asking you to book anything.</p>
+          </div>
+          <div className="grid shrink-0 grid-cols-3 gap-2 text-center">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><MapPin className="mx-auto h-4 w-4 text-cyan-200"/><p className="mt-2 text-lg font-black">{live.checkpoints.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">meeting points</p></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><Car className="mx-auto h-4 w-4 text-emerald-200"/><p className="mt-2 text-lg font-black">{live.tracks.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">live supply</p></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><ShieldCheck className="mx-auto h-4 w-4 text-amber-200"/><p className="mt-2 text-lg font-black">{live.incidents.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">conditions</p></div>
+          </div>
+        </div>
       </section>
 
       <PassagePlanner
@@ -60,21 +59,21 @@ export function PassengerWorkspaceHome({
         }}
       />
 
-      <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 shadow-xl backdrop-blur-xl sm:p-5">
-        <div className="mb-4">
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Around your journey</p>
-          <p className="mt-1 text-xs leading-5 text-white/45">Useful context, not the task itself. These signals should help a decision without competing with trip planning.</p>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          <Metric icon={MapPin} label="Meeting points" value={live.checkpoints.length} />
-          <Metric icon={Car} label="Visible supply" value={live.tracks.length} />
-          <Metric icon={ShieldCheck} label="Conditions" value={live.incidents.length} />
-        </div>
+      <section className="grid gap-3 md:grid-cols-3">
+        <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+          <Navigation2 className="h-4 w-4 text-cyan-200"/><p className="mt-3 text-sm font-black">Navigate without booking</p><p className="mt-1 text-xs leading-5 text-white/40">Use AFAT as the map. A transport request is optional.</p>
+        </article>
+        <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+          <Share2 className="h-4 w-4 text-violet-200"/><p className="mt-3 text-sm font-black">Share the place people can actually reach</p><p className="mt-1 text-xs leading-5 text-white/40">Entrances and meeting points matter more than a pin alone.</p>
+        </article>
+        <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+          <Sparkles className="h-4 w-4 text-emerald-200"/><p className="mt-3 text-sm font-black">Book when it adds value</p><p className="mt-1 text-xs leading-5 text-white/40">When supply is available, move from map intelligence into dispatch in one flow.</p>
+        </article>
       </section>
 
-      <div className="rounded-[1.5rem] border border-cyan-300/10 bg-cyan-400/[0.035] p-4 text-xs leading-6 text-white/45">
-        AFAT plans from places, entrances, meeting points and trusted mobility graph evidence. If GPS is weak, pin the start point directly on the Atlas instead of abandoning the journey.
-      </div>
+      <button type="button" onClick={()=>onNavigate('bookings')} className="flex min-h-12 w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.035] px-4 text-left">
+        <span><span className="block text-xs font-black">Already moving?</span><span className="mt-1 block text-[10px] text-white/35">Open active and recent journeys.</span></span><ArrowRight className="h-4 w-4 text-white/45"/>
+      </button>
     </div>
   );
 }
