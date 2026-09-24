@@ -33,6 +33,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
   const [data,setData]=useState<AtlasPayload>({});
   const [busy,setBusy]=useState(false);
   const [layers,setLayers]=useState({provisional:true,corroborated:true,verified:true,candidates:true,observations:true});
+  const [viewMode,setViewMode]=useState<'truth'|'uncertainty'|'evidence'>('truth');
 
   const load=async()=>{
     setBusy(true);
@@ -113,15 +114,24 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
   }),[data]);
 
   const toggle=(k:keyof typeof layers)=>setLayers(x=>({...x,[k]:!x[k]}));
+  const chooseMode=(mode:'truth'|'uncertainty'|'evidence')=>{
+    setViewMode(mode);
+    if(mode==='truth') setLayers({provisional:true,corroborated:true,verified:true,candidates:false,observations:false});
+    if(mode==='uncertainty') setLayers({provisional:true,corroborated:false,verified:false,candidates:true,observations:false});
+    if(mode==='evidence') setLayers({provisional:false,corroborated:true,verified:true,candidates:true,observations:true});
+  };
   return <section className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-slate-950/80 shadow-2xl">
     <div className="flex flex-col gap-3 border-b border-white/10 p-4 lg:flex-row lg:items-center lg:justify-between">
       <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-200/70">Living Atlas map</p><h2 className="mt-1 text-xl font-black">{data.city?.city_name||'City'} · {data.city?.learning_stage||'learning'} · {Math.round(Number(data.city?.operational_confidence||0))}%</h2></div>
       <button onClick={load} disabled={busy} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-[9px] font-black uppercase"><RefreshCw className={`h-4 w-4 ${busy?'animate-spin':''}`}/>Refresh</button>
     </div>
-    <div className="relative h-[62vh] min-h-[520px]">
+    <div className="relative h-[68vh] min-h-[560px] xl:min-h-[680px]">
       <div ref={ref} className="absolute inset-0"/>
-      <div className="absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/85 p-3 backdrop-blur-xl">
-        <div className="mb-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-white/55"><Layers3 className="h-4 w-4"/>Evidence layers</div>
+      <div className="absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {(['truth','uncertainty','evidence'] as const).map(mode=><button key={mode} type="button" onClick={()=>chooseMode(mode)} className={`rounded-lg border px-3 py-1.5 text-[8px] font-black uppercase tracking-wider ${viewMode===mode?'border-cyan-300/30 bg-cyan-300/12 text-cyan-100':'border-white/10 bg-black/20 text-white/35'}`}>{mode}</button>)}
+        </div>
+        <div className="mb-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-white/55"><Layers3 className="h-4 w-4"/>Map layers</div>
         <div className="flex flex-wrap gap-2">
           <Layer label={`Provisional ${counts.provisional}`} active={layers.provisional} onClick={()=>toggle('provisional')}/>
           <Layer label={`Corroborated ${counts.corroborated}`} active={layers.corroborated} onClick={()=>toggle('corroborated')}/>
@@ -130,7 +140,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
           <Layer label={`Field evidence ${counts.observations}`} active={layers.observations} onClick={()=>toggle('observations')}/>
         </div>
       </div>
-      <div className="absolute bottom-3 left-3 z-10 rounded-2xl border border-white/10 bg-slate-950/85 px-3 py-2 text-[9px] font-bold text-white/55 backdrop-blur-xl"><MapPinned className="mr-2 inline h-3.5 w-3.5 text-cyan-200"/>Dashed grey = provisional · blue = corroborated · green = verified · orange/purple = candidate geography</div>
+      <div className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/88 px-3 py-2 text-[9px] font-bold text-white/55 backdrop-blur-xl"><MapPinned className="mr-2 inline h-3.5 w-3.5 text-cyan-200"/>{viewMode==='truth'?'Truth view · what AFAT currently knows and how strongly it knows it.':viewMode==='uncertainty'?'Uncertainty view · where AFAT needs evidence next.':'Evidence view · observations and candidates behind the model.'}</div>
     </div>
   </section>;
 }
