@@ -3,6 +3,7 @@ import { Car, Clock3, MapPin, Radio, ShieldCheck, Wallet } from 'lucide-react';
 import { InteractiveMap } from '../shared/InteractiveMap';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import { OperatorMissionLifecycle } from './OperatorMissionLifecycle';
+import { ContextualConfirmation } from '../shared/ContextualConfirmation';
 import { supabase, updatePassageIntentStatus } from '../../supabaseClient';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
@@ -92,6 +93,7 @@ export function OperatorWorkspaceHome({
         </Surface>
         <ActiveDispatchMap assignment={currentDispatch} role="operator" incidents={live.incidents} liveTracks={live.tracks} />
         <OperatorMissionLifecycle assignment={currentDispatch} onChanged={onChanged} />
+        <ContextualConfirmation assignment={currentDispatch} />
       </div>
     );
   }
