@@ -8,6 +8,7 @@ type AtlasPayload={
   edges?:any[]; candidates?:any[]; mapping_observations?:any[]; missions?:any[]; predictions?:any[];
 };
 type ReachabilityPayload={destinations?:any[];access_points?:any[];meeting_points?:any[]};
+type TransitPayload={nodes?:any[];lines?:any[]};
 
 function edgeColor(status:string){
   if(status==='verified') return '#22c55e';
@@ -33,19 +34,22 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
   const mapRef=useRef<MapLibreMap|null>(null);
   const [data,setData]=useState<AtlasPayload>({});
   const [reach,setReach]=useState<ReachabilityPayload>({});
+  const [transit,setTransit]=useState<TransitPayload>({});
   const [busy,setBusy]=useState(false);
-  const [layers,setLayers]=useState({provisional:true,corroborated:true,verified:true,candidates:true,observations:true,reachability:true});
+  const [layers,setLayers]=useState({provisional:true,corroborated:true,verified:true,candidates:true,observations:true,reachability:true,transit:true});
   const [viewMode,setViewMode]=useState<'truth'|'uncertainty'|'evidence'>('truth');
 
   const load=async()=>{
     setBusy(true);
-    const [atlasResult,reachResult]=await Promise.all([
+    const [atlasResult,reachResult,transitResult]=await Promise.all([
       supabase.rpc('afat_living_atlas_map',{p_city_key:cityKey}),
       supabase.rpc('afat_reachability_map',{p_city_key:cityKey}),
+      supabase.rpc('afat_transit_graph_snapshot',{p_city_key:cityKey}),
     ]);
     setBusy(false);
     if(!atlasResult.error&&atlasResult.data) setData(atlasResult.data);
     if(!reachResult.error&&reachResult.data) setReach(reachResult.data);
+    if(!transitResult.error&&transitResult.data) setTransit(transitResult.data);
   };
   useEffect(()=>{void load();},[cityKey]);
 
@@ -63,7 +67,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
   useEffect(()=>{
     const map=mapRef.current;if(!map)return;
     const render=()=>{
-      for(const id of ['atlas-edges','atlas-candidates','atlas-points','afat-destinations','afat-access-points','afat-meeting-points']){
+      for(const id of ['atlas-edges','atlas-candidates','atlas-points','afat-destinations','afat-access-points','afat-meeting-points','afat-transit-lines','afat-transit-nodes']){
         if(map.getLayer(id)) map.removeLayer(id);
         if(map.getSource(id)) map.removeSource(id);
       }
@@ -97,6 +101,35 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
           'circle-stroke-color':'#fff','circle-stroke-width':1.2,'circle-opacity':0.92,
         }});
       }
+
+      if(layers.transit){
+        const nodeById=new Map((transit.nodes||[]).map((node:any)=>[String(node.id),node]));
+        const lineFeatures:any[]=[];
+        for(const line of (transit.lines||[])){
+          const grouped=new Map<string,any[]>();
+          for(const link of (line.nodes||[])){
+            const key=String(link.direction||'forward');
+            if(!grouped.has(key))grouped.set(key,[]);
+            grouped.get(key)!.push(link);
+          }
+          for(const [direction,links] of grouped.entries()){
+            const coords=links.sort((a:any,b:any)=>Number(a.stop_sequence||0)-Number(b.stop_sequence||0)).map((link:any)=>{
+              const node=nodeById.get(String(link.node_id));return node?[Number(node.longitude),Number(node.latitude)]:null;
+            }).filter(Boolean);
+            if(coords.length>=2) lineFeatures.push({type:'Feature',properties:{id:line.id,name:line.name||line.line_ref||'Transit line',mode:line.mode||'transit',direction,evidence_status:line.evidence_status||'limited',confidence:Number(line.confidence||0)},geometry:{type:'LineString',coordinates:coords}});
+          }
+        }
+        if(lineFeatures.length){
+          map.addSource('afat-transit-lines',{type:'geojson',data:{type:'FeatureCollection',features:lineFeatures} as any});
+          map.addLayer({id:'afat-transit-lines',type:'line',source:'afat-transit-lines',paint:{'line-color':'#22d3ee','line-width':['interpolate',['linear'],['zoom'],10,2,15,5] as any,'line-opacity':0.82,'line-dasharray':[1.5,1] as any}});
+        }
+        const transitNodes=(transit.nodes||[]).filter((n:any)=>Number.isFinite(Number(n.longitude))&&Number.isFinite(Number(n.latitude))).map((n:any)=>({type:'Feature',properties:{id:n.id,name:n.name||n.local_name||'Transit node',type:n.node_type||'boarding',evidence_status:n.evidence_status||'limited',confidence:Number(n.confidence||0)},geometry:{type:'Point',coordinates:[Number(n.longitude),Number(n.latitude)]}}));
+        if(transitNodes.length){
+          map.addSource('afat-transit-nodes',{type:'geojson',data:{type:'FeatureCollection',features:transitNodes} as any});
+          map.addLayer({id:'afat-transit-nodes',type:'circle',source:'afat-transit-nodes',paint:{'circle-radius':['interpolate',['linear'],['zoom'],10,3,15,7] as any,'circle-color':'#22d3ee','circle-stroke-color':'#082f49','circle-stroke-width':2,'circle-opacity':0.96}});
+        }
+      }
+
       if(layers.reachability){
         const destinations=(reach.destinations||[]).filter((p:any)=>Number.isFinite(Number(p.longitude))&&Number.isFinite(Number(p.latitude))).map((p:any)=>({type:'Feature',properties:{id:p.id,name:p.name||'Destination',place_ref:p.place_ref||'',kind:p.destination_kind||'place',reachability_state:p.reachability_state||'learning',evidence_status:p.evidence_status||'limited'},geometry:{type:'Point',coordinates:[Number(p.longitude),Number(p.latitude)]}}));
         if(destinations.length){
@@ -126,12 +159,12 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
         const confidence=p.confidence==null||p.confidence===''?'':` · ${Math.round(Number(p.confidence||0))}%`;
         new Popup({closeButton:false,offset:10}).setLngLat(e.lngLat).setHTML(`<div style="font-size:12px"><strong>${p.name||p.label||p.feature_type||'AFAT evidence'}</strong><br/>${p.evidence_status||p.status||p.type||''}${confidence}${extra}</div>`).addTo(map);
       };
-      ['atlas-edges','atlas-candidates','atlas-points','afat-destinations','afat-access-points','afat-meeting-points'].forEach(id=>{
+      ['atlas-edges','atlas-candidates','atlas-points','afat-destinations','afat-access-points','afat-meeting-points','afat-transit-lines','afat-transit-nodes'].forEach(id=>{
         if(map.getLayer(id)){map.on('click',id,popup);map.on('mouseenter',id,()=>{map.getCanvas().style.cursor='pointer';});map.on('mouseleave',id,()=>{map.getCanvas().style.cursor='';});}
       });
     };
     if(map.loaded())render();else map.once('load',render);
-  },[data,reach,layers]);
+  },[data,reach,transit,layers]);
 
   const counts=useMemo(()=>({
     provisional:(data.edges||[]).filter((e:any)=>e.evidence_status==='provisional').length,
@@ -142,14 +175,16 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
     destinations:(reach.destinations||[]).length,
     access:(reach.access_points||[]).length,
     meetings:(reach.meeting_points||[]).length,
-  }),[data,reach]);
+    transitNodes:(transit.nodes||[]).length,
+    transitLines:(transit.lines||[]).length,
+  }),[data,reach,transit]);
 
   const toggle=(k:keyof typeof layers)=>setLayers(x=>({...x,[k]:!x[k]}));
   const chooseMode=(mode:'truth'|'uncertainty'|'evidence')=>{
     setViewMode(mode);
-    if(mode==='truth') setLayers({provisional:true,corroborated:true,verified:true,candidates:false,observations:false,reachability:true});
-    if(mode==='uncertainty') setLayers({provisional:true,corroborated:false,verified:false,candidates:true,observations:false,reachability:true});
-    if(mode==='evidence') setLayers({provisional:false,corroborated:true,verified:true,candidates:true,observations:true,reachability:true});
+    if(mode==='truth') setLayers({provisional:true,corroborated:true,verified:true,candidates:false,observations:false,reachability:true,transit:true});
+    if(mode==='uncertainty') setLayers({provisional:true,corroborated:false,verified:false,candidates:true,observations:false,reachability:true,transit:false});
+    if(mode==='evidence') setLayers({provisional:false,corroborated:true,verified:true,candidates:true,observations:true,reachability:true,transit:true});
   };
   return <section className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-slate-950/80 shadow-2xl">
     <div className="flex flex-col gap-3 border-b border-white/10 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -170,6 +205,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
           <Layer label={`Candidates ${counts.candidates}`} active={layers.candidates} onClick={()=>toggle('candidates')}/>
           <Layer label={`Field evidence ${counts.observations}`} active={layers.observations} onClick={()=>toggle('observations')}/>
           <Layer label={`Reachability ${counts.destinations}/${counts.access}/${counts.meetings}`} active={layers.reachability} onClick={()=>toggle('reachability')}/>
+          <Layer label={`Transit ${counts.transitLines}/${counts.transitNodes}`} active={layers.transit} onClick={()=>toggle('transit')}/>
         </div>
       </div>
       <div className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/88 px-3 py-2 text-[9px] font-bold text-white/55 backdrop-blur-xl"><MapPinned className="mr-2 inline h-3.5 w-3.5 text-cyan-200"/>{viewMode==='truth'?'Truth view · what AFAT currently knows and how strongly it knows it.':viewMode==='uncertainty'?'Uncertainty view · where AFAT needs evidence next.':'Evidence view · observations and candidates behind the model.'}</div>
