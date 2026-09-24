@@ -1937,6 +1937,18 @@ export async function createServiceRequest(serviceData: any) {
   }
 }
 
+export type AfatAccessPoint = {
+  id: string;
+  access_type: 'pedestrian' | 'vehicle' | 'moto' | 'delivery' | 'emergency' | 'service' | 'transit' | 'unknown';
+  name: string;
+  instructions?: string | null;
+  latitude: number;
+  longitude: number;
+  access_modes: string[];
+  confidence: number;
+  evidence_status: 'limited' | 'corroborated' | 'field_verified' | 'disputed' | 'stale';
+};
+
 export type AfatMeetingPoint = {
   id: string;
   name: string;
@@ -1967,7 +1979,157 @@ export type AfatPlaceCandidate = {
   successful_pickups: number;
   explanation: string[];
   meeting_points: AfatMeetingPoint[];
+  access_points?: AfatAccessPoint[];
+  place_ref?: string | null;
+  destination_kind?: string;
+  reachability_state?: string;
+  local_directions?: string | null;
 };
+
+
+export async function fetchAfatReachability(placeId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/${encodeURIComponent(placeId)}/reachability`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Reachability lookup failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function recordAfatIntent(payload: {
+  intent_type: 'go' | 'meet' | 'pickup' | 'dropoff' | 'send' | 'deliver' | 'board' | 'explore';
+  place_id?: string;
+  access_point_id?: string;
+  meeting_point_id?: string;
+  movement_mode?: string;
+  origin_lat?: number;
+  origin_lng?: number;
+  context?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/intent/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Intent session failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function recordUnresolvedDestination(payload: {
+  query_text: string;
+  city?: string;
+  intent_type?: string;
+  origin_lat?: number;
+  origin_lng?: number;
+  requested_mode?: string;
+  evidence?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/unresolved`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Unresolved destination could not be recorded.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function proposeAfatDestination(payload: {
+  name: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  zone_label?: string;
+  destination_kind?: string;
+  description?: string;
+  local_directions?: string;
+  vehicle_access?: string;
+  intent_type?: string;
+  aliases?: string[];
+  evidence?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/propose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Destination proposal failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function claimAfatDestination(placeId: string, payload: {
+  claim_type: 'business' | 'organization' | 'resident' | 'manager' | 'institution';
+  evidence?: Record<string, any>;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/place/${encodeURIComponent(placeId)}/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Destination claim failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function createAfatReachLink(payload: {
+  place_id: string;
+  access_point_id?: string;
+  meeting_point_id?: string;
+  intent_type?: 'go' | 'meet' | 'pickup' | 'dropoff' | 'send' | 'deliver' | 'board' | 'explore';
+  label?: string;
+  expires_at?: string;
+  max_uses?: number;
+}) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/reach-links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'ReachLink creation failed.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
+export async function resolveAfatReachLink(slug: string, token: string) {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/reach-links/${encodeURIComponent(slug)}?token=${encodeURIComponent(token)}`);
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'ReachLink could not be opened.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
 
 export async function fetchPassagePreflight(params: {
   mode: string;
