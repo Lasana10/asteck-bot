@@ -1393,4 +1393,136 @@ router.get('/reach-links/:slug', async (req: Request, res: Response) => {
   }
 });
 
+
+router.get('/dispatch/:dispatchId/contextual-prompt', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+
+    const { data: dispatch, error: dispatchError } = await supabase.from('dispatch_assignments')
+      .select('id,booking_id,operator_id,status,completed_at,dropoff_lat,dropoff_lng')
+      .eq('id', req.params.dispatchId)
+      .maybeSingle();
+    if (dispatchError) throw dispatchError;
+    if (!dispatch) return res.status(404).json({ error: 'Dispatch not found.' });
+
+    const { data: booking, error: bookingError } = dispatch.booking_id
+      ? await supabase.from('bookings').select('id,passenger_id,operator_id,status').eq('id', dispatch.booking_id).maybeSingle()
+      : { data: null, error: null } as any;
+    if (bookingError) throw bookingError;
+    const participant = isPrivileged(identity) || booking?.passenger_id === identity.id || dispatch.operator_id === identity.id || booking?.operator_id === identity.id;
+    if (!participant) return res.status(403).json({ error: 'Dispatch participant access required.' });
+    if (!['completed','disputed','cancelled'].includes(String(dispatch.status || '').toLowerCase())) {
+      return res.json({ prompt: null, reason: 'journey_not_closed' });
+    }
+
+    const { data: existing, error: existingError } = await supabase.from('afat_contextual_confirmations')
+      .select('*')
+      .eq('dispatch_id', dispatch.id)
+      .in('status',['open','answered'])
+      .order('created_at',{ascending:false})
+      .limit(1)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing) return res.json({ prompt: existing });
+
+    const { data: passage } = dispatch.booking_id
+      ? await supabase.from('passage_intents').select('id,selected_place_id,meeting_point_id,metadata').eq('booking_id',dispatch.booking_id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+      : { data: null } as any;
+
+    const placeId = passage?.selected_place_id || null;
+    const meetingId = passage?.meeting_point_id || null;
+    const accessId = passage?.metadata?.access_point_id || null;
+
+    const [{ data: place }, { data: meeting }, { data: access }] = await Promise.all([
+      placeId ? supabase.from('afat_places').select('id,canonical_name,base_confidence,evidence_status').eq('id',placeId).maybeSingle() : Promise.resolve({data:null,error:null} as any),
+      meetingId ? supabase.from('afat_meeting_points').select('id,name,confidence,evidence_status,successful_pickups,failed_pickups').eq('id',meetingId).maybeSingle() : Promise.resolve({data:null,error:null} as any),
+      accessId ? supabase.from('afat_access_points').select('id,name,confidence,evidence_status,access_type').eq('id',accessId).maybeSingle() : Promise.resolve({data:null,error:null} as any),
+    ]);
+
+    let promptType = 'destination_correct';
+    let question = place ? `Did AFAT take you to the correct destination: ${place.canonical_name}?` : 'Did AFAT take you to the correct destination?';
+    let answerOptions = [{id:'yes',label:'Yes'},{id:'no',label:'No'},{id:'not_sure',label:'Not sure'}];
+    let confidence = Number(place?.base_confidence || 35);
+
+    if (meeting) {
+      promptType = 'meeting_point_correct';
+      question = `Was ${meeting.name} the right place to meet your operator?`;
+      answerOptions = [{id:'yes',label:'Yes'},{id:'better_nearby',label:'A better point was nearby'},{id:'no',label:'No'},{id:'not_sure',label:'Not sure'}];
+      confidence = Number(meeting.confidence || 35) + Math.min(15,Number(meeting.successful_pickups||0)*2) - Math.min(20,Number(meeting.failed_pickups||0)*3);
+    } else if (access) {
+      promptType = 'access_worked';
+      question = `Did ${access.name} work as the real access point for this trip?`;
+      answerOptions = [{id:'yes',label:'Yes'},{id:'difficult',label:'With difficulty'},{id:'no',label:'No'},{id:'not_sure',label:'Not sure'}];
+      confidence = Number(access.confidence || 35);
+    }
+
+    const informationValue = Math.max(35, Math.min(95, Math.round(100 - Math.max(0,Math.min(100,confidence)))));
+    const fingerprint = crypto.createHash('sha256').update([dispatch.id,promptType,placeId||'',meetingId||'',accessId||''].join(':')).digest('hex');
+    const { data: prompt, error: insertError } = await supabase.from('afat_contextual_confirmations').insert({
+      dispatch_id: dispatch.id,
+      booking_id: dispatch.booking_id || null,
+      passenger_id: booking?.passenger_id || null,
+      operator_id: dispatch.operator_id || booking?.operator_id || null,
+      place_id: placeId,
+      meeting_point_id: meetingId,
+      access_point_id: accessId,
+      prompt_type: promptType,
+      question,
+      answer_options: answerOptions,
+      information_value: informationValue,
+      evidence: { source: 'real_closed_dispatch', dispatch_status: dispatch.status, automatic_truth: false },
+      fingerprint,
+    }).select().single();
+    if (insertError) {
+      if (insertError.code === '23505') {
+        const { data: replay } = await supabase.from('afat_contextual_confirmations').select('*').eq('fingerprint',fingerprint).maybeSingle();
+        return res.json({ prompt: replay || null });
+      }
+      throw insertError;
+    }
+    return res.json({ prompt });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Contextual confirmation unavailable.' });
+  }
+});
+
+router.post('/contextual-prompts/:promptId/answer', async (req: Request, res: Response) => {
+  try {
+    const identity = await resolveIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'Authentication required.' });
+    const answerId = String(req.body?.answer_id || '').trim();
+    const { data: prompt, error: promptError } = await supabase.from('afat_contextual_confirmations')
+      .select('*')
+      .eq('id',req.params.promptId)
+      .maybeSingle();
+    if (promptError) throw promptError;
+    if (!prompt) return res.status(404).json({ error: 'Prompt not found.' });
+    if (prompt.status !== 'open') return res.status(409).json({ error: 'This confirmation is already closed.' });
+    if (prompt.expires_at && new Date(prompt.expires_at).getTime() < Date.now()) {
+      await supabase.from('afat_contextual_confirmations').update({status:'expired'}).eq('id',prompt.id);
+      return res.status(410).json({ error: 'This confirmation expired.' });
+    }
+    const participant = isPrivileged(identity) || prompt.passenger_id === identity.id || prompt.operator_id === identity.id;
+    if (!participant) return res.status(403).json({ error: 'Journey participant access required.' });
+    const options = Array.isArray(prompt.answer_options) ? prompt.answer_options : [];
+    if (!options.some((option:any)=>String(option?.id)===answerId)) return res.status(400).json({ error: 'Unsupported answer.' });
+
+    const { data, error } = await supabase.from('afat_contextual_confirmations').update({
+      status:'answered',
+      answer:{ id:answerId, note:req.body?.note ? String(req.body.note).slice(0,500) : null },
+      answered_by:identity.id,
+      answered_at:new Date().toISOString(),
+    }).eq('id',prompt.id).eq('status','open').select().single();
+    if (error) throw error;
+    return res.json({
+      confirmation:data,
+      truth_changed:false,
+      message:'Observation saved as journey evidence. AFAT does not treat one answer as verified truth.',
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Contextual confirmation failed.' });
+  }
+});
+
 export default router;
