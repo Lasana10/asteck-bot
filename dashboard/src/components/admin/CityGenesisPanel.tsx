@@ -14,14 +14,22 @@ export function CityGenesisPanel({onCreated}:{onCreated?:()=>void}){
       p_supported_languages:[form.language],p_transport_modes:['walk','moto','taxi','car','minibus','bus'],p_local_terms:{},
     });
     if(!error){
-      const seeded=await supabase.rpc('afat_seed_city_source_plan',{p_city_key:data?.city_key||form.key});
-      setNotice(seeded.error?`${data?.city_key||form.key} registered, but source-plan bootstrap needs attention: ${seeded.error.message}`:`${data?.city_key||form.key} registered with its global source strategy.`);
+      const cityKey=data?.city_key||form.key;
+      const seeded=await supabase.rpc('afat_seed_city_source_plan',{p_city_key:cityKey});
+      if(seeded.error){
+        setNotice(`${cityKey} registered, but source-plan bootstrap needs attention: ${seeded.error.message}`);
+      }else{
+        const operating=await supabase.rpc('afat_seed_city_operating_pack',{p_city_key:cityKey});
+        setNotice(operating.error
+          ? `${cityKey} registered with source strategy, but operating-pack bootstrap needs attention: ${operating.error.message}`
+          : `${cityKey} registered with its source strategy, country/city operating pack and portable adapter contracts.`);
+      }
       onCreated?.();
     }else setNotice(error.message);
     setBusy(false);
   };
   return <section className="rounded-[1.5rem] border border-blue-300/15 bg-blue-400/[0.04] p-5">
-    <div className="flex items-start gap-3"><Globe2 className="h-5 w-5 text-blue-200"/><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-200">City Genesis</p><h2 className="mt-1 text-lg font-black">Start AFAT in another city</h2><p className="mt-1 text-xs leading-5 text-white/45">Create the local learning profile first. Source ingestion, observation, verification and operations then grow against this city context rather than copying Yaoundé facts.</p></div></div>
+    <div className="flex items-start gap-3"><Globe2 className="h-5 w-5 text-blue-200"/><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-200">City Genesis</p><h2 className="mt-1 text-lg font-black">Start AFAT in another city</h2><p className="mt-1 text-xs leading-5 text-white/45">Create the local learning profile first. AFAT then seeds a country/city operating pack, source strategy and portable adapter contracts so the city learns from its own evidence instead of copying Yaoundé facts.</p></div></div>
     <form onSubmit={submit} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Input label="City key" value={form.key} onChange={v=>set('key',v)} placeholder="cm-douala" />
       <Input label="City" value={form.name} onChange={v=>set('name',v)} placeholder="Douala" />
