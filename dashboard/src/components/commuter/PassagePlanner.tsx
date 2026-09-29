@@ -74,6 +74,48 @@ function routeMessageFor(route: AfatCanonicalRoute | null) {
   return copy[route.reason || ''] || 'A trusted AFAT route is not available for these points yet.';
 }
 
+
+type JourneyDecision = {
+  mode: AfatRouteMode;
+  label: string;
+  reason: string;
+  evidence: 'strong' | 'partial';
+};
+
+function chooseJourneyDecision(
+  routes: Partial<Record<AfatRouteMode, AfatCanonicalRoute>>,
+  preflight: Record<string, any>,
+): JourneyDecision | null {
+  const labels: Record<AfatRouteMode,string> = { walk:'Walk', moto:'Moto', car:'Taxi / car', minibus:'Shared' };
+  const available = (Object.entries(routes) as [AfatRouteMode,AfatCanonicalRoute][])
+    .filter(([,route]) => route?.status === 'ok');
+  if (!available.length) return null;
+
+  const scored = available.map(([mode,route]) => {
+    const eta = Number(route.eta_seconds || 0);
+    const supply = mode === 'walk' ? 1 : Number(preflight[mode]?.supply?.observed || 0);
+    const hasFare = preflight[mode]?.fare?.state === 'historical_range';
+    // This is a presentation heuristic over known evidence, never a claim about unavailable modes.
+    const score = (eta > 0 ? Math.max(0, 3600 - eta) / 60 : 0) + Math.min(supply, 10) * 8 + (hasFare ? 4 : 0) + (mode === 'walk' ? 2 : 0);
+    return { mode, route, eta, supply, hasFare, score };
+  }).sort((a,b) => b.score - a.score);
+
+  const best = scored[0];
+  const reasons:string[] = [];
+  if (best.eta > 0) reasons.push(`${Math.ceil(best.eta/60)} min trusted ETA`);
+  else reasons.push('connected trusted route');
+  if (best.mode !== 'walk') {
+    reasons.push(best.supply > 0 ? `${best.supply} live option${best.supply === 1 ? '' : 's'} observed` : 'live supply not yet observed');
+    if (best.hasFare) reasons.push('fare range has historical evidence');
+  }
+  return {
+    mode: best.mode,
+    label: labels[best.mode],
+    reason: reasons.join(' · '),
+    evidence: best.eta > 0 && (best.mode === 'walk' || best.supply > 0) ? 'strong' : 'partial',
+  };
+}
+
 export function PassagePlanner({ profile, originText = '', initialDestination = '', initialIntent = 'go', onPassageCreated }: Props) {
   const [destination, setDestination] = useState(initialDestination);
   const [originLabel, setOriginLabel] = useState(originText);
@@ -165,6 +207,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const meetingPoint = useMemo(() => pointFrom(selectedMeetingPoint, selectedMeetingPoint?.name), [selectedMeetingPoint]);
   const accessPoint = useMemo(() => pointFrom(selectedAccessPoint, selectedAccessPoint?.name), [selectedAccessPoint]);
   const arrivalPoint = (intentType==='meet'||intentType==='pickup'||intentType==='board') ? (meetingPoint || accessPoint || destinationPoint) : (accessPoint || meetingPoint || destinationPoint);
+  const journeyDecision = useMemo(() => chooseJourneyDecision(routeOptions, preflight), [routeOptions, preflight]);
 
   useEffect(() => {
     let active = true;
@@ -510,6 +553,30 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     {originFix && arrivalPoint && (
       <div className="mt-4">
+        {journeyDecision && !routeLoading && (
+          <button
+            type="button"
+            onClick={() => {
+              const option = routeOptions[journeyDecision.mode];
+              setVehicleType(journeyDecision.mode);
+              setCanonicalRoute(option || null);
+              setRouteMessage(routeMessageFor(option || null));
+            }}
+            className="mb-3 w-full rounded-2xl border border-cyan-300/20 bg-gradient-to-r from-cyan-400/10 to-emerald-400/[0.06] p-4 text-left"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.18em] text-cyan-200">Best known option right now</p>
+                <p className="mt-2 text-lg font-black text-white">{journeyDecision.label}</p>
+                <p className="mt-1 text-xs leading-5 text-white/50">{journeyDecision.reason}</p>
+              </div>
+              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[8px] font-black uppercase ${journeyDecision.evidence==='strong'?'border-emerald-300/20 bg-emerald-400/10 text-emerald-100':'border-amber-300/20 bg-amber-400/10 text-amber-100'}`}>
+                {journeyDecision.evidence==='strong'?'Live evidence':'Still learning'}
+              </span>
+            </div>
+            <p className="mt-3 text-[9px] leading-4 text-white/30">AFAT only compares modes with a trusted connected route. Missing ETA, supply or fare evidence stays unknown rather than being estimated.</p>
+          </button>
+        )}
         <div className="mb-2 flex items-end justify-between gap-3">
           <div>
             <p className="text-[9px] font-black uppercase tracking-[0.18em] text-white/35">Ways to move</p>
