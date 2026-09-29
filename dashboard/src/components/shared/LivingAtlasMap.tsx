@@ -40,6 +40,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
   const [busy,setBusy]=useState(false);
   const [layers,setLayers]=useState({provisional:true,corroborated:true,verified:true,candidates:true,observations:true,reachability:true,transit:true,environment:true});
   const [viewMode,setViewMode]=useState<'truth'|'uncertainty'|'evidence'>('truth');
+  const liveTraceRef=useRef<Array<[number,number]>>([]);
 
   const load=async()=>{
     setBusy(true);
@@ -56,6 +57,36 @@ export function LivingAtlasMap({cityKey='cm-yaounde'}:{cityKey?:string}){
     if(!environmentResult.error&&environmentResult.data) setEnvironment(environmentResult.data);
   };
   useEffect(()=>{void load();},[cityKey]);
+
+  useEffect(()=>{
+    const handleSample=(event:Event)=>{
+      const detail=(event as CustomEvent).detail||{};
+      const lng=Number(detail.longitude),lat=Number(detail.latitude);
+      if(!Number.isFinite(lng)||!Number.isFinite(lat)) return;
+      liveTraceRef.current=[...liveTraceRef.current,[lng,lat]].slice(-500);
+      const map=mapRef.current;
+      if(!map||!map.loaded()) return;
+      const line={type:'FeatureCollection',features:liveTraceRef.current.length>1?[{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:liveTraceRef.current}}]:[]} as any;
+      const point={type:'FeatureCollection',features:[{type:'Feature',properties:{},geometry:{type:'Point',coordinates:[lng,lat]}}]} as any;
+      if(map.getSource('afat-live-contribution')){
+        (map.getSource('afat-live-contribution') as any).setData(line);
+      }else{
+        map.addSource('afat-live-contribution',{type:'geojson',data:line});
+        map.addLayer({id:'afat-live-contribution',type:'line',source:'afat-live-contribution',paint:{'line-color':'#22d3ee','line-width':5,'line-opacity':0.95}});
+      }
+      if(map.getSource('afat-live-position')){
+        (map.getSource('afat-live-position') as any).setData(point);
+      }else{
+        map.addSource('afat-live-position',{type:'geojson',data:point});
+        map.addLayer({id:'afat-live-position',type:'circle',source:'afat-live-position',paint:{'circle-radius':8,'circle-color':'#22d3ee','circle-stroke-color':'#ffffff','circle-stroke-width':2}});
+      }
+      map.easeTo({center:[lng,lat],zoom:Math.max(map.getZoom(),15),duration:700});
+    };
+    const handleFinished=()=>{liveTraceRef.current=[];};
+    window.addEventListener('afat:contribution-sample',handleSample);
+    window.addEventListener('afat:contribution-finished',handleFinished);
+    return()=>{window.removeEventListener('afat:contribution-sample',handleSample);window.removeEventListener('afat:contribution-finished',handleFinished);};
+  },[]);
 
   useEffect(()=>{
     if(!ref.current) return;
