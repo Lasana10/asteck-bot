@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, Car, MapPin, Navigation2, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import { PassagePlanner } from './PassagePlanner';
 import { PassengerJourneyContinuity } from './PassengerJourneyContinuity';
+import { DeliveryRequestPanel } from './DeliveryRequestPanel';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
@@ -64,6 +65,8 @@ export function PassengerWorkspaceHome({
           onNavigate('bookings');
         }}
       />
+
+      <DeliveryRequestPanel profile={profile} onCreated={onChanged} />
 
       <section className="grid gap-3 md:grid-cols-3">
         <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
