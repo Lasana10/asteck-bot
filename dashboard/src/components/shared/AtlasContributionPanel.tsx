@@ -59,7 +59,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
     setBusy(false);
     if(error||!data?.id){setNotice(error?.message||'Could not start contribution.');return;}
     const id=String(data.id); setSessionId(id); setSamples(0); setMatched(0); setQueued(pendingAtlasSamples(uid,id)); sessionStartedAt.current=Date.now(); lastMatched.current=null;
-    setNotice('Contribution started. AFAT treats these points as evidence, never automatic map truth.');
+    setNotice('Contribution started. The Living Atlas follows your movement above while AFAT records the trace as evidence, never automatic map truth.');
 
     watchId.current=navigator.geolocation.watchPosition(async position=>{
       const now=Date.now();
@@ -67,6 +67,10 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
       const decision=decideSensing({profile:sensingProfile,speedKph,accuracyM:position.coords.accuracy,matched:lastMatched.current,hidden:document.hidden,batteryLevel:deviceContext.current.batteryLevel,charging:deviceContext.current.charging,connection:navigator.onLine?deviceContext.current.connection:'offline',sessionMinutes:(now-sessionStartedAt.current)/60000});
       setSensingReason(decision.reason.join(' · ')||'balanced');
       if(now-lastSentAt.current<decision.minimumIntervalMs)return; lastSentAt.current=now;
+      window.dispatchEvent(new CustomEvent('afat:contribution-sample',{detail:{
+        sessionId:id,latitude:position.coords.latitude,longitude:position.coords.longitude,
+        accuracyM:position.coords.accuracy,recordedAt:new Date(position.timestamp).toISOString()
+      }}));
       const payload={
         sessionId:id,userId:uid,latitude:position.coords.latitude,longitude:position.coords.longitude,
         accuracyM:position.coords.accuracy,
@@ -96,6 +100,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
     const {data,error}=await completeAtlasContributionSession(sessionId); setBusy(false);
     if(error){setNotice(error.message||'Could not finish contribution.');return;}
     setNotice(`Contribution saved: ${data?.sample_count??samples} points, ${data?.matched_sample_count??matched} matched to known Atlas roads.${data?.candidate_feature_id?' A possible unmapped segment is now waiting for corroboration.':''}`);
+    window.dispatchEvent(new CustomEvent('afat:contribution-finished',{detail:{sessionId}}));
     setSessionId(null);
   };
 
