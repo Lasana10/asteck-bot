@@ -298,9 +298,15 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       if (data.access_point) setSelectedAccessPoint(data.access_point as AfatAccessPoint);
       if (data.meeting_point) setSelectedMeetingPoint(data.meeting_point as AfatMeetingPoint);
       if (data.target_kind === 'access_point' && data.access_point) {
-        setStatusText(`AFAT recommends ${data.access_point.name} for this ${intentType} trip and ${vehicleType} mode.`);
+        const limited = ['limited','stale','disputed'].includes(String(data.access_point.evidence_status||'limited'));
+        setStatusText(limited
+          ? `${data.access_point.name} is the strongest reference AFAT currently has for this ${intentType} trip, but it still needs verification.`
+          : `AFAT recommends ${data.access_point.name} for this ${intentType} trip and ${vehicleType} mode.`);
       } else if (data.target_kind === 'meeting_point' && data.meeting_point) {
-        setStatusText(`AFAT recommends ${data.meeting_point.name} as the meeting point for this ${intentType} trip.`);
+        const limited = ['limited','stale','disputed'].includes(String(data.meeting_point.evidence_status||'limited'));
+        setStatusText(limited
+          ? `${data.meeting_point.name} is a reference meeting point that still needs verification before AFAT treats it as reliable.`
+          : `AFAT recommends ${data.meeting_point.name} as the meeting point for this ${intentType} trip.`);
       }
     });
     return () => { active = false; };
@@ -348,8 +354,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedMeetingPoint(bestMeetingPoint);
     const bestAccessPoint = [...(candidate.access_points || [])].sort((a,b)=>Number(b.confidence||0)-Number(a.confidence||0))[0] || null;
     setSelectedAccessPoint(bestAccessPoint);
+    const selectedReference:any = bestMeetingPoint || bestAccessPoint;
+    const selectedIsLimited = selectedReference && ['limited','stale','disputed'].includes(String(selectedReference.evidence_status||'limited'));
     setStatusText(bestMeetingPoint || bestAccessPoint
-      ? 'AFAT selected the strongest known access or meeting point for this destination. You can change it below.'
+      ? (selectedIsLimited
+          ? 'AFAT found a reference access or meeting point, but it still needs verification. You can change it below.'
+          : 'AFAT selected the strongest verified/corroborated access or meeting point for this destination. You can change it below.')
       : 'This destination is known, but AFAT still needs stronger last-metre access evidence.');
   };
 

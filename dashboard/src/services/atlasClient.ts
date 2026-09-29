@@ -4,6 +4,7 @@ export type AtlasNode = {
   id: string;
   node_type?: string;
   canonical_name?: string | null;
+  name?: string | null;
   latitude?: number;
   longitude?: number;
   confidence?: number;
@@ -20,6 +21,8 @@ export type AtlasEdge = {
   name?: string | null;
   distance_m?: number | null;
   modes?: string[];
+  access_modes?: string[];
+  geometry_geojson?: { type: string; coordinates: any } | null;
   surface?: string | null;
   passability?: string | null;
   confidence?: number;

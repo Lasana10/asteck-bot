@@ -118,7 +118,18 @@ function atlasEdgeCollection(atlas: AtlasNearbyResponse | null) {
   const features = (atlas?.edges || []).map((edge: AtlasEdge) => {
     const from = edge.from_node_id ? nodes.get(edge.from_node_id) : null;
     const to = edge.to_node_id ? nodes.get(edge.to_node_id) : null;
-    if (!from || !to) return null;
+    const geometry = edge.geometry_geojson && edge.geometry_geojson.type === 'LineString'
+      ? edge.geometry_geojson
+      : from && to
+        ? {
+            type: 'LineString' as const,
+            coordinates: [
+              [Number(from.longitude), Number(from.latitude)],
+              [Number(to.longitude), Number(to.latitude)],
+            ],
+          }
+        : null;
+    if (!geometry) return null;
     return {
       type: 'Feature' as const,
       properties: {
@@ -126,15 +137,9 @@ function atlasEdgeCollection(atlas: AtlasNearbyResponse | null) {
         name: edge.name || '',
         evidence_status: edge.evidence_status || '',
         confidence: Number(edge.confidence || 0),
-        modes: (edge.modes || []).join(','),
+        modes: (edge.access_modes || edge.modes || []).join(','),
       },
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: [
-          [Number(from.longitude), Number(from.latitude)],
-          [Number(to.longitude), Number(to.latitude)],
-        ],
-      },
+      geometry,
     };
   }).filter(Boolean);
 
@@ -148,7 +153,7 @@ function atlasNodeCollection(atlas: AtlasNearbyResponse | null) {
       type: 'Feature' as const,
       properties: {
         id: node.id,
-        name: node.canonical_name || node.node_type || 'AFAT place',
+        name: node.name || node.canonical_name || node.node_type || 'AFAT graph node',
         node_type: node.node_type || 'place',
         evidence_status: node.evidence_status || '',
         confidence: Number(node.confidence || 0),
@@ -194,8 +199,11 @@ export function PassengerSpatialMap({
   const hasRoute = route?.status === 'ok' && routePoints.length > 1;
   const atlasEdges = useMemo(() => atlasEdgeCollection(atlas), [atlas]);
   const atlasNodes = useMemo(() => atlasNodeCollection(atlas), [atlas]);
-  const trustedEdgeCount = atlas?.edges?.length || 0;
-  const trustedNodeCount = atlas?.nodes?.length || 0;
+  const edgeCount = atlas?.edges?.length || 0;
+  const nodeCount = atlas?.nodes?.length || 0;
+  const verifiedEdgeCount = (atlas?.edges || []).filter(edge => edge.evidence_status === 'verified').length;
+  const corroboratedEdgeCount = (atlas?.edges || []).filter(edge => edge.evidence_status === 'corroborated').length;
+  const provisionalEdgeCount = (atlas?.edges || []).filter(edge => edge.evidence_status === 'provisional').length;
 
   const loadAtlas = async (latitude: number, longitude: number) => {
     setAtlasLoading(true);
@@ -497,7 +505,7 @@ export function PassengerSpatialMap({
           </div>
           <p className="mt-1 truncate text-sm font-black text-white">{meetingPoint?.name || accessPoint?.name || destination?.name || (String(city).toLowerCase().includes('douala') ? 'Douala' : 'Yaoundé')}</p>
           {hasRoute && <p className="mt-1 text-[11px] font-bold text-cyan-100/85">{formatDistance(route?.distance_m)} · {route?.eta_seconds ? `${Math.ceil(route.eta_seconds / 60)} min` : 'ETA calibrating from real journeys'}</p>}
-          {!hasRoute && <p className="mt-1 text-[10px] text-white/50">{atlasLoading ? 'Loading trusted mobility graph…' : `${trustedNodeCount} places · ${trustedEdgeCount} trusted links`}</p>}
+          {!hasRoute && <p className="mt-1 text-[10px] text-white/50">{atlasLoading ? 'Loading AFAT mobility graph…' : `${nodeCount} graph nodes · ${edgeCount} road links`}</p>}
         </div>
 
         <div className="absolute right-3 top-3 z-20 flex rounded-xl border border-white/10 bg-slate-950/82 p-1 backdrop-blur-xl">
@@ -542,8 +550,8 @@ export function PassengerSpatialMap({
         </div>
 
         <div className="absolute bottom-3 right-3 z-20 rounded-xl border border-white/10 bg-slate-950/86 px-3 py-2 text-right backdrop-blur-xl">
-          <p className="flex items-center justify-end gap-1 text-[8px] font-black uppercase tracking-wider text-emerald-200"><ShieldCheck className="h-3 w-3" /> Trusted graph</p>
-          <p className="mt-1 text-[9px] text-white/50">{trustedEdgeCount} links · {trustedNodeCount} nodes</p>
+          <p className="flex items-center justify-end gap-1 text-[8px] font-black uppercase tracking-wider text-emerald-200"><ShieldCheck className="h-3 w-3" /> AFAT graph</p>
+          <p className="mt-1 text-[9px] text-white/50">{verifiedEdgeCount} verified · {corroboratedEdgeCount} corroborated · {provisionalEdgeCount} provisional</p>
         </div>
 
         {manualMode && (
