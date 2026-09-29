@@ -3802,8 +3802,10 @@ router.post('/dispatch/assign', async (req: Request, res: Response) => {
 
 router.post('/service/request', async (req: Request, res: Response) => {
   try {
+    const session = await requireAuthRole(req, res);
+    if (!session) return;
+
     const {
-      requester_id,
       company_id,
       operator_id,
       vehicle_id,
@@ -3830,9 +3832,6 @@ router.post('/service/request', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Valid service_type is required' });
     }
 
-    if (!requester_id && !company_id && !contact_phone) {
-      return res.status(400).json({ error: 'requester_id, company_id, or contact_phone is required' });
-    }
 
     const pickupLat = pickup_lat === undefined || pickup_lat === null ? null : Number(pickup_lat);
     const pickupLng = pickup_lng === undefined || pickup_lng === null ? null : Number(pickup_lng);
@@ -3845,7 +3844,7 @@ router.post('/service/request', async (req: Request, res: Response) => {
     const { data: request, error: requestError } = await supabase
       .from('service_requests')
       .insert({
-        requester_id: requester_id || null,
+        requester_id: session.profile.id,
         company_id: company_id || null,
         operator_id: operator_id || null,
         vehicle_id: vehicle_id || null,
@@ -3865,7 +3864,7 @@ router.post('/service/request', async (req: Request, res: Response) => {
         notes: notes || null,
         contact_name: contact_name || null,
         contact_phone: contact_phone || null,
-        metadata: metadata || {},
+        metadata: { ...(metadata || {}), requested_by_role: session.profile.role },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

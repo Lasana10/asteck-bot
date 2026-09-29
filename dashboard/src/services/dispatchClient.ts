@@ -226,3 +226,43 @@ export function saveJourneyClosure(assignmentId: string, version: number, patch:
     method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ ...patch, expected_version: version }),
   });
 }
+
+
+export type MobilityServiceType =
+  | 'ride'
+  | 'taxi_hire'
+  | 'bike_pickup'
+  | 'delivery'
+  | 'agency_booking'
+  | 'charter'
+  | 'airport'
+  | 'special_needs';
+
+export function createMobilityServiceRequest(input: {
+  service_type: MobilityServiceType;
+  origin?: string;
+  destination?: string;
+  pickup_lat?: number;
+  pickup_lng?: number;
+  dropoff_lat?: number;
+  dropoff_lng?: number;
+  scheduled_at?: string;
+  passenger_count?: number;
+  package_count?: number;
+  priority?: 'low'|'normal'|'high'|'emergency';
+  notes?: string;
+  contact_name?: string;
+  contact_phone?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<{
+    success: true;
+    service_request: Record<string, any>;
+    dispatch: DispatchAssignment | null;
+    status: string;
+    next_action: string;
+  }>('/service/request', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
