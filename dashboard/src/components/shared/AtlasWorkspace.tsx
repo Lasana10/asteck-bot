@@ -53,6 +53,19 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
 
   const city=useMemo(()=>cities.find(c=>c.city_key===selectedCityKey)||cities[0]||null,[cities,selectedCityKey]);
   const cityMissions=useMemo(()=>missions.filter(m=>!city?.city_name||String(m.city||'').toLowerCase()===String(city.city_name).toLowerCase()),[missions,city?.city_name]);
+  const groupedMissions=useMemo(()=>{
+    const groups=new Map<string,any>();
+    for(const mission of cityMissions){
+      const key=[mission.mission_type||'',mission.title||'',mission.question||''].join('|');
+      const existing=groups.get(key);
+      if(existing){
+        existing.segment_count+=1;
+        existing.segment_ids.push(mission.id);
+        if(mission.status==='claimed'&&mission.claimed_by===profile?.id) Object.assign(existing,mission,{segment_count:existing.segment_count,segment_ids:existing.segment_ids});
+      }else groups.set(key,{...mission,segment_count:1,segment_ids:[mission.id]});
+    }
+    return Array.from(groups.values());
+  },[cityMissions,profile?.id]);
   const myMission=useMemo(()=>cityMissions.find(m=>m.claimed_by===profile?.id&&m.status==='claimed'),[cityMissions,profile?.id]);
 
   const claim=async(id:string)=>{
@@ -104,7 +117,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
         <div className="flex flex-wrap gap-2">
           <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase text-white/55"><Award className="mr-1.5 inline h-3.5 w-3.5 text-cyan-200"/>{reputation?reputation.trust_level:'new contributor'}</span>
           <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase text-white/55"><BrainCircuit className="mr-1.5 inline h-3.5 w-3.5 text-violet-200"/>{city?Math.round(Number(city.operational_confidence||0)):0}% city confidence</span>
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase text-white/55"><Route className="mr-1.5 inline h-3.5 w-3.5 text-emerald-200"/>{cityMissions.length} missions</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase text-white/55"><Route className="mr-1.5 inline h-3.5 w-3.5 text-emerald-200"/>{groupedMissions.length} mission areas</span>
           {canPlan&&cities.length>1&&<select value={city?.city_key||''} onChange={e=>setSelectedCityKey(e.target.value)} className="min-h-10 rounded-full border border-white/10 bg-slate-950 px-3 text-[9px] font-black uppercase text-white/70">{cities.map(c=><option key={c.city_key} value={c.city_key}>{c.city_name} · {c.country_code}</option>)}</select>}
           <button onClick={load} disabled={busy} className="flex min-h-10 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[9px] font-black uppercase text-white/60"><RefreshCw className={`h-3.5 w-3.5 ${busy?'animate-spin':''}`}/>Refresh</button>
         </div>
@@ -131,11 +144,11 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
     <section className="rounded-[1.6rem] border border-white/10 bg-slate-950/70 p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-300">{t('atlas.missions')}</p><h2 className="mt-1 text-xl font-black">High-value checks</h2><p className="mt-1 text-xs text-white/40">Short, targeted evidence requests — not generic mapping work.</p></div>{canPlan&&<button onClick={refreshCity} disabled={busy} className="min-h-10 rounded-xl bg-violet-500 px-3 text-[9px] font-black uppercase">Refresh learning</button>}</div>
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        {cityMissions.slice(0,6).map(m=><article key={m.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
-          <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black">{m.title}</p><p className="mt-2 text-xs leading-5 text-white/50">{m.question}</p></div><span className="rounded-full border border-white/10 px-2 py-1 text-[8px] font-black uppercase text-white/45">{m.status}</span></div>
+        {groupedMissions.slice(0,6).map(m=><article key={m.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black">{m.title}</p><p className="mt-2 text-xs leading-5 text-white/50">{m.question}</p>{m.segment_count>1&&<p className="mt-2 text-[9px] font-black uppercase tracking-wide text-amber-200/65">{m.segment_count} connected road segments grouped into one mission area</p>}</div><span className="rounded-full border border-white/10 px-2 py-1 text-[8px] font-black uppercase text-white/45">{m.status}</span></div>
           <div className="mt-3 flex gap-2">{canClaimMission&&m.status==='open'&&<button onClick={()=>claim(m.id)} disabled={busy} className="min-h-9 rounded-lg bg-emerald-400 px-3 text-[9px] font-black uppercase text-slate-950">Take mission</button>}{m.id===myMission?.id&&<button onClick={submit} disabled={busy} className="min-h-9 rounded-lg bg-cyan-300 px-3 text-[9px] font-black uppercase text-slate-950">Verify here</button>}</div>
         </article>)}
-        {!cityMissions.length&&<p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No nearby verification mission is open right now.</p>}
+        {!groupedMissions.length&&<p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No nearby verification mission is open right now.</p>}
       </div>
     </section>
 
