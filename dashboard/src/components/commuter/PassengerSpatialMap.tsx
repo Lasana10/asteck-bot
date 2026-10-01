@@ -8,6 +8,8 @@ import {
   Popup,
 } from 'maplibre-gl';
 import { routeToLatLngs, type AfatCanonicalRoute } from '../../services/canonicalRouteClient';
+import { supabase } from '../../supabaseClient';
+import { AFAT_BASEMAPS, type AfatBasemapMode } from '../../services/mapBasemaps';
 import { fetchAtlasNearby, type AtlasEdge, type AtlasNearbyResponse, type AtlasNode } from '../../services/atlasClient';
 
 type SpatialPoint = {
@@ -35,7 +37,7 @@ type Props = {
 };
 
 type MarkerKind = 'origin' | 'destination' | 'meeting' | 'access';
-type BasemapMode = 'standard' | 'satellite' | 'intel';
+type BasemapMode = AfatBasemapMode;
 
 const YAOUNDE_CENTER: [number, number] = [11.514, 3.866];
 const DOUALA_CENTER: [number, number] = [9.7043, 4.0511];
@@ -43,24 +45,6 @@ const ROUTE_SOURCE_ID = 'afat-canonical-route';
 const ROUTE_LAYER_ID = 'afat-canonical-route-line';
 const ATLAS_EDGE_SOURCE_ID = 'afat-atlas-edges';
 const ATLAS_NODE_SOURCE_ID = 'afat-atlas-nodes';
-
-const BASEMAPS: Record<BasemapMode, { tiles: string[]; attribution: string; opacity: number }> = {
-  standard: {
-    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
-    attribution: '© OpenStreetMap contributors © CARTO',
-    opacity: 0.82,
-  },
-  satellite: {
-    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-    attribution: 'Tiles © Esri',
-    opacity: 0.92,
-  },
-  intel: {
-    tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],
-    attribution: '© OpenStreetMap contributors © CARTO',
-    opacity: 0.92,
-  },
-};
 
 function validPoint(point?: SpatialPoint | null) {
   const latitude = Number(point?.latitude);
@@ -187,6 +171,8 @@ export function PassengerSpatialMap({
   const [atlas, setAtlas] = useState<AtlasNearbyResponse | null>(null);
   const [atlasLoading, setAtlasLoading] = useState(false);
   const [atlasError, setAtlasError] = useState('');
+  const [viewPlaces, setViewPlaces] = useState<any[]>([]);
+  const [mapStatus, setMapStatus] = useState('');
   const [manualMode, setManualMode] = useState(false);
 
   const arrivalPoint = useMemo(() => validPoint(meetingPoint) ? meetingPoint : validPoint(accessPoint) ? accessPoint : destination, [meetingPoint, accessPoint, destination]);
@@ -204,6 +190,24 @@ export function PassengerSpatialMap({
   const verifiedEdgeCount = (atlas?.edges || []).filter(edge => edge.evidence_status === 'verified').length;
   const corroboratedEdgeCount = (atlas?.edges || []).filter(edge => edge.evidence_status === 'corroborated').length;
   const provisionalEdgeCount = (atlas?.edges || []).filter(edge => edge.evidence_status === 'provisional').length;
+
+  const loadPlacesInView = async (map: MapLibreMap) => {
+    const bounds = map.getBounds();
+    const cityKey = String(city || '').toLowerCase().includes('douala') ? 'cm-douala' : 'cm-yaounde';
+    const { data, error } = await supabase.rpc('afat_places_in_view', {
+      p_city_key: cityKey,
+      p_west: bounds.getWest(),
+      p_south: bounds.getSouth(),
+      p_east: bounds.getEast(),
+      p_north: bounds.getNorth(),
+      p_limit: 700,
+    });
+    if (error) {
+      setMapStatus('AFAT places could not be loaded for this map view.');
+      return;
+    }
+    setViewPlaces(Array.isArray(data?.places) ? data.places : []);
+  };
 
   const loadAtlas = async (latitude: number, longitude: number) => {
     setAtlasLoading(true);
@@ -226,7 +230,7 @@ export function PassengerSpatialMap({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const basemap = BASEMAPS[basemapMode];
+    const basemap = AFAT_BASEMAPS[basemapMode];
 
     const map = new MapLibreMap({
       container: containerRef.current,
@@ -253,7 +257,15 @@ export function PassengerSpatialMap({
 
     map.once('load', () => {
       setMapReady(true);
+      setMapStatus('');
+      void loadPlacesInView(map);
       window.setTimeout(() => map.resize(), 50);
+    });
+
+    map.on('moveend', () => { void loadPlacesInView(map); });
+    map.on('error', (event: any) => {
+      const message = String(event?.error?.message || '');
+      if (message) setMapStatus('Map tiles or map data failed to load. AFAT will not hide this error.');
     });
 
     const resizeObserver = new ResizeObserver(() => map.resize());
@@ -295,6 +307,51 @@ export function PassengerSpatialMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+
+    const placeCollection = {
+      type: 'FeatureCollection' as const,
+      features: viewPlaces
+        .filter((place) => Number.isFinite(Number(place.latitude)) && Number.isFinite(Number(place.longitude)))
+        .map((place) => ({
+          type: 'Feature' as const,
+          properties: {
+            id: place.id,
+            name: place.name || 'AFAT place',
+            kind: place.kind || 'place',
+            evidence_status: place.evidence_status || 'limited',
+            source_only: Boolean(place.source_only),
+          },
+          geometry: { type: 'Point' as const, coordinates: [Number(place.longitude), Number(place.latitude)] },
+        })),
+    };
+    const existingPlaces = map.getSource('afat-view-places') as GeoJSONSource | undefined;
+    if (existingPlaces) existingPlaces.setData(placeCollection as any);
+    else {
+      map.addSource('afat-view-places', { type: 'geojson', data: placeCollection as any });
+      map.addLayer({
+        id: 'afat-view-places',
+        type: 'circle',
+        source: 'afat-view-places',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3, 15, 7] as any,
+          'circle-color': ['match', ['get', 'kind'], 'hospital', '#fb7185', 'school', '#facc15', 'market', '#f59e0b', 'business', '#22d3ee', 'venue', '#a78bfa', '#f8fafc'] as any,
+          'circle-stroke-color': '#07111f',
+          'circle-stroke-width': 1.5,
+          'circle-opacity': 0.92,
+        },
+      });
+      map.on('click', 'afat-view-places', (event: any) => {
+        const feature = event.features?.[0];
+        if (!feature) return;
+        const props = feature.properties || {};
+        new Popup({ offset: 10, closeButton: false })
+          .setLngLat(event.lngLat)
+          .setHTML(popupHtml(props.name || 'AFAT place', props.source_only ? 'Source-backed place · reachability still learning' : 'AFAT destination'))
+          .addTo(map);
+      });
+      map.on('mouseenter', 'afat-view-places', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'afat-view-places', () => { map.getCanvas().style.cursor = ''; });
+    }
 
     const edgeSource = map.getSource(ATLAS_EDGE_SOURCE_ID) as GeoJSONSource | undefined;
     if (edgeSource) edgeSource.setData(atlasEdges as any);
@@ -349,7 +406,7 @@ export function PassengerSpatialMap({
         },
       });
     }
-  }, [atlasEdges, atlasNodes, mapReady]);
+  }, [atlasEdges, atlasNodes, mapReady, viewPlaces]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -505,13 +562,13 @@ export function PassengerSpatialMap({
           </div>
           <p className="mt-1 truncate text-sm font-black text-white">{meetingPoint?.name || accessPoint?.name || destination?.name || (String(city).toLowerCase().includes('douala') ? 'Douala' : 'Yaoundé')}</p>
           {hasRoute && <p className="mt-1 text-[11px] font-bold text-cyan-100/85">{formatDistance(route?.distance_m)} · {route?.eta_seconds ? `${Math.ceil(route.eta_seconds / 60)} min` : 'ETA calibrating from real journeys'}</p>}
-          {!hasRoute && <p className="mt-1 text-[10px] text-white/50">{atlasLoading ? 'Loading AFAT mobility graph…' : `${nodeCount} graph nodes · ${edgeCount} road links`}</p>}
+          {!hasRoute && <p className="mt-1 text-[10px] text-white/50">{atlasLoading ? 'Loading AFAT mobility graph…' : `${viewPlaces.length} places in view · ${edgeCount} road links`}</p>}
         </div>
 
         <div className="absolute right-3 top-3 z-20 flex rounded-xl border border-white/10 bg-slate-950/82 p-1 backdrop-blur-xl">
           {([
             ['intel', Layers3, 'Intel'],
-            ['standard', MapPin, 'Map'],
+            ['street', MapPin, 'Map'],
             ['satellite', Satellite, 'Sat'],
           ] as const).map(([mode, Icon, label]) => (
             <button
@@ -551,7 +608,7 @@ export function PassengerSpatialMap({
 
         <div className="absolute bottom-3 right-3 z-20 rounded-xl border border-white/10 bg-slate-950/86 px-3 py-2 text-right backdrop-blur-xl">
           <p className="flex items-center justify-end gap-1 text-[8px] font-black uppercase tracking-wider text-emerald-200"><ShieldCheck className="h-3 w-3" /> AFAT graph</p>
-          <p className="mt-1 text-[9px] text-white/50">{verifiedEdgeCount} verified · {corroboratedEdgeCount} corroborated · {provisionalEdgeCount} provisional</p>
+          <p className="mt-1 text-[9px] text-white/50">{viewPlaces.length} places · {edgeCount} road links</p>
         </div>
 
         {manualMode && (
@@ -567,9 +624,9 @@ export function PassengerSpatialMap({
         )}
       </div>
 
-      {(locationMessage || routeMessage || atlasError) && (
+      {(locationMessage || routeMessage || atlasError || mapStatus) && (
         <div className="border-t border-white/8 px-4 py-3">
-          <p className="text-[10px] font-semibold leading-5 text-white/55">{routeMessage || locationMessage || atlasError}</p>
+          <p className="text-[10px] font-semibold leading-5 text-white/55">{routeMessage || locationMessage || atlasError || mapStatus}</p>
         </div>
       )}
     </section>
