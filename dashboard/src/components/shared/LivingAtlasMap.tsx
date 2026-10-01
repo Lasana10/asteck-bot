@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Layers3, MapPinned, RefreshCw } from 'lucide-react';
+import { Layers3, MapPinned, RefreshCw, Satellite, Map as MapIcon } from 'lucide-react';
+import { AFAT_BASEMAPS, type AfatBasemapMode } from '../../services/mapBasemaps';
 import { Map as MapLibreMap, NavigationControl, Popup } from 'maplibre-gl';
 import { supabase } from '../../supabaseClient';
 
@@ -40,6 +41,8 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
   const [busy,setBusy]=useState(false);
   const [layers,setLayers]=useState({provisional:true,corroborated:true,verified:true,candidates:true,observations:true,reachability:true,transit:true,environment:true});
   const [viewMode,setViewMode]=useState<'truth'|'uncertainty'|'evidence'>('truth');
+  const [basemapMode,setBasemapMode]=useState<AfatBasemapMode>('intel');
+  const [mapError,setMapError]=useState('');
   const liveTraceRef=useRef<Array<[number,number]>>([]);
 
   const load=async()=>{
@@ -86,14 +89,19 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
     window.addEventListener('afat:contribution-sample',handleSample);
     window.addEventListener('afat:contribution-finished',handleFinished);
     return()=>{window.removeEventListener('afat:contribution-sample',handleSample);window.removeEventListener('afat:contribution-finished',handleFinished);};
-  },[]);
+  },[basemapMode]);
 
   useEffect(()=>{
     if(!ref.current) return;
+    const basemap=AFAT_BASEMAPS[basemapMode];
     const map=new MapLibreMap({
       container:ref.current,center:[11.514,3.866],zoom:12.8,
-      style:{version:8,sources:{base:{type:'raster',tiles:['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors © CARTO'}},layers:[{id:'base',type:'raster',source:'base'}]},
+      style:{version:8,sources:{base:{type:'raster',tiles:basemap.tiles,tileSize:256,attribution:basemap.attribution,maxzoom:19}},layers:[
+        {id:'afat-background',type:'background',paint:{'background-color':'#06101a'}},
+        {id:'base',type:'raster',source:'base',paint:{'raster-opacity':basemap.opacity}},
+      ]},
     });
+    map.on('error',(event:any)=>{if(event?.error?.message)setMapError('Map imagery failed to load. AFAT is showing the failure instead of a blank map.');});
     map.addControl(new NavigationControl({showCompass:true}),'bottom-right');
     mapRef.current=map;
     return()=>{map.remove();mapRef.current=null;};
@@ -229,10 +237,15 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
   return <section className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-slate-950/80 shadow-2xl">
     <div className="flex flex-col gap-3 border-b border-white/10 p-4 lg:flex-row lg:items-center lg:justify-between">
       <div><p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-200/70">Living Atlas map</p><h2 className="mt-1 text-xl font-black">{technical ? `${data.city?.city_name||'City'} · ${data.city?.learning_stage||'learning'} · ${Math.round(Number(data.city?.operational_confidence||0))}%` : `${data.city?.city_name||'City'} · live mobility map`}</h2></div>
-      <button onClick={load} disabled={busy} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-[9px] font-black uppercase"><RefreshCw className={`h-4 w-4 ${busy?'animate-spin':''}`}/>Refresh</button>
+      <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={()=>setBasemapMode('street')} className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 text-[9px] font-black uppercase ${basemapMode==='street'?'border-cyan-300/30 bg-cyan-300/10 text-cyan-100':'border-white/10 bg-white/5 text-white/55'}`}><MapIcon className="h-4 w-4"/>Street</button>
+          <button type="button" onClick={()=>setBasemapMode('satellite')} className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 text-[9px] font-black uppercase ${basemapMode==='satellite'?'border-cyan-300/30 bg-cyan-300/10 text-cyan-100':'border-white/10 bg-white/5 text-white/55'}`}><Satellite className="h-4 w-4"/>Satellite</button>
+          <button onClick={load} disabled={busy} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-[9px] font-black uppercase"><RefreshCw className={`h-4 w-4 ${busy?'animate-spin':''}`}/>Refresh</button>
+        </div>
     </div>
     <div className="relative h-[68vh] min-h-[560px] xl:min-h-[680px]">
       <div ref={ref} className="absolute inset-0"/>
+      {mapError&&<div className="absolute inset-x-4 top-4 z-20 rounded-xl border border-rose-300/25 bg-rose-500/15 px-4 py-3 text-xs font-bold text-rose-100 backdrop-blur-xl">{mapError}</div>}
       {technical ? <>
         <div className="absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
           <div className="mb-3 flex flex-wrap gap-1.5">
