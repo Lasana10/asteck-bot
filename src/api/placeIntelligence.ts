@@ -234,7 +234,7 @@ router.get('/place/discover', async (req: Request, res: Response) => {
         .from('afat_places')
         .select('id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,destination_kind,reachability_state,local_directions,afat_meeting_points(*),afat_access_points(*)')
         .neq('status', 'retired')
-        .limit(180),
+        .limit(800),
       supabase
         .from('afat_address_ledger')
         .select('id,canonical_label,aliases,description,city,zone_label,latitude,longitude,address_type,access_notes,confidence,successful_pickups,failed_pickups,status,source')
@@ -289,13 +289,14 @@ router.get('/place/discover', async (req: Request, res: Response) => {
         distance_m: distanceM == null ? null : Math.round(distanceM),
         source: 'afat_places',
         meeting_points: meetingPoints,
+        text_score: textScore,
         explanation: [
           queryText ? (textScore >= 20 ? 'Strong landmark or alias match' : 'Related local place') : 'Nearby verified place',
           distanceM == null ? 'Distance unavailable until a start point is known' : `${Math.round(distanceM)} m from your start point`,
           historyScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup history',
         ],
       };
-    }).filter((item: any) => queryText ? item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
+    }).filter((item: any) => queryText ? item.text_score > 0 && item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
 
     const scoredLedger = (ledgerPlaces || []).map((place: any) => {
       const lat = Number(place.latitude);
@@ -325,13 +326,14 @@ router.get('/place/discover', async (req: Request, res: Response) => {
         distance_m: distanceM == null ? null : Math.round(distanceM),
         source: 'afat_address_ledger',
         meeting_points: [],
+        text_score: textScore,
         explanation: [
           queryText ? (textScore >= 20 ? 'Strong local alias match' : 'Related local address') : 'Nearby local address evidence',
           distanceM == null ? 'Distance unavailable until a start point is known' : `${Math.round(distanceM)} m from your start point`,
           place.source ? `Source: ${place.source}` : 'AFAT address ledger',
         ],
       };
-    }).filter((item: any) => queryText ? item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
+    }).filter((item: any) => queryText ? item.text_score > 0 && item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
 
     const results = [...scoredCurated, ...scoredLedger]
       .sort((a: any, b: any) => {
@@ -368,7 +370,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
       .from('afat_places')
       .select('*, afat_meeting_points(*), afat_access_points(*)')
       .neq('status', 'retired')
-      .limit(100);
+      .limit(800);
 
     if (error) throw error;
 
@@ -421,6 +423,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           confidence,
           confidence_label: confidenceLabel(confidence),
           successful_pickups: place.successful_pickups || 0,
+          text_score: textScore,
           explanation: [
             textScore >= 20 ? 'Strong landmark or alias match' : 'Partial local description match',
             cityScore ? `Matches ${place.city}` : 'Outside the preferred city',
@@ -430,7 +433,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           meeting_points: meetingPoints,
         };
       })
-      .filter((candidate: any) => candidate.confidence >= 35);
+      .filter((candidate: any) => candidate.text_score > 0 && candidate.confidence >= 35);
 
     const ledgerCandidates = (ledgerPlaces || []).map((place: any) => {
       const textScore = lexicalScore(query, [place.canonical_label, ...(place.aliases || []), place.description, place.zone_label, place.city]);
@@ -449,6 +452,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
         confidence,
         confidence_label: confidenceLabel(confidence),
         successful_pickups: place.successful_pickups || 0,
+        text_score: textScore,
         explanation: [
           textScore >= 20 ? 'Strong AFAT local alias match' : 'Partial AFAT local description match',
           cityScore ? `Matches ${place.city}` : 'Outside the preferred city',
@@ -457,7 +461,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
         meeting_points: [],
         source: 'afat_address_ledger',
       };
-    }).filter((candidate: any) => candidate.confidence >= 35);
+    }).filter((candidate: any) => candidate.text_score > 0 && candidate.confidence >= 35);
 
     const candidates = [...curatedCandidates, ...ledgerCandidates]
       .sort((a: any, b: any) => b.confidence - a.confidence)

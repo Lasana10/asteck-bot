@@ -568,7 +568,7 @@ export function PassengerSpatialMap({
         <div className="absolute right-3 top-3 z-20 flex rounded-xl border border-white/10 bg-slate-950/82 p-1 backdrop-blur-xl">
           {([
             ['intel', Layers3, 'Intel'],
-            ['standard', MapPin, 'Map'],
+            ['street', MapPin, 'Map'],
             ['satellite', Satellite, 'Sat'],
           ] as const).map(([mode, Icon, label]) => (
             <button
