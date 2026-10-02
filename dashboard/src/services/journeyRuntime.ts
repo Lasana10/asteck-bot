@@ -41,6 +41,7 @@ export type AfatJourneyRuntimeSnapshot = {
 const STORAGE_KEY = 'afat_journey_runtime_v1';
 const EVENT_NAME = 'afat:journey-runtime';
 let syncInFlight = false;
+let syncQueued = false;
 let lastSampleKey = '';
 
 function validNumber(value: unknown) {
@@ -67,7 +68,11 @@ export function loadJourneyRuntime(): AfatJourneyRuntimeSnapshot | null {
 }
 
 async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
-  if (syncInFlight || !snapshot.profileId) return;
+  if (!snapshot.profileId) return;
+  if (syncInFlight) {
+    syncQueued = true;
+    return;
+  }
   if (!navigator.onLine) {
     persist({ ...snapshot, serverSyncState: 'offline', updatedAt: new Date().toISOString() });
     return;
@@ -121,7 +126,7 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
     }
 
     current = loadJourneyRuntime() || current;
-    if ((current.state === 'arrived' || current.state === 'cancelled') && current.serverSessionId) {
+    if ((current.state === 'arrived' || current.state === 'cancelled') && current.serverSessionId && current.serverSyncState !== 'finished') {
       const position = current.lastPosition;
       const { error } = await supabase.rpc('afat_finish_navigation_session', {
         p_session_id: current.serverSessionId,
@@ -138,6 +143,11 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
     if (current) persist({ ...current, serverSyncState: navigator.onLine ? 'failed' : 'offline', updatedAt: new Date().toISOString() });
   } finally {
     syncInFlight = false;
+    if (syncQueued) {
+      syncQueued = false;
+      const latest = loadJourneyRuntime();
+      if (latest) queueMicrotask(() => void syncJourneyRuntime(latest));
+    }
   }
 }
 
