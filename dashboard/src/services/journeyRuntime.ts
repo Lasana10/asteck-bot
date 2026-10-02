@@ -1,3 +1,5 @@
+import { supabase } from '../supabaseClient';
+
 export type AfatJourneyRuntimeState =
   | 'idle'
   | 'destination_selected'
@@ -31,14 +33,25 @@ export type AfatJourneyRuntimeSnapshot = {
   arrivedAt?: string | null;
   lastPosition?: AfatRuntimePosition | null;
   sampleCount: number;
+  serverSessionId?: string | null;
+  serverSyncState?: 'idle' | 'starting' | 'active' | 'offline' | 'finished' | 'failed';
+  lastServerSyncAt?: string | null;
 };
 
 const STORAGE_KEY = 'afat_journey_runtime_v1';
 const EVENT_NAME = 'afat:journey-runtime';
+let syncInFlight = false;
+let lastSampleKey = '';
 
 function validNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function persist(snapshot: AfatJourneyRuntimeSnapshot) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: snapshot }));
+  return snapshot;
 }
 
 export function loadJourneyRuntime(): AfatJourneyRuntimeSnapshot | null {
@@ -50,6 +63,81 @@ export function loadJourneyRuntime(): AfatJourneyRuntimeSnapshot | null {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
+  if (syncInFlight || !snapshot.profileId) return;
+  if (!navigator.onLine) {
+    persist({ ...snapshot, serverSyncState: 'offline', updatedAt: new Date().toISOString() });
+    return;
+  }
+  syncInFlight = true;
+  try {
+    let current = loadJourneyRuntime() || snapshot;
+    if (current.state === 'navigating' && !current.serverSessionId) {
+      const destinationLatitude = validNumber(current.destinationLatitude);
+      const destinationLongitude = validNumber(current.destinationLongitude);
+      if (destinationLatitude == null || destinationLongitude == null || !current.placeId) return;
+      persist({ ...current, serverSyncState: 'starting', updatedAt: new Date().toISOString() });
+      const { data, error } = await supabase.rpc('afat_start_navigation_session', {
+        p_city_key: 'cm-yaounde',
+        p_place_id: current.placeId,
+        p_access_point_id: null,
+        p_meeting_point_id: null,
+        p_intent_type: current.intentType || 'go',
+        p_movement_mode: current.mode || 'car',
+        p_destination_latitude: destinationLatitude,
+        p_destination_longitude: destinationLongitude,
+        p_route_distance_m: current.routeDistanceM ?? null,
+      });
+      if (error || !data?.id) throw new Error(error?.message || 'Navigation evidence session could not start');
+      current = persist({
+        ...(loadJourneyRuntime() || current),
+        serverSessionId: String(data.id),
+        serverSyncState: 'active',
+        lastServerSyncAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    current = loadJourneyRuntime() || current;
+    if (current.state === 'navigating' && current.serverSessionId && current.lastPosition) {
+      const sampleKey = `${current.serverSessionId}:${current.lastPosition.recordedAt}:${current.lastPosition.latitude.toFixed(6)}:${current.lastPosition.longitude.toFixed(6)}`;
+      if (sampleKey !== lastSampleKey) {
+        const { error } = await supabase.rpc('afat_ingest_navigation_sample', {
+          p_session_id: current.serverSessionId,
+          p_latitude: current.lastPosition.latitude,
+          p_longitude: current.lastPosition.longitude,
+          p_accuracy_m: current.lastPosition.accuracy ?? null,
+          p_speed_kph: null,
+          p_heading: null,
+          p_recorded_at: current.lastPosition.recordedAt,
+        });
+        if (error) throw new Error(error.message || 'Navigation sample could not sync');
+        lastSampleKey = sampleKey;
+        persist({ ...(loadJourneyRuntime() || current), serverSyncState: 'active', lastServerSyncAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      }
+    }
+
+    current = loadJourneyRuntime() || current;
+    if ((current.state === 'arrived' || current.state === 'cancelled') && current.serverSessionId) {
+      const position = current.lastPosition;
+      const { error } = await supabase.rpc('afat_finish_navigation_session', {
+        p_session_id: current.serverSessionId,
+        p_outcome: current.state === 'arrived' ? 'arrived' : 'cancelled',
+        p_latitude: position?.latitude ?? null,
+        p_longitude: position?.longitude ?? null,
+        p_accuracy_m: position?.accuracy ?? null,
+      });
+      if (error) throw new Error(error.message || 'Navigation completion could not sync');
+      persist({ ...(loadJourneyRuntime() || current), serverSyncState: 'finished', lastServerSyncAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    }
+  } catch {
+    const current = loadJourneyRuntime();
+    if (current) persist({ ...current, serverSyncState: navigator.onLine ? 'failed' : 'offline', updatedAt: new Date().toISOString() });
+  } finally {
+    syncInFlight = false;
   }
 }
 
@@ -72,25 +160,34 @@ export function saveJourneyRuntime(
     startedAt: patch.startedAt ?? current?.startedAt ?? null,
     arrivedAt: patch.arrivedAt ?? current?.arrivedAt ?? null,
     lastPosition: patch.lastPosition ?? current?.lastPosition ?? null,
-    sampleCount: Number.isFinite(Number(patch.sampleCount))
-      ? Number(patch.sampleCount)
-      : Number(current?.sampleCount || 0),
+    sampleCount: Number.isFinite(Number(patch.sampleCount)) ? Number(patch.sampleCount) : Number(current?.sampleCount || 0),
+    serverSessionId: patch.serverSessionId ?? current?.serverSessionId ?? null,
+    serverSyncState: patch.serverSyncState ?? current?.serverSyncState ?? 'idle',
+    lastServerSyncAt: patch.lastServerSyncAt ?? current?.lastServerSyncAt ?? null,
     updatedAt: new Date().toISOString(),
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: next }));
+  persist(next);
+  void syncJourneyRuntime(next);
   return next;
 }
 
 export function clearJourneyRuntime(state: 'idle' | 'cancelled' = 'idle') {
   const previous = loadJourneyRuntime();
-  localStorage.removeItem(STORAGE_KEY);
+  if (state === 'cancelled' && previous?.serverSessionId) {
+    const cancelled = persist({ ...previous, state: 'cancelled', updatedAt: new Date().toISOString() });
+    void syncJourneyRuntime(cancelled);
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+  }
   const next: AfatJourneyRuntimeSnapshot = {
     version: 1,
     profileId: previous?.profileId ?? null,
     state,
     updatedAt: new Date().toISOString(),
     sampleCount: previous?.sampleCount || 0,
+    serverSessionId: previous?.serverSessionId ?? null,
+    serverSyncState: previous?.serverSyncState ?? 'idle',
+    lastServerSyncAt: previous?.lastServerSyncAt ?? null,
   };
   window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: next }));
   return next;
@@ -115,7 +212,6 @@ export function distanceMeters(
   const lat2 = toRad(to.latitude);
   const deltaLat = toRad(to.latitude - from.latitude);
   const deltaLon = toRad(to.longitude - from.longitude);
-  const a = Math.sin(deltaLat / 2) ** 2
-    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   return 2 * earthRadiusM * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
