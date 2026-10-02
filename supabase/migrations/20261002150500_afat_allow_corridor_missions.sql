@@ -1,2 +1,0 @@
-alter table public.afat_micro_missions drop constraint if exists afat_micro_missions_mission_type_check;
-alter table public.afat_micro_missions add constraint afat_micro_missions_mission_type_check check (mission_type = any(array['verify_edge'::text,'verify_place'::text,'verify_pickup'::text,'confirm_name'::text,'confirm_condition'::text,'map_gap'::text,'verify_corridor'::text]));
