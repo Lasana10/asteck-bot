@@ -39,34 +39,94 @@ export type AtlasNearbyResponse = {
   edges: AtlasEdge[];
 };
 
+type NearbyArgs = {
+  latitude: number;
+  longitude: number;
+  radiusM?: number;
+  limit?: number;
+};
+
+type NearbyCacheEntry = { expiresAt: number; value: AtlasNearbyResponse };
+
+const NEARBY_CACHE_TTL_MS = 15_000;
+const NEARBY_CACHE_MAX = 48;
+const nearbyCache = new Map<string, NearbyCacheEntry>();
+const nearbyInFlight = new Map<string, Promise<AtlasNearbyResponse>>();
+
+function rounded(value: number, precision = 3) {
+  const factor = 10 ** precision;
+  return Math.round(Number(value) * factor) / factor;
+}
+
+function nearbyKey(args: NearbyArgs) {
+  return [
+    rounded(args.latitude),
+    rounded(args.longitude),
+    Math.round(args.radiusM ?? 2500),
+    Math.round(args.limit ?? 120),
+  ].join(':');
+}
+
+function pruneNearbyCache(now = Date.now()) {
+  for (const [key, value] of nearbyCache) {
+    if (value.expiresAt <= now) nearbyCache.delete(key);
+  }
+  while (nearbyCache.size > NEARBY_CACHE_MAX) {
+    const first = nearbyCache.keys().next().value;
+    if (!first) break;
+    nearbyCache.delete(first);
+  }
+}
+
 async function readApiResponse(response: Response) {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) return response.json().catch(() => ({}));
   return { error: await response.text().catch(() => '') };
 }
 
-export async function fetchAtlasNearby(args: {
-  latitude: number;
-  longitude: number;
-  radiusM?: number;
-  limit?: number;
-}): Promise<AtlasNearbyResponse> {
-  const params = new URLSearchParams({
-    lat: String(args.latitude),
-    lon: String(args.longitude),
-    radius_m: String(args.radiusM ?? 2500),
-    limit: String(args.limit ?? 120),
-  });
-  const response = await fetch(`${getApiBaseUrl()}/api/atlas/nearby?${params.toString()}`);
-  const data = await readApiResponse(response);
-  if (!response.ok) throw new Error(data.error || 'AFAT Atlas graph unavailable.');
-  return {
-    atlas_version: data.atlas_version || 'v1',
-    origin: data.origin || { latitude: args.latitude, longitude: args.longitude },
-    radius_m: Number(data.radius_m || args.radiusM || 2500),
-    nodes: Array.isArray(data.nodes) ? data.nodes : [],
-    edges: Array.isArray(data.edges) ? data.edges : [],
-  };
+export async function fetchAtlasNearby(args: NearbyArgs): Promise<AtlasNearbyResponse> {
+  const key = nearbyKey(args);
+  const now = Date.now();
+  const cached = nearbyCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const existing = nearbyInFlight.get(key);
+  if (existing) return existing;
+
+  pruneNearbyCache(now);
+  const request = (async () => {
+    const params = new URLSearchParams({
+      lat: String(args.latitude),
+      lon: String(args.longitude),
+      radius_m: String(args.radiusM ?? 2500),
+      limit: String(args.limit ?? 120),
+    });
+    const response = await fetch(`${getApiBaseUrl()}/api/atlas/nearby?${params.toString()}`);
+    const data = await readApiResponse(response);
+    if (!response.ok) throw new Error(data.error || 'AFAT Atlas graph unavailable.');
+    const value = {
+      atlas_version: data.atlas_version || 'v1',
+      origin: data.origin || { latitude: args.latitude, longitude: args.longitude },
+      radius_m: Number(data.radius_m || args.radiusM || 2500),
+      nodes: Array.isArray(data.nodes) ? data.nodes : [],
+      edges: Array.isArray(data.edges) ? data.edges : [],
+    } as AtlasNearbyResponse;
+    nearbyCache.set(key, { expiresAt: Date.now() + NEARBY_CACHE_TTL_MS, value });
+    pruneNearbyCache();
+    return value;
+  })();
+
+  nearbyInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    nearbyInFlight.delete(key);
+  }
+}
+
+export function clearAtlasNearbyCache() {
+  nearbyCache.clear();
+  nearbyInFlight.clear();
 }
 
 export async function submitAtlasObservation(args: {
