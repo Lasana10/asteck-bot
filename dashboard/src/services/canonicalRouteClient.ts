@@ -42,25 +42,87 @@ export type AfatCanonicalRoute = {
   segments?: AfatCanonicalRouteSegment[];
 };
 
-export async function fetchCanonicalAfatRoute(input: {
+type RouteInput = {
   originLatitude: number;
   originLongitude: number;
   destinationLatitude: number;
   destinationLongitude: number;
   mode: AfatRouteMode;
   snapRadiusM?: number;
-}): Promise<AfatCanonicalRoute> {
-  const { data, error } = await supabase.rpc('afat_route_canonical', {
-    p_origin_lat: input.originLatitude,
-    p_origin_lon: input.originLongitude,
-    p_destination_lat: input.destinationLatitude,
-    p_destination_lon: input.destinationLongitude,
-    p_mode: input.mode,
-    p_snap_radius_m: input.snapRadiusM ?? 1200,
-  });
+};
 
-  if (error) throw new Error(error.message || 'AFAT could not calculate a trusted route.');
-  return (data || { status: 'unavailable', mode: input.mode, reason: 'route_service_returned_no_result' }) as AfatCanonicalRoute;
+type CachedRoute = { expiresAt: number; route: AfatCanonicalRoute };
+
+const ROUTE_CACHE_TTL_MS = 20_000;
+const ROUTE_CACHE_MAX = 80;
+const routeCache = new Map<string, CachedRoute>();
+const routeInFlight = new Map<string, Promise<AfatCanonicalRoute>>();
+
+function rounded(value: number, precision = 4) {
+  const factor = 10 ** precision;
+  return Math.round(Number(value) * factor) / factor;
+}
+
+function routeKey(input: RouteInput) {
+  return [
+    input.mode,
+    rounded(input.originLatitude),
+    rounded(input.originLongitude),
+    rounded(input.destinationLatitude),
+    rounded(input.destinationLongitude),
+    Math.round(input.snapRadiusM ?? 1200),
+  ].join(':');
+}
+
+function pruneRouteCache(now = Date.now()) {
+  for (const [key, value] of routeCache) {
+    if (value.expiresAt <= now) routeCache.delete(key);
+  }
+  while (routeCache.size > ROUTE_CACHE_MAX) {
+    const first = routeCache.keys().next().value;
+    if (!first) break;
+    routeCache.delete(first);
+  }
+}
+
+export async function fetchCanonicalAfatRoute(input: RouteInput): Promise<AfatCanonicalRoute> {
+  const key = routeKey(input);
+  const now = Date.now();
+  const cached = routeCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.route;
+
+  const existing = routeInFlight.get(key);
+  if (existing) return existing;
+
+  pruneRouteCache(now);
+  const request = (async () => {
+    const { data, error } = await supabase.rpc('afat_route_canonical', {
+      p_origin_lat: input.originLatitude,
+      p_origin_lon: input.originLongitude,
+      p_destination_lat: input.destinationLatitude,
+      p_destination_lon: input.destinationLongitude,
+      p_mode: input.mode,
+      p_snap_radius_m: input.snapRadiusM ?? 1200,
+    });
+
+    if (error) throw new Error(error.message || 'AFAT could not calculate a trusted route.');
+    const route = (data || { status: 'unavailable', mode: input.mode, reason: 'route_service_returned_no_result' }) as AfatCanonicalRoute;
+    routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, route });
+    pruneRouteCache();
+    return route;
+  })();
+
+  routeInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    routeInFlight.delete(key);
+  }
+}
+
+export function clearCanonicalRouteCache() {
+  routeCache.clear();
+  routeInFlight.clear();
 }
 
 export function routeToLatLngs(route?: AfatCanonicalRoute | null): Array<[number, number]> {
