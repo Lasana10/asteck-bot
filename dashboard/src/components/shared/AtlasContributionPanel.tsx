@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { CircleStop, CloudOff, MapPinned, Navigation, Radio, ShieldCheck, Crosshair } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CircleStop, CloudOff, Crosshair, MapPinned, Navigation, Radio, ShieldCheck, Signal, WifiOff } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import {
   completeAtlasContributionSession,
@@ -115,7 +115,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
         setSessionId(null);setPhase('error');setNotice('AFAT received GPS but could not save the first point. Recording did not start.');
         return;
       }
-      setNotice('Recording live. The first GPS point is saved in AFAT and the map will follow new saved movement.');
+      setNotice('Recording live. The first GPS point is saved and the map can now follow new saved movement.');
       startWatcher(id,uid);
     },error=>{setBusy(false);setPhase('error');setNotice(error.message||'AFAT could not obtain a GPS fix. Nothing was recorded.');},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
   };
@@ -134,21 +134,66 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
   };
 
   const phaseLabel={idle:'Ready',waiting_gps:'Waiting for GPS',saving_first:'Saving first point',recording:'Recording live',offline:'Captured locally',error:'Not recording'}[phase];
+  const live=sessionId||phase==='waiting_gps'||phase==='saving_first';
+  const savedRatio=useMemo(()=>captured>0?Math.min(100,Math.round((saved/captured)*100)):0,[captured,saved]);
+  const matchedRatio=useMemo(()=>saved>0?Math.min(100,Math.round((matched/saved)*100)):0,[matched,saved]);
 
-  return <section className="rounded-[1.5rem] border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[0.08] to-slate-950/70 p-5 shadow-xl backdrop-blur-xl">
-    <div className="flex items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-200/75">{t('atlas.title')}</p><span className={`rounded-full border px-2 py-1 text-[8px] font-black uppercase ${phase==='recording'?'border-emerald-300/30 bg-emerald-400/10 text-emerald-100':phase==='error'?'border-rose-300/30 bg-rose-400/10 text-rose-100':'border-white/10 bg-white/5 text-white/50'}`}>{phaseLabel}</span></div><h2 className="mt-2 text-xl font-black">Improve AFAT while you move</h2><p className="mt-2 max-w-2xl text-xs leading-5 text-white/50">AFAT only calls this recording after a GPS fix has been saved. Normal journeys can teach the map with your permission.</p></div><MapPinned className="h-6 w-6 shrink-0 text-cyan-200"/></div>
-    {!sessionId&&phase!=='waiting_gps'&&phase!=='saving_first'&&<div className="mt-5 grid gap-3 sm:grid-cols-3">
-      <label className="text-[10px] font-black uppercase tracking-wider text-white/45">How are you moving?<select value={mode} onChange={e=>setMode(e.target.value as AtlasContributionMode)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white">{MODES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></label>
-      <label className="text-[10px] font-black uppercase tracking-wider text-white/45">Privacy<select value={privacy} onChange={e=>setPrivacy(e.target.value as AtlasPrivacyMode)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white"><option value="private_aggregate">{t('atlas.private')}</option><option value="trusted_review">{t('atlas.review')}</option><option value="public_mapping">{t('atlas.public')}</option></select></label>
-      <label className="text-[10px] font-black uppercase tracking-wider text-white/45">Sensing<select value={sensingProfile} onChange={e=>setSensingProfile(e.target.value as SensingProfile)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white"><option value="saver">Saver</option><option value="balanced">Balanced</option><option value="survey">Survey</option></select></label>
-    </div>}
-    {(sessionId||phase==='waiting_gps'||phase==='saving_first')&&<div className="mt-5 grid grid-cols-4 gap-3">
-      <Stat icon={Crosshair} label="Captured" value={captured}/><Stat icon={Navigation} label="Saved" value={saved}/><Stat icon={Radio} label="Known road" value={matched}/><Stat icon={CloudOff} label="Offline" value={queued}/>
-      <p className="col-span-4 text-[8px] font-black uppercase tracking-wider text-cyan-100/45">GPS {accuracy==null?'waiting':`±${Math.round(accuracy)} m`} · adaptive sensing · {sensingProfile} · {sensingReason}</p>
-    </div>}
-    <button onClick={sessionId?finish:begin} disabled={busy} className={`mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-xs font-black disabled:opacity-40 ${sessionId?'bg-rose-400 text-slate-950':'bg-cyan-300 text-slate-950'}`}>{sessionId?<CircleStop className="h-4 w-4"/>:<Navigation className="h-4 w-4"/>}{sessionId?'Finish contribution':phase==='waiting_gps'?'Waiting for GPS…':phase==='saving_first'?'Saving first point…':'Start real recording'}</button>
-    {notice&&<p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/60">{notice}</p>}
-    {sessionId&&<p className="mt-2 text-[9px] text-white/35"><ShieldCheck className="mr-1 inline h-3 w-3"/>Unsaved captures are never counted as server evidence.</p>}
+  return <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[#050b12] shadow-[0_24px_70px_rgba(0,0,0,.32)]">
+    <div className="relative p-5 sm:p-6">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl"/>
+      <div className="relative flex items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-200/65">{t('atlas.title')}</p>
+            <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[8px] font-black uppercase tracking-wider ${phase==='recording'?'border-emerald-300/25 bg-emerald-400/10 text-emerald-100':phase==='offline'?'border-amber-300/25 bg-amber-400/10 text-amber-100':phase==='error'?'border-rose-300/25 bg-rose-400/10 text-rose-100':'border-white/10 bg-white/5 text-white/50'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${phase==='recording'?'bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,.85)]':phase==='offline'?'bg-amber-300':phase==='error'?'bg-rose-300':'bg-white/35'}`}/>{phaseLabel}
+            </span>
+          </div>
+          <h2 className="mt-2 text-xl font-black text-white sm:text-2xl">Teach AFAT by moving normally</h2>
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-white/48">A contribution only becomes evidence after AFAT has a real GPS fix and successfully saves the point. Captured, saved and road-matched are kept separate.</p>
+        </div>
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-cyan-300/15 bg-cyan-400/10"><MapPinned className="h-5 w-5 text-cyan-200"/></div>
+      </div>
+
+      {!live&&<div className="relative mt-5 grid gap-3 sm:grid-cols-3">
+        <Field label="Movement"><select value={mode} onChange={e=>setMode(e.target.value as AtlasContributionMode)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none">{MODES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
+        <Field label="Privacy"><select value={privacy} onChange={e=>setPrivacy(e.target.value as AtlasPrivacyMode)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none"><option value="private_aggregate">{t('atlas.private')}</option><option value="trusted_review">{t('atlas.review')}</option><option value="public_mapping">{t('atlas.public')}</option></select></Field>
+        <Field label="Sensing"><select value={sensingProfile} onChange={e=>setSensingProfile(e.target.value as SensingProfile)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none"><option value="saver">Saver</option><option value="balanced">Balanced</option><option value="survey">Survey</option></select></Field>
+      </div>}
+
+      {live&&<div className="relative mt-5 rounded-[22px] border border-white/10 bg-white/[0.035] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {phase==='offline'?<WifiOff className="h-4 w-4 text-amber-300"/>:<Signal className={`h-4 w-4 ${phase==='recording'?'text-emerald-300':'text-cyan-300'}`}/>} 
+            <p className="text-sm font-black text-white">{phase==='recording'?'AFAT is receiving real movement':phase==='offline'?'Capturing locally until connection returns':'Establishing evidence stream'}</p>
+          </div>
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[9px] font-bold text-white/55">GPS {accuracy==null?'waiting':`±${Math.round(accuracy)} m`}</span>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Metric icon={Crosshair} label="Captured" value={captured} detail="device fixes"/>
+          <Metric icon={Navigation} label="Saved" value={saved} detail={`${savedRatio}% of captures`}/>
+          <Metric icon={Radio} label="Road matched" value={matched} detail={`${matchedRatio}% of saved`}/>
+          <Metric icon={CloudOff} label="Waiting sync" value={queued} detail={queued?'kept on device':'nothing pending'}/>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <Progress label="Saved evidence" value={savedRatio}/>
+          <Progress label="Known-road match" value={matchedRatio}/>
+        </div>
+        <p className="mt-3 text-[9px] leading-4 text-white/35">Adaptive sensing · {sensingProfile} · {sensingReason}</p>
+      </div>}
+
+      <button onClick={sessionId?finish:begin} disabled={busy} className={`relative mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black transition disabled:opacity-40 ${sessionId?'border border-rose-300/20 bg-rose-400/12 text-rose-100':'bg-cyan-300 text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,.18)]'}`}>
+        {sessionId?<CircleStop className="h-4 w-4"/>:<Navigation className="h-4 w-4"/>}{sessionId?'Finish and verify saved evidence':phase==='waiting_gps'?'Waiting for GPS…':phase==='saving_first'?'Saving first point…':'Start real recording'}
+      </button>
+
+      {notice&&<div className="relative mt-3 flex items-start gap-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/58"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200"/><p>{notice}</p></div>}
+      {sessionId&&<p className="relative mt-2 text-[9px] text-white/32">Unsaved captures are never counted as server evidence.</p>}
+    </div>
   </section>;
 }
-function Stat({icon:Icon,label,value}:{icon:React.ElementType;label:string;value:number}){return <div className="rounded-xl border border-white/10 bg-black/20 p-3"><Icon className="h-4 w-4 text-cyan-200"/><p className="mt-2 text-lg font-black">{value}</p><p className="text-[7px] uppercase tracking-wider text-white/35">{label}</p></div>}
+
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="text-[9px] font-black uppercase tracking-wider text-white/38">{label}{children}</label>}
+function Metric({icon:Icon,label,value,detail}:{icon:React.ElementType;label:string;value:number;detail:string}){return <div><div className="flex items-center gap-2"><Icon className="h-4 w-4 text-cyan-200"/><p className="text-[8px] font-black uppercase tracking-wider text-white/35">{label}</p></div><p className="mt-1 text-2xl font-black text-white">{value}</p><p className="text-[9px] text-white/30">{detail}</p></div>}
+function Progress({label,value}:{label:string;value:number}){return <div><div className="mb-1 flex items-center justify-between text-[8px] font-black uppercase tracking-wider text-white/35"><span>{label}</span><span>{value}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-cyan-300 transition-all duration-500" style={{width:`${Math.max(0,Math.min(100,value))}%`}}/></div></div>}
