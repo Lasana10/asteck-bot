@@ -50,10 +50,11 @@ export function PassengerWorkspaceHome({
           </div>
           <div className="grid shrink-0 grid-cols-3 gap-2 text-center">
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><MapPin className="mx-auto h-4 w-4 text-cyan-200"/><p className="mt-2 text-lg font-black">{live.checkpoints.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">meeting points</p></div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><Car className="mx-auto h-4 w-4 text-emerald-200"/><p className="mt-2 text-lg font-black">{live.tracks.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">live supply</p></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><Car className="mx-auto h-4 w-4 text-emerald-200"/><p className="mt-2 text-lg font-black">{live.tracks.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">network tracks</p></div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><ShieldCheck className="mx-auto h-4 w-4 text-amber-200"/><p className="mt-2 text-lg font-black">{live.incidents.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">conditions</p></div>
           </div>
         </div>
+        <p className="mt-4 text-[10px] leading-5 text-white/30">Nearby operator supply is checked only after AFAT has a real pickup position and only counts recently-pinged verified vehicles. Network tracks above are not presented as bookable supply.</p>
       </section>
 
       <PassagePlanner
@@ -76,7 +77,7 @@ export function PassengerWorkspaceHome({
           <Share2 className="h-4 w-4 text-violet-200"/><p className="mt-3 text-sm font-black">Share the place people can actually reach</p><p className="mt-1 text-xs leading-5 text-white/40">Entrances and meeting points matter more than a pin alone.</p>
         </article>
         <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-          <Sparkles className="h-4 w-4 text-emerald-200"/><p className="mt-3 text-sm font-black">Book when it adds value</p><p className="mt-1 text-xs leading-5 text-white/40">When supply is available, move from map intelligence into dispatch in one flow.</p>
+          <Sparkles className="h-4 w-4 text-emerald-200"/><p className="mt-3 text-sm font-black">Book when it adds value</p><p className="mt-1 text-xs leading-5 text-white/40">When verified fresh supply is observed near your pickup, move from map intelligence into dispatch in one flow.</p>
         </article>
       </section>
 
