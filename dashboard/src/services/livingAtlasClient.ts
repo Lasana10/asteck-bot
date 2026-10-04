@@ -48,12 +48,18 @@ export async function completeAtlasContributionSession(sessionId: string) {
   });
 }
 
+export async function cancelAtlasContributionSession(sessionId: string, reason = 'user_cancelled') {
+  return supabase.rpc('afat_cancel_contribution_session', {
+    p_session_id: sessionId,
+    p_reason: reason,
+  });
+}
+
 export async function fetchAtlasKnowledgeGaps(limit = 50) {
   return supabase.rpc('afat_atlas_knowledge_gaps', {
     p_limit: limit,
   });
 }
-
 
 export async function reviewAtlasCandidate(candidateId: string, decision: 'corroborate' | 'trust' | 'reject', notes?: string) {
   return supabase.rpc('afat_review_candidate_feature', {
@@ -76,7 +82,6 @@ export async function createAtlasMappingMission(input: {
     p_expires_at: input.expiresAt || null,
   });
 }
-
 
 export async function startCityAtlasContributionSession(input: {
   cityKey?: string;
@@ -103,7 +108,6 @@ export async function promoteTrustedAtlasCandidate(candidateId: string, name?: s
     p_city_key: cityKey,
   });
 }
-
 
 export async function resolveAtlasEvidenceConflict(conflictId: string, decision: 'resolve' | 'dismiss', notes?: string) {
   return supabase.rpc('afat_resolve_evidence_conflict', {
