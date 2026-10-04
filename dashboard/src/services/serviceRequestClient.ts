@@ -40,8 +40,48 @@ export async function createServiceRequest(input: {
 }
 
 export async function submitOwnServiceRequestForDispatch(requestId: string) {
-  const { data, error } = await supabase.rpc('afat_submit_own_service_request_for_dispatch', {
+  const { data, error } = await supabase.rpc('afat_submit_own_service_request_for_dispatch', { p_request_id: requestId });
+  return { data, error };
+}
+
+export async function operatorCollectServiceRequest(input: {
+  assignmentId: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracyM?: number | null;
+  evidence?: Record<string, unknown>;
+}) {
+  const { data, error } = await supabase.rpc('afat_operator_collect_service_request', {
+    p_assignment_id: input.assignmentId,
+    p_latitude: input.latitude ?? null,
+    p_longitude: input.longitude ?? null,
+    p_accuracy_m: input.accuracyM ?? null,
+    p_evidence: input.evidence ?? {},
+  });
+  return { data, error };
+}
+
+export async function operatorProveServiceDelivery(input: {
+  assignmentId: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracyM?: number | null;
+  evidence?: Record<string, unknown>;
+}) {
+  const { data, error } = await supabase.rpc('afat_operator_prove_service_delivery', {
+    p_assignment_id: input.assignmentId,
+    p_latitude: input.latitude ?? null,
+    p_longitude: input.longitude ?? null,
+    p_accuracy_m: input.accuracyM ?? null,
+    p_evidence: input.evidence ?? {},
+  });
+  return { data, error };
+}
+
+export async function confirmServiceReceipt(requestId: string, evidence: Record<string, unknown> = {}) {
+  const { data, error } = await supabase.rpc('afat_confirm_service_receipt', {
     p_request_id: requestId,
+    p_evidence: evidence,
   });
   return { data, error };
 }
@@ -87,10 +127,19 @@ export async function recordServiceProof(input: {
 export async function fetchMyServiceRequests() {
   const { data, error } = await supabase
     .from('service_requests')
-    .select('id,service_type,origin,destination,status,scheduled_at,passenger_count,package_count,priority,price_quote_xaf,operator_id,vehicle_id,dispatch_assignment_id,created_at,updated_at')
+    .select('id,service_type,origin,destination,status,scheduled_at,passenger_count,package_count,priority,price_quote_xaf,operator_id,vehicle_id,dispatch_assignment_id,metadata,created_at,updated_at')
     .order('created_at', { ascending: false })
     .limit(40);
   return { data: data || [], error };
+}
+
+export async function fetchServiceRequestById(requestId: string) {
+  const { data, error } = await supabase
+    .from('service_requests')
+    .select('id,service_type,origin,destination,status,scheduled_at,passenger_count,package_count,priority,price_quote_xaf,operator_id,vehicle_id,dispatch_assignment_id,metadata,created_at,updated_at')
+    .eq('id', requestId)
+    .maybeSingle();
+  return { data: data || null, error };
 }
 
 export async function fetchServiceRequestEvents(requestId: string) {
