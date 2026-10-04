@@ -11,6 +11,7 @@ import { supabase } from '../../supabaseClient';
 import { AFAT_BASEMAPS, type AfatBasemapMode } from '../../services/mapBasemaps';
 import { fetchAtlasNearby, type AtlasEdge, type AtlasNearbyResponse, type AtlasNode } from '../../services/atlasClient';
 import { distanceMeters } from '../../services/journeyRuntime';
+import { cacheSpatialViewport, readCachedPlaces } from '../../services/offlineSpatialCache';
 
 type SpatialPoint = {
   latitude?: number | null;
@@ -23,6 +24,8 @@ type ResolvedOrigin = {
   latitude: number;
   longitude: number;
   accuracy?: number | null;
+  speedKph?: number | null;
+  heading?: number | null;
   label: string;
   source?: 'gps' | 'manual';
 };
@@ -80,6 +83,10 @@ function formatDistance(distanceM?: number) {
 
 function mapCenter(city?: string | null): [number, number] {
   return String(city || '').toLowerCase().includes('douala') ? DOUALA_CENTER : YAOUNDE_CENTER;
+}
+
+function cityKeyFor(city?: string | null) {
+  return String(city || '').toLowerCase().includes('douala') ? 'cm-douala' : 'cm-yaounde';
 }
 
 function markerElement(kind: MarkerKind) {
@@ -216,21 +223,38 @@ export function PassengerSpatialMap({
 
   const loadPlacesInView = async (map: MapLibreMap) => {
     const bounds = map.getBounds();
-    const cityKey = String(city || '').toLowerCase().includes('douala') ? 'cm-douala' : 'cm-yaounde';
+    const cityKey = cityKeyFor(city);
+    const request = {
+      cityKey,
+      west: bounds.getWest(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      north: bounds.getNorth(),
+    };
+    const currentZoom = map.getZoom();
     const { data, error } = await supabase.rpc('afat_places_in_view', {
       p_city_key: cityKey,
-      p_west: bounds.getWest(),
-      p_south: bounds.getSouth(),
-      p_east: bounds.getEast(),
-      p_north: bounds.getNorth(),
-      p_limit: zoom >= 15 ? 900 : zoom >= 13 ? 650 : 350,
+      p_west: request.west,
+      p_south: request.south,
+      p_east: request.east,
+      p_north: request.north,
+      p_limit: currentZoom >= 15 ? 900 : currentZoom >= 13 ? 650 : 350,
     });
     if (error) {
-      setMapStatus('AFAT places could not be loaded for this view.');
+      const cached = readCachedPlaces(request);
+      if (cached.places.length) {
+        setViewPlaces(cached.places);
+        const age = cached.capturedAt ? Math.max(0, Math.round((Date.now() - Date.parse(cached.capturedAt)) / 60000)) : null;
+        setMapStatus(`Offline map intelligence · showing ${cached.places.length} cached places${age != null ? ` from ${age < 60 ? `${age} min` : `${Math.round(age / 60)} h`} ago` : ''}. Live conditions are unavailable.`);
+      } else {
+        setMapStatus('AFAT places could not be loaded and this area is not cached yet.');
+      }
       return;
     }
+    const places = Array.isArray(data?.places) ? data.places : [];
     setMapStatus('');
-    setViewPlaces(Array.isArray(data?.places) ? data.places : []);
+    setViewPlaces(places);
+    cacheSpatialViewport({ ...request, places });
   };
 
   const loadAtlas = async (latitude: number, longitude: number) => {
@@ -254,7 +278,7 @@ export function PassengerSpatialMap({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const basemap = AFAT_BASEMAPS[basemapMode];
+    const basemap = AFAT_BASEMAPS.intel;
     const map = new MapLibreMap({
       container: containerRef.current,
       center: mapCenter(city),
@@ -268,8 +292,8 @@ export function PassengerSpatialMap({
           basemap: { type: 'raster', tiles: basemap.tiles, tileSize: 256, attribution: basemap.attribution, maxzoom: 19 },
         },
         layers: [
-          { id: 'afat-background', type: 'background', paint: { 'background-color': basemapMode === 'standard' ? '#d9e3ea' : '#06101a' } },
-          { id: 'basemap', type: 'raster', source: 'basemap', paint: { 'raster-opacity': basemap.opacity, 'raster-saturation': basemapMode === 'satellite' ? -0.08 : -0.18, 'raster-contrast': basemapMode === 'intel' ? 0.12 : 0.04 } },
+          { id: 'afat-background', type: 'background', paint: { 'background-color': '#06101a' } },
+          { id: 'basemap', type: 'raster', source: 'basemap', paint: { 'raster-opacity': basemap.opacity, 'raster-saturation': -0.18, 'raster-contrast': 0.12 } },
         ],
       },
     });
@@ -305,7 +329,7 @@ export function PassengerSpatialMap({
       setOrigin(next);
       setManualMode(false);
       setLocationMessage('Start point pinned manually. This is user-selected, not GPS evidence.');
-      onOriginResolvedRef.current?.({ latitude: next.latitude, longitude: next.longitude, accuracy: null, label: 'Pinned start point', source: 'manual' });
+      onOriginResolvedRef.current?.({ latitude: next.latitude, longitude: next.longitude, accuracy: null, speedKph: null, heading: null, label: 'Pinned start point', source: 'manual' });
       void loadAtlas(next.latitude, next.longitude);
     });
 
@@ -318,7 +342,23 @@ export function PassengerSpatialMap({
       mapRef.current = null;
       setMapReady(false);
     };
-  }, [basemapMode, city]);
+  }, [city]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const basemap = AFAT_BASEMAPS[basemapMode];
+    const source = map.getSource('basemap') as any;
+    try {
+      source?.setTiles?.(basemap.tiles);
+      map.setPaintProperty('afat-background', 'background-color', basemapMode === 'street' ? '#d9e3ea' : '#06101a');
+      map.setPaintProperty('basemap', 'raster-opacity', basemap.opacity);
+      map.setPaintProperty('basemap', 'raster-saturation', basemapMode === 'satellite' ? -0.08 : -0.18);
+      map.setPaintProperty('basemap', 'raster-contrast', basemapMode === 'intel' ? 0.12 : 0.04);
+    } catch {
+      setMapStatus('Map layer switch could not complete. Your current map view was preserved.');
+    }
+  }, [basemapMode, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -499,6 +539,8 @@ export function PassengerSpatialMap({
     setLocationMessage('Live navigation · waiting for GPS movement…');
     navigationWatchRef.current = navigator.geolocation.watchPosition(
       (position) => {
+        const speedKph = Number.isFinite(Number(position.coords.speed)) && position.coords.speed != null ? Math.max(0, Number(position.coords.speed) * 3.6) : null;
+        const heading = Number.isFinite(Number(position.coords.heading)) && position.coords.heading != null ? Number(position.coords.heading) : null;
         const next = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
@@ -507,12 +549,11 @@ export function PassengerSpatialMap({
           name: 'Live navigation position',
         };
         setOrigin(next);
-        setLocationMessage(`GPS live · ±${Math.round(position.coords.accuracy)} m`);
+        setLocationMessage(`GPS live${speedKph != null && speedKph >= 2 ? ` · ${Math.round(speedKph)} km/h` : ''} · ±${Math.round(position.coords.accuracy)} m`);
         const now = Date.now();
         if (now - lastRuntimePushAt.current >= 8000 || lastRuntimePushAt.current === 0) {
           lastRuntimePushAt.current = now;
-          const resolved = { latitude: next.latitude, longitude: next.longitude, accuracy: next.accuracy, label: `Live position · ±${Math.round(next.accuracy)} m`, source: 'gps' as const };
-          onOriginResolvedRef.current?.(resolved);
+          const resolved: ResolvedOrigin = { latitude: next.latitude, longitude: next.longitude, accuracy: next.accuracy, speedKph, heading, label: `Live position · ±${Math.round(next.accuracy)} m`, source: 'gps' };
           onNavigationPositionRef.current?.(resolved);
           void loadAtlas(next.latitude, next.longitude);
         }
@@ -550,11 +591,13 @@ export function PassengerSpatialMap({
     setLocationMessage('Locating you…');
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        const speedKph = Number.isFinite(Number(position.coords.speed)) && position.coords.speed != null ? Math.max(0, Number(position.coords.speed) * 3.6) : null;
+        const heading = Number.isFinite(Number(position.coords.heading)) && position.coords.heading != null ? Number(position.coords.heading) : null;
         const next = { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy, source: 'gps' as const, name: 'Your current position' };
         setOrigin(next);
         setLocating(false);
         setLocationMessage(position.coords.accuracy <= 100 ? 'Current position ready.' : 'Position found, but GPS accuracy is broad. Pin a more precise start if needed.');
-        onOriginResolvedRef.current?.({ latitude: next.latitude, longitude: next.longitude, accuracy: next.accuracy, label: `Current position · ±${Math.round(next.accuracy)} m`, source: 'gps' });
+        onOriginResolvedRef.current?.({ latitude: next.latitude, longitude: next.longitude, accuracy: next.accuracy, speedKph, heading, label: `Current position · ±${Math.round(next.accuracy)} m`, source: 'gps' });
         void loadAtlas(next.latitude, next.longitude);
       },
       () => {
@@ -586,7 +629,7 @@ export function PassengerSpatialMap({
               <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/45">{navigationActive ? 'Moving with AFAT' : hasRoute ? 'Route ready' : 'Living map'}</p>
             </div>
             <p className="mt-1 truncate text-[15px] font-black text-white">{meetingPoint?.name || accessPoint?.name || destination?.name || selectedMapPlace?.name || (String(city).toLowerCase().includes('douala') ? 'Douala' : 'Yaoundé')}</p>
-            {hasRoute ? <p className="mt-1 text-[11px] font-semibold text-cyan-100/85">{formatDistance(route?.distance_m)}{route?.eta_seconds ? ` · ${Math.ceil(route.eta_seconds / 60)} min` : ' · ETA learns from real journeys'}</p> : <p className="mt-1 text-[10px] text-white/45">{atlasLoading ? 'Reading nearby mobility…' : `${viewPlaces.length} useful places visible`}</p>}
+            {hasRoute ? <p className="mt-1 text-[11px] font-semibold text-cyan-100/85">{formatDistance(route?.distance_m)}{route?.eta_seconds ? ` · ${Math.ceil(route.eta_seconds / 60)} min observed ETA` : ' · ETA learns from opted-in real journeys'}</p> : <p className="mt-1 text-[10px] text-white/45">{atlasLoading ? 'Reading nearby mobility…' : `${viewPlaces.length} useful places visible`}</p>}
           </div>
           <div className="flex rounded-2xl border border-white/10 bg-slate-950/74 p-1 shadow-xl backdrop-blur-2xl">
             {modeButton('intel', 'AFAT intelligence', Layers3)}
@@ -602,7 +645,7 @@ export function PassengerSpatialMap({
 
         {navigationActive && <div className="absolute left-3 bottom-4 z-20 rounded-[22px] border border-emerald-300/20 bg-slate-950/82 px-4 py-3 shadow-2xl backdrop-blur-2xl">
           <div className="flex items-center gap-2"><Navigation2 className="h-4 w-4 text-emerald-300"/><p className="text-[9px] font-black uppercase tracking-[0.16em] text-emerald-200">Navigation live</p></div>
-          <p className="mt-1 max-w-[240px] text-[11px] font-semibold text-white/75">{locationMessage || 'Following your movement and refreshing the route.'}</p>
+          <p className="mt-1 max-w-[240px] text-[11px] font-semibold text-white/75">{locationMessage || 'Following your movement. AFAT reroutes only when movement meaningfully leaves the current path.'}</p>
         </div>}
 
         {!navigationActive && selectedMapPlace && <div className="absolute inset-x-3 bottom-3 z-20 rounded-[24px] border border-white/10 bg-slate-950/88 p-4 shadow-[0_20px_55px_rgba(0,0,0,.45)] backdrop-blur-2xl">
