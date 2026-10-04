@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Globe2, Plus } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { CityExpansionRunner } from './CityExpansionRunner';
+import { EvidenceReviewQueue } from './EvidenceReviewQueue';
 
 export function CityGenesisPanel({onCreated}:{onCreated?:()=>void}){
   const [form,setForm]=useState({key:'',name:'',countryCode:'',countryName:'',timezone:'Africa/Douala',currency:'XAF',language:'en'});
@@ -45,6 +46,7 @@ export function CityGenesisPanel({onCreated}:{onCreated?:()=>void}){
       {notice&&<p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/55">{notice}</p>}
     </section>
     <CityExpansionRunner cityKey="cm-yaounde" />
+    <EvidenceReviewQueue />
   </div>;
 }
 function Input({label,value,onChange,placeholder}:{label:string;value:string;onChange:(v:string)=>void;placeholder:string}){
