@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Footprints, Route, ShieldCheck } from 'lucide-react';
 import type { AfatMultimodalPlan, AfatReachabilityAssessment } from '../../services/mobilityEvidenceClient';
+import { FieldEvidenceCapture } from './FieldEvidenceCapture';
 
 function labelForState(state?: string | null) {
   if (state === 'reachable_high_confidence') return 'Strong reachability';
@@ -33,6 +34,7 @@ export function ReachabilityInsightCard({
   const strong = assessment?.state === 'reachable_high_confidence';
   const connected = String(assessment?.state || '').startsWith('reachable');
   const chain = multimodal?.multimodal_chain;
+  const canContribute = Boolean(assessment?.place_id && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
 
   return (
     <div className="rounded-2xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[0.07] via-slate-950/70 to-emerald-400/[0.04] p-4">
@@ -74,6 +76,8 @@ export function ReachabilityInsightCard({
           <p className="text-[10px] leading-4 text-white/45">{multimodal.reason}</p>
         </div>
       )}
+
+      {canContribute && assessment?.place_id && <FieldEvidenceCapture placeId={assessment.place_id} placeName={assessment.name} />}
     </div>
   );
 }
