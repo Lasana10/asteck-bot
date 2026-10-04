@@ -3,6 +3,7 @@ import { ArrowRight, Car, MapPin, Navigation2, Share2, ShieldCheck, Sparkles } f
 import { PassagePlanner } from './PassagePlanner';
 import { PassengerJourneyContinuity } from './PassengerJourneyContinuity';
 import { DeliveryRequestPanel } from './DeliveryRequestPanel';
+import { CommunityEvidencePanel } from './CommunityEvidencePanel';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
@@ -50,7 +51,7 @@ export function PassengerWorkspaceHome({
           </div>
           <div className="grid shrink-0 grid-cols-3 gap-2 text-center">
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><MapPin className="mx-auto h-4 w-4 text-cyan-200"/><p className="mt-2 text-lg font-black">{live.checkpoints.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">meeting points</p></div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><Car className="mx-auto h-4 w-4 text-emerald-200"/><p className="mt-2 text-lg font-black">{live.tracks.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">live supply</p></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><Car className="mx-auto h-4 w-4 text-emerald-200"/><p className="mt-2 text-lg font-black">{live.tracks.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">live tracks</p></div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3"><ShieldCheck className="mx-auto h-4 w-4 text-amber-200"/><p className="mt-2 text-lg font-black">{live.incidents.length}</p><p className="text-[8px] uppercase tracking-wide text-white/30">conditions</p></div>
           </div>
         </div>
@@ -67,6 +68,7 @@ export function PassengerWorkspaceHome({
       />
 
       <DeliveryRequestPanel profile={profile} onCreated={onChanged} />
+      <CommunityEvidencePanel profile={profile} />
 
       <section className="grid gap-3 md:grid-cols-3">
         <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
@@ -76,7 +78,7 @@ export function PassengerWorkspaceHome({
           <Share2 className="h-4 w-4 text-violet-200"/><p className="mt-3 text-sm font-black">Share the place people can actually reach</p><p className="mt-1 text-xs leading-5 text-white/40">Entrances and meeting points matter more than a pin alone.</p>
         </article>
         <article className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-          <Sparkles className="h-4 w-4 text-emerald-200"/><p className="mt-3 text-sm font-black">Book when it adds value</p><p className="mt-1 text-xs leading-5 text-white/40">When supply is available, move from map intelligence into dispatch in one flow.</p>
+          <Sparkles className="h-4 w-4 text-emerald-200"/><p className="mt-3 text-sm font-black">Book when it adds value</p><p className="mt-1 text-xs leading-5 text-white/40">When verified fresh supply is observed near your pickup, AFAT can move from map intelligence into dispatch.</p>
         </article>
       </section>
 
