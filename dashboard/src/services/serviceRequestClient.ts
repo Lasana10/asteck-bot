@@ -39,6 +39,13 @@ export async function createServiceRequest(input: {
   return { data, error };
 }
 
+export async function submitOwnServiceRequestForDispatch(requestId: string) {
+  const { data, error } = await supabase.rpc('afat_submit_own_service_request_for_dispatch', {
+    p_request_id: requestId,
+  });
+  return { data, error };
+}
+
 export async function transitionServiceRequest(input: {
   requestId: string;
   expectedStatus: string;
