@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bike, Car, CheckCircle, Clock, Footprints, MapPin, Navigation2, Search, Share2, ShieldAlert, Square } from 'lucide-react';
 import {
   claimAfatDestination,
@@ -17,6 +17,7 @@ import type { AfatAccessPoint, AfatMeetingPoint, AfatPlaceCandidate } from '../.
 import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
+import { ReachabilityInsightCard } from './ReachabilityInsightCard';
 import { fetchCanonicalAfatRoute, type AfatCanonicalRoute, type AfatRouteMode } from '../../services/canonicalRouteClient';
 import {
   clearJourneyRuntime,
@@ -24,6 +25,14 @@ import {
   saveJourneyRuntime,
   type AfatJourneyRuntimeSnapshot,
 } from '../../services/journeyRuntime';
+import {
+  assessPlaceReachability,
+  planMultimodalJourney,
+  recordMobilityGap,
+  type AfatMultimodalPlan,
+  type AfatReachabilityAssessment,
+} from '../../services/mobilityEvidenceClient';
+import { decideReroute, formatRouteProgress, type AfatRouteProgress } from '../../services/routeGuidance';
 
 type Props = {
   profile: any;
@@ -33,7 +42,15 @@ type Props = {
   onPassageCreated?: (passage: any) => void;
 };
 
-type OriginFix = { latitude: number; longitude: number; accuracy?: number | null; label: string; source?: 'gps' | 'manual' };
+type OriginFix = {
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+  speedKph?: number | null;
+  heading?: number | null;
+  label: string;
+  source?: 'gps' | 'manual';
+};
 
 function pointFrom(value: any, fallbackName?: string) {
   if (!value) return null;
@@ -65,7 +82,11 @@ function routeMessageFor(route: AfatCanonicalRoute | null) {
   if (!route) return '';
   if (route.status === 'ok') {
     const km = Number(route.distance_m || 0) / 1000;
-    return `Connected AFAT route ready${km > 0 ? ` · ${km.toFixed(km >= 10 ? 0 : 1)} km` : ''}. ETA appears only after AFAT has a trusted speed profile.`;
+    const distance = km > 0 ? ` · ${km.toFixed(km >= 10 ? 0 : 1)} km` : '';
+    if (route.eta_seconds) return `Connected AFAT route ready${distance} · ${Math.ceil(route.eta_seconds / 60)} min observed ETA.`;
+    const coverage = Number(route.eta_profile_coverage || 0);
+    if (coverage > 0) return `Connected AFAT route ready${distance}. ETA is withheld because trusted speed evidence covers only ${Math.round(coverage * 100)}% of this route.`;
+    return `Connected AFAT route ready${distance}. ETA appears only after opted-in real journeys create trusted speed coverage.`;
   }
   const copy: Record<string, string> = {
     origin_not_connected_to_trusted_graph: 'AFAT has not connected your current position to its road graph yet.',
@@ -83,7 +104,7 @@ function chooseJourneyDecision(
   routes: Partial<Record<AfatRouteMode, AfatCanonicalRoute>>,
   preflight: Record<string, any>,
 ): JourneyDecision | null {
-  const labels: Record<AfatRouteMode,string> = { walk:'Walk', moto:'Moto', car:'Taxi / car', minibus:'Shared' };
+  const labels: Record<AfatRouteMode,string> = { walk:'Walk', bike:'Bike', moto:'Moto', car:'Taxi / car', minibus:'Shared' };
   const available = (Object.entries(routes) as [AfatRouteMode,AfatCanonicalRoute][]).filter(([,route]) => route?.status === 'ok');
   if (!available.length) return null;
   const scored = available.map(([mode,route]) => {
@@ -95,7 +116,7 @@ function chooseJourneyDecision(
   }).sort((a,b) => b.score - a.score);
   const best = scored[0];
   const reasons:string[] = [];
-  if (best.eta > 0) reasons.push(`${Math.ceil(best.eta/60)} min trusted ETA`);
+  if (best.eta > 0) reasons.push(`${Math.ceil(best.eta/60)} min observed ETA`);
   else reasons.push('connected route');
   if (best.mode !== 'walk') {
     reasons.push(best.supply > 0 ? `${best.supply} live option${best.supply === 1 ? '' : 's'} observed` : 'live supply not yet observed');
@@ -109,10 +130,15 @@ function chooseJourneyDecision(
   };
 }
 
+function preferredCityKey(profile: any) {
+  return String(profile?.preferred_city || '').toLowerCase().includes('douala') ? 'cm-douala' : 'cm-yaounde';
+}
+
 export function PassagePlanner({ profile, originText = '', initialDestination = '', initialIntent = 'go', onPassageCreated }: Props) {
   const [destination, setDestination] = useState(initialDestination);
   const [originLabel, setOriginLabel] = useState(originText);
   const [originFix, setOriginFix] = useState<OriginFix | null>(null);
+  const [routeOriginFix, setRouteOriginFix] = useState<OriginFix | null>(null);
   const [arrivalTarget, setArrivalTarget] = useState('');
   const [vehicleType, setVehicleType] = useState<AfatRouteMode>('car');
   const [intentType, setIntentType] = useState<'go'|'meet'|'pickup'|'dropoff'|'send'|'deliver'|'board'|'explore'>(initialIntent);
@@ -134,7 +160,13 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [preflight, setPreflight] = useState<Record<string, any>>({});
   const [navigationActive, setNavigationActive] = useState(false);
   const [navigationSamples, setNavigationSamples] = useState(0);
+  const [routeProgress, setRouteProgress] = useState<AfatRouteProgress | null>(null);
+  const [reachability, setReachability] = useState<AfatReachabilityAssessment | null>(null);
+  const [multimodal, setMultimodal] = useState<AfatMultimodalPlan | null>(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(false);
   const [resumeSnapshot, setResumeSnapshot] = useState<AfatJourneyRuntimeSnapshot | null>(() => loadJourneyRuntime());
+  const lastRerouteAtRef = useRef<number | null>(null);
+  const gapKeysRef = useRef(new Set<string>());
   const [recentPlaces, setRecentPlaces] = useState<AfatPlaceCandidate[]>(() => {
     try {
       const raw = localStorage.getItem('afat_recent_places_v1');
@@ -143,6 +175,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       return [];
     }
   });
+
+  const recordGapOnce = (key: string, payload: Parameters<typeof recordMobilityGap>[0]) => {
+    if (!profile?.id || gapKeysRef.current.has(key)) return;
+    gapKeysRef.current.add(key);
+    void recordMobilityGap(payload);
+  };
 
   useEffect(() => {
     setDestination(initialDestination);
@@ -154,6 +192,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setRouteOptions({});
     setRouteMessage('');
     setStatusText('');
+    setReachability(null);
+    setMultimodal(null);
+    setRouteProgress(null);
     if (initialDestination) setNavigationActive(false);
   }, [initialDestination]);
 
@@ -194,23 +235,26 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const accessPoint = useMemo(() => pointFrom(selectedAccessPoint, selectedAccessPoint?.name), [selectedAccessPoint]);
   const arrivalPoint = (intentType==='meet'||intentType==='pickup'||intentType==='board') ? (meetingPoint || accessPoint || destinationPoint) : (accessPoint || meetingPoint || destinationPoint);
   const journeyDecision = useMemo(() => chooseJourneyDecision(routeOptions, preflight), [routeOptions, preflight]);
+  const routingOrigin = routeOriginFix || originFix;
+  const progressCopy = useMemo(() => formatRouteProgress(routeProgress), [routeProgress]);
+  const cityKey = preferredCityKey(profile);
 
   useEffect(() => {
     let active = true;
-    if (!originFix || !arrivalPoint) {
+    if (!routingOrigin || !arrivalPoint) {
       setCanonicalRoute(null);
       setRouteOptions({});
       setRouteMessage('');
       return;
     }
-    const modes: AfatRouteMode[] = ['walk', 'moto', 'car', 'minibus'];
+    const modes: AfatRouteMode[] = navigationActive ? [vehicleType] : ['walk', 'moto', 'car', 'minibus'];
     setRouteLoading(true);
     setRouteMessage('');
     Promise.all(modes.map(async (mode) => {
       try {
         const route = await fetchCanonicalAfatRoute({
-          originLatitude: originFix.latitude,
-          originLongitude: originFix.longitude,
+          originLatitude: routingOrigin.latitude,
+          originLongitude: routingOrigin.longitude,
           destinationLatitude: arrivalPoint.latitude,
           destinationLongitude: arrivalPoint.longitude,
           mode,
@@ -223,11 +267,26 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     })).then((entries) => {
       if (!active) return;
       const next = Object.fromEntries(entries) as Partial<Record<AfatRouteMode, AfatCanonicalRoute>>;
-      setRouteOptions(next);
-      const selected = next[vehicleType] || next.car || null;
-      setCanonicalRoute(selected);
-      setRouteMessage(routeMessageFor(selected));
-      if (selected?.status !== 'ok') {
+      if (navigationActive) setRouteOptions((previous) => ({ ...previous, ...next }));
+      else setRouteOptions(next);
+      const selected = next[vehicleType] || (!navigationActive ? next.car || null : null);
+      if (selected) {
+        setCanonicalRoute(selected);
+        setRouteMessage(routeMessageFor(selected));
+        if (selected.status !== 'ok' && selectedPlace) {
+          recordGapOnce(`route:${selectedPlace.id}:${vehicleType}`, {
+            cityKey,
+            signalType: 'route_failure',
+            label: `${selectedPlace.name} · ${vehicleType} route unavailable`,
+            placeId: selectedPlace.id,
+            mode: vehicleType,
+            latitude: arrivalPoint.latitude,
+            longitude: arrivalPoint.longitude,
+            metadata: { reason: selected.reason || 'route_unavailable' },
+          });
+        }
+      }
+      if (!navigationActive && selected?.status !== 'ok') {
         const firstAvailable = (['moto','car','minibus','walk'] as AfatRouteMode[]).find((mode) => next[mode]?.status === 'ok');
         if (firstAvailable) {
           setVehicleType(firstAvailable);
@@ -237,28 +296,81 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       }
     }).finally(() => { if (active) setRouteLoading(false); });
     return () => { active = false; };
-  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude]);
+  }, [routingOrigin?.latitude, routingOrigin?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, navigationActive, vehicleType, selectedPlace?.id, cityKey]);
 
   useEffect(() => {
     if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok' || navigationActive) return;
     saveJourneyRuntime({
       profileId: profile?.id || null,
+      cityKey,
       state: 'route_ready',
       placeId: selectedPlace.id,
       placeName: selectedPlace.name,
+      accessPointId: selectedAccessPoint?.id || null,
+      meetingPointId: selectedMeetingPoint?.id || null,
       destinationLatitude: arrivalPoint?.latitude || selectedPlace.latitude,
       destinationLongitude: arrivalPoint?.longitude || selectedPlace.longitude,
       mode: vehicleType,
       intentType,
       routeDistanceM: canonicalRoute.distance_m || null,
-      lastPosition: { latitude: originFix.latitude, longitude: originFix.longitude, accuracy: originFix.accuracy ?? null, recordedAt: new Date().toISOString() },
+      lastPosition: { latitude: originFix.latitude, longitude: originFix.longitude, accuracy: originFix.accuracy ?? null, speedKph: originFix.speedKph ?? null, heading: originFix.heading ?? null, recordedAt: new Date().toISOString() },
     });
-  }, [selectedPlace?.id, originFix?.latitude, originFix?.longitude, canonicalRoute?.status, canonicalRoute?.distance_m, vehicleType, intentType, navigationActive]);
+  }, [selectedPlace?.id, selectedAccessPoint?.id, selectedMeetingPoint?.id, originFix?.latitude, originFix?.longitude, canonicalRoute?.status, canonicalRoute?.distance_m, vehicleType, intentType, navigationActive, cityKey]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedPlace?.id || !originFix) {
+      setReachability(null);
+      setMultimodal(null);
+      setIntelligenceLoading(false);
+      return;
+    }
+    setIntelligenceLoading(true);
+    Promise.all([
+      assessPlaceReachability({ placeId: selectedPlace.id, originLatitude: originFix.latitude, originLongitude: originFix.longitude, mode: vehicleType }),
+      planMultimodalJourney({ placeId: selectedPlace.id, originLatitude: originFix.latitude, originLongitude: originFix.longitude }),
+    ]).then(([assessment, plan]) => {
+      if (!active) return;
+      setReachability(assessment);
+      setMultimodal(plan);
+      if (assessment.missing_evidence?.includes('verified_access_or_entrance')) {
+        recordGapOnce(`access:${selectedPlace.id}`, {
+          cityKey,
+          signalType: 'access_gap',
+          label: `${selectedPlace.name} · entrance/access evidence missing`,
+          placeId: selectedPlace.id,
+          mode: vehicleType,
+          latitude: Number(selectedPlace.latitude),
+          longitude: Number(selectedPlace.longitude),
+          metadata: { reachability_state: assessment.state, reliability_score: assessment.reliability_score },
+        });
+      }
+      if ((intentType === 'board' || vehicleType === 'minibus') && plan.multimodal_chain_status === 'insufficient_transit_evidence') {
+        recordGapOnce(`transit:${selectedPlace.id}`, {
+          cityKey,
+          signalType: 'transit_gap',
+          label: `${selectedPlace.name} · transit evidence insufficient`,
+          placeId: selectedPlace.id,
+          mode: vehicleType,
+          latitude: Number(selectedPlace.latitude),
+          longitude: Number(selectedPlace.longitude),
+          metadata: { multimodal_chain_status: plan.multimodal_chain_status },
+        });
+      }
+    }).catch(() => {
+      if (active) {
+        setReachability(null);
+        setMultimodal(null);
+      }
+    }).finally(() => { if (active) setIntelligenceLoading(false); });
+    return () => { active = false; };
+  }, [selectedPlace?.id, originFix?.latitude, originFix?.longitude, vehicleType, intentType, cityKey]);
 
   useEffect(() => {
     let active = true;
     if (!originFix || !arrivalPoint) { setPreflight({}); return; }
-    const modes: AfatRouteMode[] = ['moto','car','minibus'];
+    const modes: AfatRouteMode[] = navigationActive ? [] : ['moto','car','minibus'];
+    if (!modes.length) return;
     Promise.all(modes.map(async (mode) => {
       const route = routeOptions[mode];
       if (!route || route.status !== 'ok') return [mode, null] as const;
@@ -268,7 +380,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       if (active) setPreflight(Object.fromEntries(entries.filter(([, value]) => value)));
     });
     return () => { active = false; };
-  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, routeOptions]);
+  }, [originFix?.latitude, originFix?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, routeOptions, navigationActive]);
 
   useEffect(() => {
     if (!selectedPlace?.meeting_points?.length) return;
@@ -309,16 +421,21 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedMeetingPoint(bestMeetingPoint);
     setSelectedAccessPoint(bestAccessPoint);
     setNavigationActive(false);
+    setRouteProgress(null);
+    setRouteOriginFix(originFix);
     saveJourneyRuntime({
       profileId: profile?.id || null,
+      cityKey,
       state: originFix ? 'origin_ready' : 'destination_selected',
       placeId: candidate.id,
       placeName: candidate.name,
+      accessPointId: bestAccessPoint?.id || null,
+      meetingPointId: bestMeetingPoint?.id || null,
       destinationLatitude: Number(candidate.latitude),
       destinationLongitude: Number(candidate.longitude),
       mode: vehicleType,
       intentType,
-      lastPosition: originFix ? { latitude: originFix.latitude, longitude: originFix.longitude, accuracy: originFix.accuracy ?? null, recordedAt: new Date().toISOString() } : null,
+      lastPosition: originFix ? { latitude: originFix.latitude, longitude: originFix.longitude, accuracy: originFix.accuracy ?? null, speedKph: originFix.speedKph ?? null, heading: originFix.heading ?? null, recordedAt: new Date().toISOString() } : null,
       sampleCount: 0,
     });
     setStatusText(bestMeetingPoint || bestAccessPoint ? 'Destination selected. AFAT is checking the best arrival point and connected routes.' : 'Destination selected. AFAT is checking nearby roads and last-metre access.');
@@ -333,6 +450,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setSelectedAccessPoint(null);
     setCanonicalRoute(null);
     setRouteOptions({});
+    setReachability(null);
+    setMultimodal(null);
     const { data, error } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde' });
     setLoading(false);
     if (error) { setCandidates([]); setStatusText(error.message); return; }
@@ -384,19 +503,23 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const markNoneCorrect = async () => {
     await confirmAfatPlace({ profile_id: profile?.id, query_text: destination.trim(), city: profile?.preferred_city || 'yaounde', resolution_status: 'none_correct', feedback: 'Passenger rejected all ranked candidates.' });
-    setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setCandidates([]); setCanonicalRoute(null); setNavigationActive(false);
+    setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setCandidates([]); setCanonicalRoute(null); setNavigationActive(false); setRouteProgress(null);
     clearJourneyRuntime('cancelled');
     setStatusText('AFAT kept this place unresolved instead of sending you to the wrong location.');
   };
 
   const updateOrigin = (origin: OriginFix) => {
     setOriginFix(origin);
+    if (!navigationActive) setRouteOriginFix(origin);
     setOriginLabel(origin.label);
     const current = loadJourneyRuntime();
     saveJourneyRuntime({
       profileId: profile?.id || null,
+      cityKey,
       state: navigationActive ? 'navigating' : selectedPlace ? 'origin_ready' : current?.state || 'idle',
-      lastPosition: { latitude: origin.latitude, longitude: origin.longitude, accuracy: origin.accuracy ?? null, recordedAt: new Date().toISOString() },
+      accessPointId: selectedAccessPoint?.id || current?.accessPointId || null,
+      meetingPointId: selectedMeetingPoint?.id || current?.meetingPointId || null,
+      lastPosition: { latitude: origin.latitude, longitude: origin.longitude, accuracy: origin.accuracy ?? null, speedKph: origin.speedKph ?? null, heading: origin.heading ?? null, recordedAt: new Date().toISOString() },
     });
   };
 
@@ -413,27 +536,34 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       context: { execution: 'navigation_live', route_distance_m: canonicalRoute.distance_m || null },
     });
     setNavigationSamples(0);
+    setRouteProgress(null);
+    setRouteOriginFix(originFix);
+    lastRerouteAtRef.current = Date.now();
     setNavigationActive(true);
     const snapshot = saveJourneyRuntime({
       profileId: profile?.id || null,
+      cityKey,
       state: 'navigating',
       placeId: selectedPlace.id,
       placeName: selectedPlace.name,
+      accessPointId: selectedAccessPoint?.id || null,
+      meetingPointId: selectedMeetingPoint?.id || null,
       destinationLatitude: arrivalPoint?.latitude || selectedPlace.latitude,
       destinationLongitude: arrivalPoint?.longitude || selectedPlace.longitude,
       mode: vehicleType,
       intentType,
       routeDistanceM: canonicalRoute.distance_m || null,
       startedAt: new Date().toISOString(),
-      lastPosition: { latitude: originFix.latitude, longitude: originFix.longitude, accuracy: originFix.accuracy ?? null, recordedAt: new Date().toISOString() },
+      lastPosition: { latitude: originFix.latitude, longitude: originFix.longitude, accuracy: originFix.accuracy ?? null, speedKph: originFix.speedKph ?? null, heading: originFix.heading ?? null, recordedAt: new Date().toISOString() },
       sampleCount: 0,
     });
     setResumeSnapshot(snapshot);
-    setStatusText(error ? 'Live navigation started. AFAT could not sync the navigation intent to the server, so it is not claiming that sync succeeded.' : 'Live navigation started. AFAT will follow your GPS, refresh the route as you move, and detect arrival.');
+    setStatusText(error ? 'Live navigation started. AFAT could not sync the navigation intent to the server, so it is not claiming that sync succeeded.' : 'Live navigation started. AFAT follows every GPS sample but reroutes only after meaningful off-route movement.');
   };
 
   const stopNavigation = () => {
     setNavigationActive(false);
+    setRouteProgress(null);
     const stopped = clearJourneyRuntime('cancelled');
     setResumeSnapshot(stopped);
     setStatusText('Live navigation stopped. AFAT kept no claim that the trip was completed.');
@@ -442,12 +572,27 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const handleNavigationPosition = (origin: OriginFix) => {
     setOriginFix(origin);
     setOriginLabel(origin.label);
+    const decision = decideReroute({
+      route: canonicalRoute,
+      position: { latitude: origin.latitude, longitude: origin.longitude, accuracy: origin.accuracy ?? null },
+      lastRerouteAt: lastRerouteAtRef.current,
+      cooldownMs: 20_000,
+    });
+    setRouteProgress(decision.progress);
+    if (decision.shouldReroute) {
+      lastRerouteAtRef.current = Date.now();
+      setRouteOriginFix(origin);
+      setStatusText(`AFAT detected meaningful off-route movement${decision.progress ? ` (${Math.round(decision.progress.nearestDistanceM)} m from the current path)` : ''} and is rebuilding the route.`);
+    }
     setNavigationSamples((count) => {
       const next = count + 1;
       saveJourneyRuntime({
         profileId: profile?.id || null,
+        cityKey,
         state: 'navigating',
-        lastPosition: { latitude: origin.latitude, longitude: origin.longitude, accuracy: origin.accuracy ?? null, recordedAt: new Date().toISOString() },
+        accessPointId: selectedAccessPoint?.id || null,
+        meetingPointId: selectedMeetingPoint?.id || null,
+        lastPosition: { latitude: origin.latitude, longitude: origin.longitude, accuracy: origin.accuracy ?? null, speedKph: origin.speedKph ?? null, heading: origin.heading ?? null, recordedAt: new Date().toISOString() },
         sampleCount: next,
       });
       return next;
@@ -456,11 +601,15 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const handleArrival = (payload: { latitude: number; longitude: number; distanceM: number; accuracyM?: number | null }) => {
     setNavigationActive(false);
+    setRouteProgress(null);
     const snapshot = saveJourneyRuntime({
       profileId: profile?.id || null,
+      cityKey,
       state: 'arrived',
+      accessPointId: selectedAccessPoint?.id || null,
+      meetingPointId: selectedMeetingPoint?.id || null,
       arrivedAt: new Date().toISOString(),
-      lastPosition: { latitude: payload.latitude, longitude: payload.longitude, accuracy: payload.accuracyM ?? null, recordedAt: new Date().toISOString() },
+      lastPosition: { latitude: payload.latitude, longitude: payload.longitude, accuracy: payload.accuracyM ?? null, speedKph: null, heading: null, recordedAt: new Date().toISOString() },
       sampleCount: navigationSamples,
     });
     setResumeSnapshot(snapshot);
@@ -485,7 +634,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setVehicleType((snapshot.mode as AfatRouteMode) || 'car');
     setIntentType((snapshot.intentType as any) || 'go');
     if (snapshot.lastPosition) {
-      setOriginFix({ latitude: snapshot.lastPosition.latitude, longitude: snapshot.lastPosition.longitude, accuracy: snapshot.lastPosition.accuracy, label: 'Last navigation position', source: 'gps' });
+      const restored: OriginFix = { latitude: snapshot.lastPosition.latitude, longitude: snapshot.lastPosition.longitude, accuracy: snapshot.lastPosition.accuracy, speedKph: snapshot.lastPosition.speedKph, heading: snapshot.lastPosition.heading, label: 'Last navigation position', source: 'gps' };
+      setOriginFix(restored);
+      setRouteOriginFix(restored);
     }
     const { data } = await discoverAfatPlaces({ query: snapshot.placeName, city: profile?.preferred_city || 'yaounde', limit: 12 });
     const discovered = (data?.results || []) as AfatPlaceCandidate[];
@@ -494,12 +645,25 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     selectCandidate(exact);
     setNavigationSamples(snapshot.sampleCount || 0);
     setNavigationActive(true);
+    lastRerouteAtRef.current = Date.now();
     setStatusText('Live navigation resumed from the saved journey state. GPS will replace the last stored position as soon as a fresh fix arrives.');
   };
 
   const createPassage = async () => {
     if (!profile?.id || !selectedPlace || !arrivalPoint) return;
     if (!originFix) { setStatusText('Use the location button on the map to confirm where the operator should collect you.'); return; }
+    if (vehicleType !== 'walk' && Number(preflight[vehicleType]?.supply?.observed || 0) === 0) {
+      recordGapOnce(`supply:${selectedPlace.id}:${vehicleType}`, {
+        cityKey,
+        signalType: 'supply_gap',
+        label: `${selectedPlace.name} · ${vehicleType} requested with no live supply observed`,
+        placeId: selectedPlace.id,
+        mode: vehicleType,
+        latitude: originFix.latitude,
+        longitude: originFix.longitude,
+        metadata: { surface: 'passage_booking' },
+      });
+    }
     setLoading(true);
     setStatusText('Creating the transport request…');
     await confirmAfatPlace({ profile_id: profile.id, query_text: destination.trim(), city: selectedPlace.city, place_id: selectedPlace.id, meeting_point_id: selectedMeetingPoint?.id, confidence: selectedPlace.confidence, resolution_status: 'selected' });
@@ -526,6 +690,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         origin_source: originFix.source || 'gps',
         canonical_route_status: canonicalRoute?.status || null,
         canonical_route_distance_m: canonicalRoute?.status === 'ok' ? canonicalRoute.distance_m || null : null,
+        reachability_state: reachability?.state || null,
+        reachability_score: reachability?.reliability_score ?? null,
       },
     });
     setLoading(false);
@@ -598,7 +764,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
             onFocus={() => setSuggestionsOpen(Boolean(suggestions.length))}
             onChange={(event) => {
               setDestination(event.target.value);
-              setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setCanonicalRoute(null); setRouteOptions({}); setNavigationActive(false);
+              setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setCanonicalRoute(null); setRouteOptions({}); setNavigationActive(false); setReachability(null); setMultimodal(null); setRouteProgress(null);
             }}
             onKeyDown={(event) => event.key === 'Enter' && resolveDestination()}
             placeholder="Mendong, Biyem-Assi, school, market, pharmacy…"
@@ -650,10 +816,16 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       />
     </div>
 
+    {selectedPlace && originFix && (
+      <div className="mt-4">
+        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} loading={intelligenceLoading} />
+      </div>
+    )}
+
     {navigationActive && (
       <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-400/[0.07] p-4">
         <div className="flex items-start justify-between gap-4">
-          <div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Live journey runtime</p><p className="mt-1 text-sm font-black text-white">Navigating to {selectedPlace?.name}</p><p className="mt-1 text-[10px] text-white/45">{navigationSamples} live position update{navigationSamples === 1 ? '' : 's'} processed · route refreshes as you move.</p></div>
+          <div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Live journey runtime</p><p className="mt-1 text-sm font-black text-white">Navigating to {selectedPlace?.name}</p><p className="mt-1 text-[10px] text-white/45">{navigationSamples} live position update{navigationSamples === 1 ? '' : 's'} processed{progressCopy ? ` · ${progressCopy.percent}% route progress · ${progressCopy.remaining} remaining` : ''}.</p>{routeProgress?.offRoute ? <p className="mt-1 text-[10px] font-bold text-amber-200">Off-route signal · {Math.round(routeProgress.nearestDistanceM)} m from path · GPS confidence {routeProgress.confidence}</p> : null}</div>
           <button type="button" onClick={stopNavigation} className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 text-[9px] font-black uppercase text-rose-100"><Square className="h-3.5 w-3.5"/>Stop</button>
         </div>
       </div>
@@ -671,7 +843,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
           {([['walk', Footprints, 'Walk'], ['moto', Bike, 'Moto'], ['car', Car, 'Taxi / car'], ['minibus', Navigation2, 'Shared']] as const).map(([mode, Icon, label]) => {
             const option = routeOptions[mode]; const available = option?.status === 'ok'; const selected = vehicleType === mode; const km = Number(option?.distance_m || 0) / 1000; const dispatchable = mode !== 'walk';
             return <button key={mode} type="button" disabled={!available} onClick={() => { setVehicleType(mode); setCanonicalRoute(option || null); setRouteMessage(routeMessageFor(option || null)); }} className={`rounded-2xl border p-3 text-left transition disabled:opacity-35 ${selected ? 'border-cyan-300/45 bg-cyan-400/12' : 'border-white/10 bg-white/[0.025]'}`}>
-              <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} /><p className="mt-3 text-xs font-black text-white">{label}</p><p className="mt-1 text-[9px] leading-4 text-white/40">{!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + ' min' : 'ETA learning'}` : 'No connected path'}</p>
+              <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} /><p className="mt-3 text-xs font-black text-white">{label}</p><p className="mt-1 text-[9px] leading-4 text-white/40">{!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + ' min observed' : option.eta_profile_coverage ? Math.round(Number(option.eta_profile_coverage) * 100) + '% ETA evidence' : 'ETA learning'}` : 'No connected path'}</p>
               {available && dispatchable && preflight[mode] && <div className="mt-2 space-y-1 text-[8px] font-bold uppercase tracking-wide"><p className={preflight[mode]?.supply?.observed > 0 ? 'text-emerald-200' : 'text-amber-200'}>{preflight[mode]?.supply?.observed > 0 ? `${preflight[mode].supply.observed} live supply observed` : 'No live supply observed'}</p><p className="text-white/35">{preflight[mode]?.fare?.state === 'historical_range' ? `${preflight[mode].fare.low}–${preflight[mode].fare.high} XAF historical · not final` : 'Fare evidence insufficient'}</p></div>}
             </button>;
           })}
@@ -696,7 +868,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       })}
       {!(selectedPlace.meeting_points || []).length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This place is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before starting navigation or requesting transport.</div>}
-      {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Book transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
+      {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Book transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
       {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
   </section>;
