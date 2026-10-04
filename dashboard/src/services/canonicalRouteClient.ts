@@ -23,6 +23,10 @@ export type AfatCanonicalRoute = {
   generalized_cost_m?: number;
   eta_seconds?: number | null;
   eta_reason?: string | null;
+  eta_profile_coverage?: number | null;
+  eta_profile_min_confidence?: number | null;
+  eta_day_type?: string | null;
+  eta_hour_bucket?: number | null;
   origin_snap_m?: number;
   destination_snap_m?: number;
   origin?: {
