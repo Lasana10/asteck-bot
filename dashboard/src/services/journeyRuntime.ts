@@ -14,15 +14,20 @@ export type AfatRuntimePosition = {
   latitude: number;
   longitude: number;
   accuracy?: number | null;
+  speedKph?: number | null;
+  heading?: number | null;
   recordedAt: string;
 };
 
 export type AfatJourneyRuntimeSnapshot = {
   version: 1;
   profileId?: string | null;
+  cityKey?: string | null;
   state: AfatJourneyRuntimeState;
   placeId?: string | null;
   placeName?: string | null;
+  accessPointId?: string | null;
+  meetingPointId?: string | null;
   destinationLatitude?: number | null;
   destinationLongitude?: number | null;
   mode?: string | null;
@@ -86,10 +91,10 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
       if (destinationLatitude == null || destinationLongitude == null || !current.placeId) return;
       persist({ ...current, serverSyncState: 'starting', updatedAt: new Date().toISOString() });
       const { data, error } = await supabase.rpc('afat_start_navigation_session', {
-        p_city_key: 'cm-yaounde',
+        p_city_key: current.cityKey || 'cm-yaounde',
         p_place_id: current.placeId,
-        p_access_point_id: null,
-        p_meeting_point_id: null,
+        p_access_point_id: current.accessPointId || null,
+        p_meeting_point_id: current.meetingPointId || null,
         p_intent_type: current.intentType || 'go',
         p_movement_mode: current.mode || 'car',
         p_destination_latitude: destinationLatitude,
@@ -115,8 +120,8 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
           p_latitude: current.lastPosition.latitude,
           p_longitude: current.lastPosition.longitude,
           p_accuracy_m: current.lastPosition.accuracy ?? null,
-          p_speed_kph: null,
-          p_heading: null,
+          p_speed_kph: current.lastPosition.speedKph ?? null,
+          p_heading: current.lastPosition.heading ?? null,
           p_recorded_at: current.lastPosition.recordedAt,
         });
         if (error) throw new Error(error.message || 'Navigation sample could not sync');
@@ -160,8 +165,11 @@ export function saveJourneyRuntime(
     version: 1,
     state: patch.state || current?.state || fallbackState,
     profileId: patch.profileId ?? current?.profileId ?? null,
+    cityKey: patch.cityKey ?? current?.cityKey ?? 'cm-yaounde',
     placeId: patch.placeId ?? current?.placeId ?? null,
     placeName: patch.placeName ?? current?.placeName ?? null,
+    accessPointId: patch.accessPointId ?? current?.accessPointId ?? null,
+    meetingPointId: patch.meetingPointId ?? current?.meetingPointId ?? null,
     destinationLatitude: validNumber(patch.destinationLatitude ?? current?.destinationLatitude),
     destinationLongitude: validNumber(patch.destinationLongitude ?? current?.destinationLongitude),
     mode: patch.mode ?? current?.mode ?? null,
@@ -192,6 +200,7 @@ export function clearJourneyRuntime(state: 'idle' | 'cancelled' = 'idle') {
   const next: AfatJourneyRuntimeSnapshot = {
     version: 1,
     profileId: previous?.profileId ?? null,
+    cityKey: previous?.cityKey ?? 'cm-yaounde',
     state,
     updatedAt: new Date().toISOString(),
     sampleCount: previous?.sampleCount || 0,
