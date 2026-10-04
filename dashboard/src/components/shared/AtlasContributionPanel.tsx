@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CircleStop, CloudOff, Crosshair, MapPinned, Navigation, Radio, ShieldCheck, Signal, WifiOff } from 'lucide-react';
+import { CircleStop, CloudOff, Crosshair, MapPinned, Navigation, Radio, ShieldCheck, Signal, Trash2, WifiOff } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import {
+  cancelAtlasContributionSession,
   completeAtlasContributionSession,
   ingestAtlasContributionSample,
   startCityAtlasContributionSession,
@@ -111,8 +112,8 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
       const firstSaved=await persistPosition(id,uid,position,false);
       setBusy(false);
       if(!firstSaved){
-        await completeAtlasContributionSession(id).catch(()=>null);
-        setSessionId(null);setPhase('error');setNotice('AFAT received GPS but could not save the first point. Recording did not start.');
+        await cancelAtlasContributionSession(id,'first_sample_not_saved').catch(()=>null);
+        setSessionId(null);setPhase('error');setNotice('AFAT received GPS but could not save the first point. The empty session was discarded; recording did not start.');
         return;
       }
       setNotice('Recording live. The first GPS point is saved and the map can now follow new saved movement.');
@@ -126,11 +127,27 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
     if(!navigator.onLine){setBusy(false);setPhase('offline');setNotice('Offline evidence is still on this device. Reconnect before finishing so AFAT can close the session safely.');return;}
     await flushAtlasSamples(userId);const remaining=pendingAtlasSamples(userId,sessionId);setQueued(remaining);
     if(remaining>0){setBusy(false);setPhase('offline');setNotice('Some captured points are still unsynchronized. AFAT will not mark this complete yet.');return;}
+    if(saved<=0){
+      await cancelAtlasContributionSession(sessionId,'finish_requested_without_saved_samples').catch(()=>null);
+      setBusy(false);setSessionId(null);setPhase('error');setNotice('No server evidence was saved, so AFAT discarded the session instead of calling it complete.');return;
+    }
     const {data,error}=await completeAtlasContributionSession(sessionId);setBusy(false);
     if(error){setPhase('error');setNotice(error.message||'Could not finish contribution.');return;}
     setNotice(`Saved contribution: ${data?.sample_count??saved} server points · ${data?.matched_sample_count??matched} matched to known roads.`);
     window.dispatchEvent(new CustomEvent('afat:contribution-finished',{detail:{sessionId}}));
     setSessionId(null);setPhase('idle');
+  };
+
+  const cancel=async()=>{
+    if(!sessionId)return;
+    stopWatcher();setBusy(true);
+    const id=sessionId;
+    const {data,error}=await cancelAtlasContributionSession(id,'user_cancelled');
+    setBusy(false);
+    if(error){setPhase('error');setNotice(error.message||'AFAT could not discard this contribution yet.');return;}
+    setSessionId(null);setPhase('idle');
+    setNotice(`Contribution discarded${Number(data?.sample_count||saved)>0?' with saved points preserved as discarded evidence context':''}. AFAT did not mark the session complete.`);
+    window.dispatchEvent(new CustomEvent('afat:contribution-cancelled',{detail:{sessionId:id,sampleCount:data?.sample_count??saved}}));
   };
 
   const phaseLabel={idle:'Ready',waiting_gps:'Waiting for GPS',saving_first:'Saving first point',recording:'Recording live',offline:'Captured locally',error:'Not recording'}[phase];
@@ -184,12 +201,15 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
         <p className="mt-3 text-[9px] leading-4 text-white/35">Adaptive sensing · {sensingProfile} · {sensingReason}</p>
       </div>}
 
-      <button onClick={sessionId?finish:begin} disabled={busy} className={`relative mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black transition disabled:opacity-40 ${sessionId?'border border-rose-300/20 bg-rose-400/12 text-rose-100':'bg-cyan-300 text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,.18)]'}`}>
-        {sessionId?<CircleStop className="h-4 w-4"/>:<Navigation className="h-4 w-4"/>}{sessionId?'Finish and verify saved evidence':phase==='waiting_gps'?'Waiting for GPS…':phase==='saving_first'?'Saving first point…':'Start real recording'}
-      </button>
+      <div className={`relative mt-5 grid gap-2 ${sessionId?'sm:grid-cols-[1fr_auto]':''}`}>
+        <button onClick={sessionId?finish:begin} disabled={busy} className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black transition disabled:opacity-40 ${sessionId?'border border-emerald-300/20 bg-emerald-400/12 text-emerald-100':'bg-cyan-300 text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,.18)]'}`}>
+          {sessionId?<CircleStop className="h-4 w-4"/>:<Navigation className="h-4 w-4"/>}{sessionId?'Finish and verify saved evidence':phase==='waiting_gps'?'Waiting for GPS…':phase==='saving_first'?'Saving first point…':'Start real recording'}
+        </button>
+        {sessionId&&<button onClick={cancel} disabled={busy} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 text-xs font-black text-rose-100 disabled:opacity-40"><Trash2 className="h-4 w-4"/>Discard</button>}
+      </div>
 
       {notice&&<div className="relative mt-3 flex items-start gap-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/58"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200"/><p>{notice}</p></div>}
-      {sessionId&&<p className="relative mt-2 text-[9px] text-white/32">Unsaved captures are never counted as server evidence.</p>}
+      {sessionId&&<p className="relative mt-2 text-[9px] text-white/32">Unsaved captures are never counted as server evidence. Discarding never marks a contribution complete.</p>}
     </div>
   </section>;
 }
