@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Globe2, Plus, RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { CityExpansionRunner } from './CityExpansionRunner';
+import { EvidenceReviewQueue } from './EvidenceReviewQueue';
 
 type CityProfile = { city_key:string; city_name:string; country_code:string; country_name?:string|null; status:string; timezone?:string|null; currency_code?:string|null };
 
@@ -95,6 +96,7 @@ export function CityGenesisPanel({onCreated}:{onCreated?:()=>void}){
     </section>
 
     {selectedCityKey&&<CityExpansionRunner key={selectedCityKey} cityKey={selectedCityKey} />}
+    <EvidenceReviewQueue />
   </div>;
 }
 
