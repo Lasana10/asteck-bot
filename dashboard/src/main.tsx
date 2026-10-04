@@ -82,7 +82,7 @@ try {
   console.warn('[AFAT] PWA not available:', e);
 }
 
-// Offline sync — also non-blocking
+// Existing offline sync — non-blocking.
 try {
   import('./services/offlineSync').then(({ offlineSync }) => {
     offlineSync.init();
@@ -91,4 +91,20 @@ try {
   });
 } catch (e) {
   console.warn('[AFAT] Offline sync not available:', e);
+}
+
+// Mobility evidence + spatial cache maintenance must never block app boot.
+try {
+  Promise.all([
+    import('./services/mobilityEvidenceClient'),
+    import('./services/offlineSpatialCache'),
+  ]).then(([evidence, spatial]) => {
+    evidence.installMobilityEvidenceSync();
+    spatial.clearExpiredSpatialCache();
+    void evidence.flushMobilityEvidenceQueue();
+  }).catch(err => {
+    console.warn('[AFAT] Mobility evidence recovery skipped:', err);
+  });
+} catch (e) {
+  console.warn('[AFAT] Mobility evidence recovery not available:', e);
 }
