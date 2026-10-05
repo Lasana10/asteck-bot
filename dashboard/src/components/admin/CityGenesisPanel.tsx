@@ -5,6 +5,7 @@ import { CityExpansionRunner } from './CityExpansionRunner';
 import { EvidenceReviewQueue } from './EvidenceReviewQueue';
 import { OperationalProofPanel } from './OperationalProofPanel';
 import { OperationalActivationLadder } from './OperationalActivationLadder';
+import { GraphHealthPanel } from './GraphHealthPanel';
 
 type CityProfile={city_key:string;city_name:string;country_code:string;country_name?:string|null;status:string;timezone?:string|null;currency_code?:string|null};
 
@@ -81,12 +82,13 @@ export function CityGenesisPanel({onCreated}:{onCreated?:()=>void}){
     </section>
 
     <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.025] p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-white/35">Active city workspace</p><h3 className="mt-1 text-lg font-black">Choose which city AFAT is operating</h3><p className="mt-1 text-xs leading-5 text-white/40">Operational proof, activation and ingestion below are scoped to this city. Switching city never copies routes, observations or source truth from another city.</p></div><button type="button" onClick={()=>void loadCities()} disabled={loadingCities} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-white/55 disabled:opacity-35"><RefreshCw className={`h-4 w-4 ${loadingCities?'animate-spin':''}`}/></button></div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-white/35">Active city workspace</p><h3 className="mt-1 text-lg font-black">Choose which city AFAT is operating</h3><p className="mt-1 text-xs leading-5 text-white/40">Operational proof, activation, graph health and ingestion below are scoped to this city. Switching city never copies routes, observations or source truth from another city.</p></div><button type="button" onClick={()=>void loadCities()} disabled={loadingCities} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-white/55 disabled:opacity-35"><RefreshCw className={`h-4 w-4 ${loadingCities?'animate-spin':''}`}/></button></div>
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]"><select value={selectedCityKey} onChange={e=>setSelectedCityKey(e.target.value)} disabled={!cities.length} className="min-h-12 rounded-xl border border-white/10 bg-slate-950 px-4 text-sm font-bold text-white disabled:opacity-40">{!cities.length&&<option value="">No active city profile</option>}{cities.map(city=><option key={city.city_key} value={city.city_key}>{city.city_name} · {city.country_code} · {city.city_key}</option>)}</select><div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-right"><p className="text-[8px] font-black uppercase text-white/30">Selected</p><p className="mt-1 text-xs font-black text-cyan-100">{selectedCity?.city_name||'—'}</p></div></div>
     </section>
 
     {selectedCityKey&&<OperationalProofPanel key={`proof-${selectedCityKey}`} cityKey={selectedCityKey} />}
     {selectedCityKey&&<OperationalActivationLadder key={`activate-${selectedCityKey}`} cityKey={selectedCityKey} />}
+    {selectedCityKey&&<GraphHealthPanel key={`graph-${selectedCityKey}`} cityKey={selectedCityKey} />}
     {selectedCityKey&&<CityExpansionRunner key={`expand-${selectedCityKey}`} cityKey={selectedCityKey} />}
     <EvidenceReviewQueue />
   </div>;
