@@ -6,6 +6,7 @@ import { DeliveryRequestPanel } from './DeliveryRequestPanel';
 import { CommunityEvidencePanel } from './CommunityEvidencePanel';
 import { NearbySupplyPanel } from './NearbySupplyPanel';
 import { OfflineCityPackPanel } from './OfflineCityPackPanel';
+import { MobilityPreferencesPanel } from './MobilityPreferencesPanel';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 
@@ -69,6 +70,7 @@ export function PassengerWorkspaceHome({
         }}
       />
 
+      <MobilityPreferencesPanel />
       <NearbySupplyPanel />
       <OfflineCityPackPanel profile={profile} />
       <DeliveryRequestPanel profile={profile} onCreated={onChanged} />
