@@ -1,0 +1,80 @@
+/* AFAT Living Map — spatial polish without decorative instability */
+[aria-label="AFAT living mobility map"] {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(34,211,238,.08), transparent 38%),
+    #040a11;
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-canvas {
+  transition: filter .35s ease, opacity .25s ease;
+  filter: saturate(.94) contrast(1.04);
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-marker {
+  transition: transform .32s cubic-bezier(.2,.8,.2,1), opacity .25s ease;
+  will-change: transform;
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-marker:hover {
+  z-index: 5;
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-ctrl-attrib {
+  border-radius: 10px 0 0 0;
+  background: rgba(2,6,23,.62);
+  color: rgba(255,255,255,.45);
+  backdrop-filter: blur(14px);
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-ctrl-attrib a {
+  color: rgba(165,243,252,.68);
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-canvas-container.maplibregl-interactive {
+  cursor: grab;
+}
+
+[aria-label="AFAT living mobility map"] .maplibregl-canvas-container.maplibregl-interactive:active {
+  cursor: grabbing;
+}
+
+@keyframes afat-map-arrive {
+  0% { transform: scale(.92); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes afat-map-live-ring {
+  0% { box-shadow: 0 0 0 0 rgba(103,232,249,.24); }
+  70% { box-shadow: 0 0 0 14px rgba(103,232,249,0); }
+  100% { box-shadow: 0 0 0 0 rgba(103,232,249,0); }
+}
+
+[aria-label="Your start point"] {
+  animation: afat-map-live-ring 2.8s ease-out 2;
+}
+
+[aria-label="Destination"],
+[aria-label="Recommended meeting point"],
+[aria-label="Recommended access point"] {
+  animation: afat-map-arrive .38s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@media (max-width: 640px) {
+  [aria-label="AFAT living mobility map"] .maplibregl-ctrl-attrib {
+    font-size: 8px;
+    max-width: 60%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [aria-label="AFAT living mobility map"] .maplibregl-canvas,
+  [aria-label="AFAT living mobility map"] .maplibregl-marker,
+  [aria-label="Your start point"],
+  [aria-label="Destination"],
+  [aria-label="Recommended meeting point"],
+  [aria-label="Recommended access point"] {
+    animation: none !important;
+    transition: none !important;
+  }
+}
