@@ -9,6 +9,8 @@ The existing DirectionsService now prefers OSRM and makes metered Google fallbac
 
 Without an AFAT routing endpoint and without explicit fallback, production returns no route rather than silently depending on a public demo or charging Google. This requires configuration before deployment. No new paid infrastructure is authorized by this change.
 
+- `AFAT_ALLOW_PUBLIC_PAID_ROUTING=true`: explicitly authorize billable Google fallback for the public `/api/navigation/route` endpoint. Default false to prevent unauthenticated requests from spending quota. Treat enabling this as a cost/security decision, apply quotas and monitoring first. Internal legacy route calls may still use configured Google until AFAT OSRM is ready.
+
 ## Before production
 1. Provision an OSRM instance and legal road extract; measure coverage and route quality in Yaoundé and Douala.
 2. Confirm that the backend can reach the endpoint over TLS and apply network access controls.

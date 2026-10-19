@@ -28,7 +28,10 @@ router.get('/navigation/route', async (req: Request, res: Response) => {
     });
   }
   try {
-    const directions = await DirectionsService.getDirections(origin, destination);
+    // A publicly reachable endpoint must not silently spend metered Google quota.
+    const directions = await DirectionsService.getDirections(origin, destination, {
+      allowMeteredFallback: process.env.AFAT_ALLOW_PUBLIC_PAID_ROUTING === 'true',
+    });
     if (!directions) {
       return res.status(503).json({
         code: 'ROUTING_UNAVAILABLE',

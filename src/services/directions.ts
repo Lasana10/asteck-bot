@@ -48,14 +48,15 @@ export class DirectionsService {
    */
   static async getDirections(
     origin: Coordinates,
-    destination: Coordinates
+    destination: Coordinates,
+    options: { allowMeteredFallback?: boolean } = {}
   ): Promise<DirectionsResult | null> {
     if (!validCoordinates(origin) || !validCoordinates(destination)) return null;
     const local = await this.osrmDirections(origin, destination);
     if (local) return local;
     // Preserve the legacy configured Google route path until AFAT operates OSRM.
     // Once OSRM is configured, metered failover remains explicit opt-in.
-    return GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
+    return options.allowMeteredFallback !== false && GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
       ? this.googleDirections(origin, destination) : null;
   }
 
