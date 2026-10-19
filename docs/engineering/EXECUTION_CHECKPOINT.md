@@ -3,6 +3,9 @@
 ## Scope and continuity
 Continue existing `Lasana10/asteck-bot` on branch `engineering/afat-routing-selfhost-first-20261019`. Preserve all existing user journeys and prior research. Do not restart or duplicate the project.
 
+## Latest addition
+- Reverse geocoding supports AFAT_REVERSE_GEOCODE_URL and avoids public Nominatim in production unless explicitly opted in (866f7b3).
+
 ## Completed in this branch
 - Existing `src/services/directions.ts` updated to prefer configurable AFAT OSRM endpoint.
 - Google Directions usage made explicit opt-in; public OSRM demo disabled by default in production.
@@ -11,7 +14,7 @@ Continue existing `Lasana10/asteck-bot` on branch `engineering/afat-routing-self
 - Self-hosting rollout guidance in `docs/engineering/self-hosted-routing-configuration.md`.
 
 ## Verification truth
-GitHub commits verified. CI execution, TypeScript build, tests, real routing engine, production rollout and end-to-end journey **not yet verified**. Do not claim they are done.
+GitHub commits verified. CI run #415 queued, not passed. CI execution, TypeScript build, tests, real routing engine, production rollout and end-to-end journey **not yet verified**. Do not claim they are done.
 
 ## Exact next actions
 1. Run AFAT CI on the PR, inspect errors, fix failures until green. Check that the test mocks axios correctly in the runtime.
