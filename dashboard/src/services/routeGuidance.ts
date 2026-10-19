@@ -58,7 +58,7 @@ function nearestPointOnSegment(
 }
 
 function thresholdFor(position: RoutePosition, mode?: string | null) {
-  const accuracy = Math.max(0, Number(position.accuracy || 0));
+  const accuracy = position.accuracy == null ? Number.POSITIVE_INFINITY : Number(position.accuracy);
   const base = mode === 'walk' ? 28 : mode === 'moto' || mode === 'bike' ? 38 : 48;
   return Math.max(base, Math.min(130, accuracy * 1.6 || base));
 }
@@ -91,8 +91,8 @@ export function calculateRouteProgress(
 
   const progressRatio = routeDistanceM > 0 ? Math.max(0, Math.min(1, travelledDistanceM / routeDistanceM)) : 0;
   const offRouteThresholdM = thresholdFor(position, route?.mode);
-  const accuracy = Number(position.accuracy || 0);
-  const confidence: AfatRouteProgress['confidence'] = accuracy <= 25 ? 'high' : accuracy <= 70 ? 'medium' : 'low';
+  const accuracy = position.accuracy == null ? Number.POSITIVE_INFINITY : Number(position.accuracy);
+  const confidence: AfatRouteProgress['confidence'] = Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 25 ? 'high' : Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 70 ? 'medium' : 'low';
 
   return {
     matched: Number.isFinite(nearestDistanceM),
@@ -118,8 +118,8 @@ export function decideReroute(input: {
   const progress = calculateRouteProgress(input.route, input.position);
   if (!progress) return { shouldReroute: false, reason: 'insufficient_route', progress: null };
 
-  const accuracy = Number(input.position.accuracy || 0);
-  if (accuracy > 120) return { shouldReroute: false, reason: 'gps_uncertain', progress };
+  const accuracy = input.position.accuracy == null ? Number.POSITIVE_INFINITY : Number(input.position.accuracy);
+  if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 120) return { shouldReroute: false, reason: 'gps_uncertain', progress };
   if (!progress.offRoute) return { shouldReroute: false, reason: 'on_route', progress };
 
   const now = input.now ?? Date.now();
