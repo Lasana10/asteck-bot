@@ -80,12 +80,13 @@ class MapOfflineService {
   private localIntelligence: IntelligenceData[] = [];
   private isFirstTime = true;
   private verifiedAssets = false;
+  private initialVerification: Promise<void> = Promise.resolve();
   private storageLimitMb = 512;
   private hybridStreamMode = true;
 
   constructor() {
     this.loadState();
-    void this.reconcileInstalledAssets().catch((error) => console.warn('[OfflineMap] Asset verification failed', error));
+    this.initialVerification = this.reconcileInstalledAssets().catch((error) => console.warn('[OfflineMap] Asset verification failed', error));
   }
 
   private async reconcileInstalledAssets() {
@@ -283,6 +284,7 @@ class MapOfflineService {
   }
 
   public async downloadRegion(regionId: 'yaounde' | 'douala' | 'cameroon', onProgress?: (progress: number) => void) {
+    await this.initialVerification;
     const region = this.getPack(regionId);
     if (!region) {
       throw new Error(`Unknown region: ${regionId}`);
