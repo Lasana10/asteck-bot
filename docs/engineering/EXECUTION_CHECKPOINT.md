@@ -1,6 +1,12 @@
 # AFAT execution checkpoint — 2026-10-19
 
 ## Scope and continuity
+## 2026-10-19 continuation — GPS integrity
+- Committed route-guidance safety correction: missing/invalid GPS accuracy no longer appears high-confidence and cannot trigger autonomous rerouting; conservative route threshold applied. Commits 9d820d2 and 7640211.
+- Committed GPS uncertainty integration regression tests in dashboard/src/services/routeGuidance.test.ts (867045b). Tests committed, **not yet executed/passed**.
+- GitHub Actions jobs for previous changes remained queued; external container cannot resolve github.com, so local repository clone and CI execution unavailable. Do not infer passing tests, merged status, or live deployment.
+- Next: run dashboard Vitest and backend test/build when a runner is available; fix errors; verify AFAT canonical → OSRM fallback → geometry → map progress on real Cameroon routes, preserve two-track vision and iterate on other dependency-ready workflows.
+
 ## Standing mandate: two inseparable completion tracks
 
 **A — AFAT product completion:** Build and verify complete connected Find → Understand → Reach → Book (optional) → Move → Learn journeys. Maintain commuter, driver, operator, fleet, school, city, community, safety, finance and shared intelligence roles. Begin with actual Cameroon field conditions and low-bandwidth/offline needs.
