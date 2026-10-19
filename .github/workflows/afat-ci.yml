@@ -28,6 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run build:backend
       - run: npm run test:api-contract
+      - run: npm run test:routing
 
   dashboard:
     name: Dashboard build and tests

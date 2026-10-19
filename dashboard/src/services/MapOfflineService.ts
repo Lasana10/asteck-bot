@@ -31,6 +31,7 @@ interface IntelligenceData {
 const STORAGE_KEY = 'afat_offline_maps_v2';
 const HYBRID_MODE_KEY = 'afat_hybrid_stream_mode';
 const REGION_FLAG_PREFIX = 'afat_offline_';
+const OFFLINE_ASSET_CACHE = 'afat-offline-road-assets-v1';
 
 const MAP_PACKS: MapPackDefinition[] = [
   {
@@ -63,12 +64,12 @@ const MAP_PACKS: MapPackDefinition[] = [
     id: 'cameroon',
     name: 'Cameroon Corridor Seed',
     bounds: [[1.6, 8.3], [13.1, 16.2]],
-    assetUrls: ['/data/cmr_roads_mock.geojson'],
-    sizeMb: 4,
-    status: 'ready',
-    detail: 'National corridor starter graph',
+    assetUrls: [],
+    sizeMb: 0,
+    status: 'planned',
+    detail: 'Demonstration network is not a verified downloadable navigation pack',
     coverage: 'Intercity seed network',
-    prepStage: 'curating',
+    prepStage: 'planned',
     collectorRoles: ['intercity commuters', 'bus operators', 'agency planners'],
     targetSignals: ['corridor timing', 'rest stops', 'border and checkpoint friction'],
   },
@@ -78,11 +79,32 @@ class MapOfflineService {
   private downloadedRegions: DownloadedRegion[] = [];
   private localIntelligence: IntelligenceData[] = [];
   private isFirstTime = true;
+  private verifiedAssets = false;
+  private initialVerification: Promise<void> = Promise.resolve();
   private storageLimitMb = 512;
   private hybridStreamMode = true;
 
   constructor() {
     this.loadState();
+    this.initialVerification = this.reconcileInstalledAssets().catch((error) => console.warn('[OfflineMap] Asset verification failed', error));
+  }
+
+  private async reconcileInstalledAssets() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    if (typeof caches === 'undefined') { this.downloadedRegions = []; this.saveState(); return; }
+    const cache = await caches.open(OFFLINE_ASSET_CACHE);
+    const valid: DownloadedRegion[] = [];
+    for (const region of this.downloadedRegions) {
+      const pack = this.getPack(region.id);
+      if (!pack || pack.status !== 'ready' || !pack.assetUrls.length) continue;
+      const stored = await Promise.all(pack.assetUrls.map((url) => cache.match(new URL(url, window.location.origin).toString())));
+      if (stored.every((response) => response?.ok)) valid.push(region);
+    }
+    this.downloadedRegions = valid;
+    this.verifiedAssets = true;
+    MAP_PACKS.forEach((pack) => localStorage.removeItem(`${REGION_FLAG_PREFIX}${pack.id}`));
+    valid.forEach((region) => localStorage.setItem(`${REGION_FLAG_PREFIX}${region.id}`, 'true'));
+    this.saveState();
   }
 
   private loadState() {
@@ -111,9 +133,8 @@ class MapOfflineService {
       this.hybridStreamMode = hybridMode === 'true';
     }
 
-    this.downloadedRegions.forEach((region) => {
-      localStorage.setItem(`${REGION_FLAG_PREFIX}${region.id}`, 'true');
-    });
+    // Legacy downloaded flags are not proof of installed assets. Reconciliation
+    // confirms availability on startup before declaring any pack usable.
   }
 
   private saveState() {
@@ -144,7 +165,7 @@ class MapOfflineService {
   public getCatalog() {
     return MAP_PACKS.map((pack) => ({
       ...pack,
-      installed: this.downloadedRegions.some((region) => region.id === pack.id),
+      installed: this.verifiedAssets && this.downloadedRegions.some((region) => region.id === pack.id),
     }));
   }
 
@@ -191,17 +212,51 @@ class MapOfflineService {
     await this.enforceStorageLimit();
   }
 
-  private async verifyPackAssets(assetUrls: string[]) {
-    for (const assetUrl of assetUrls) {
-      const response = await fetch(assetUrl, { method: 'GET', cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`Offline asset missing: ${assetUrl}`);
+  // Storing a downloaded-region flag is not enough. Install files into
+  // persistent CacheStorage, and only declare a pack available after every
+  // required asset has been cached and verified.
+  private async cacheRegionAssets(assetUrls: string[], onProgress?: (progress: number) => void) {
+    if (typeof caches === 'undefined') throw new Error('Offline asset storage is unavailable on this device.');
+    const cache = await caches.open(OFFLINE_ASSET_CACHE);
+    const staged: string[] = [];
+    try {
+      for (const [index, assetUrl] of assetUrls.entries()) {
+        const absolute = new URL(assetUrl, window.location.origin);
+        if (absolute.origin !== window.location.origin) throw new Error('Offline pack asset must be same-origin.');
+        const existing = await cache.match(absolute.toString());
+        if (!existing?.ok) {
+          const response = await fetch(absolute.toString(), { cache: 'no-store' });
+          if (!response.ok || response.type === 'opaque') throw new Error(`Offline asset missing: ${assetUrl}`);
+          // Avoid caching an SPA HTML fallback disguised as GeoJSON.
+          if (assetUrl.endsWith('.geojson')) {
+            const parsed = await response.clone().json().catch(() => null);
+            if (!parsed || parsed.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
+              throw new Error(`Invalid GeoJSON in offline asset: ${assetUrl}`);
+            }
+          }
+          await cache.put(absolute.toString(), response);
+          staged.push(absolute.toString());
+        }
+        onProgress?.(15 + Math.round(((index + 1) / assetUrls.length) * 75));
       }
+      const verified = await Promise.all(assetUrls.map((url) => cache.match(new URL(url, window.location.origin).toString())));
+      if (verified.some((response) => !response?.ok)) throw new Error('Offline assets failed installation verification.');
+    } catch (error) {
+      for (const url of staged) await cache.delete(url);
+      throw error;
     }
   }
 
+  // Read actual preinstalled assets without requiring the network.
+  public async readOfflineAsset(regionId: MapPackDefinition['id'], assetUrl: string): Promise<Response | null> {
+    const pack = this.getPack(regionId);
+    if (!pack || !pack.assetUrls.includes(assetUrl) || typeof caches === 'undefined') return null;
+    const cached = await (await caches.open(OFFLINE_ASSET_CACHE)).match(new URL(assetUrl, window.location.origin).toString());
+    return cached?.ok ? cached : null;
+  }
+
   public async checkPosition(lat: number, lng: number, onMessage: (msg: string) => void) {
-    if (this.isFirstTime) {
+    if (this.isFirstTime && lat >= 3.7 && lat <= 4.0 && lng >= 11.4 && lng <= 11.7) {
       onMessage('AFAT is preparing the first offline pack so your city guidance remains available even with weak connectivity.');
       this.isFirstTime = false;
       this.saveState();
@@ -229,6 +284,7 @@ class MapOfflineService {
   }
 
   public async downloadRegion(regionId: 'yaounde' | 'douala' | 'cameroon', onProgress?: (progress: number) => void) {
+    await this.initialVerification;
     const region = this.getPack(regionId);
     if (!region) {
       throw new Error(`Unknown region: ${regionId}`);
@@ -236,15 +292,12 @@ class MapOfflineService {
     if (region.status !== 'ready' || region.assetUrls.length === 0) {
       throw new Error(`${region.name} is not yet packaged for offline AFAT use.`);
     }
-    if (this.downloadedRegions.some((entry) => entry.id === regionId)) {
-      onProgress?.(100);
-      return;
-    }
+    // Re-verify/reinstall even when a legacy localStorage flag claims installed.
+
 
     onProgress?.(15);
-    await this.verifyPackAssets(region.assetUrls);
-    onProgress?.(65);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await this.cacheRegionAssets(region.assetUrls, onProgress);
+    this.verifiedAssets = true;
     this.markRegionInstalled(regionId);
     await this.enforceStorageLimit();
     onProgress?.(100);
@@ -257,7 +310,8 @@ class MapOfflineService {
       lng >= pack.bounds[0][1] &&
       lng <= pack.bounds[1][1]
     );
-    return region ? this.downloadedRegions.some((entry) => entry.id === region.id) : false;
+    return this.verifiedAssets && region?.status === 'ready'
+      ? this.downloadedRegions.some((entry) => entry.id === region.id) : false;
   }
 
   public async downloadFullCameroon(onProgress?: (progress: number) => void) {
@@ -267,6 +321,8 @@ class MapOfflineService {
   public async clearStorage() {
     await this.offloadIntelligenceToDatabase();
     this.downloadedRegions = [];
+    this.verifiedAssets = false;
+    if (typeof caches !== 'undefined') await caches.delete(OFFLINE_ASSET_CACHE);
     MAP_PACKS.forEach((pack) => localStorage.removeItem(`${REGION_FLAG_PREFIX}${pack.id}`));
     this.saveState();
   }
