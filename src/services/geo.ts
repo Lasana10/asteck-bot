@@ -21,8 +21,11 @@ export class GeoService {
    * Note: Respects the Usage Policy (User-Agent header required).
    */
   static async reverseGeocode(coords: Coordinates): Promise<string | null> {
+    if (!Number.isFinite(coords.latitude) || !Number.isFinite(coords.longitude) || Math.abs(coords.latitude) > 90 || Math.abs(coords.longitude) > 180) return null;
+    const endpoint = this.reverseEndpoint();
+    if (!endpoint) return null;
     try {
-      const response = await axios.get(this.NOMINATIM_URL, {
+      const response = await axios.get(endpoint, {
         params: {
           format: 'json',
           lat: coords.latitude,
@@ -32,7 +35,8 @@ export class GeoService {
         },
         headers: {
           'User-Agent': process.env.AFAT_GEOCODER_USER_AGENT || 'AFAT-Mobility/1.0'
-        }
+        },
+        timeout: 10000,
       });
 
       const data = response.data;
