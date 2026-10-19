@@ -14,6 +14,9 @@ Success requires working integrated functionality and reproducible acceptance ev
 Continue existing `Lasana10/asteck-bot` on branch `engineering/afat-routing-selfhost-first-20261019`. Preserve all existing user journeys and prior research. Do not restart or duplicate the project.
 
 ## Latest addition
+- Existing dashboard canonical route client now reuses backend road router for **car only** when verified AFAT graph lacks coverage, preserving atlas-first preference, real route line geometry, route provenance and unverified traffic/passability disclaimers. Commits 2996f53, 48559b3, 62a5e4b, 0751cc3.
+- Added dashboard integration tests for canonical preference, route fallback geometry, incorrect travel-mode prevention and invalid data rejection; improved backend routing fixtures. Commits 7b54a54, 5739bd3. CI remains queued; **not yet passing or deployed**.
+
 - Standalone /api/navigation/route and /api/navigation/reverse-geocode endpoints implemented and mounted; route response includes actual provider and traffic_aware=false. Commits 242e5f6, 216692a, 382892d. Unverified by CI or deployment.
 
 - Reverse geocoding supports AFAT_REVERSE_GEOCODE_URL and avoids public Nominatim in production unless explicitly opted in (866f7b3).
