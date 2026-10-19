@@ -1,3 +1,12 @@
+## 2026-10-19 evening — live Supabase and offline map integration
+- Connected Supabase TRAFFIC verified ACTIVE_HEALTHY; ref `rkijcxxryhfrqsgkwtbu`, link and safe continuation instructions committed `docs/engineering/AFAT_SUPABASE_PROJECT.md` (e784473). No credentials in repository. Connector access is account-dependent.
+- Live SQL verified functions `afat_route_canonical`, `afat_offline_city_pack`, `afat_atlas_nearby`. Existing counts: 839 Atlas nodes, 878 edges, 8756 geographic source records, 771 places. Actual test route 3.866,11.516→3.875,11.526 in car mode returned **unavailable** (`no_shared_connected_component_within_snap_radius`). Not a successful network test.
+- Inspected live `afat_offline_city_pack` function definition; verified stable keys for places, access points, transit nodes and lines; direct unauthenticated SQL invocation correctly rejected with `Authentication required`.
+- Commit 1317f06: Live `LivingAtlasMap` now uses `Promise.allSettled` and draws saved city places/access/transit nodes when relevant live RPCs fail; visibly flags offline city knowledge and unavailable live traffic. Cached transit lines have no sequence geometry in current server output; do not claim offline line navigation. Online raster tiles are still required for background and offline route graph is not built.
+- GitHub Actions remains queued. No passing builds, merge, or deployment demonstrated. Local git clone from container fails DNS resolution, so use connected tools or an authorized runner to run tests.
+
+**Next implementation**: tests for disconnected map knowledge rendering and the offline-pack response adapter; verify MapLibre client error presentation; route network topology improvements backed by verified imported data, not fabricated connectivity. Continue provider-independent geospatial, fleet and multimodal capability work within both master tracks.
+
 ## Continuation 2026-10-19 — honest offline map installation
 - e658f1f: changed MapOfflineService from URL-check plus localStorage flag into actual verified CacheStorage persistence. Added same-origin verification, GeoJSON checks, readOfflineAsset, rollback for failed installs, cache purge, and disabled synthetic national corridor pack posing as production-ready.
 - 93a76c5 / d228269: reconcile stored offline pack flags against CacheStorage on startup and gate availability on verified assets.
