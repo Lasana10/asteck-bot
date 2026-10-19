@@ -84,6 +84,24 @@ class MapOfflineService {
 
   constructor() {
     this.loadState();
+    void this.reconcileInstalledAssets().catch((error) => console.warn('[OfflineMap] Asset verification failed', error));
+  }
+
+  private async reconcileInstalledAssets() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    if (typeof caches === 'undefined') { this.downloadedRegions = []; this.saveState(); return; }
+    const cache = await caches.open(OFFLINE_ASSET_CACHE);
+    const valid: DownloadedRegion[] = [];
+    for (const region of this.downloadedRegions) {
+      const pack = this.getPack(region.id);
+      if (!pack || pack.status !== 'ready' || !pack.assetUrls.length) continue;
+      const stored = await Promise.all(pack.assetUrls.map((url) => cache.match(new URL(url, window.location.origin).toString())));
+      if (stored.every((response) => response?.ok)) valid.push(region);
+    }
+    this.downloadedRegions = valid;
+    MAP_PACKS.forEach((pack) => localStorage.removeItem(`${REGION_FLAG_PREFIX}${pack.id}`));
+    valid.forEach((region) => localStorage.setItem(`${REGION_FLAG_PREFIX}${region.id}`, 'true'));
+    this.saveState();
   }
 
   private loadState() {
@@ -112,9 +130,8 @@ class MapOfflineService {
       this.hybridStreamMode = hybridMode === 'true';
     }
 
-    this.downloadedRegions.forEach((region) => {
-      localStorage.setItem(`${REGION_FLAG_PREFIX}${region.id}`, 'true');
-    });
+    // Legacy downloaded flags are not proof of installed assets. Reconciliation
+    // confirms availability on startup before declaring any pack usable.
   }
 
   private saveState() {
