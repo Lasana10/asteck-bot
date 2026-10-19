@@ -3,6 +3,7 @@ import { Layers3, MapPinned, RefreshCw, Satellite, Map as MapIcon } from 'lucide
 import { AFAT_BASEMAPS, type AfatBasemapMode } from '../../services/mapBasemaps';
 import { Map as MapLibreMap, NavigationControl, Popup } from 'maplibre-gl';
 import { supabase } from '../../supabaseClient';
+import { readOfflineCityPack, cityPackAge } from '../../services/offlineCityPack';
 
 type AtlasPayload={
   city?:{city_name?:string;learning_stage?:string;operational_confidence?:number};
@@ -47,17 +48,52 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
 
   const load=async()=>{
     setBusy(true);
-    const [atlasResult,reachResult,transitResult,environmentResult]=await Promise.all([
-      supabase.rpc('afat_living_atlas_map',{p_city_key:cityKey}),
-      supabase.rpc('afat_reachability_map',{p_city_key:cityKey}),
-      supabase.rpc('afat_transit_graph_snapshot',{p_city_key:cityKey}),
-      supabase.rpc('afat_environment_map_snapshot',{p_city_key:cityKey}),
-    ]);
-    setBusy(false);
-    if(!atlasResult.error&&atlasResult.data) setData(atlasResult.data);
-    if(!reachResult.error&&reachResult.data) setReach(reachResult.data);
-    if(!transitResult.error&&transitResult.data) setTransit(transitResult.data);
-    if(!environmentResult.error&&environmentResult.data) setEnvironment(environmentResult.data);
+    try {
+      const snapshots = await Promise.allSettled([
+        supabase.rpc('afat_living_atlas_map',{p_city_key:cityKey}),
+        supabase.rpc('afat_reachability_map',{p_city_key:cityKey}),
+        supabase.rpc('afat_transit_graph_snapshot',{p_city_key:cityKey}),
+        supabase.rpc('afat_environment_map_snapshot',{p_city_key:cityKey}),
+      ]);
+      const successful=(index:number)=>{
+        const result=snapshots[index];
+        return result.status==='fulfilled' && !result.value.error ? result.value.data : null;
+      };
+      const atlas=successful(0), reachability=successful(1), transitGraph=successful(2), environmentMap=successful(3);
+      if(atlas) setData(atlas);
+      if(reachability) setReach(reachability);
+      if(transitGraph) setTransit(transitGraph);
+      if(environmentMap) setEnvironment(environmentMap);
+
+      // Offline city packs contain stable place/transit knowledge only.
+      // Never reuse a cached pack as current traffic or verified passability.
+      if(!reachability || !transitGraph) {
+        const pack=await readOfflineCityPack(cityKey).catch(()=>null);
+        if(pack?.city_key===cityKey){
+          if(!reachability) setReach({
+            destinations:(pack.places||[]).map((p:any)=>({
+              id:p.id, name:p.name||p.canonical_name||p.canonical_label,
+              longitude:p.longitude, latitude:p.latitude,
+              reachability_state:'learning', evidence_status:'offline_unverified',
+            })),
+            access_points:(pack.access_points||[]).map((p:any)=>({
+              id:p.id, name:p.name||p.label, longitude:p.longitude, latitude:p.latitude,
+              evidence_status:'offline_unverified',
+            })),
+            meeting_points:[],
+          });
+          if(!transitGraph) setTransit({nodes:pack.transit_nodes||[],lines:pack.transit_lines||[]});
+          setMapError(`Offline city knowledge (${cityPackAge(pack).stale?'stale':'cached'}). Live traffic, safety and verified road passability unavailable.`);
+        }else{
+          setMapError('Live Atlas data unavailable and no locally saved city knowledge was found.');
+        }
+      } else {
+        setMapError('');
+      }
+    } catch(error) {
+      console.error('AFAT map knowledge load failed:',error);
+      setMapError('City intelligence temporarily unavailable.');
+    } finally { setBusy(false); }
   };
   useEffect(()=>{void load();},[cityKey]);
 
