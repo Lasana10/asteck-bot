@@ -62,6 +62,19 @@ describe('canonical route integration', () => {
     expect(network).not.toHaveBeenCalled();
   });
 
+  it('rejects missing provider provenance and invented zero ETA', async () => {
+    rpc.mockResolvedValue({ data: { status: 'unavailable', mode: 'car' }, error: null });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ source: 'unspecified', primary: {
+        distanceMeters: 0, durationValue: 0,
+        geometry: { type: 'LineString', coordinates: [[11.516, 3.866], [11.526, 3.875]] },
+      } }),
+    }));
+    const route = await fetchCanonicalAfatRoute(input);
+    expect(route.status).toBe('unavailable');
+  });
+
   it('rejects malformed external road geometry', async () => {
     rpc.mockResolvedValue({ data: { status: 'unavailable', mode: 'car' }, error: null });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
