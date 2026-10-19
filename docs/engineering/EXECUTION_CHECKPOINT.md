@@ -1,3 +1,9 @@
+## Continuation: external route evidence integrity
+- Commit 674973c: dashboard rejects fallback routes without explicit osrm/google provenance, strictly positive numeric distance and duration, valid bounded GeoJSON lines. This prevents falsely successful routing from incomplete provider response objects.
+- Commit f6297a9: regression test for missing provenance and fabricated zero-time routes added.
+- Tests not claimed passing: GitHub Actions remained queued when last checked. Draft PR #112 intentionally not merged/deployed without quality gates.
+- Exact next work: execute frontend/back-end test suites on available runners, correct test/build failures, verify real route and offline behavior; keep both approved AFAT product completion and global-technology integration tracks active.
+
 # AFAT execution checkpoint — 2026-10-19
 
 ## Scope and continuity
