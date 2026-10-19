@@ -47,11 +47,10 @@ export class DirectionsService {
     origin: Coordinates,
     destination: Coordinates
   ): Promise<DirectionsResult | null> {
-    if (GOOGLE_MAPS_KEY) {
-      return this.googleDirections(origin, destination);
-    }
-    // Free fallback: OSRM (Open Source Routing Machine)
-    return this.osrmDirections(origin, destination);
+    if (!validCoordinates(origin) || !validCoordinates(destination)) return null;
+    const local = await this.osrmDirections(origin, destination);
+    if (local) return local;
+    return GOOGLE_OPT_IN && GOOGLE_MAPS_KEY ? this.googleDirections(origin, destination) : null;
   }
 
   /**
@@ -103,7 +102,7 @@ export class DirectionsService {
       };
     } catch (error) {
       console.error('[Directions] Google Maps error:', error);
-      return this.osrmDirections(origin, destination);
+      return null;
     }
   }
 
