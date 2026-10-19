@@ -36,6 +36,7 @@ export interface RouteResult {
 }
 
 export interface DirectionsResult {
+  source: 'osrm' | 'google';
   primary: RouteResult;
   alternatives: RouteResult[];
 }
@@ -146,6 +147,7 @@ export class DirectionsService {
 
   private static parseGoogleRoute(route: any): RouteResult {
     const leg = route.legs[0];
+    const polyline = this.decodeGooglePolyline(String(route.overview_polyline?.points || ''));
     return {
       geometry: polyline.length >= 2 ? { type: 'LineString', coordinates: polyline } : undefined,
       summary: route.summary || 'Route',
@@ -209,6 +211,7 @@ export class DirectionsService {
       summary: route.legs?.[0]?.steps?.[0]?.name || 'Route',
       distance: `${distKm} km`,
       distanceMeters: route.distance,
+      geometry: route.geometry?.type === 'LineString' && Array.isArray(route.geometry.coordinates) ? route.geometry : undefined,
       duration: `${durMin} min`,
       durationValue: route.duration,
       startAddress: '',
