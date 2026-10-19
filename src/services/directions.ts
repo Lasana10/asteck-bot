@@ -25,6 +25,7 @@ function routingEndpoint(): string | null {
 export interface RouteResult {
   summary: string;
   distance: string;
+  distanceMeters?: number;
   duration: string;
   durationValue: number; // seconds
   startAddress: string;
@@ -113,6 +114,7 @@ export class DirectionsService {
     return {
       summary: route.summary || 'Route',
       distance: leg.distance?.text || '—',
+      distanceMeters: leg.distance?.value,
       duration: leg.duration?.text || '—',
       durationValue: leg.duration?.value || 0,
       startAddress: leg.start_address || '',
@@ -170,6 +172,7 @@ export class DirectionsService {
     return {
       summary: route.legs?.[0]?.steps?.[0]?.name || 'Route',
       distance: `${distKm} km`,
+      distanceMeters: route.distance,
       duration: `${durMin} min`,
       durationValue: route.duration,
       startAddress: '',
