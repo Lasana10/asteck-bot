@@ -1,3 +1,12 @@
+# Latest verified execution state — 19 October 2026
+
+- **Merged #112:** `fd302b708b026163daf971f81aa4ff0e4a002ffa`. GitHub Actions run `39325306356` backend and dashboard succeeded; Render backend deployment `dep-dbb8eocs728c73cfeeq0` reached **LIVE** for this commit.
+- **Merged #113:** `3af93c5ab59d8995a61ff89f775041cb8e5d748e`. GitHub Actions run `39326483792` backend and dashboard succeeded; adds offline saved road-seed rendering, explicit limitation labels, and public paid-routing cost control. Render new-commit deployment for this second merge **not yet verified** at time of writing; last observed Render live commit remains `fd302b7`.
+- **Supabase** verified active project `rkijcxxryhfrqsgkwtbu` (TRAFFIC), direct link and safe access in `docs/engineering/AFAT_SUPABASE_PROJECT.md`.
+- **Known operational gap:** live `afat_route_canonical` sample Yaoundé route returned no shared connected component. No fully tested Cameroon road routing, complete offline navigation or production spatial VPS is claimed.
+- **Next exact action:** check Render `srv-d6a66tggjchc73dot60g` for deployment of latest master (including docs-only checkpoint update), confirm frontend on Cloudflare, test real authenticated Atlas → route → map → guidance flow with proper operating data. Continue both AFAT completion and mature global technology reuse/improvement mandates, without restarting earlier blocks.
+- **No credentials in the repo.** Use connected Supabase/Render tools with authorized access in future sessions.
+
 ## Same continuation — public routing quota protection
 - Merged release remains `fd302b7`, backend deployed live via Render `dep-dbb8eocs728c73cfeeq0`.
 - Follow-up PR #113 adds offline road-seed rendering **and** explicit cost guard: public `/api/navigation/route` never triggers Google metered fallback unless `AFAT_ALLOW_PUBLIC_PAID_ROUTING=true`; old internal routing remains available. Commits 55a5875, 5205e0b, cd6f2d6. This control prevents unauthenticated API calls from exhausting existing paid routing quota.
