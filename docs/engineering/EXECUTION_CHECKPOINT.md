@@ -1,3 +1,11 @@
+## Continuation 2026-10-19 — honest offline map installation
+- e658f1f: changed MapOfflineService from URL-check plus localStorage flag into actual verified CacheStorage persistence. Added same-origin verification, GeoJSON checks, readOfflineAsset, rollback for failed installs, cache purge, and disabled synthetic national corridor pack posing as production-ready.
+- 93a76c5 / d228269: reconcile stored offline pack flags against CacheStorage on startup and gate availability on verified assets.
+- 5687c68: added Vitest coverage for misleading legacy flags, actual cached offline responses, and rejection of unverified Cameroon pack.
+- 50c10ee: ensured initial cache reconciliation finishes before installation; fixes installation/reload race.
+- **Not yet verified by executed tests or deployed.** Cached downloadable seed files are not a completed offline road navigation engine, and not all UI consumers are confirmed to retrieve these assets through CacheStorage. Do not claim complete offline mobility.
+- **Next actual engineering:** Run dashboard test suite/CI; integrate readOfflineAsset into existing map data loader and verify disconnected map rendering, then implement validated graph routing from appropriately licensed full data instead of pretending demonstration roads support nation-wide journeys. Continue both approved product and technology reuse tracks.
+
 ## Continuation: external route evidence integrity
 - Commit 674973c: dashboard rejects fallback routes without explicit osrm/google provenance, strictly positive numeric distance and duration, valid bounded GeoJSON lines. This prevents falsely successful routing from incomplete provider response objects.
 - Commit f6297a9: regression test for missing provenance and fabricated zero-time routes added.
