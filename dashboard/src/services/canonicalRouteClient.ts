@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { getApiBaseUrl, supabase } from '../supabaseClient';
 import { elapsedMs, performanceNow, recordAfatMetric } from './performanceMetrics';
 
 export type AfatRouteMode = 'walk' | 'bike' | 'moto' | 'car' | 'minibus';
@@ -15,6 +15,8 @@ export type AfatCanonicalRouteSegment = {
 
 export type AfatCanonicalRoute = {
   status: 'ok' | 'unavailable';
+  route_source?: 'afat_atlas' | 'osrm' | 'google';
+  traffic_aware?: boolean;
   mode: AfatRouteMode;
   reason?: string;
   distance_m?: number;
@@ -40,6 +42,58 @@ type RouteInput = {
   mode: AfatRouteMode;
   snapRadiusM?: number;
 };
+
+// When AFAT's verified canonical graph lacks coverage, reuse the existing
+// road router ONLY for car travel. Preserve provenance: this is not AFAT
+// verified passability and the returned ETA has no live traffic evidence.
+async function externalCarRoute(input: RouteInput): Promise<AfatCanonicalRoute | null> {
+  if (input.mode !== 'car') return null;
+  const query = new URLSearchParams({
+    origin_lat: String(input.originLatitude),
+    origin_lon: String(input.originLongitude),
+    destination_lat: String(input.destinationLatitude),
+    destination_lon: String(input.destinationLongitude),
+  });
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/navigation/route?${query}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const primary = data?.primary;
+    const geometry = primary?.geometry;
+    if (!geometry || geometry.type !== 'LineString' || !Array.isArray(geometry.coordinates) ||
+        geometry.coordinates.length < 2) return null;
+    const coordinates = geometry.coordinates;
+    if (!coordinates.every((point: unknown) =>
+      Array.isArray(point) && point.length >= 2 &&
+      Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
+      Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90)) return null;
+    const duration = Number(primary.durationValue);
+    const steps = coordinates.map((point: number[]) => [point[0], point[1]]);
+    const distanceM = Number(primary.distanceMeters);
+    return {
+      status: 'ok',
+      mode: 'car',
+      route_source: data.source === 'google' ? 'google' : 'osrm',
+      traffic_aware: false,
+      reason: 'unverified_external_road_route',
+      distance_m: Number.isFinite(distanceM) && distanceM >= 0 ? distanceM : undefined,
+      eta_seconds: Number.isFinite(duration) && duration > 0 ? duration : null,
+      eta_reason: 'baseline_no_live_traffic',
+      segments: [{
+        seq: 0,
+        edge_id: 'external-road-route',
+        name: primary.summary || 'Road route',
+        distance_m: Number.isFinite(distanceM) && distanceM >= 0 ? distanceM : 0,
+        passability: 'unverified',
+        geometry: { type: 'LineString', coordinates: steps },
+      }],
+    };
+  } catch {
+    return null;
+  }
+}
 
 type CachedRoute = { expiresAt: number; route: AfatCanonicalRoute };
 const ROUTE_CACHE_TTL_MS = 20_000;
@@ -89,12 +143,19 @@ export async function fetchCanonicalAfatRoute(input: RouteInput): Promise<AfatCa
         p_snap_radius_m: input.snapRadiusM ?? 1200,
       });
       if (error) throw new Error(error.message || 'AFAT could not calculate a trusted route.');
-      const route = (data || { status: 'unavailable', mode: input.mode, reason: 'route_service_returned_no_result' }) as AfatCanonicalRoute;
+      const canonical = (data || { status: 'unavailable', mode: input.mode, reason: 'route_service_returned_no_result' }) as AfatCanonicalRoute;
+      const route = canonical.status === 'ok' ? { ...canonical, route_source: 'afat_atlas' as const } :
+        (await externalCarRoute(input)) || canonical;
       routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, route });
       pruneRouteCache();
       recordAfatMetric({ operation:'route',durationMs:elapsedMs(start),outcome:route.status==='ok'?'success':'unavailable',mode:input.mode,cacheState:'network',resultCount:route.segments?.length||0,routeStatus:route.status,surface:'canonical_route' });
       return route;
     } catch(error:any) {
+      const fallback = await externalCarRoute(input);
+      if (fallback) {
+        routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, route: fallback });
+        return fallback;
+      }
       recordAfatMetric({ operation:'route',durationMs:elapsedMs(start),outcome:typeof navigator!=='undefined'&&!navigator.onLine?'offline':'error',mode:input.mode,cacheState:'network',errorClass:error?.name||'route_error',surface:'canonical_route' });
       throw error;
     }
