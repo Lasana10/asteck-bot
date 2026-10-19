@@ -15,7 +15,7 @@ axios.get = async (url) => {
     throw new Error('Unexpected routing provider');
   }
   return { data: { code: 'Ok', routes: [{
-    distance: 1200, duration: 180,
+    distance: 1200, duration: 180, geometry: { type: 'LineString', coordinates: [[11.516,3.866],[11.526,3.875]] },
     legs: [{ steps: [{ name: 'Main Street', distance: 1200, maneuver: { type: 'depart' } }] }]
   }] } };
 };
@@ -25,6 +25,9 @@ try {
   const result = await DirectionsService.getDirections(a, b);
   assert.equal(result.primary.durationValue, 180);
   assert.equal(result.primary.distance, '1.2 km');
+  assert.equal(result.source, 'osrm');
+  assert.deepEqual(result.primary.geometry.coordinates, [[11.516,3.866],[11.526,3.875]]);
+  assert.equal(result.primary.distanceMeters, 1200);
   assert.equal(urls.length, 1);
   assert.match(urls[0], /11\.516,3\.866;11\.526,3\.875/);
   assert.equal(await DirectionsService.getDirections({ latitude: 999, longitude: 0 }, b), null);
