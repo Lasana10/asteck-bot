@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const rpc = vi.fn();
-const metric = vi.fn();
+const { rpc, metric } = vi.hoisted(() => ({ rpc: vi.fn(), metric: vi.fn() }));
 vi.mock('../supabaseClient', () => ({
   supabase: { rpc },
   getApiBaseUrl: () => 'https://api.example.test',
