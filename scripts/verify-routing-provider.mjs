@@ -29,7 +29,7 @@ try {
   const address = server.address();
   process.env.NODE_ENV = 'test';
   process.env.AFAT_OSRM_BASE_URL = `http://127.0.0.1:${address.port}`;
-  process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK = 'false';
+  process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK = 'true';
   process.env.GOOGLE_MAPS_API_KEY = 'test-not-used';
 
   const { DirectionsService } = await import('../src/services/directions.ts');
@@ -54,8 +54,8 @@ try {
   const previous = console.error;
   try {
     console.error = () => {};
-    assert.equal(await DirectionsService.getDirections(a, b), null,
-      'Provider outage must not trigger a billable API without opt-in');
+    assert.equal(await DirectionsService.getDirections(a, b, { allowMeteredFallback: false }), null,
+      'Public route must not trigger a billable API without explicit authorization');
   } finally {
     console.error = previous;
   }
