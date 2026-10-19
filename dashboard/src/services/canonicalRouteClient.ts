@@ -60,18 +60,21 @@ async function externalCarRoute(input: RouteInput): Promise<AfatCanonicalRoute |
     });
     if (!response.ok) return null;
     const data = await response.json();
+    if (data?.source !== 'osrm' && data?.source !== 'google') return null;
     const primary = data?.primary;
     const geometry = primary?.geometry;
     if (!geometry || geometry.type !== 'LineString' || !Array.isArray(geometry.coordinates) ||
-        geometry.coordinates.length < 2) return null;
+        geometry.coordinates.length < 2 || geometry.coordinates.length > 50000) return null;
     const coordinates = geometry.coordinates;
     if (!coordinates.every((point: unknown) =>
       Array.isArray(point) && point.length >= 2 &&
       Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
       Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90)) return null;
-    const duration = Number(primary.durationValue);
+    if (typeof primary.distanceMeters !== 'number' || !Number.isFinite(primary.distanceMeters) || primary.distanceMeters <= 0 ||
+        typeof primary.durationValue !== 'number' || !Number.isFinite(primary.durationValue) || primary.durationValue <= 0) return null;
+    const duration = primary.durationValue;
     const steps = coordinates.map((point: number[]) => [point[0], point[1]]);
-    const distanceM = Number(primary.distanceMeters);
+    const distanceM = primary.distanceMeters;
     return {
       status: 'ok',
       mode: 'car',
