@@ -55,7 +55,7 @@ export class DirectionsService {
     if (local) return local;
     // Preserve the legacy configured Google route path until AFAT operates OSRM.
     // Once OSRM is configured, metered failover remains explicit opt-in.
-    return GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
+    return options.allowMeteredFallback !== false && GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
       ? this.googleDirections(origin, destination) : null;
   }
 
