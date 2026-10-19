@@ -4,6 +4,8 @@ import { AFAT_BASEMAPS, type AfatBasemapMode } from '../../services/mapBasemaps'
 import { Map as MapLibreMap, NavigationControl, Popup } from 'maplibre-gl';
 import { supabase } from '../../supabaseClient';
 import { readOfflineCityPack, cityPackAge } from '../../services/offlineCityPack';
+import { mapOfflineService } from '../../services/MapOfflineService';
+import { validateOfflineRoadSeed } from '../../services/offlineRoadSeed';
 
 type AtlasPayload={
   city?:{city_name?:string;learning_stage?:string;operational_confidence?:number};
@@ -142,6 +144,54 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
     mapRef.current=map;
     return()=>{map.remove();mapRef.current=null;};
   },[]);
+
+  // Cached seed lines remain visible over the dark background without
+  // connectivity. They are NOT a routable graph, traffic state, or replacement
+  // for MapLibre raster tiles, which have separate offline requirements.
+  useEffect(()=>{
+    const map=mapRef.current;
+    if(!map) return;
+    let disposed=false;
+    const sourceId='afat-offline-road-seed';
+    const removeOverlay=()=>{
+      if(map.getLayer(sourceId)) map.removeLayer(sourceId);
+      if(map.getSource(sourceId)) map.removeSource(sourceId);
+    };
+    const updateOverlay=async()=>{
+      if(disposed || typeof navigator==='undefined') return;
+      if(navigator.onLine || cityKey!=='cm-yaounde'){
+        if(map.isStyleLoaded()) removeOverlay();
+        return;
+      }
+      const response=await mapOfflineService.readOfflineAsset('yaounde','/data/yaounde_roads.geojson').catch(()=>null);
+      if(disposed || !response) return;
+      const raw=await response.json().catch(()=>null);
+      const roads=validateOfflineRoadSeed(raw);
+      if(disposed || !roads) return;
+      if(!map.isStyleLoaded()) return;
+      const existing=map.getSource(sourceId);
+      if(existing && 'setData' in existing) (existing as any).setData(roads);
+      else {
+        map.addSource(sourceId,{type:'geojson',data:roads as any});
+        map.addLayer({id:sourceId,type:'line',source:sourceId,paint:{
+          'line-color':'#94a3b8','line-width':2,'line-opacity':0.85,'line-dasharray':[2,2],
+        }});
+      }
+      setMapError('Offline road sketch from saved seed data. Coverage incomplete; routes, traffic and passability are not verified.');
+    };
+    const onLoad=()=>{void updateOverlay();};
+    map.on('load',onLoad);
+    if(map.isStyleLoaded()) void updateOverlay();
+    window.addEventListener('online',onLoad);
+    window.addEventListener('offline',onLoad);
+    return()=>{
+      disposed=true;
+      map.off('load',onLoad);
+      window.removeEventListener('online',onLoad);
+      window.removeEventListener('offline',onLoad);
+      if(map.isStyleLoaded()) removeOverlay();
+    };
+  },[cityKey]);
 
   useEffect(()=>{
     const map=mapRef.current;if(!map)return;
