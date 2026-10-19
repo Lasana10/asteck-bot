@@ -31,6 +31,7 @@ export interface RouteResult {
   endAddress: string;
   steps: string[];
   warnings: string[];
+  geometry?: { type: 'LineString'; coordinates: number[][] };
 }
 
 export interface DirectionsResult {
@@ -131,7 +132,7 @@ export class DirectionsService {
     try {
       const base = routingEndpoint();
       if (!base) return null;
-      const url = `${base}/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&alternatives=true&steps=true`;
+      const url = `${base}/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=geojson&alternatives=true&steps=true`;
 
       const response = await axios.get(url, { timeout: 10000 });
       const data = response.data;
