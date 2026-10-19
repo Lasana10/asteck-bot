@@ -48,7 +48,8 @@ export class DirectionsService {
    */
   static async getDirections(
     origin: Coordinates,
-    destination: Coordinates
+    destination: Coordinates,
+    options: { allowMeteredFallback?: boolean } = {}
   ): Promise<DirectionsResult | null> {
     if (!validCoordinates(origin) || !validCoordinates(destination)) return null;
     const local = await this.osrmDirections(origin, destination);
