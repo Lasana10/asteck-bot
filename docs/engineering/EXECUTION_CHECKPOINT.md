@@ -1,3 +1,9 @@
+## Same continuation — public routing quota protection
+- Merged release remains `fd302b7`, backend deployed live via Render `dep-dbb8eocs728c73cfeeq0`.
+- Follow-up PR #113 adds offline road-seed rendering **and** explicit cost guard: public `/api/navigation/route` never triggers Google metered fallback unless `AFAT_ALLOW_PUBLIC_PAID_ROUTING=true`; old internal routing remains available. Commits 55a5875, 5205e0b, cd6f2d6. This control prevents unauthenticated API calls from exhausting existing paid routing quota.
+- Updated regression test and routing docs. Follow-up PR needs green CI, merge and deployment verification before accepted.
+- Outstanding fundamental infrastructure: production-grade own OSRM/Valhalla service with verified network, plus non-mock offline vector/raster basemap and offline routing, and integrated broader AFAT workflows.
+
 # Verified delivery checkpoint — 2026-10-19 22:13 Africa/Douala
 
 - **Production release:** PR #112 merged to master as `fd302b708b026163daf971f81aa4ff0e4a002ffa` after GitHub Actions run `39325306356` passed backend and dashboard jobs. Existing Render backend service `srv-d6a66tggjchc73dot60g` auto-deployed this commit; deploy `dep-dbb8eocs728c73cfeeq0` reported **LIVE**.
