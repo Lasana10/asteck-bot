@@ -109,9 +109,45 @@ export class DirectionsService {
     }
   }
 
+  // Google Directions uses encoded polylines. Decode locally so authorized
+  // Google fallback can supply the same map geometry contract as OSRM.
+  private static decodeGooglePolyline(encoded: string): number[][] {
+    if (!encoded || encoded.length > 200000) return [];
+    const points: number[][] = [];
+    let latitude = 0;
+    let longitude = 0;
+    let cursor = 0;
+    try {
+      while (cursor < encoded.length && points.length < 50000) {
+        const delta: number[] = [];
+        for (let axis = 0; axis < 2; axis += 1) {
+          let result = 0;
+          let shift = 0;
+          let byte: number;
+          do {
+            if (cursor >= encoded.length || shift > 30) return [];
+            byte = encoded.charCodeAt(cursor++) - 63;
+            if (byte < 0 || byte > 63) return [];
+            result |= (byte & 31) << shift;
+            shift += 5;
+          } while (byte >= 32);
+          delta.push((result & 1) ? ~(result >> 1) : (result >> 1));
+        }
+        latitude += delta[0];
+        longitude += delta[1];
+        const lat = latitude / 1e5;
+        const lon = longitude / 1e5;
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return [];
+        points.push([lon, lat]);
+      }
+    } catch { return []; }
+    return points;
+  }
+
   private static parseGoogleRoute(route: any): RouteResult {
     const leg = route.legs[0];
     return {
+      geometry: polyline.length >= 2 ? { type: 'LineString', coordinates: polyline } : undefined,
       summary: route.summary || 'Route',
       distance: leg.distance?.text || '—',
       distanceMeters: leg.distance?.value,
