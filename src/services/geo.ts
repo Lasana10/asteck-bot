@@ -2,7 +2,19 @@ import axios from 'axios';
 import { Coordinates } from '../types';
 
 export class GeoService {
-  private static NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
+  private static reverseEndpoint(): string | null {
+    const configured = (process.env.AFAT_REVERSE_GEOCODE_URL || '').trim();
+    if (!configured) {
+      return process.env.NODE_ENV !== 'production' || process.env.AFAT_ALLOW_PUBLIC_NOMINATIM === 'true'
+        ? 'https://nominatim.openstreetmap.org/reverse' : null;
+    }
+    try {
+      const url = new URL(configured);
+      if (url.username || url.password || url.hash || url.search) return null;
+      if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))) return null;
+      return url.toString();
+    } catch { return null; }
+  }
 
   /**
    * Reverse Geocoding using OpenStreetMap Nominatim
@@ -19,7 +31,7 @@ export class GeoService {
           addressdetails: 1,
         },
         headers: {
-          'User-Agent': 'AsTeckTraffic/1.0 (TrafficIntelligenceBot)'
+          'User-Agent': process.env.AFAT_GEOCODER_USER_AGENT || 'AFAT-Mobility/1.0'
         }
       });
 
