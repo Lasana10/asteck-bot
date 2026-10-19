@@ -79,6 +79,7 @@ class MapOfflineService {
   private downloadedRegions: DownloadedRegion[] = [];
   private localIntelligence: IntelligenceData[] = [];
   private isFirstTime = true;
+  private verifiedAssets = false;
   private storageLimitMb = 512;
   private hybridStreamMode = true;
 
@@ -99,6 +100,7 @@ class MapOfflineService {
       if (stored.every((response) => response?.ok)) valid.push(region);
     }
     this.downloadedRegions = valid;
+    this.verifiedAssets = true;
     MAP_PACKS.forEach((pack) => localStorage.removeItem(`${REGION_FLAG_PREFIX}${pack.id}`));
     valid.forEach((region) => localStorage.setItem(`${REGION_FLAG_PREFIX}${region.id}`, 'true'));
     this.saveState();
@@ -162,7 +164,7 @@ class MapOfflineService {
   public getCatalog() {
     return MAP_PACKS.map((pack) => ({
       ...pack,
-      installed: this.downloadedRegions.some((region) => region.id === pack.id),
+      installed: this.verifiedAssets && this.downloadedRegions.some((region) => region.id === pack.id),
     }));
   }
 
@@ -293,6 +295,7 @@ class MapOfflineService {
 
     onProgress?.(15);
     await this.cacheRegionAssets(region.assetUrls, onProgress);
+    this.verifiedAssets = true;
     this.markRegionInstalled(regionId);
     await this.enforceStorageLimit();
     onProgress?.(100);
@@ -305,7 +308,8 @@ class MapOfflineService {
       lng >= pack.bounds[0][1] &&
       lng <= pack.bounds[1][1]
     );
-    return region ? this.downloadedRegions.some((entry) => entry.id === region.id) : false;
+    return this.verifiedAssets && region?.status === 'ready'
+      ? this.downloadedRegions.some((entry) => entry.id === region.id) : false;
   }
 
   public async downloadFullCameroon(onProgress?: (progress: number) => void) {
@@ -315,6 +319,7 @@ class MapOfflineService {
   public async clearStorage() {
     await this.offloadIntelligenceToDatabase();
     this.downloadedRegions = [];
+    this.verifiedAssets = false;
     if (typeof caches !== 'undefined') await caches.delete(OFFLINE_ASSET_CACHE);
     MAP_PACKS.forEach((pack) => localStorage.removeItem(`${REGION_FLAG_PREFIX}${pack.id}`));
     this.saveState();
