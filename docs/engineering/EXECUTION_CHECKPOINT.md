@@ -1,3 +1,11 @@
+# Verified delivery checkpoint — 2026-10-19 22:13 Africa/Douala
+
+- **Production release:** PR #112 merged to master as `fd302b708b026163daf971f81aa4ff0e4a002ffa` after GitHub Actions run `39325306356` passed backend and dashboard jobs. Existing Render backend service `srv-d6a66tggjchc73dot60g` auto-deployed this commit; deploy `dep-dbb8eocs728c73cfeeq0` reported **LIVE**.
+- **AFAT Supabase project** `rkijcxxryhfrqsgkwtbu`, independently verified through connected Supabase, preserved in `docs/engineering/AFAT_SUPABASE_PROJECT.md`. Secrets are not committed.
+- **Live graph limitation:** canonical driving route between sample Yaoundé points returned `no_shared_connected_component_within_snap_radius`. No acceptance of that journey.
+- **Next block in this branch:** augment existing LivingAtlasMap with actual saved road-seed geometry when offline; parser and tests committed. This does **not** provide offline turn-by-turn routing or offline basemap tiles, and must not be presented as such.
+- **Remaining core work:** trusted city-scale graph coverage, actual OSRM/Valhalla instance with verified Cameroon road data and licensing, connected multimodal navigation and execution, complete spatial positioning beyond basic map tiles, safe fleet/booking/payment integrations, offline tiles/route graph and real-device acceptance. Two master mandates below remain active.
+
 ## 2026-10-19 evening — live Supabase and offline map integration
 - Connected Supabase TRAFFIC verified ACTIVE_HEALTHY; ref `rkijcxxryhfrqsgkwtbu`, link and safe continuation instructions committed `docs/engineering/AFAT_SUPABASE_PROJECT.md` (e784473). No credentials in repository. Connector access is account-dependent.
 - Live SQL verified functions `afat_route_canonical`, `afat_offline_city_pack`, `afat_atlas_nearby`. Existing counts: 839 Atlas nodes, 878 edges, 8756 geographic source records, 771 places. Actual test route 3.866,11.516→3.875,11.526 in car mode returned **unavailable** (`no_shared_connected_component_within_snap_radius`). Not a successful network test.
