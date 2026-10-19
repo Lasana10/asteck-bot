@@ -7,17 +7,18 @@ process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK = 'false';
 process.env.GOOGLE_MAPS_API_KEY = 'test-not-used';
 
 const { DirectionsService } = await import('../src/services/directions.ts');
-const original = axios.get;
+const originalAdapter = axios.defaults.adapter;
 const urls = [];
-axios.get = async (url) => {
-  urls.push(url);
-  if (!url.startsWith('https://routing.example.test/route/v1/driving/')) {
+axios.defaults.adapter = async (config) => {
+  urls.push(config.url);
+  if (!config.url.startsWith('https://routing.example.test/route/v1/driving/')) {
     throw new Error('Unexpected routing provider');
   }
   return { data: { code: 'Ok', routes: [{
-    distance: 1200, duration: 180, geometry: { type: 'LineString', coordinates: [[11.516,3.866],[11.526,3.875]] },
-    legs: [{ steps: [{ name: 'Main Street', distance: 1200, maneuver: { type: 'depart' } }] }]
-  }] } };
+    distance: 1200, duration: 180,
+    geometry: { type: 'LineString', coordinates: [[11.516,3.866],[11.526,3.875]] },
+    legs: [{ steps: [{ name: 'Main Street', distance: 1200, maneuver: { type: 'depart' } }] }],
+  }] }, status: 200, statusText: 'OK', headers: {}, config };
 };
 try {
   const a = { latitude: 3.866, longitude: 11.516 };
@@ -32,9 +33,9 @@ try {
   assert.match(urls[0], /11\.516,3\.866;11\.526,3\.875/);
   assert.equal(await DirectionsService.getDirections({ latitude: 999, longitude: 0 }, b), null);
   assert.equal(urls.length, 1, 'Invalid coordinates must not reach providers');
-  axios.get = async () => { throw new Error('simulated outage'); };
+  axios.defaults.adapter = async () => { throw new Error('simulated outage'); };
   assert.equal(await DirectionsService.getDirections(a, b), null, 'Outage must not trigger paid API without opt-in');
   console.log('AFAT routing provider checks passed');
 } finally {
-  axios.get = original;
+  axios.defaults.adapter = originalAdapter;
 }
