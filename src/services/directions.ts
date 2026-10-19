@@ -97,6 +97,7 @@ export class DirectionsService {
       const routes = data.routes.map((route: any) => this.parseGoogleRoute(route));
 
       return {
+        source: 'google',
         primary: routes[0],
         alternatives: routes.slice(1),
       };
@@ -140,6 +141,7 @@ export class DirectionsService {
       const routes = data.routes.map((route: any) => this.parseOSRMRoute(route));
 
       return {
+        source: 'osrm',
         primary: routes[0],
         alternatives: routes.slice(1),
       };
