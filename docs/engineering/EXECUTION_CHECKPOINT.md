@@ -4,6 +4,8 @@
 Continue existing `Lasana10/asteck-bot` on branch `engineering/afat-routing-selfhost-first-20261019`. Preserve all existing user journeys and prior research. Do not restart or duplicate the project.
 
 ## Latest addition
+- Standalone /api/navigation/route and /api/navigation/reverse-geocode endpoints implemented and mounted; route response includes actual provider and traffic_aware=false. Commits 242e5f6, 216692a, 382892d. Unverified by CI or deployment.
+
 - Reverse geocoding supports AFAT_REVERSE_GEOCODE_URL and avoids public Nominatim in production unless explicitly opted in (866f7b3).
 
 ## Completed in this branch
