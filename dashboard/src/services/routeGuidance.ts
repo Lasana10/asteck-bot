@@ -60,7 +60,7 @@ function nearestPointOnSegment(
 function thresholdFor(position: RoutePosition, mode?: string | null) {
   const accuracy = position.accuracy == null ? Number.POSITIVE_INFINITY : Number(position.accuracy);
   const base = mode === 'walk' ? 28 : mode === 'moto' || mode === 'bike' ? 38 : 48;
-  return Math.max(base, Math.min(130, accuracy * 1.6 || base));
+  return !Number.isFinite(accuracy) || accuracy < 0 ? 130 : Math.max(base, Math.min(130, accuracy * 1.6 || base));
 }
 
 export function calculateRouteProgress(
