@@ -5,6 +5,22 @@ import { Coordinates } from '../types';
 dotenv.config();
 
 const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_API_KEY;
+const OSRM_URL = (process.env.AFAT_OSRM_BASE_URL || '').replace(/\/+$/, '');
+const ALLOW_DEMO = process.env.NODE_ENV !== 'production' || process.env.AFAT_ALLOW_PUBLIC_OSRM === 'true';
+const GOOGLE_OPT_IN = process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK === 'true';
+function validCoordinates(c: Coordinates): boolean {
+  return Number.isFinite(c.latitude) && Number.isFinite(c.longitude) &&
+    Math.abs(c.latitude) <= 90 && Math.abs(c.longitude) <= 180;
+}
+function routingEndpoint(): string | null {
+  if (!OSRM_URL) return ALLOW_DEMO ? 'https://router.project-osrm.org' : null;
+  try {
+    const u = new URL(OSRM_URL);
+    if (u.username || u.password || u.search || u.hash) return null;
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname))) return null;
+    return u.toString().replace(/\/+$/, '');
+  } catch { return null; }
+}
 
 export interface RouteResult {
   summary: string;
@@ -113,9 +129,11 @@ export class DirectionsService {
     destination: Coordinates
   ): Promise<DirectionsResult | null> {
     try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&alternatives=true&steps=true`;
+      const base = routingEndpoint();
+      if (!base) return null;
+      const url = `${base}/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&alternatives=true&steps=true`;
 
-      const response = await axios.get(url);
+      const response = await axios.get(url, { timeout: 10000 });
       const data = response.data;
 
       if (data.code !== 'Ok' || !data.routes?.length) return null;
