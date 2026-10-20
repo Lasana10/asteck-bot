@@ -19,7 +19,7 @@ export function OfflineRouteSchematic({route,progress,label}:Props){
      {progress>0&&<circle cx={position.x} cy={position.y} r="5" fill="#fff" stroke="#0284c7" strokeWidth="2"/>}
    </svg>
    <p className="absolute bottom-32 left-4 right-4 text-center text-[10px] text-slate-300">
-     {label||'Saved destination'} · {route?.route_source==='afat_atlas'?'AFAT-reviewed graph':'External road-network estimate'} · No live traffic
+     {label||'Saved destination'} · {route?.route_source==='afat_atlas'?'AFAT graph, review varies':'External road-network estimate'} · No live traffic
    </p>
  </div>;
 }
