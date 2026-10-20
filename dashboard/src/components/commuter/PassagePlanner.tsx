@@ -84,7 +84,12 @@ function routeMessageFor(route: AfatCanonicalRoute | null) {
   if (route.status === 'ok') {
     const km = Number(route.distance_m || 0) / 1000;
     const distance = km > 0 ? ` · ${km.toFixed(km >= 10 ? 0 : 1)} km` : '';
-    if (route.eta_seconds) return `Connected AFAT route ready${distance} · ${Math.ceil(route.eta_seconds / 60)} min observed ETA.`;
+    if (route.route_source === 'osrm' || route.route_source === 'google') {
+      const provider = route.route_source === 'osrm' ? 'OSRM' : 'Google';
+      const baseline = route.eta_seconds ? ` · approximately ${Math.ceil(route.eta_seconds / 60)} min baseline (no live traffic)` : '';
+      return `${provider} driving road route${distance}${baseline}. Road passability, destination entrance and live traffic are not field-verified.`;
+    }
+    if (route.eta_seconds) return `Connected AFAT route ready${distance} · ${Math.ceil(route.eta_seconds / 60)} min evidence-based ETA.`;
     const coverage = Number(route.eta_profile_coverage || 0);
     if (coverage > 0) return `Connected AFAT route ready${distance}. ETA is withheld because trusted speed evidence covers only ${Math.round(coverage * 100)}% of this route.`;
     return `Connected AFAT route ready${distance}. ETA appears only after opted-in real journeys create trusted speed coverage.`;
@@ -117,7 +122,7 @@ function chooseJourneyDecision(
   }).sort((a,b) => b.score - a.score);
   const best = scored[0];
   const reasons:string[] = [];
-  if (best.eta > 0) reasons.push(`${Math.ceil(best.eta/60)} min observed ETA`);
+  if (best.eta > 0) reasons.push(`${Math.ceil(best.eta/60)} min ${best.route.route_source === 'osrm' || best.route.route_source === 'google' ? 'baseline road estimate (not observed)' : 'evidence-based ETA'}`);
   else reasons.push('connected route');
   if (best.mode !== 'walk') {
     reasons.push(best.supply > 0 ? `${best.supply} live option${best.supply === 1 ? '' : 's'} observed` : 'live supply not yet observed');
@@ -127,7 +132,7 @@ function chooseJourneyDecision(
     mode: best.mode,
     label: labels[best.mode],
     reason: reasons.join(' · '),
-    evidence: best.eta > 0 && (best.mode === 'walk' || best.supply > 0) ? 'strong' : 'partial',
+    evidence: best.route.route_source !== 'osrm' && best.route.route_source !== 'google' && best.eta > 0 && (best.mode === 'walk' || best.supply > 0) ? 'strong' : 'partial',
   };
 }
 
