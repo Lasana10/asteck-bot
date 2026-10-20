@@ -28,8 +28,13 @@ begin
   if p_accuracy_m is null or p_accuracy_m>150 then raise exception 'Location accuracy is too weak for field mapping'; end if;
 
   if coalesce(p_attributes,'{}'::jsonb) ? 'client_observation_id' and (
-      jsonb_typeof(p_attributes->'client_observation_id') <> 'string' or
-      (p_attributes->>'client_observation_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} where city_key=p_city_key and status='active';
+    jsonb_typeof(p_attributes->'client_observation_id') <> 'string' or
+    (p_attributes->>'client_observation_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  ) then raise exception 'Invalid client observation identity'; end if;
+  if p_accuracy_m < 0 then raise exception 'Invalid location uncertainty'; end if;
+  if p_observed_at > now() + interval '5 seconds' then raise exception 'Future observation rejected'; end if;
+
+  select * into v_city from public.afat_city_profiles where city_key=p_city_key and status='active';
   if not found then raise exception 'City profile unavailable'; end if;
 
   v_conf:=case when p_accuracy_m<=15 then 62 when p_accuracy_m<=35 then 52 when p_accuracy_m<=70 then 44 else 35 end;
@@ -45,13 +50,17 @@ begin
 
   if v_id is null then
     select * into v_original from public.afat_mapping_observations
-      where contributor_id=v_uid and attributes->>'client_observation_id'=p_attributes->>'client_observation_id'
-      limit 1;
+    where contributor_id=v_uid and attributes->>'client_observation_id'=p_attributes->>'client_observation_id'
+    limit 1;
     if not found then raise exception 'Field observation insert conflict unresolved'; end if;
     if v_original.observation_type is distinct from p_observation_type or
        v_original.latitude is distinct from p_latitude or
        v_original.longitude is distinct from p_longitude or
        v_original.observed_at is distinct from coalesce(p_observed_at,now()) or
+       v_original.movement_mode is distinct from p_movement_mode or
+       v_original.label is distinct from nullif(trim(coalesce(p_label,'')),'') or
+       v_original.description is distinct from nullif(trim(coalesce(p_description,'')),'') or
+       v_original.attributes->'accuracy_m' is distinct from to_jsonb(p_accuracy_m) or
        v_original.media_paths is distinct from coalesce(p_media_paths,'[]'::jsonb) then
        raise exception 'Conflicting field observation replay';
     end if;
@@ -80,45 +89,4 @@ begin
   end if;
 
   return jsonb_build_object('id',v_id,'status','candidate','confidence',v_conf,'matched_edge_id',v_match,'matched_edge_distance_m',v_distance);
-end; $function$
-
-  ) then raise exception 'Invalid client observation identity'; end if;
-
-  select * into v_city from public.afat_city_profiles where city_key=p_city_key and status='active';
-  if not found then raise exception 'City profile unavailable'; end if;
-
-  v_conf:=case when p_accuracy_m<=15 then 62 when p_accuracy_m<=35 then 52 when p_accuracy_m<=70 then 44 else 35 end;
-
-  insert into public.afat_mapping_observations(
-    contributor_id,city_profile_id,observation_type,latitude,longitude,movement_mode,label,description,attributes,media_paths,confidence,observed_at
-  ) values (
-    v_uid,v_city.id,p_observation_type,p_latitude,p_longitude,p_movement_mode,
-    nullif(trim(coalesce(p_label,'')),''),nullif(trim(coalesce(p_description,'')),''),
-    coalesce(p_attributes,'{}'::jsonb)||jsonb_build_object('accuracy_m',p_accuracy_m),
-    coalesce(p_media_paths,'[]'::jsonb),v_conf,coalesce(p_observed_at,now())
-  ) returning id into v_id;
-
-  select e.id,public.st_distance(e.geometry,public.st_setsrid(public.st_makepoint(p_longitude,p_latitude),4326)::public.geography)
-  into v_match,v_distance
-  from public.afat_atlas_edges e
-  join public.afat_atlas_nodes n on n.id=e.from_node_id
-  where e.status='active' and n.city=v_city.city_name
-    and public.st_dwithin(e.geometry,public.st_setsrid(public.st_makepoint(p_longitude,p_latitude),4326)::public.geography,greatest(25,least(120,p_accuracy_m+35)))
-  order by e.geometry <-> public.st_setsrid(public.st_makepoint(p_longitude,p_latitude),4326)::public.geography
-  limit 1;
-
-  if v_match is not null and p_observation_type in ('road_surface','road_condition','mode_access','restriction') then
-    insert into public.afat_atlas_observations(
-      atlas_edge_id,observer_id,observation_type,observation_value,source_kind,confidence,evidence,observed_at
-    ) values (
-      v_match,v_uid,'field_mapping_'||p_observation_type,
-      jsonb_build_object('type',p_observation_type,'label',p_label,'description',p_description,'movement_mode',p_movement_mode,'attributes',coalesce(p_attributes,'{}'::jsonb)),
-      'field_mapper',v_conf,
-      jsonb_build_object('mapping_observation_id',v_id,'accuracy_m',p_accuracy_m,'edge_distance_m',v_distance),
-      coalesce(p_observed_at,now())
-    );
-  end if;
-
-  return jsonb_build_object('id',v_id,'status','candidate','confidence',v_conf,'matched_edge_id',v_match,'matched_edge_distance_m',v_distance);
-end; $function$
-;
+end; $function$;
