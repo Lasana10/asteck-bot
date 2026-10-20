@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 process.env.SUPABASE_URL ||= 'https://example.supabase.co';
 process.env.SUPABASE_KEY ||= 'test-only-nonsecret-placeholder';
-const { reviewedAtlasEvidence } = await import('../src/api/atlasExplain');
+const { reviewedAtlasEvidence } = require('../src/api/atlasExplain');
 
 const rows = reviewedAtlasEvidence({nodes:[
   {id:'ok',canonical_name:'Central Market',confidence:85,evidence_status:'verified'},
