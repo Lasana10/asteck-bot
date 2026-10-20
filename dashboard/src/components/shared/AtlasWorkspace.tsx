@@ -29,6 +29,8 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
   const [selectedCityKey,setSelectedCityKey]=useState('');
   const [predictions,setPredictions]=useState<any[]>([]);
   const [notice,setNotice]=useState('');
+  const [missionObservation,setMissionObservation]=useState('');
+  const [missionCondition,setMissionCondition]=useState('');
   const [busy,setBusy]=useState(false);
 
   const canPlan=role==='planner'||role==='admin';
@@ -79,6 +81,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
 
   const submit=async()=>{
     if(!myMission) return;
+    if(!missionObservation.trim()){setNotice('Describe what you actually observed on site before verifying.');return;}
     if(!navigator.geolocation){ setNotice('Location is not available on this device.'); return; }
     setBusy(true);
     navigator.geolocation.getCurrentPosition(async pos=>{
@@ -94,11 +97,11 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       try{
         const {error}=await supabase.rpc('afat_submit_micro_mission',{
           p_mission_id:myMission.id,
-          p_answer:{condition:'unassessed',answer:'gnss_presence_only',accuracy_m:spatial.uncertaintyRadiusM},
+          p_answer:{answer:missionObservation.trim(),...(myMission.target_edge_id&&missionCondition?{condition:missionCondition}:{}),accuracy_m:spatial.uncertaintyRadiusM,source:'reported_on_site'},
           p_latitude:spatial.fix!.latitude,p_longitude:spatial.fix!.longitude,p_accuracy_m:spatial.fix!.accuracyM,
         });
         setNotice(error?error.message:'On-site position evidence submitted for review. Road conditions were not automatically confirmed.');
-        if(!error)await load();
+        if(!error){setMissionObservation('');setMissionCondition('');await load();}
       }catch{
         setNotice('Could not submit mission evidence. No confirmation was recorded.');
       }finally{setBusy(false);}
@@ -161,7 +164,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {groupedMissions.slice(0,6).map(m=><article key={m.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black">{m.title}</p><p className="mt-2 text-xs leading-5 text-white/50">{m.question}</p>{m.segment_count>1&&<p className="mt-2 text-[9px] font-black uppercase tracking-wide text-amber-200/65">{m.segment_count} connected road segments grouped into one mission area</p>}</div><span className="rounded-full border border-white/10 px-2 py-1 text-[8px] font-black uppercase text-white/45">{m.status}</span></div>
-          <div className="mt-3 flex gap-2">{canClaimMission&&m.status==='open'&&<button onClick={()=>claim(m.id)} disabled={busy} className="min-h-9 rounded-lg bg-emerald-400 px-3 text-[9px] font-black uppercase text-slate-950">Take mission</button>}{m.id===myMission?.id&&<button onClick={submit} disabled={busy} className="min-h-9 rounded-lg bg-cyan-300 px-3 text-[9px] font-black uppercase text-slate-950">Verify here</button>}</div>
+          <div className="mt-3 flex gap-2">{canClaimMission&&m.status==='open'&&<button onClick={()=>claim(m.id)} disabled={busy} className="min-h-9 rounded-lg bg-emerald-400 px-3 text-[9px] font-black uppercase text-slate-950">Take mission</button>}{m.id===myMission?.id&&<div className="grid w-full gap-2"><label className="text-[10px] text-white/60">Your on-site observation<textarea value={missionObservation} onChange={e=>setMissionObservation(e.target.value)} maxLength={1000} placeholder="Describe what you personally observed (required)." className="mt-1 w-full rounded-lg border border-white/15 bg-slate-950 p-2 text-xs text-white" rows={2}/></label>{myMission.target_edge_id&&<label className="text-[10px] text-white/60">Observed road condition (optional, never assumed)<select value={missionCondition} onChange={e=>setMissionCondition(e.target.value)} className="mt-1 w-full rounded-lg border border-white/15 bg-slate-950 p-2 text-xs text-white"><option value="">Not assessed</option><option value="open">Passable</option><option value="rough">Rough</option><option value="blocked">Blocked</option></select></label>}<button onClick={submit} disabled={busy||!missionObservation.trim()} className="min-h-9 rounded-lg bg-cyan-300 px-3 text-[9px] font-black uppercase text-slate-950 disabled:opacity-40">Submit observed evidence</button></div>}</div>
         </article>)}
         {!groupedMissions.length&&<p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No nearby verification mission is open right now.</p>}
       </div>
