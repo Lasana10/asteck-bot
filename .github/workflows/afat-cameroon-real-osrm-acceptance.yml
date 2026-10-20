@@ -71,9 +71,13 @@ jobs:
           {
             cat routing/cameroon/data/graph-provenance.txt
             echo "source_sha256=$(sha256sum routing/cameroon/data/cameroon-latest.osm.pbf | cut -d' ' -f1)"
-            echo "graph_sha256=$(sha256sum routing/cameroon/data/cameroon-latest.osrm | cut -d' ' -f1)"
+            test -s routing/cameroon/data/cameroon-latest.osrm.partition
+            test -s routing/cameroon/data/cameroon-latest.osrm.cells
+            echo "graph_partition_sha256=$(sha256sum routing/cameroon/data/cameroon-latest.osrm.partition | awk '{print $1}')"
+            echo "graph_cells_sha256=$(sha256sum routing/cameroon/data/cameroon-latest.osrm.cells | awk '{print $1}')"
             echo "osm_bytes=$(stat -c%s routing/cameroon/data/cameroon-latest.osm.pbf)"
-            echo "graph_bytes=$(stat -c%s routing/cameroon/data/cameroon-latest.osrm)"
+            echo "graph_partition_bytes=$(stat -c%s routing/cameroon/data/cameroon-latest.osrm.partition)"
+            echo "graph_cells_bytes=$(stat -c%s routing/cameroon/data/cameroon-latest.osrm.cells)"
             echo "route_smoke=Yaounde_and_Douala_passed"
             echo "acceptance_limit=temporary_runner_no_field_validation_or_live_service"
           } > routing/cameroon/data/acceptance-proof.txt
