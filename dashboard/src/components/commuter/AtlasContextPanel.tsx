@@ -85,18 +85,19 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
   const trustedEdges = useMemo(() => (atlas?.edges || []).filter((edge: AtlasEdge) =>
     ['verified', 'corroborated'].includes(String(edge.evidence_status || '').toLowerCase()) || Number(edge.confidence || 0) >= 60
   ), [atlas]);
-  const routeReady = trustedEdges.length > 0;
+  // Nearby evidence is not evidence of a connected, routable path.
+  const roadEvidenceNearby = trustedEdges.length > 0;
   const placeReady = trustedNodes.length > 0;
 
   return <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-start gap-3">
-        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${routeReady ? 'bg-emerald-500/12 text-emerald-300' : 'bg-blue-500/10 text-blue-300'}`}>
-          {routeReady ? <CheckCircle2 className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
+        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${roadEvidenceNearby ? 'bg-blue-500/12 text-blue-300' : 'bg-blue-500/10 text-blue-300'}`}>
+          {roadEvidenceNearby ? <CheckCircle2 className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
         </div>
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Around {originLabel}</p>
-          <p className="mt-1 text-xs font-bold text-white">{loading ? 'Checking the best local guidance…' : routeReady ? 'AFAT has trusted route knowledge nearby' : placeReady ? 'Landmarks are known; route detail is still being verified' : 'Local route knowledge is still being verified'}</p>
+          <p className="mt-1 text-xs font-bold text-white">{loading ? 'Checking the best local guidance…' : roadEvidenceNearby ? 'Reviewed road evidence exists nearby; a connected route is not yet confirmed' : placeReady ? 'Landmarks are known; route detail is still being verified' : 'Local route knowledge is still being verified'}</p>
           <p className="mt-1 text-[10px] leading-4 text-white/40">AFAT will use what is trusted and avoid inventing roads, entrances or shortcuts.</p>
         </div>
       </div>
