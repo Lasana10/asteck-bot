@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, LocateFixed, MapPin, RefreshCw, ShieldCheck } from 'lucide-react';
-import { fetchAtlasNearby, type AtlasEdge, type AtlasNearbyResponse, type AtlasNode } from '../../services/atlasClient';
+import { fetchAtlasNearby, type AtlasNearbyResponse } from '../../services/atlasClient';
 import { explainReviewedAtlas, type AtlasExplanation } from '../../services/atlasExplainClient';
 import {reviewedAtlasItems,provisionalAtlasItems,atlasKnowledgeHeadline} from '../../services/atlasKnowledgeTrust';
 
@@ -84,7 +84,6 @@ export function AtlasContextPanel({ city = 'yaounde', selectedOrigin, onOriginRe
   const reviewedNodes = useMemo(() => reviewedAtlasItems(atlas?.nodes || []), [atlas]);
   const reviewedEdges = useMemo(() => reviewedAtlasItems(atlas?.edges || []), [atlas]);
   const provisionalNodes = useMemo(() => provisionalAtlasItems(atlas?.nodes || []), [atlas]);
-  const placeReady = reviewedNodes.length > 0;
   const roadEvidenceNearby = reviewedEdges.length > 0;
   const headline = atlasKnowledgeHeadline(reviewedEdges.length,reviewedNodes.length,provisionalNodes.length);
 
