@@ -1,0 +1,100 @@
+name: AFAT Cameroon Real OSRM Graph Acceptance
+
+# Runs only on this routing integration PR or by explicit dispatch.
+# Public GitHub runner: no Render service, paid provider, or production data writes.
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-cameroon-real-osrm-acceptance.yml'
+      - 'routing/cameroon/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: afat-cameroon-osrm-graph-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-real-city-routes:
+    name: Real Cameroon OSM → OSRM → two-city route geometry
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check bounded runner capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+          df -h .
+          free -h
+          echo 'AFAT processes real OSM/ODbL evidence; no private user data or test database writes.'
+      - name: Prepare checksum-verified Cameroon graph
+        shell: bash
+        run: bash routing/cameroon/prepare.sh
+      - name: Boot isolated local OSRM
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name afat-cameroon-osrm-acceptance -p 127.0.0.1:5000:5000 \
+            -v "$PWD/routing/cameroon/data:/data:ro" \
+            ghcr.io/project-osrm/osrm-backend:v5.27.1 \
+            osrm-routed --algorithm mld --ip 0.0.0.0 --port 5000 /data/cameroon-latest.osrm
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS --max-time 3 'http://127.0.0.1:5000/nearest/v1/driving/11.516,3.866?number=1' >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then
+            docker logs afat-cameroon-osrm-acceptance || true
+            echo 'Actual Cameroon OSRM instance failed readiness; stop acceptance.'
+            exit 1
+          fi
+      - name: Assert real Yaounde and Douala routes
+        env:
+          AFAT_OSRM_SMOKE_URL: http://127.0.0.1:5000
+        run: node routing/cameroon/verify.mjs
+      - name: Record auditable source and engine proof
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            cat routing/cameroon/data/graph-provenance.txt
+            echo "source_sha256=$(sha256sum routing/cameroon/data/cameroon-latest.osm.pbf | cut -d' ' -f1)"
+            echo "graph_sha256=$(sha256sum routing/cameroon/data/cameroon-latest.osrm | cut -d' ' -f1)"
+            echo "osm_bytes=$(stat -c%s routing/cameroon/data/cameroon-latest.osm.pbf)"
+            echo "graph_bytes=$(stat -c%s routing/cameroon/data/cameroon-latest.osrm)"
+            echo "route_smoke=Yaounde_and_Douala_passed"
+            echo "acceptance_limit=temporary_runner_no_field_validation_or_live_service"
+          } > routing/cameroon/data/acceptance-proof.txt
+          {
+            echo '### AFAT real Cameroon routing preparation'
+            echo 'Checksum-verified Geofabrik OSM → OSRM MLD graph → real local server → Yaoundé/Douala route geometry: **PASS**.'
+            echo 'No paid service deployed, no Cameroon field passability proven, no persistent routing endpoint created.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload small provenance evidence only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afat-cameroon-osrm-provenance
+          path: routing/cameroon/data/acceptance-proof.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: On failure, show isolated engine diagnostics
+        if: failure()
+        shell: bash
+        run: docker logs --tail 150 afat-cameroon-osrm-acceptance || true
+      - name: Remove ephemeral route engine
+        if: always()
+        shell: bash
+        run: docker rm -f afat-cameroon-osrm-acceptance || true
