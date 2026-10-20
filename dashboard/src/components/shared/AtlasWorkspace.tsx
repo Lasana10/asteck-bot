@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Award, BrainCircuit, RefreshCw, Route, Sparkles, Target } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
+import { evaluateSpatialFix } from '../../services/spatialPositioning';
 import { AtlasContributionPanel } from './AtlasContributionPanel';
 import { AtlasLearningControl } from '../planner/AtlasLearningControl';
 import { RoadConditionReporter } from './RoadConditionReporter';
@@ -81,13 +82,27 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
     if(!navigator.geolocation){ setNotice('Location is not available on this device.'); return; }
     setBusy(true);
     navigator.geolocation.getCurrentPosition(async pos=>{
-      const {error}=await supabase.rpc('afat_submit_micro_mission',{
-        p_mission_id:myMission.id,
-        p_answer:{condition:'open',answer:'confirmed_on_site'},
-        p_latitude:pos.coords.latitude,p_longitude:pos.coords.longitude,p_accuracy_m:pos.coords.accuracy,
+      const spatial=evaluateSpatialFix({
+        latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracyM:pos.coords.accuracy,
+        timestampMs:pos.timestamp,source:'field_observation',
       });
-      setBusy(false); setNotice(error?error.message:'Verification submitted. AFAT kept it as evidence, not unquestioned truth.'); await load();
-    },err=>{setBusy(false);setNotice(err.message);},{enableHighAccuracy:true,timeout:20000});
+      if(!spatial.accepted){
+        setBusy(false);
+        setNotice(`Mission evidence requires a reliable on-site fix (${spatial.reason.replace(/_/g,' ')}). No confirmation was submitted.`);
+        return;
+      }
+      try{
+        const {error}=await supabase.rpc('afat_submit_micro_mission',{
+          p_mission_id:myMission.id,
+          p_answer:{condition:'unassessed',answer:'gnss_presence_only',accuracy_m:spatial.uncertaintyRadiusM},
+          p_latitude:spatial.fix!.latitude,p_longitude:spatial.fix!.longitude,p_accuracy_m:spatial.fix!.accuracyM,
+        });
+        setNotice(error?error.message:'On-site position evidence submitted for review. Road conditions were not automatically confirmed.');
+        if(!error)await load();
+      }catch{
+        setNotice('Could not submit mission evidence. No confirmation was recorded.');
+      }finally{setBusy(false);}
+    },err=>{setBusy(false);setNotice(err.message);},{enableHighAccuracy:true,timeout:20000,maximumAge:3000});
   };
 
   const refreshCity=async()=>{
