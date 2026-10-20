@@ -1,4 +1,6 @@
 import { supabase } from '../supabaseClient';
+import { enqueueMobilityEvidence, readPendingMobilityEvidence, acknowledgeMobilityEvidence, markMobilityEvidenceAttempt, pendingMobilityEvidenceForUser, type PendingMobilityEvidence, type MobilityEvidenceKind } from './mobilityEvidenceQueue';
+
 
 export type AfatReachabilityAssessment = {
   place_id: string;
@@ -29,108 +31,86 @@ export type AfatMultimodalPlan = {
   automatic_truth: boolean;
 };
 
-type PendingEvidenceItem = {
-  id: string;
-  kind: 'access' | 'transit' | 'gap';
-  payload: Record<string, any>;
-  createdAt: string;
-  attempts: number;
+let flushInFlight: Promise<{synced:number;pending:number}> | null = null;
+let lastSignedInUserId: string | null = null;
+const sessionUser = async () => {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user?.id) return null;
+  lastSignedInUserId = data.user.id;
+  return data.user.id;
+};
+const currentStorage = () => typeof window === 'undefined' ? null : window.localStorage;
+const currentPending = () => {
+  const storage = currentStorage();
+  return storage && lastSignedInUserId ? pendingMobilityEvidenceForUser(storage,lastSignedInUserId) : 0;
+};
+const notifyPending = () => {
+  if (typeof window !== 'undefined')
+    window.dispatchEvent(new CustomEvent('afat:evidence-queue', { detail: { pending: currentPending() } }));
 };
 
-const QUEUE_KEY = 'afat_mobility_evidence_queue_v1';
-const MAX_QUEUE = 120;
-let flushInFlight = false;
-
-function canUseStorage() {
-  return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
-}
-
-function loadQueue(): PendingEvidenceItem[] {
-  if (!canUseStorage()) return [];
-  try {
-    const value = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
-    return Array.isArray(value) ? value.slice(-MAX_QUEUE) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveQueue(items: PendingEvidenceItem[]) {
-  if (!canUseStorage()) return;
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(items.slice(-MAX_QUEUE)));
-  window.dispatchEvent(new CustomEvent('afat:evidence-queue', { detail: { pending: items.length } }));
-}
-
-function queueEvidence(kind: PendingEvidenceItem['kind'], payload: Record<string, any>) {
-  const queue = loadQueue();
-  const item: PendingEvidenceItem = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    kind,
-    payload,
-    createdAt: new Date().toISOString(),
-    attempts: 0,
-  };
-  queue.push(item);
-  saveQueue(queue);
-  return item;
-}
-
-async function executeEvidence(item: PendingEvidenceItem) {
-  if (item.kind === 'access') {
-    return supabase.rpc('afat_submit_access_evidence', item.payload);
-  }
-  if (item.kind === 'transit') {
-    return supabase.rpc('afat_submit_transit_observation', item.payload);
-  }
+async function executeEvidence(item: Pick<PendingMobilityEvidence,'kind'|'payload'>) {
+  if (item.kind === 'access') return supabase.rpc('afat_submit_access_evidence', item.payload);
+  if (item.kind === 'transit') return supabase.rpc('afat_submit_transit_observation', item.payload);
   return supabase.rpc('afat_record_mobility_gap', item.payload);
 }
 
 export async function flushMobilityEvidenceQueue() {
-  if (flushInFlight || !navigator.onLine) return { synced: 0, pending: loadQueue().length };
-  flushInFlight = true;
-  try {
-    const queue = loadQueue();
-    const remaining: PendingEvidenceItem[] = [];
-    let synced = 0;
-    for (const item of queue) {
+  if (flushInFlight) return flushInFlight;
+  flushInFlight = (async () => {
+    const userId = await sessionUser();
+    const storage = currentStorage();
+    if (!userId || !storage || (typeof navigator !== 'undefined' && !navigator.onLine))
+      return {synced:0,pending:userId&&storage?pendingMobilityEvidenceForUser(storage,userId):0};
+    let synced=0;
+    for (const item of readPendingMobilityEvidence(storage,userId)) {
+      // Recheck authorization between every queued submission to prevent
+      // account-switch replay under a different person's credentials.
+      const owner = await sessionUser();
+      if (owner !== userId) break;
       try {
         const { error } = await executeEvidence(item);
         if (error) throw error;
+        acknowledgeMobilityEvidence(storage,item);
         synced += 1;
       } catch {
-        remaining.push({ ...item, attempts: item.attempts + 1 });
+        markMobilityEvidenceAttempt(storage,item);
       }
     }
-    saveQueue(remaining);
-    return { synced, pending: remaining.length };
-  } finally {
-    flushInFlight = false;
-  }
+    notifyPending();
+    return { synced, pending:pendingMobilityEvidenceForUser(storage,userId) };
+  })().finally(()=>{flushInFlight=null;});
+  return flushInFlight;
 }
 
 export function installMobilityEvidenceSync() {
   if (typeof window === 'undefined') return () => {};
-  const online = () => void flushMobilityEvidenceQueue();
-  window.addEventListener('online', online);
+  const online = () => { void flushMobilityEvidenceQueue(); };
+  window.addEventListener('online',online);
   if (navigator.onLine) queueMicrotask(online);
-  return () => window.removeEventListener('online', online);
+  return () => window.removeEventListener('online',online);
 }
 
-async function submitOrQueue(kind: PendingEvidenceItem['kind'], payload: Record<string, any>) {
-  if (!navigator.onLine) {
-    const queued = queueEvidence(kind, payload);
-    return { data: { queued: true, queue_id: queued.id, automatic_truth: false }, error: null };
+async function submitOrQueue(kind: MobilityEvidenceKind, payload: Record<string, any>) {
+  const userId = await sessionUser();
+  if (!userId) return {data:null,error:{message:'Sign in to save or submit field evidence.'}};
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    try {
+      const result = await executeEvidence({kind,payload});
+      if (!result.error) return result;
+      throw result.error;
+    } catch (error: any) {
+      // Offline replay must remain visible, never misrepresented as submission.
+    }
   }
+  const storage = currentStorage();
+  if (!storage) return {data:null,error:{message:'Offline evidence storage is unavailable.'}};
   try {
-    const result = await executeEvidence({ id: '', kind, payload, createdAt: '', attempts: 0 });
-    if (result.error) throw result.error;
-    return result;
-  } catch (error: any) {
-    const queued = queueEvidence(kind, payload);
-    return {
-      data: { queued: true, queue_id: queued.id, automatic_truth: false },
-      error: navigator.onLine ? { message: error?.message || 'Evidence queued after sync failure.' } : null,
-    };
+    const queued = enqueueMobilityEvidence(storage,userId,kind,payload);
+    notifyPending();
+    return {data:{queued:true,queue_id:queued.id,automatic_truth:false},error:null};
+  } catch(error:any) {
+    return {data:null,error:{message:error?.message||'Unable to save evidence offline.'}};
   }
 }
 
@@ -243,5 +223,5 @@ export async function planMultimodalJourney(input: {
 }
 
 export function pendingMobilityEvidenceCount() {
-  return loadQueue().length;
+  return currentPending();
 }
