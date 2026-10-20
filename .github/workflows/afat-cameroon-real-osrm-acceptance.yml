@@ -97,6 +97,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # BuildKit can lose sparse mmap file length during layer export.
+          # Materialize this verified graph index fully before COPY, then require
+          # source and image checksums to match. No live/prod graph is modified.
+          INDEX=routing/cameroon/data/cameroon-latest.osrm.fileIndex
+          test -s "$INDEX"
+          cp --sparse=never "$INDEX" "${INDEX}.dense"
+          test "$(stat -c%s "$INDEX")" = "$(stat -c%s "${INDEX}.dense")"
+          cmp -s "$INDEX" "${INDEX}.dense"
+          mv -f "${INDEX}.dense" "$INDEX"
           docker build --file routing/cameroon/Dockerfile.prebuilt \
             --tag afat-cameroon-osrm:acceptance routing/cameroon
           echo 'Host MLD graph artifacts'
