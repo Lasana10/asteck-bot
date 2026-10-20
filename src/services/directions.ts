@@ -12,14 +12,25 @@ function validCoordinates(c: Coordinates): boolean {
   return Number.isFinite(c.latitude) && Number.isFinite(c.longitude) &&
     Math.abs(c.latitude) <= 90 && Math.abs(c.longitude) <= 180;
 }
+/**
+ * Render private services use single-label HTTP DNS names inside the same
+ * workspace/region. Never allow arbitrary plaintext Internet routing targets.
+ * Configuration is service-controlled, never a public API query parameter.
+ */
+export function validatedOsrmEndpoint(raw: string, privateHttp = false): string | null {
+  if (!raw.trim()) return null;
+  try {
+    const u = new URL(raw);
+    if (u.username || u.password || u.search || u.hash || u.pathname !== '/') return null;
+    const local = ['localhost', '127.0.0.1'].includes(u.hostname);
+    const renderPrivate = privateHttp && /^[a-z][a-z0-9-]*-[a-z0-9]+$/.test(u.hostname);
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && (local || renderPrivate))) return null;
+    return u.origin;
+  } catch { return null; }
+}
 function routingEndpoint(): string | null {
   if (!OSRM_URL) return ALLOW_DEMO ? 'https://router.project-osrm.org' : null;
-  try {
-    const u = new URL(OSRM_URL);
-    if (u.username || u.password || u.search || u.hash) return null;
-    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname))) return null;
-    return u.toString().replace(/\/+$/, '');
-  } catch { return null; }
+  return validatedOsrmEndpoint(OSRM_URL, process.env.AFAT_ALLOW_PRIVATE_OSRM_HTTP === 'true');
 }
 
 export interface RouteResult {
@@ -181,7 +192,19 @@ export class DirectionsService {
       const response = await axios.get(url, { timeout: 10000 });
       const data = response.data;
 
-      if (data.code !== 'Ok' || !data.routes?.length) return null;
+      if (data.code !== 'Ok' || !Array.isArray(data.routes) || !data.routes.length) return null;
+      // Never convert provider errors or malformed geometry into AFAT route truth.
+      const valid = (route: any) =>
+        Number.isFinite(route?.distance) && route.distance > 0 &&
+        Number.isFinite(route?.duration) && route.duration > 0 &&
+        route?.geometry?.type === 'LineString' &&
+        Array.isArray(route.geometry.coordinates) &&
+        route.geometry.coordinates.length >= 2 && route.geometry.coordinates.length <= 50000 &&
+        route.geometry.coordinates.every((point: unknown) =>
+          Array.isArray(point) && point.length >= 2 &&
+          Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
+          Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90);
+      if (!data.routes.every(valid)) return null;
 
       const routes = data.routes.map((route: any) => this.parseOSRMRoute(route));
 

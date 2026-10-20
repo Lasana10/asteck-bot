@@ -1,0 +1,10 @@
+# OPERATOR-OPT-IN EXAMPLE ONLY. Not referenced by root render.yaml.
+# Private service may incur charges and needs sufficient build RAM and disk.
+# Deploy explicitly after provider/region/capacity review; do not auto-provision.
+services:
+  - type: pserv
+    name: afat-osrm-cameroon
+    runtime: docker
+    plan: standard
+    dockerfilePath: routing/cameroon/Dockerfile
+    dockerContext: .

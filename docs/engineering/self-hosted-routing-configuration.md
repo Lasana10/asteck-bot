@@ -20,3 +20,11 @@ Without an AFAT routing endpoint and without explicit fallback, production retur
 
 ## Scope
 This is one infrastructure adaptation. It does not claim completion of AFAT mobility, spatial intelligence, fleet, dispatch, safety, payment or institutional journeys.
+
+## Cameroon implementation (20 October 2026)
+
+The codebase now contains a self-hosted Cameroon OSRM graph builder, runtime Compose service, Render private-service example, checksum verification, and Yaoundé/Douala live route smoke in `routing/cameroon/`. See its README before enabling production. The real service is not automatically deployed; no runtime Cameroon routing is claimed by this implementation.
+
+Render same-region internal traffic uses single-label private DNS and HTTP. Set `AFAT_ALLOW_PRIVATE_OSRM_HTTP=true` **only** with `AFAT_OSRM_BASE_URL=http://<Render-internal-host>:5000` and a private service in the same workspace and region. Arbitrary public HTTP and metadata IPs are refused. A public HTTPS OSRM endpoint can be used without that opt-in.
+
+Cameroon road source: Geofabrik OSM PBF (ODbL 1.0), attribution required for public uses. No traffic or walk/minibus network is inferred from car routes.
