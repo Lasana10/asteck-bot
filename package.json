@@ -11,6 +11,7 @@
     "test:atlas-ai-evidence": "node --import tsx scripts/verify-atlas-ai-evidence.ts",
     "test:routing": "node --import tsx scripts/verify-routing-provider.mjs",
     "test:api-contract": "node scripts/verify-api-contract.mjs",
+    "test:reachability:reviewed-access": "node scripts/verify-reviewed-access-reachability.mjs",
     "test:smoke:production-auth": "node scripts/smoke-production-auth.mjs",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
