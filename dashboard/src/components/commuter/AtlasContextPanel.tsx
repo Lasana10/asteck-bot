@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, LocateFixed, MapPin, RefreshCw, ShieldCheck } from 'lucide-react';
 import { fetchAtlasNearby, type AtlasEdge, type AtlasNearbyResponse, type AtlasNode } from '../../services/atlasClient';
 import { explainReviewedAtlas, type AtlasExplanation } from '../../services/atlasExplainClient';
+import {reviewedAtlasItems,provisionalAtlasItems,atlasKnowledgeHeadline} from '../../services/atlasKnowledgeTrust';
 
 type Props = {
   city?: string;
+  selectedOrigin?: {latitude:number;longitude:number;label?:string};
   onOriginResolved?: (origin: { latitude: number; longitude: number; accuracy?: number; label: string }) => void;
 };
 
@@ -13,7 +15,7 @@ const CITY_CENTERS: Record<string, { latitude: number; longitude: number }> = {
   douala: { latitude: 4.0511, longitude: 9.7679 },
 };
 
-export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props) {
+export function AtlasContextPanel({ city = 'yaounde', selectedOrigin, onOriginResolved }: Props) {
   const fallback = CITY_CENTERS[String(city).toLowerCase()] || CITY_CENTERS.yaounde;
   const [origin, setOrigin] = useState(fallback);
   const [originLabel, setOriginLabel] = useState(`${city} area`);
@@ -41,12 +43,12 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
   };
 
   useEffect(() => {
-    const next = CITY_CENTERS[String(city).toLowerCase()] || CITY_CENTERS.yaounde;
-    setOrigin(next);
-    setOriginLabel(`${city} area`);
-    loadAtlas(next);
+    const next = selectedOrigin || CITY_CENTERS[String(city).toLowerCase()] || CITY_CENTERS.yaounde;
+    setOrigin({latitude:next.latitude,longitude:next.longitude});
+    setOriginLabel(selectedOrigin?.label || `${city} area`);
+    void loadAtlas(next);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [city]);
+  }, [city,selectedOrigin?.latitude,selectedOrigin?.longitude,selectedOrigin?.label]);
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
@@ -79,15 +81,12 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
     finally{setExplainBusy(false);}
   };
 
-  const trustedNodes = useMemo(() => (atlas?.nodes || []).filter((node: AtlasNode) =>
-    ['verified', 'corroborated'].includes(String(node.evidence_status || '').toLowerCase()) || Number(node.confidence || 0) >= 60
-  ), [atlas]);
-  const trustedEdges = useMemo(() => (atlas?.edges || []).filter((edge: AtlasEdge) =>
-    ['verified', 'corroborated'].includes(String(edge.evidence_status || '').toLowerCase()) || Number(edge.confidence || 0) >= 60
-  ), [atlas]);
-  // Nearby evidence is not evidence of a connected, routable path.
-  const roadEvidenceNearby = trustedEdges.length > 0;
-  const placeReady = trustedNodes.length > 0;
+  const reviewedNodes = useMemo(() => reviewedAtlasItems(atlas?.nodes || []), [atlas]);
+  const reviewedEdges = useMemo(() => reviewedAtlasItems(atlas?.edges || []), [atlas]);
+  const provisionalNodes = useMemo(() => provisionalAtlasItems(atlas?.nodes || []), [atlas]);
+  const placeReady = reviewedNodes.length > 0;
+  const roadEvidenceNearby = reviewedEdges.length > 0;
+  const headline = atlasKnowledgeHeadline(reviewedEdges.length,reviewedNodes.length,provisionalNodes.length);
 
   return <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -97,7 +96,7 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
         </div>
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Around {originLabel}</p>
-          <p className="mt-1 text-xs font-bold text-white">{loading ? 'Checking the best local guidance…' : roadEvidenceNearby ? 'Reviewed road evidence exists nearby; a connected route is not yet confirmed' : placeReady ? 'Landmarks are known; route detail is still being verified' : 'Local route knowledge is still being verified'}</p>
+          <p className="mt-1 text-xs font-bold text-white">{loading ? 'Checking the best local guidance…' : headline}</p>
           <p className="mt-1 text-[10px] leading-4 text-white/40">AFAT will use what is trusted and avoid inventing roads, entrances or shortcuts.</p>
         </div>
       </div>
@@ -110,6 +109,12 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
         </button>
       </div>
     </div>
+
+    {!loading&&!error&&provisionalNodes.length>0&&<div className="mt-3 rounded-xl border border-amber-300/12 bg-amber-300/[0.04] p-3">
+      <p className="text-[10px] font-bold text-amber-100/85">Provisional local map knowledge · not independently verified</p>
+      <p className="mt-1 text-[10px] leading-4 text-white/45">These are actual Atlas reference records, not proof of entrances, accessible roads or safe movement.</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">{provisionalNodes.slice(0,5).map(node=><span key={node.id} className="rounded-lg border border-white/10 px-2 py-1 text-[9px] text-white/65">{String(node.canonical_name||node.name||node.node_type||'Unnamed map reference').slice(0,72)}</span>)}</div>
+    </div>}
 
     <div className="mt-3 border-t border-white/10 pt-3">
       <label className="block text-[10px] font-semibold text-white/60">Understand reviewed local knowledge
