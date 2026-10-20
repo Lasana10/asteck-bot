@@ -51,6 +51,8 @@ export function ReachabilityInsightCard({
 
       {assessment && <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${reliability}%` }} /></div>}
 
+      {assessment&&Number(assessment.reviewed_access_count||0)===0&&(assessment.access_points?.length||0)>0&&<p className="mt-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.04] p-3 text-[10px] leading-4 text-amber-100/85">A local entrance has been recorded, but independent corroboration is still missing. It cannot by itself certify strong reachability.</p>}
+
       {!!assessment?.missing_evidence?.length && (
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {assessment.missing_evidence.slice(0, 4).map((item) => <div key={item} className="rounded-xl border border-amber-300/12 bg-amber-400/[0.05] px-3 py-2 text-[10px] font-semibold leading-4 text-amber-100/75">{missingLabel(item)}</div>)}
