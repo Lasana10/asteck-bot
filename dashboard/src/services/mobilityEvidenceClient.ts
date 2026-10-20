@@ -13,6 +13,7 @@ export type AfatReachabilityAssessment = {
   route_distance_m?: number | null;
   active_disruptions?: number;
   trusted_speed_profile_segments?: number;
+  reviewed_access_count?: number;
   access_points?: any[];
   meeting_points?: any[];
   reasons?: string[];
