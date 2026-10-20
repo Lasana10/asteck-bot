@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {strict as assert} from 'node:assert';
 const sql=readFileSync('supabase/migrations/20261020154000_afat_transit_review_authority_boundary.sql','utf8');
-assert.match(sql,/CREATE OR REPLACE FUNCTION public\.afat_review_transit_observation/);
+assert.match(sql,/(?:^|\n)CREATE OR REPLACE FUNCTION public\.afat_review_transit_observation/);
 assert.match(sql,/public\.afat_has_permission\('map\.evidence\.review'\)/);
 assert.match(sql,/public\.afat_has_permission\('system\.configure'\)/);
 assert.doesNotMatch(sql,/planning\.aggregate\.view/);
