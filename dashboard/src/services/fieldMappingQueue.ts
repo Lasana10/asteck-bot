@@ -2,6 +2,30 @@ import { supabase } from '../supabaseClient';
 
 const DB_NAME='afat-field-mapper-v1';
 const STORE='observations';
+const MAX_PHOTO_BYTES=12*1024*1024;
+const ALLOWED_PHOTO_TYPES=new Set(['image/jpeg','image/png','image/webp','image/heic']);
+const inFlight=new Map<string,Promise<{flushed:number;pending:number}>>();
+
+/** Stable object key: replaying an observation never creates a second photo. */
+export function fieldEvidencePath(item:Pick<OfflineFieldObservation,'id'|'userId'|'photo'>):string|null{
+  if(!item.photo)return null;
+  if(!/^[0-9a-f-]{36}$/i.test(item.id)||!/^[0-9a-f-]{36}$/i.test(item.userId))throw new Error('Invalid field evidence identity');
+  const ext:Record<string,string>={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/heic':'heic'};
+  if(!ALLOWED_PHOTO_TYPES.has(item.photo.type)||item.photo.size>MAX_PHOTO_BYTES||item.photo.size<=0)throw new Error('Unsupported field photo or file too large (12 MB maximum)');
+  return `${item.userId}/${item.id}.${ext[item.photo.type]}`;
+}
+
+export function validateFieldObservation(item:OfflineFieldObservation):void{
+  if(!/^[0-9a-f-]{36}$/i.test(item.id)||!/^[0-9a-f-]{36}$/i.test(item.userId))throw new Error('Invalid field evidence identity');
+  if(!item.cityKey||item.cityKey.length>100||!item.type||item.type.length>80)throw new Error('Invalid observation category');
+  if(!Number.isFinite(item.latitude)||Math.abs(item.latitude)>90||!Number.isFinite(item.longitude)||Math.abs(item.longitude)>180)throw new Error('Invalid observation coordinates');
+  if(!Number.isFinite(item.accuracyM)||item.accuracyM<0||item.accuracyM>120)throw new Error('Field location accuracy is insufficient');
+  const when=Date.parse(item.observedAt);
+  if(!Number.isFinite(when)||when>Date.now()+5000||when<Date.now()-86400000)throw new Error('Observation timestamp is invalid or too old');
+  if((item.label?.length??0)>240||(item.description?.length??0)>2000)throw new Error('Field observation text is too long');
+  fieldEvidencePath(item);
+}
+
 
 export type OfflineFieldObservation={
   id:string; userId:string; cityKey:string; type:string; latitude:number; longitude:number; accuracyM:number;
@@ -16,31 +40,51 @@ function db():Promise<IDBDatabase>{
   });
 }
 export async function queueFieldObservation(item:OfflineFieldObservation){
+  validateFieldObservation(item);
   const d=await db(); await new Promise<void>((resolve,reject)=>{const tx=d.transaction(STORE,'readwrite');tx.objectStore(STORE).put(item);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);}); d.close();
 }
 export async function pendingFieldObservations(userId:string){
   const d=await db(); const all=await new Promise<OfflineFieldObservation[]>((resolve,reject)=>{const req=d.transaction(STORE).objectStore(STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);});d.close();return all.filter(x=>x.userId===userId);
 }
-export async function flushFieldObservations(userId:string){
-  if(!navigator.onLine)return {flushed:0,pending:(await pendingFieldObservations(userId)).length};
-  const auth=(await supabase.auth.getUser()).data.user;
-  if(auth?.id!==userId)return {flushed:0,pending:(await pendingFieldObservations(userId)).length};
-  const items=await pendingFieldObservations(userId); let flushed=0;
+/** Serializes replay per user, preserves queued data on errors and avoids duplicate uploads. */
+export function flushFieldObservations(userId:string):Promise<{flushed:number;pending:number}>{
+  const existing=inFlight.get(userId);
+  if(existing)return existing;
+  const run=flushFieldObservationsOnce(userId);
+  inFlight.set(userId,run);
+  void run.finally(()=>{if(inFlight.get(userId)===run)inFlight.delete(userId);}).catch(()=>{});
+  return run;
+}
+async function flushFieldObservationsOnce(userId:string){
+  const pending=()=>pendingFieldObservations(userId);
+  if(typeof navigator!=='undefined'&&!navigator.onLine)return {flushed:0,pending:(await pending()).length};
+  const {data,error:authError}=await supabase.auth.getUser();
+  if(authError||data.user?.id!==userId)return {flushed:0,pending:(await pending()).length};
+  const items=await pending();let flushed=0;
   for(const item of items){
+    // The active account can change while a queue is replaying.
+    const {data:current,error:identityError}=await supabase.auth.getUser();
+    if(identityError||current.user?.id!==userId)break;
+    try{validateFieldObservation(item);}catch{continue;} // Retain invalid evidence for explicit review, never silently delete it.
     const mediaPaths:string[]=[];
-    if(item.photo){
-      const safe=item.photo.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-      const path=`${userId}/${Date.now()}-${item.id}-${safe}`;
-      const up=await supabase.storage.from('afat-field-evidence').upload(path,item.photo,{upsert:false,contentType:item.photo.type});
-      if(up.error)continue; mediaPaths.push(path);
+    const path=fieldEvidencePath(item);
+    if(path&&item.photo){
+      // Upsert only the stable per-user, per-observation key; retry cannot create orphaned copies.
+      const up=await supabase.storage.from('afat-field-evidence').upload(path,item.photo,{upsert:true,contentType:item.photo.type});
+      if(up.error)continue;
+      mediaPaths.push(path);
     }
     const {error}=await supabase.rpc('afat_submit_mapping_observation',{
       p_city_key:item.cityKey,p_observation_type:item.type,p_latitude:item.latitude,p_longitude:item.longitude,
       p_accuracy_m:item.accuracyM,p_movement_mode:item.movementMode||null,p_label:item.label||null,p_description:item.description||null,
-      p_attributes:{offline_replay:true},p_media_paths:mediaPaths,p_observed_at:item.observedAt,
+      p_attributes:{offline_replay:true,client_observation_id:item.id},p_media_paths:mediaPaths,p_observed_at:item.observedAt,
     });
     if(error)continue;
-    const d=await db();await new Promise<void>((resolve,reject)=>{const tx=d.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(item.id);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});d.close();flushed++;
+    const d=await db();
+    try{
+      await new Promise<void>((resolve,reject)=>{const tx=d.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(item.id);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});
+      flushed++;
+    }finally{d.close();}
   }
-  return {flushed,pending:(await pendingFieldObservations(userId)).length};
+  return {flushed,pending:(await pending()).length};
 }
