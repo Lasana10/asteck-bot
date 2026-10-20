@@ -29,6 +29,9 @@ jobs:
       - run: npm run build:backend
       - run: npm run test:api-contract
       - run: npm run test:routing
+      - run: bash -n routing/cameroon/prepare.sh
+      - run: node --check routing/cameroon/verify.mjs
+      - run: docker compose -f routing/cameroon/docker-compose.yml config --quiet
 
   dashboard:
     name: Dashboard build and tests
