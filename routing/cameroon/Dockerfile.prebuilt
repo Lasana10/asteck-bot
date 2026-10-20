@@ -9,7 +9,7 @@ LABEL org.opencontainers.image.vendor="AFAT / OpenStreetMap contributors"
 WORKDIR /data
 COPY data/cameroon-latest.osrm.* /data/
 COPY data/graph-provenance.txt /data/graph-provenance.txt
-RUN test -s /data/cameroon-latest.osrm.partition && test -s /data/cameroon-latest.osrm.cells && \\
+RUN test -s /data/cameroon-latest.osrm.partition && test -s /data/cameroon-latest.osrm.cells && \
     test -s /data/cameroon-latest.osrm.fileIndex
 EXPOSE 5000
 # Explicitly clear any upstream entrypoint: CMD supplies the executable once.
