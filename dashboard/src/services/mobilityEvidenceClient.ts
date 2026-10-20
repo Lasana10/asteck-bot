@@ -49,10 +49,10 @@ const notifyPending = () => {
     window.dispatchEvent(new CustomEvent('afat:evidence-queue', { detail: { pending: currentPending() } }));
 };
 
-async function executeEvidence(item: Pick<PendingMobilityEvidence,'kind'|'payload'>) {
-  if (item.kind === 'access') return supabase.rpc('afat_submit_access_evidence', item.payload);
-  if (item.kind === 'transit') return supabase.rpc('afat_submit_transit_observation', item.payload);
-  return supabase.rpc('afat_record_mobility_gap', item.payload);
+async function executeEvidence(item: Pick<PendingMobilityEvidence,'id'|'kind'|'payload'>) {
+  return supabase.rpc('afat_submit_mobility_evidence_once',{
+    p_kind:item.kind,p_payload:item.payload,p_idempotency_key:item.id,
+  });
 }
 
 export async function flushMobilityEvidenceQueue() {
@@ -98,9 +98,10 @@ async function submitOrQueue(kind: MobilityEvidenceKind, payload: Record<string,
   const userId = online ? await sessionUser() : (await supabase.auth.getSession()).data.session?.user.id || null;
   if (userId) lastSignedInUserId = userId;
   if (!userId) return {data:null,error:{message:'Sign in to save or submit field evidence.'}};
+  const requestId = crypto.randomUUID();
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     try {
-      const result = await executeEvidence({kind,payload});
+      const result = await executeEvidence({kind,payload,id:requestId});
       if (!result.error) return result;
       throw result.error;
     } catch (error: any) {
@@ -110,7 +111,7 @@ async function submitOrQueue(kind: MobilityEvidenceKind, payload: Record<string,
   const storage = currentStorage();
   if (!storage) return {data:null,error:{message:'Offline evidence storage is unavailable.'}};
   try {
-    const queued = enqueueMobilityEvidence(storage,userId,kind,payload);
+    const queued = enqueueMobilityEvidence(storage,userId,kind,payload,requestId);
     notifyPending();
     return {data:{queued:true,queue_id:queued.id,automatic_truth:false},error:null};
   } catch(error:any) {
