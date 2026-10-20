@@ -1,7 +1,7 @@
 import { beforeEach,describe,expect,it,vi } from 'vitest';
 const mock=vi.hoisted(()=>({from:vi.fn(),rpc:vi.fn()}));
 vi.mock('../supabaseClient',()=>({supabase:mock}));
-import {decideAccessEvidence,listPendingAccessEvidence,accessAccuracyLabel} from './accessEvidenceReviewClient';
+import {decideAccessEvidence,listPendingAccessEvidence,decideTransitEvidence,listPendingTransitEvidence,accessAccuracyLabel} from './accessEvidenceReviewClient';
 
 beforeEach(()=>{mock.from.mockReset();mock.rpc.mockReset();});
 describe('reviewed entrance evidence lifecycle',()=>{
@@ -29,5 +29,24 @@ describe('reviewed entrance evidence lifecycle',()=>{
   expect(accessAccuracyLabel(null)).toBe('Accuracy not supplied');
   expect(accessAccuracyLabel(130)).toBe('Uncertain GPS');
   expect(accessAccuracyLabel(24.7)).toContain('25');
+ });
+});
+
+describe('planner transit evidence review',()=>{
+ it('only retrieves pending transit observations with account RLS',async()=>{
+  const limit=vi.fn().mockResolvedValue({data:[{id:'a',status:'pending'}],error:null});
+  const order=vi.fn().mockReturnValue({limit});
+  const eq=vi.fn().mockReturnValue({order});
+  mock.from.mockReturnValue({select:vi.fn().mockReturnValue({eq})});
+  const records=await listPendingTransitEvidence();
+  expect(records).toHaveLength(1);
+  expect(mock.from).toHaveBeenCalledWith('afat_transit_observations');
+  expect(eq).toHaveBeenCalledWith('status','pending');
+ });
+ it('requires explicit review receipt before accepting a transit network candidate',async()=>{
+  const id='b4a4bdac-2199-4f91-a8f8-8c4e9aff6334';
+  mock.rpc.mockResolvedValue({data:{id,status:'accepted',evidence_status:'limited'},error:null});
+  expect((await decideTransitEvidence(id,'accept')).evidence_status).toBe('limited');
+  expect(mock.rpc).toHaveBeenCalledWith('afat_review_transit_observation',{p_observation_id:id,p_decision:'accept'});
  });
 });
