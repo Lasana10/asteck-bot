@@ -1,0 +1,4 @@
+data/
+*.pbf
+*.osrm*
+graph-provenance.txt
