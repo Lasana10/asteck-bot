@@ -35,6 +35,7 @@ import {
 } from '../../services/mobilityEvidenceClient';
 import { decideReroute, formatRouteProgress, type AfatRouteProgress } from '../../services/routeGuidance';
 import {storeOfflineJourneyRoute,loadOfflineJourneyRoute,clearOfflineJourneyRoute} from '../../services/offlineJourneyRoute';
+import {searchCachedPlaces, type AfatOfflinePlace} from '../../services/offlineSpatialCache';
 
 type Props = {
   profile: any;
@@ -137,6 +138,18 @@ function chooseJourneyDecision(
   };
 }
 
+function offlinePlaceCandidate(place:AfatOfflinePlace,city:string):AfatPlaceCandidate {
+  return {
+    id:place.id,name:place.name,city,
+    latitude:place.latitude,longitude:place.longitude,
+    vehicle_access:'unknown',confidence:0,confidence_label:'low',successful_pickups:0,
+    explanation:['Locally cached geographic reference. Location, access and road connectivity require fresh verification.'],
+    meeting_points:[],access_points:[],destination_kind:place.kind||'place',
+    reachability_state:'learning',evidence_status:place.evidence_status||'limited',
+    source_only:true,
+  } as AfatPlaceCandidate;
+}
+
 function preferredCityKey(profile: any) {
   return String(profile?.preferred_city || '').toLowerCase().includes('douala') ? 'cm-douala' : 'cm-yaounde';
 }
@@ -220,6 +233,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     const timer = window.setTimeout(async () => {
       if (query.length > 0 && query.length < 2) { setSuggestions([]); return; }
       setSuggestionLoading(true);
+      if(typeof navigator!=='undefined'&&!navigator.onLine){
+        const cached=query.length>=2?searchCachedPlaces(preferredCityKey(profile),query,10)
+          .map(place=>offlinePlaceCandidate(place,profile?.preferred_city||'yaounde')):[];
+        if(active){setSuggestions(cached);setSuggestionsOpen(Boolean(cached.length));setSuggestionLoading(false);}
+        return;
+      }
       const { data, error } = await discoverAfatPlaces({
         query: query || undefined,
         city: profile?.preferred_city || 'yaounde',
@@ -469,6 +488,17 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setRouteOptions({});
     setReachability(null);
     setMultimodal(null);
+    if(typeof navigator!=='undefined'&&!navigator.onLine){
+      const cached=searchCachedPlaces(preferredCityKey(profile),destination.trim(),12)
+        .map(place=>offlinePlaceCandidate(place,profile?.preferred_city||'yaounde'));
+      setLoading(false);
+      setCandidates(cached);
+      if(cached.length===1)selectCandidate(cached[0]);
+      else setStatusText(cached.length
+        ? 'Offline place references found. Choose carefully; access, safe routing and current conditions are not verified.'
+        : 'No cached destination matches this search. Reconnect to find new locations; AFAT has not guessed an address.');
+      return;
+    }
     const { data, error } = await resolveAfatPlace({ query: destination.trim(), city: profile?.preferred_city || 'yaounde' });
     setLoading(false);
     if (error) { setCandidates([]); setStatusText(error.message); return; }
@@ -489,6 +519,11 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const handleMapPlaceSelected = async (place: { id: string; name: string; latitude: number; longitude: number; kind?: string | null; evidence_status?: string | null; source_only?: boolean }) => {
     setDestination(place.name);
     setStatusText(`Opening ${place.name} from the map…`);
+    if(typeof navigator!=='undefined'&&!navigator.onLine){
+      selectCandidate(offlinePlaceCandidate({id:place.id,name:place.name,latitude:place.latitude,longitude:place.longitude,kind:place.kind,evidence_status:place.evidence_status},profile?.preferred_city||'yaounde'));
+      setStatusText('Offline place selected from locally cached map evidence. Reconnect to verify access and calculate a new route.');
+      return;
+    }
     const { data } = await discoverAfatPlaces({
       query: place.name,
       city: profile?.preferred_city || 'yaounde',
