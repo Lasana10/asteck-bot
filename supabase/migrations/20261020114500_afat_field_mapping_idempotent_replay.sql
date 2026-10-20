@@ -18,7 +18,6 @@ declare
   v_conf numeric;
   v_match uuid;
   v_distance numeric;
-  v_existing_status text;
   v_original public.afat_mapping_observations%rowtype;
 begin
   if v_uid is null then raise exception 'Authentication required'; end if;
@@ -28,9 +27,10 @@ begin
   if p_accuracy_m is null or p_accuracy_m>150 then raise exception 'Location accuracy is too weak for field mapping'; end if;
 
   if coalesce(p_attributes,'{}'::jsonb) ? 'client_observation_id' and (
-    jsonb_typeof(p_attributes->'client_observation_id') <> 'string' or
+    jsonb_typeof(p_attributes->'client_observation_id') is distinct from 'string' or
     (p_attributes->>'client_observation_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   ) then raise exception 'Invalid client observation identity'; end if;
+  if jsonb_typeof(coalesce(p_attributes,'{}'::jsonb)) is distinct from 'object' then raise exception 'Invalid observation attributes'; end if;
   if p_accuracy_m < 0 then raise exception 'Invalid location uncertainty'; end if;
   if p_observed_at > now() + interval '5 seconds' then raise exception 'Future observation rejected'; end if;
 
