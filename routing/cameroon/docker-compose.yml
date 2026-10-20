@@ -1,0 +1,12 @@
+# Offline-prepared Cameroon MLD graph (run prepare.sh first).
+# Bind to loopback; do not publish raw OSRM as an unauthenticated public API.
+services:
+  osrm-cameroon:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    command: ["osrm-routed","--algorithm","mld","--ip","0.0.0.0","--port","5000","/data/cameroon-latest.osrm"]
+    volumes:
+      - ${AFAT_OSRM_DATA_DIR:-./data}:/data:ro
+    ports:
+      - "127.0.0.1:5000:5000"
+    restart: unless-stopped
+    mem_limit: 2g
