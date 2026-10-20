@@ -17,6 +17,7 @@ import type { AfatAccessPoint, AfatMeetingPoint, AfatPlaceCandidate } from '../.
 import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
+import { AtlasContextPanel } from './AtlasContextPanel';
 import { ReachabilityInsightCard } from './ReachabilityInsightCard';
 import { fetchCanonicalAfatRoute, type AfatCanonicalRoute, type AfatRouteMode } from '../../services/canonicalRouteClient';
 import {
@@ -136,6 +137,7 @@ function preferredCityKey(profile: any) {
 
 export function PassagePlanner({ profile, originText = '', initialDestination = '', initialIntent = 'go', onPassageCreated }: Props) {
   const [destination, setDestination] = useState(initialDestination);
+  const [showAtlasUnderstanding,setShowAtlasUnderstanding]=useState(false);
   const [originLabel, setOriginLabel] = useState(originText);
   const [originFix, setOriginFix] = useState<OriginFix | null>(null);
   const [routeOriginFix, setRouteOriginFix] = useState<OriginFix | null>(null);
@@ -814,6 +816,18 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         onArrived={handleArrival}
         onPlaceSelected={handleMapPlaceSelected}
       />
+    </div>
+
+    <div className="mt-4">
+      <button type="button" onClick={()=>setShowAtlasUnderstanding(show=>!show)} className="flex min-h-11 w-full items-center justify-between rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] px-4 text-left text-[11px] font-bold text-cyan-100" aria-expanded={showAtlasUnderstanding}>
+        <span>Understand nearby landmarks and reviewed geographic evidence</span>
+        <span aria-hidden="true">{showAtlasUnderstanding?'−':'+'}</span>
+      </button>
+      {showAtlasUnderstanding&&<AtlasContextPanel
+        city={profile?.preferred_city||'yaounde'}
+        selectedOrigin={originFix?{latitude:originFix.latitude,longitude:originFix.longitude,label:originFix.label}:undefined}
+        onOriginResolved={fix=>updateOrigin({...fix,source:'gps'})}
+      />}
     </div>
 
     {selectedPlace && originFix && (
