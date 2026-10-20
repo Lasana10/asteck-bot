@@ -22,7 +22,7 @@ export function reviewedAtlasEvidence(result:unknown):Evidence[]{
   }).slice(0,20).map(({kind,row})=>({
     id:row.id,
     kind,
-    name:String(row.canonical_name||row.name|| (kind==='road'?'Unnamed road':'Unnamed place')).replace(/[\\u0000-\\u001f]/g,' ').slice(0,120),
+    name:String(row.canonical_name||row.name|| (kind==='road'?'Unnamed road':'Unnamed place')).replace(/[\u0000-\u001f]/g,' ').slice(0,120),
     confidence:row.confidence,
     evidence_status:String(row.evidence_status).toLowerCase(),
   }));
