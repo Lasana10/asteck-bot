@@ -1,3 +1,10 @@
+# Continuation — 2026-10-20 Cameroon OSRM own road routing infrastructure (CI pending)
+
+- Branch `engineering/afat-cameroon-osrm-private-routing-20261020`. Added `routing/cameroon/` graph-preparation script, checksum verification, Docker Compose driving engine, optional private Render Dockerfile, no-cost auto-provisioning policy and live city smoke script. Geofabrik OSM/ODbL and pinned OSRM v5.27.1 identified and incorporated.
+- `DirectionsService` configured for opt-in Render private HTTP single-label routing hostnames; arbitrary public HTTP remains forbidden. Strict provider distance/duration/geometry validation prevents fake routing data. Added backend tests and CI static operator checks.
+- Explicit operational blocker: **the actual isolated Cameroon OSRM service has not been provisioned, downloaded, built or field-tested**. No installed real routing network or user journey completion is inferred from source code. Render backend deployment is distinct from an OSRM deployment. No billable service created.
+- Next exact continuation: obtain user-approved compute service/capacity within existing or new infrastructure; execute real Cameroon graph build and Yaoundé/Douala smoke; set backend private endpoint, deploy, verify frontend and end-to-end route. Additionally advance real-world VPS/vision proof and secure server-side observation validation.
+
 # Update — 2026-10-20 spatial observation integration extended
 
 - `AtlasContributionPanel` now gates GPS samples before live ingestion or offline enqueue; `FieldMapper` also gates field evidence before offline persistence. Both use the same evidence-aware positioning validator. Existing queue items and server-side direct submissions still require independent server validation; no claim of universal end-to-end trust.
