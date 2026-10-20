@@ -8,6 +8,7 @@ type Props = {
   city?: string;
   selectedOrigin?: {latitude:number;longitude:number;label?:string};
   onOriginResolved?: (origin: { latitude: number; longitude: number; accuracy?: number; label: string }) => void;
+  onPlaceSelected?: (place: {id:string;name:string;latitude:number;longitude:number;evidence_status:string}) => void;
 };
 
 const CITY_CENTERS: Record<string, { latitude: number; longitude: number }> = {
@@ -15,7 +16,7 @@ const CITY_CENTERS: Record<string, { latitude: number; longitude: number }> = {
   douala: { latitude: 4.0511, longitude: 9.7679 },
 };
 
-export function AtlasContextPanel({ city = 'yaounde', selectedOrigin, onOriginResolved }: Props) {
+export function AtlasContextPanel({ city = 'yaounde', selectedOrigin, onOriginResolved, onPlaceSelected }: Props) {
   const fallback = CITY_CENTERS[String(city).toLowerCase()] || CITY_CENTERS.yaounde;
   const [origin, setOrigin] = useState(fallback);
   const [originLabel, setOriginLabel] = useState(`${city} area`);
@@ -114,6 +115,20 @@ export function AtlasContextPanel({ city = 'yaounde', selectedOrigin, onOriginRe
       <p className="mt-1 text-[10px] leading-4 text-white/45">These are actual Atlas reference records, not proof of entrances, accessible roads or safe movement.</p>
       <div className="mt-2 flex flex-wrap gap-1.5">{provisionalNodes.slice(0,5).map(node=><span key={node.id} className="rounded-lg border border-white/10 px-2 py-1 text-[9px] text-white/65">{String(node.canonical_name||node.name||node.node_type||'Unnamed map reference').slice(0,72)}</span>)}</div>
     </div>}
+
+    {!loading&&!error&&!!atlas?.place_candidates?.length&&<div className="mt-3 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3">
+      <p className="text-[10px] font-bold text-cyan-100/85">Real nearby place records · verification still limited</p>
+      <p className="mt-1 text-[10px] leading-4 text-white/45">Licensed OpenStreetMap/Overture source data is available for discovery. Neither a place record nor its map pin proves the exact entrance or a connected route.</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">{atlas.place_candidates.slice(0,8).map(place=><button
+        key={place.id} type="button"
+        disabled={!onPlaceSelected}
+        onClick={()=>onPlaceSelected?.({id:place.id,name:place.name,latitude:place.latitude,longitude:place.longitude,evidence_status:place.evidence_status})}
+        className="rounded-lg border border-white/10 px-3 py-2 text-left text-[10px] text-white/70 hover:bg-white/5 disabled:opacity-70">
+        <span className="block font-bold text-white/85">{place.name}</span>
+        <span className="mt-1 block text-[9px] text-white/40">{Math.round(place.distance_m)} m · {place.evidence_status} · {place.source_key==='openstreetmap'?'OpenStreetMap':'Overture Maps'}{onPlaceSelected?' · Select place':''}</span>
+      </button>)}</div>
+    </div>}
+    {!loading&&!error&&atlas?.place_candidates_status==='unavailable'&&<p className="mt-2 text-[10px] text-amber-100/65">Licensed place discovery is temporarily unavailable. Reviewed Atlas graph results remain separate.</p>}
 
     <div className="mt-3 border-t border-white/10 pt-3">
       <label className="block text-[10px] font-semibold text-white/60">Understand reviewed local knowledge
