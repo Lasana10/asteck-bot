@@ -25,7 +25,7 @@ export function validatedOsrmEndpoint(raw: string, privateHttp = false): string 
     const local = ['localhost', '127.0.0.1'].includes(u.hostname);
     const renderPrivate = privateHttp && /^[a-z][a-z0-9-]*-[a-z0-9]+$/.test(u.hostname);
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && (local || renderPrivate))) return null;
-    return u.toString().replace(/\\/+$/, '');
+    return u.origin;
   } catch { return null; }
 }
 function routingEndpoint(): string | null {
