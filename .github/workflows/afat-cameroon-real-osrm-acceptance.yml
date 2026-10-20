@@ -99,8 +99,19 @@ jobs:
           set -euo pipefail
           docker build --file routing/cameroon/Dockerfile.prebuilt \
             --tag afat-cameroon-osrm:acceptance routing/cameroon
+          echo 'Host MLD graph artifacts'
+          find routing/cameroon/data -maxdepth 1 -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort | head -35
+          echo 'Prebuilt image MLD graph artifacts'
+          docker run --rm --entrypoint /bin/sh afat-cameroon-osrm:acceptance -c \
+            "find /data -maxdepth 1 -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort | head -35"
           docker run -d --name afat-osrm-prebuilt-smoke -p 127.0.0.1:5001:5000 \
             afat-cameroon-osrm:acceptance
+          sleep 2
+          if [ "$(docker inspect -f '{{.State.Running}}' afat-osrm-prebuilt-smoke)" != true ]; then
+            docker logs afat-osrm-prebuilt-smoke
+            echo 'Prebuilt Cameroon engine terminated before readiness' >&2
+            exit 1
+          fi
           ready=0
           for attempt in $(seq 1 35); do
             if curl -fsS --max-time 3 'http://127.0.0.1:5001/nearest/v1/driving/11.516,3.866?number=1' >/dev/null; then
