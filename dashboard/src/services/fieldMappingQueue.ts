@@ -21,7 +21,7 @@ export function validateFieldObservation(item:OfflineFieldObservation):void{
   if(!Number.isFinite(item.latitude)||Math.abs(item.latitude)>90||!Number.isFinite(item.longitude)||Math.abs(item.longitude)>180)throw new Error('Invalid observation coordinates');
   if(!Number.isFinite(item.accuracyM)||item.accuracyM<0||item.accuracyM>120)throw new Error('Field location accuracy is insufficient');
   const when=Date.parse(item.observedAt);
-  if(!Number.isFinite(when)||when>Date.now()+5000||when<Date.now()-86400000)throw new Error('Observation timestamp is invalid or too old');
+  if(!Number.isFinite(when)||when>Date.now()+5000||when<Date.now()-31536000000)throw new Error('Observation timestamp is invalid or too old');
   if((item.label?.length??0)>240||(item.description?.length??0)>2000)throw new Error('Field observation text is too long');
   fieldEvidencePath(item);
 }
@@ -69,11 +69,12 @@ async function flushFieldObservationsOnce(userId:string){
     const mediaPaths:string[]=[];
     const path=fieldEvidencePath(item);
     if(path&&item.photo){
-      // Upsert only the stable per-user, per-observation key; retry cannot create orphaned copies.
+      // Stable path prevents new orphan names on retry; database RPC still needs server idempotency.
       const up=await supabase.storage.from('afat-field-evidence').upload(path,item.photo,{upsert:true,contentType:item.photo.type});
       if(up.error)continue;
       mediaPaths.push(path);
     }
+    // Never turn a failed RPC into a success. Server-side duplicate protection is tracked separately.
     const {error}=await supabase.rpc('afat_submit_mapping_observation',{
       p_city_key:item.cityKey,p_observation_type:item.type,p_latitude:item.latitude,p_longitude:item.longitude,
       p_accuracy_m:item.accuracyM,p_movement_mode:item.movementMode||null,p_label:item.label||null,p_description:item.description||null,
