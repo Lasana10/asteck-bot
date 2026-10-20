@@ -114,3 +114,12 @@ GitHub commits verified. CI run #415 queued, not passed. CI execution, TypeScrip
 
 ## Known blocker
 No validated AFAT-operated OSRM instance or production credentials in this session. Do not substitute public demo traffic for production proof.
+
+
+## Verified execution 2026-10-20 — field evidence intake closed-loop safeguards
+- PR #116 merged as d889dfb9: deterministic contributor-scoped photo paths; GNSS/observation validation; account-scoped serialized IndexedDB offline replay; queue status restored on app startup; regression tests. Both CI jobs passed.
+- PR #117 merged as 4fde510: production storage policies confirmed owner INSERT + SELECT without UPDATE; removed incompatible storage upsert, using stable immutable uploads and exact-object conflict checks. Both CI jobs passed. Render deploy dep-dbbkpkqvcj2c739v68q0 verified LIVE.
+- PR #118 merged as 229f90e: contributor-scoped unique client observation identifier and privileged RPC replay protection; malformed early migration draft repaired before merge. Both CI jobs passed (master run 39414678766). Applied to TRAFFIC Supabase project rkijcxxryhfrqsgkwtbu (success); confirmed unique index and RPC idempotent_replay branch installed; existing production mapping observations remained zero.
+- Existing disconnected-component snapping fix from historical PR #65 is ALREADY deployed in public.afat_route_canonical_base and wrapped by public.afat_route_canonical for ETA enrichment. Do NOT replace wrapper with old PR #65 or repeat the same feature. Geographic coverage still insufficient for some real routes.
+- Field RPC replay is database-protected, but full authenticated test-user retry, real-device IndexedDB/photo sync, Cloudflare frontend deployment, and field-grounded observations are NOT accepted. Do not claim complete offline mapping.
+- Next high-impact dependency-ready work: operationally verify signed-in field mapper on a safe isolated account/device, then connect reviewed entrance/informal-stop/road evidence into Find → Understand → Reach and routing freshness; additionally integrate mature geospatial datasets legally for greater Cameroon topology and multimodal coverage. Avoid another repeat of already installed component-snapping logic. Preserve entire AFAT spatial/VPS/3D/Earth observation/AI-CORE/mobile/operator/safety mandate.
