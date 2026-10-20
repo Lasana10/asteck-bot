@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Bus, DoorOpen, LocateFixed, Send, X } from 'lucide-react';
 import { submitAccessEvidence, submitTransitObservation } from '../../services/mobilityEvidenceClient';
+import { evaluateSpatialFix } from '../../services/spatialPositioning';
 
 type Fix = { latitude:number; longitude:number; accuracy:number };
 type Mode = 'entrance' | 'transit';
@@ -24,6 +25,15 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
     if(!navigator.geolocation){setNotice('This device cannot provide GPS. AFAT will not invent coordinates for field evidence.');return;}
     setLocating(true); setNotice('Getting a field GPS fix…');
     navigator.geolocation.getCurrentPosition((position)=>{
+      const spatial=evaluateSpatialFix({
+        latitude:position.coords.latitude, longitude:position.coords.longitude,
+        accuracyM:position.coords.accuracy, timestampMs:position.timestamp, source:'field_observation',
+      });
+      if(!spatial.accepted){
+        setFix(null);setLocating(false);
+        setNotice(`GPS observation rejected (${spatial.reason.replace(/_/g,' ')}). No entrance or transit evidence will be submitted from this fix.`);
+        return;
+      }
       const next={latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy};
       setFix(next); setLocating(false);
       setNotice(`GPS fix ready · ±${Math.round(next.accuracy)} m. This remains pending evidence until reviewed.`);

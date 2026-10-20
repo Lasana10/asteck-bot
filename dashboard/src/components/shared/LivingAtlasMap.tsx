@@ -6,6 +6,7 @@ import { supabase } from '../../supabaseClient';
 import { readOfflineCityPack, cityPackAge } from '../../services/offlineCityPack';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { validateOfflineRoadSeed } from '../../services/offlineRoadSeed';
+import { evaluateSpatialFix, type SpatialFix } from '../../services/spatialPositioning';
 
 type AtlasPayload={
   city?:{city_name?:string;learning_stage?:string;operational_confidence?:number};
@@ -47,6 +48,8 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
   const [basemapMode,setBasemapMode]=useState<AfatBasemapMode>('intel');
   const [mapError,setMapError]=useState('');
   const liveTraceRef=useRef<Array<[number,number]>>([]);
+  const lastSpatialFixRef=useRef<SpatialFix|null>(null);
+  const [spatialNotice,setSpatialNotice]=useState('');
 
   const load=async()=>{
     setBusy(true);
@@ -102,8 +105,23 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
   useEffect(()=>{
     const handleSample=(event:Event)=>{
       const detail=(event as CustomEvent).detail||{};
-      const lng=Number(detail.longitude),lat=Number(detail.latitude);
-      if(!Number.isFinite(lng)||!Number.isFinite(lat)) return;
+      const lng=detail.longitude,lat=detail.latitude;
+      const accuracyM=detail.accuracyM ?? detail.accuracy ?? detail.coords?.accuracy;
+      // Sources must provide a capture timestamp; a reception timestamp is not
+      // evidence of when a location was observed.
+      const timestampMs=detail.timestampMs ?? detail.timestamp ??
+        (typeof detail.recordedAt==='string' ? Date.parse(detail.recordedAt) : undefined);
+      const decision=evaluateSpatialFix({
+        latitude:lat,longitude:lng,accuracyM,timestampMs,
+        source:'field_observation',
+      },lastSpatialFixRef.current);
+      if(!decision.accepted || !decision.fix){
+        setSpatialNotice(`Position not included in trace: ${decision.reason.replace(/_/g,' ')}`);
+        return;
+      }
+      const {fix}=decision;
+      lastSpatialFixRef.current=fix;
+      setSpatialNotice(`Unverified device position · ±${Math.ceil(fix.accuracyM ?? 0)} m · ${decision.confidence} confidence; no visual anchor confirmation`);
       liveTraceRef.current=[...liveTraceRef.current,[lng,lat]].slice(-500);
       const map=mapRef.current;
       if(!map||!map.loaded()) return;
@@ -123,7 +141,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
       }
       map.easeTo({center:[lng,lat],zoom:Math.max(map.getZoom(),15),duration:700});
     };
-    const handleFinished=()=>{liveTraceRef.current=[];};
+    const handleFinished=()=>{liveTraceRef.current=[];lastSpatialFixRef.current=null;setSpatialNotice('');};
     window.addEventListener('afat:contribution-sample',handleSample);
     window.addEventListener('afat:contribution-finished',handleFinished);
     return()=>{window.removeEventListener('afat:contribution-sample',handleSample);window.removeEventListener('afat:contribution-finished',handleFinished);};
@@ -331,6 +349,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
     </div>
     <div className="relative h-[68vh] min-h-[560px] xl:min-h-[680px]">
       <div ref={ref} className="absolute inset-0"/>
+      {spatialNotice&&<div role="status" className="absolute inset-x-4 bottom-5 z-20 rounded-xl border border-cyan-300/25 bg-slate-950/90 px-4 py-2 text-xs text-cyan-100">{spatialNotice}</div>}
       {mapError&&<div className="absolute inset-x-4 top-4 z-20 rounded-xl border border-rose-300/25 bg-rose-500/15 px-4 py-3 text-xs font-bold text-rose-100 backdrop-blur-xl">{mapError}</div>}
       {technical ? <>
         <div className="absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">

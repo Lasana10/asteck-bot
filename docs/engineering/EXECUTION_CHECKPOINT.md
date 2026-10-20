@@ -1,3 +1,16 @@
+# Update — 2026-10-20 spatial observation integration extended
+
+- `AtlasContributionPanel` now gates GPS samples before live ingestion or offline enqueue; `FieldMapper` also gates field evidence before offline persistence. Both use the same evidence-aware positioning validator. Existing queue items and server-side direct submissions still require independent server validation; no claim of universal end-to-end trust.
+- CI runs on successive branch updates; only the final head SHA should be accepted. Final CI/merge/deployment not yet verified.
+- Next: backend ingestion validation and field/device acceptance, then integrate real visual-anchor observations and map uncertainty rendering that does not pretend to be 3D/VPS. Routing network coverage remains separate unresolved dependency.
+
+# 2026-10-20 — spatial evidence integrity implementation (pending CI)
+
+- Branch: `engineering/afat-spatial-position-integrity-20261020`. Added `dashboard/src/services/spatialPositioning.ts` with GNSS coordinate/accuracy/timestamp validation, stale/out-of-order and implausible-motion rejection, explicit uncertainty and confidence; added regression tests.
+- Integrated this into `LivingAtlasMap` real `afat:contribution-sample` event path emitted by `AtlasContributionPanel` (includes `recordedAt` and `accuracyM`); rejected samples do not extend the displayed trace, and the map shows uncertainty and rejection feedback. This applies to the *map display trace*, not yet upstream persistence/validation.
+- No VPS, indoor tracking, visual SLAM, field accuracy or real-route success claimed. Tests, merge and backend deployment require separate verified checks.
+- Next dependency-ready implementation: perform positioning validation **before** Atlas sample persistence/queueing (currently the map display rejects after sample ingestion), with rejection telemetry and feedback; add device/integration acceptance. Then connect documented visual-anchor observation models and evidence-based fusion without pretending GNSS is visual positioning. Also resolve full Cameroon road graph and available OSRM operations.
+
 # Latest verified execution state — 19 October 2026
 
 - **Merged #112:** `fd302b708b026163daf971f81aa4ff0e4a002ffa`. GitHub Actions run `39325306356` backend and dashboard succeeded; Render backend deployment `dep-dbb8eocs728c73cfeeq0` reached **LIVE** for this commit.
