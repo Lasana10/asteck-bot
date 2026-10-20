@@ -34,6 +34,7 @@ import {
   type AfatReachabilityAssessment,
 } from '../../services/mobilityEvidenceClient';
 import { decideReroute, formatRouteProgress, type AfatRouteProgress } from '../../services/routeGuidance';
+import {storeOfflineJourneyRoute,loadOfflineJourneyRoute,clearOfflineJourneyRoute} from '../../services/offlineJourneyRoute';
 
 type Props = {
   profile: any;
@@ -253,6 +254,15 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       setRouteOptions({});
       setRouteMessage('');
       return;
+    }
+    if (navigationActive && typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cached=loadOfflineJourneyRoute(String(profile?.id||''),String(selectedPlace?.id||''));
+      if(cached){
+        setCanonicalRoute(cached.route);
+        setRouteMessage('Offline navigation · using saved route geometry, not a live traffic or road verification. Recheck before continuing.');
+        setRouteLoading(false);
+        return;
+      }
     }
     const modes: AfatRouteMode[] = navigationActive ? [vehicleType] : ['walk', 'moto', 'car', 'minibus'];
     setRouteLoading(true);
@@ -542,6 +552,12 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       origin_lng: originFix.longitude,
       context: { execution: 'navigation_live', route_distance_m: canonicalRoute.distance_m || null },
     });
+    storeOfflineJourneyRoute({
+      profileId:String(profile?.id||''),placeId:String(selectedPlace.id),placeName:selectedPlace.name,
+      latitude:Number(arrivalPoint?.latitude||selectedPlace.latitude),
+      longitude:Number(arrivalPoint?.longitude||selectedPlace.longitude),
+      mode:vehicleType,intentType,route:canonicalRoute,
+    });
     setNavigationSamples(0);
     setRouteProgress(null);
     setRouteOriginFix(originFix);
@@ -571,6 +587,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const stopNavigation = () => {
     setNavigationActive(false);
     setRouteProgress(null);
+    if(profile?.id)clearOfflineJourneyRoute(String(profile.id));
     const stopped = clearJourneyRuntime('cancelled');
     setResumeSnapshot(stopped);
     setStatusText('Live navigation stopped. AFAT kept no claim that the trip was completed.');
@@ -609,6 +626,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const handleArrival = (payload: { latitude: number; longitude: number; distanceM: number; accuracyM?: number | null }) => {
     setNavigationActive(false);
     setRouteProgress(null);
+    if(profile?.id)clearOfflineJourneyRoute(String(profile.id));
     const snapshot = saveJourneyRuntime({
       profileId: profile?.id || null,
       cityKey,
@@ -636,24 +654,45 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const resumeNavigation = async () => {
-    const snapshot = loadJourneyRuntime();
-    if (!snapshot?.placeName || snapshot.state !== 'navigating') return;
-    setVehicleType((snapshot.mode as AfatRouteMode) || 'car');
-    setIntentType((snapshot.intentType as any) || 'go');
-    if (snapshot.lastPosition) {
-      const restored: OriginFix = { latitude: snapshot.lastPosition.latitude, longitude: snapshot.lastPosition.longitude, accuracy: snapshot.lastPosition.accuracy, speedKph: snapshot.lastPosition.speedKph, heading: snapshot.lastPosition.heading, label: 'Last navigation position', source: 'gps' };
+    const snapshot=loadJourneyRuntime();
+    if(!snapshot?.placeName||!snapshot.placeId||snapshot.state!=='navigating')return;
+    // Fail closed on account changes. A navigation session belongs to its
+    // original contributor and must never be replayed under a new login.
+    if(!profile?.id||snapshot.profileId!==profile.id){
+      setStatusText('This saved journey belongs to a different account and cannot be resumed here.');
+      return;
+    }
+    const cached=loadOfflineJourneyRoute(String(profile.id),String(snapshot.placeId));
+    if(!cached){
+      setStatusText('The prior route geometry is missing or expired. Reconnect, select the destination and calculate a fresh route.');
+      return;
+    }
+    setDestination(cached.placeName);
+    setSelectedPlace({
+      id:cached.placeId,name:cached.placeName,latitude:cached.latitude,longitude:cached.longitude,
+      evidence_status:'limited',meeting_points:[],access_points:[],
+    } as AfatPlaceCandidate);
+    setSelectedAccessPoint(null);
+    setSelectedMeetingPoint(null);
+    setVehicleType(cached.mode);
+    setIntentType((snapshot.intentType as any)||'go');
+    setCanonicalRoute(cached.route);
+    setRouteOptions({[cached.mode]:cached.route});
+    setRouteMessage(typeof navigator!=='undefined'&&!navigator.onLine
+      ? 'Offline route restored from this account’s saved geometry. No fresh hazards, passability or traffic were checked.'
+      : routeMessageFor(cached.route));
+    if(snapshot.lastPosition){
+      const restored:OriginFix={latitude:snapshot.lastPosition.latitude,longitude:snapshot.lastPosition.longitude,
+        accuracy:snapshot.lastPosition.accuracy,speedKph:snapshot.lastPosition.speedKph,heading:snapshot.lastPosition.heading,
+        label:'Last known position (not current)',source:'manual'};
       setOriginFix(restored);
       setRouteOriginFix(restored);
     }
-    const { data } = await discoverAfatPlaces({ query: snapshot.placeName, city: profile?.preferred_city || 'yaounde', limit: 12 });
-    const discovered = (data?.results || []) as AfatPlaceCandidate[];
-    const exact = discovered.find((candidate) => candidate.id === snapshot.placeId) || discovered[0];
-    if (!exact) { setStatusText('AFAT could not safely restore the previous destination. Search it again instead of resuming a guessed journey.'); return; }
-    selectCandidate(exact);
-    setNavigationSamples(snapshot.sampleCount || 0);
+    setNavigationSamples(snapshot.sampleCount||0);
     setNavigationActive(true);
-    lastRerouteAtRef.current = Date.now();
-    setStatusText('Live navigation resumed from the saved journey state. GPS will replace the last stored position as soon as a fresh fix arrives.');
+    lastRerouteAtRef.current=Date.now();
+    setResumeSnapshot(snapshot);
+    setStatusText('Saved journey restored with its existing navigation session and road geometry. Fresh GPS is required for current progress.');
   };
 
   const createPassage = async () => {
@@ -745,7 +784,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     } catch { setShareNotice('ReachLink ready to share.'); }
   };
 
-  const resumable = resumeSnapshot?.state === 'navigating' && resumeSnapshot?.placeName && (!profile?.id || !resumeSnapshot.profileId || resumeSnapshot.profileId === profile.id);
+  const resumable = resumeSnapshot?.state === 'navigating' && resumeSnapshot?.placeName && Boolean(profile?.id && resumeSnapshot.profileId===profile.id);
 
   return <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl sm:p-5">
     <div className="mb-4 flex items-start justify-between gap-4">
