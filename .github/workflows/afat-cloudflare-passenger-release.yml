@@ -1,0 +1,27 @@
+name: AFAT Live Cloudflare Passenger Atlas Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-cloudflare-passenger-release.yml'
+      - 'scripts/verify-cloudflare-passenger-atlas.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-cloudflare-release:
+    name: Confirm deployed Cloudflare passenger Atlas experience
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect published JS rather than trusting local build
+        env:
+          AFAT_FRONTEND_URL: https://asteck-bot.pages.dev
+        run: node scripts/verify-cloudflare-passenger-atlas.mjs
