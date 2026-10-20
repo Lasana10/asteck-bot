@@ -1,0 +1,27 @@
+name: AFAT Live Atlas Read-Only Acceptance
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-live-atlas-acceptance.yml'
+      - 'scripts/verify-production-atlas.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-contract:
+    name: Real Render Atlas contracts and anonymous guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe the deployed backend without secrets or database writes
+        env:
+          AFAT_API_URL: https://asteck-bot.onrender.com
+        run: node scripts/verify-production-atlas.mjs
