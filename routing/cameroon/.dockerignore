@@ -1,0 +1,4 @@
+# Keep the 224MB OSM source and checksum files out of reusable runtime images.
+data/*
+!data/cameroon-latest.osrm.*
+!data/graph-provenance.txt

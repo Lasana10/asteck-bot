@@ -8,10 +8,17 @@ on:
     paths:
       - '.github/workflows/afat-cameroon-real-osrm-acceptance.yml'
       - 'routing/cameroon/**'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-cameroon-real-osrm-acceptance.yml'
+      - 'routing/cameroon/Dockerfile.prebuilt'
+      - 'routing/cameroon/.dockerignore'
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: afat-cameroon-osrm-graph-${{ github.ref }}
@@ -86,6 +93,66 @@ jobs:
             echo 'Checksum-verified Geofabrik OSM → OSRM MLD graph → real local server → Yaoundé/Douala route geometry: **PASS**.'
             echo 'No paid service deployed, no Cameroon field passability proven, no persistent routing endpoint created.'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build deployment-ready image using the accepted country graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          # BuildKit can lose sparse mmap file length during layer export.
+          # Materialize this verified graph index fully before COPY, then require
+          # source and image checksums to match. No live/prod graph is modified.
+          INDEX=routing/cameroon/data/cameroon-latest.osrm.fileIndex
+          # OSRM preprocessing runs in a root container and may create this
+          # public OSM-derived mmap index with mode 0600. BuildKit's unprivileged
+          # context reader cannot copy it; fix only ephemeral graph file access.
+          sudo chmod a+r "$INDEX"
+          stat -c 'graph_index_mode=%a graph_index_bytes=%s' "$INDEX"
+          test -r "$INDEX" && test -s "$INDEX"
+          cp --sparse=never "$INDEX" "${INDEX}.dense"
+          test "$(stat -c%s "$INDEX")" = "$(stat -c%s "${INDEX}.dense")"
+          cmp -s "$INDEX" "${INDEX}.dense"
+          mv -f "${INDEX}.dense" "$INDEX"
+          docker build --file routing/cameroon/Dockerfile.prebuilt \
+            --tag afat-cameroon-osrm:acceptance routing/cameroon
+          echo 'Host MLD graph artifacts'
+          find routing/cameroon/data -maxdepth 1 -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort | head -35
+          echo 'Prebuilt image MLD graph artifacts'
+          docker run --rm --entrypoint /bin/sh afat-cameroon-osrm:acceptance -c \
+            "find /data -maxdepth 1 -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort | head -35"
+          docker run -d --name afat-osrm-prebuilt-smoke -p 127.0.0.1:5001:5000 \
+            afat-cameroon-osrm:acceptance
+          sleep 2
+          if [ "$(docker inspect -f '{{.State.Running}}' afat-osrm-prebuilt-smoke)" != true ]; then
+            docker logs afat-osrm-prebuilt-smoke
+            echo 'Prebuilt Cameroon engine terminated before readiness' >&2
+            exit 1
+          fi
+          ready=0
+          for attempt in $(seq 1 35); do
+            if curl -fsS --max-time 3 'http://127.0.0.1:5001/nearest/v1/driving/11.516,3.866?number=1' >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then
+            docker logs afat-osrm-prebuilt-smoke || true
+            echo 'Packaged routing image did not start.' >&2
+            exit 1
+          fi
+          AFAT_OSRM_SMOKE_URL=http://127.0.0.1:5001 node routing/cameroon/verify.mjs
+          docker rm -f afat-osrm-prebuilt-smoke
+      - name: Publish immutable OCI runtime image only from validated master
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          TAG="ghcr.io/lasana10/afat-cameroon-osrm:sha-${GITHUB_SHA:0:12}"
+          docker tag afat-cameroon-osrm:acceptance "$TAG"
+          docker push "$TAG"
+          echo "Published immutable Cameroon routing runtime: $TAG" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload small provenance evidence only
         if: success()
         uses: actions/upload-artifact@v4
@@ -97,8 +164,12 @@ jobs:
       - name: On failure, show isolated engine diagnostics
         if: failure()
         shell: bash
-        run: docker logs --tail 150 afat-cameroon-osrm-acceptance || true
+        run: |
+          docker logs --tail 150 afat-cameroon-osrm-acceptance || true
+          docker logs --tail 150 afat-osrm-prebuilt-smoke || true
       - name: Remove ephemeral route engine
         if: always()
         shell: bash
-        run: docker rm -f afat-cameroon-osrm-acceptance || true
+        run: |
+          docker rm -f afat-cameroon-osrm-acceptance || true
+          docker rm -f afat-osrm-prebuilt-smoke || true
