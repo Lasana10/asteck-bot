@@ -24,4 +24,10 @@ jobs:
       - name: Inspect published JS rather than trusting local build
         env:
           AFAT_FRONTEND_URL: https://asteck-bot.pages.dev
-        run: node scripts/verify-cloudflare-passenger-atlas.mjs
+        run: |
+          for attempt in $(seq 1 15); do
+            if node scripts/verify-cloudflare-passenger-atlas.mjs; then exit 0; fi
+            echo "Cloudflare has not yet served the new offline passenger release (attempt $attempt/15)"
+            sleep 20
+          done
+          exit 1

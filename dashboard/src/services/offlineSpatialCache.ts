@@ -133,8 +133,10 @@ export function searchCachedPlaces(cityKey: string, query: string, limit = 12) {
   if (q.length < 2) return [];
   const seen = new Set<string>();
   const scored: Array<AfatOfflinePlace & { score: number }> = [];
+  const now=Date.now();
   for (const view of readCache().viewports) {
-    if (view.cityKey !== cityKey) continue;
+    const age=now-Date.parse(view.capturedAt);
+    if (view.cityKey !== cityKey || !Number.isFinite(age) || age<0 || age>MAX_AGE_MS) continue;
     for (const place of view.places) {
       if (seen.has(place.id)) continue;
       seen.add(place.id);
