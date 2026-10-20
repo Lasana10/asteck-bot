@@ -51,4 +51,23 @@ for(const item of [...nearby.data.nodes,...nearby.data.edges]){
    'Atlas nearby exposed a non-contract evidence status');
 }
 console.log('Read-only Atlas response:',nearby.data.nodes.length,'nodes,',nearby.data.edges.length,'edges; reviewed counts are not inferred');
+// This area previously had no graph nodes in a 1.5 km radius. Test the newly
+// connected, source-licensed place evidence separately at 3 km.
+const places = await fetchJson('/api/atlas/nearby?lat=3.866&lon=11.516&radius_m=3000&limit=20');
+assert.equal(places.status,200,'Licensed place API read is unavailable');
+assert.equal(places.data?.place_candidates_status,'ok','Licensed candidate RPC is unavailable on the backend');
+assert.ok(Array.isArray(places.data?.place_candidates)&&places.data.place_candidates.length>0,
+  'Expected actual source-licensed records in Yaoundé, not fabricated placeholder places');
+for(const candidate of places.data.place_candidates) {
+  assert.equal(typeof candidate.id,'string');
+  assert.equal(typeof candidate.name,'string');
+  assert.ok(Number.isFinite(candidate.distance_m)&&candidate.distance_m>=0&&candidate.distance_m<=3000);
+  assert.ok(['overture_maps','openstreetmap'].includes(candidate.source_key));
+  assert.ok(['limited','corroborated','verified','field_verified'].includes(candidate.evidence_status));
+  assert.equal(candidate.verified_access,false);
+  for(const privateField of ['phone','email','profile_id','owner_id','source_properties']) {
+    assert.equal(Object.hasOwn(candidate,privateField),false,'Candidate exposed private source field');
+  }
+}
+console.log('Real licensed nearby places:',places.data.place_candidates.length,'with explicit limited source evidence.');
 console.log('PASS live AFAT Atlas contract, anonymous write protection, and real nearby response');
