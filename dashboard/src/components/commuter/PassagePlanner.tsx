@@ -542,16 +542,6 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const navigateOnly = async () => {
     if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok') return;
-    const { error } = await recordAfatIntent({
-      intent_type: intentType,
-      place_id: selectedPlace.id,
-      access_point_id: selectedAccessPoint?.id,
-      meeting_point_id: selectedMeetingPoint?.id,
-      movement_mode: vehicleType,
-      origin_lat: originFix.latitude,
-      origin_lng: originFix.longitude,
-      context: { execution: 'navigation_live', route_distance_m: canonicalRoute.distance_m || null },
-    });
     storeOfflineJourneyRoute({
       profileId:String(profile?.id||''),placeId:String(selectedPlace.id),placeName:selectedPlace.name,
       latitude:Number(arrivalPoint?.latitude||selectedPlace.latitude),
@@ -581,7 +571,24 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       sampleCount: 0,
     });
     setResumeSnapshot(snapshot);
-    setStatusText(error ? 'Live navigation started. AFAT could not sync the navigation intent to the server, so it is not claiming that sync succeeded.' : 'Live navigation started. AFAT follows every GPS sample but reroutes only after meaningful off-route movement.');
+    const offline=typeof navigator!=='undefined'&&!navigator.onLine;
+    setStatusText(offline
+      ? 'Offline navigation started using locally saved geometry. Live traffic and updated closures cannot be checked; GPS evidence sync resumes when connected.'
+      : 'Navigation started locally. AFAT is synchronizing the journey; GPS will guide route progress as fresh fixes arrive.');
+    // Network bookkeeping must not block device navigation. The journey runtime
+    // independently queues GPS samples and reconnects its server session.
+    if(!offline){
+      void recordAfatIntent({
+        intent_type:intentType,place_id:selectedPlace.id,
+        access_point_id:selectedAccessPoint?.id,meeting_point_id:selectedMeetingPoint?.id,
+        movement_mode:vehicleType,origin_lat:originFix.latitude,origin_lng:originFix.longitude,
+        context:{execution:'navigation_live',route_distance_m:canonicalRoute.distance_m||null},
+      }).then(({error})=>{
+        if(error)setStatusText('Navigation remains active. Intent synchronization failed; AFAT will not claim the server recorded it.');
+      }).catch(()=>{
+        setStatusText('Navigation remains active. Server intent could not be confirmed; locally captured GPS evidence is retained for sync.');
+      });
+    }
   };
 
   const stopNavigation = () => {
