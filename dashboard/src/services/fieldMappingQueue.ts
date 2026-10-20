@@ -69,9 +69,17 @@ async function flushFieldObservationsOnce(userId:string){
     const mediaPaths:string[]=[];
     const path=fieldEvidencePath(item);
     if(path&&item.photo){
-      // Stable path prevents new orphan names on retry; database RPC still needs server idempotency.
-      const up=await supabase.storage.from('afat-field-evidence').upload(path,item.photo,{upsert:true,contentType:item.photo.type});
-      if(up.error)continue;
+      // The deployed storage bucket allows owner INSERT and SELECT, but not UPDATE.
+      // Upload immutably; after a retry conflict, verify that the exact owned object exists.
+      const bucket=supabase.storage.from('afat-field-evidence');
+      const up=await bucket.upload(path,item.photo,{upsert:false,contentType:item.photo.type});
+      if(up.error){
+        const code=String((up.error as {statusCode?:string|number}).statusCode||'');
+        if(code!=='409')continue;
+        const name=path.slice(path.lastIndexOf('/')+1);
+        const listing=await bucket.list(userId,{search:name,limit:10});
+        if(listing.error||!listing.data?.some(object=>object.name===name))continue;
+      }
       mediaPaths.push(path);
     }
     // Never turn a failed RPC into a success. Server-side duplicate protection is tracked separately.
