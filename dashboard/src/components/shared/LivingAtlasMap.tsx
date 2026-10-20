@@ -349,6 +349,7 @@ export function LivingAtlasMap({cityKey='cm-yaounde',technical=false}:{cityKey?:
     </div>
     <div className="relative h-[68vh] min-h-[560px] xl:min-h-[680px]">
       <div ref={ref} className="absolute inset-0"/>
+      {spatialNotice&&<div role="status" className="absolute inset-x-4 bottom-5 z-20 rounded-xl border border-cyan-300/25 bg-slate-950/90 px-4 py-2 text-xs text-cyan-100">{spatialNotice}</div>}
       {mapError&&<div className="absolute inset-x-4 top-4 z-20 rounded-xl border border-rose-300/25 bg-rose-500/15 px-4 py-3 text-xs font-bold text-rose-100 backdrop-blur-xl">{mapError}</div>}
       {technical ? <>
         <div className="absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
