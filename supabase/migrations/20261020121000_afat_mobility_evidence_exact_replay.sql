@@ -20,7 +20,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_fingerprint text;
-  v_claimed boolean := false;
+  v_inserted bigint := 0;
   v_saved public.afat_mobility_evidence_receipts%rowtype;
   v_result jsonb;
 begin
@@ -34,8 +34,8 @@ begin
   insert into public.afat_mobility_evidence_receipts(contributor_id,observation_key,request_fingerprint)
     values(v_uid,p_idempotency_key,v_fingerprint)
     on conflict do nothing;
-  get diagnostics v_claimed = row_count;
-  if not v_claimed then
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
     select * into v_saved from public.afat_mobility_evidence_receipts
     where contributor_id=v_uid and observation_key=p_idempotency_key;
     if not found or v_saved.request_fingerprint is distinct from v_fingerprint
