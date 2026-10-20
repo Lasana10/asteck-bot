@@ -18,7 +18,7 @@ export function reviewedAtlasEvidence(result:unknown):Evidence[]{
     if(!row||typeof row.id!=='string'||row.id.length===0||row.id.length>128)return false;
     if(!['verified','corroborated'].includes(String(row.evidence_status||'').toLowerCase()))return false;
     // Unrated or out-of-range records must not be passed to a model as reviewed facts.
-    return typeof row.confidence==='number'&&Number.isFinite(row.confidence)&&row.confidence>=0&&row.confidence<=1;
+    return typeof row.confidence==='number'&&Number.isFinite(row.confidence)&&row.confidence>=0&&row.confidence<=100;
   }).slice(0,20).map(({kind,row})=>({
     id:row.id,
     kind,
