@@ -21,8 +21,8 @@ describe('offline field evidence integrity',()=>{
     expect(()=>validateFieldObservation({...base,accuracyM:500})).toThrow();
     expect(()=>validateFieldObservation({...base,accuracyM:12})).not.toThrow();
   });
-  it('rejects stale observations and unsupported photo formats before queuing',()=>{
-    expect(()=>validateFieldObservation({...base,observedAt:new Date(Date.now()-86400001).toISOString()})).toThrow();
+  it('preserves older offline observations and rejects unsupported photo formats',()=>{
+    expect(()=>validateFieldObservation({...base,observedAt:new Date(Date.now()-14*86400000).toISOString()})).not.toThrow();
     expect(()=>validateFieldObservation({...base,photo:new File(['x'],'x.svg',{type:'image/svg+xml'})})).toThrow();
   });
 });
