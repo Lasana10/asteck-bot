@@ -31,8 +31,9 @@ router.post('/atlas/explain',async(req:Request,res:Response)=>{
   const access=await requireAuthRole(req,res);
   if(!access)return;
   const {latitude,longitude,question}=req.body||{};
-  if(!validCoord(latitude,90)||!validCoord(longitude,180)||typeof question!=='string'||question.trim().length<3||question.length>300){
-    return res.status(400).json({error:'Valid coordinates and a question of 3–300 characters are required.'});
+  const requests:Record<string,string>={overview:'Summarize what reviewed places and roads are known in this area.',access:'Describe only the known access and landmark evidence.',roads:'Explain what the reviewed road evidence actually establishes; do not provide a route.'};
+  if(!validCoord(latitude,90)||!validCoord(longitude,180)||typeof question!=='string'||!Object.hasOwn(requests,question)){
+    return res.status(400).json({error:'Valid coordinates and a supported explanation category are required.'});
   }
   try{
     const {data,error}=await supabase.rpc('afat_atlas_nearby',{
@@ -51,7 +52,7 @@ router.post('/atlas/explain',async(req:Request,res:Response)=>{
       'If evidence cannot answer the question, state that it is unknown.',
       'Never provide instructions that substitute for verified routing or field safety checks.',
       'Reviewed evidence (JSON):',JSON.stringify(evidence),
-      'User question (untrusted):',JSON.stringify(question.trim()),
+      'User question (untrusted):',JSON.stringify(requests[question]),
     ].join('\n');
     let ai;
     try{ai=await invokeAfatAiCore({tenantId:'AFAT',task:'mobility',prompt,publicEvidenceOnly:true});}
