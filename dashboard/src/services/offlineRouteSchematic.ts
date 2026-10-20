@@ -25,6 +25,20 @@ export function offlineRouteSchematic(route:AfatCanonicalRoute|null|undefined):S
  return {path,start:points[0],end:points[points.length-1],points};
 }
 export function schematicProgressPoint(geometry:SchematicRoute,ratio:number):SchematicPoint{
- const index=Math.max(0,Math.min(geometry.points.length-1,Math.round(Math.max(0,Math.min(1,ratio))*(geometry.points.length-1))));
- return geometry.points[index];
+ const pts=geometry.points;
+ if(!pts.length)return{x:0,y:0};
+ if(pts.length===1)return pts[0];
+ const lengths:number[]=[0];
+ for(let i=1;i<pts.length;i++)lengths[i]=lengths[i-1]+Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);
+ const total=lengths[lengths.length-1];
+ if(total<=0)return pts[0];
+ const target=Math.max(0,Math.min(1,Number.isFinite(ratio)?ratio:0))*total;
+ for(let i=1;i<pts.length;i++){
+  if(target<=lengths[i]){
+   const span=lengths[i]-lengths[i-1];
+   const t=span>0?(target-lengths[i-1])/span:0;
+   return{x:pts[i-1].x+(pts[i].x-pts[i-1].x)*t,y:pts[i-1].y+(pts[i].y-pts[i-1].y)*t};
+  }
+ }
+ return pts[pts.length-1];
 }
