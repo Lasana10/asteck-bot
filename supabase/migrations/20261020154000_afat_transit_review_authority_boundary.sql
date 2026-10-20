@@ -1,4 +1,6 @@
--- Restrict trust promotion to reviewers; aggregate viewers cannot create\n-- verified-looking transit stops or lines. Existing RLS read access is unchanged.\nCREATE OR REPLACE FUNCTION public.afat_review_transit_observation(p_observation_id uuid, p_decision text)
+-- Restrict trust promotion to reviewers; aggregate viewers cannot create
+-- verified-looking transit stops or lines. Existing RLS read access is unchanged.
+CREATE OR REPLACE FUNCTION public.afat_review_transit_observation(p_observation_id uuid, p_decision text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
