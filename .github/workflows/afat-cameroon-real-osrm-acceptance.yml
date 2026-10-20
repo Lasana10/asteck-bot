@@ -8,10 +8,17 @@ on:
     paths:
       - '.github/workflows/afat-cameroon-real-osrm-acceptance.yml'
       - 'routing/cameroon/**'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-cameroon-real-osrm-acceptance.yml'
+      - 'routing/cameroon/Dockerfile.prebuilt'
+      - 'routing/cameroon/.dockerignore'
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: afat-cameroon-osrm-graph-${{ github.ref }}
@@ -86,6 +93,41 @@ jobs:
             echo 'Checksum-verified Geofabrik OSM → OSRM MLD graph → real local server → Yaoundé/Douala route geometry: **PASS**.'
             echo 'No paid service deployed, no Cameroon field passability proven, no persistent routing endpoint created.'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build deployment-ready image using the accepted country graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file routing/cameroon/Dockerfile.prebuilt \
+            --tag afat-cameroon-osrm:acceptance routing/cameroon
+          docker run -d --rm --name afat-osrm-prebuilt-smoke -p 127.0.0.1:5001:5000 \
+            afat-cameroon-osrm:acceptance
+          ready=0
+          for attempt in $(seq 1 35); do
+            if curl -fsS --max-time 3 'http://127.0.0.1:5001/nearest/v1/driving/11.516,3.866?number=1' >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then
+            docker logs afat-osrm-prebuilt-smoke || true
+            echo 'Packaged routing image did not start.' >&2
+            exit 1
+          fi
+          AFAT_OSRM_SMOKE_URL=http://127.0.0.1:5001 node routing/cameroon/verify.mjs
+          docker rm -f afat-osrm-prebuilt-smoke
+      - name: Publish immutable OCI runtime image only from validated master
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          TAG="ghcr.io/lasana10/afat-cameroon-osrm:sha-${GITHUB_SHA:0:12}"
+          docker tag afat-cameroon-osrm:acceptance "$TAG"
+          docker push "$TAG"
+          echo "Published immutable Cameroon routing runtime: $TAG" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload small provenance evidence only
         if: success()
         uses: actions/upload-artifact@v4
@@ -101,4 +143,6 @@ jobs:
       - name: Remove ephemeral route engine
         if: always()
         shell: bash
-        run: docker rm -f afat-cameroon-osrm-acceptance || true
+        run: |
+          docker rm -f afat-cameroon-osrm-acceptance || true
+          docker rm -f afat-osrm-prebuilt-smoke || true
