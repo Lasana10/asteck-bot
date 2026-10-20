@@ -16,7 +16,8 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk'}:{cityKey?:
  const [type,setType]=useState<string>('entrance'); const [label,setLabel]=useState(''); const [description,setDescription]=useState('');
  const [mode,setMode]=useState(defaultMode); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState('');
  const [photo,setPhoto]=useState<File|null>(null); const [userId,setUserId]=useState<string|null>(null); const [pending,setPending]=useState(0);
- useEffect(()=>{const onOnline=()=>{if(userId)void flushFieldObservations(userId).then(x=>setPending(x.pending));};window.addEventListener('online',onOnline);return()=>window.removeEventListener('online',onOnline);},[userId]);
+ useEffect(()=>{let mounted=true;void supabase.auth.getUser().then(({data})=>{if(mounted&&data.user){setUserId(data.user.id);void pendingFieldObservations(data.user.id).then(items=>{if(mounted)setPending(items.length);}).catch(()=>{});}});return()=>{mounted=false;};},[]);
+ useEffect(()=>{const onOnline=()=>{if(userId)void flushFieldObservations(userId).then(x=>setPending(x.pending)).catch(()=>setNotice('Evidence remains safely queued; synchronization needs retry.'));};window.addEventListener('online',onOnline);return()=>window.removeEventListener('online',onOnline);},[userId]);
  const submit=()=>{
   if(!navigator.geolocation){setNotice('Location is not available on this device.');return;}
   setBusy(true);setNotice('');
