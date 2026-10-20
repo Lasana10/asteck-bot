@@ -3,6 +3,7 @@ import { Camera, Crosshair, MapPinPlus, Navigation } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAfatLocale } from '../../localization';
 import { flushFieldObservations, pendingFieldObservations, queueFieldObservation } from '../../services/fieldMappingQueue';
+import { evaluateSpatialFix } from '../../services/spatialPositioning';
 
 const TYPES=[
  ['entrance','Entrance'],['landmark','Landmark'],['informal_stop','Informal stop'],['pickup_point','Pickup point'],
@@ -20,6 +21,8 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk'}:{cityKey?:
   if(!navigator.geolocation){setNotice('Location is not available on this device.');return;}
   setBusy(true);setNotice('');
   navigator.geolocation.getCurrentPosition(async pos=>{
+    const spatial=evaluateSpatialFix({latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracyM:pos.coords.accuracy,timestampMs:pos.timestamp,source:'field_observation'});
+    if(!spatial.accepted){setBusy(false);setNotice(`Field evidence requires a credible location fix: ${spatial.reason.replace(/_/g,' ')}. Nothing was queued.`);return;}
     const user=(await supabase.auth.getUser()).data.user;
     if(!user){setBusy(false);setNotice('Sign in before adding field evidence.');return;}
     setUserId(user.id);
