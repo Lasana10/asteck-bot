@@ -23,7 +23,7 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
   const [locationPending, setLocationPending] = useState(false);
   const [explainBusy,setExplainBusy]=useState(false);
   const [explanation,setExplanation]=useState<AtlasExplanation|null>(null);
-  const [explainQuestion,setExplainQuestion]=useState('What is known about this area?');
+  const [explainQuestion,setExplainQuestion]=useState('overview');
 
   const loadAtlas = async (point = origin) => {
     setLoading(true);
@@ -112,7 +112,7 @@ export function AtlasContextPanel({ city = 'yaounde', onOriginResolved }: Props)
 
     <div className="mt-3 border-t border-white/10 pt-3">
       <label className="block text-[10px] font-semibold text-white/60">Understand reviewed local knowledge
-        <input value={explainQuestion} onChange={e=>setExplainQuestion(e.target.value)} maxLength={300} placeholder="Ask about places or known access nearby" className="mt-2 min-h-10 w-full rounded-xl border border-white/15 bg-slate-950 px-3 text-xs text-white"/>
+        <select value={explainQuestion} onChange={e=>setExplainQuestion(e.target.value)} className="mt-2 min-h-10 w-full rounded-xl border border-white/15 bg-slate-950 px-3 text-xs text-white"><option value="overview">What is known in this area?</option><option value="access">Known entrances and access</option><option value="roads">Reviewed road knowledge</option></select>
       </label>
       <button type="button" onClick={requestExplanation} disabled={explainBusy||explainQuestion.trim().length<3||loading} className="mt-2 min-h-10 rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 text-[10px] font-black text-cyan-100 disabled:opacity-45">{explainBusy?'Checking reviewed evidence…':'Explain with AFAT intelligence'}</button>
       {explanation&&<div role="status" className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/65">
