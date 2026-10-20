@@ -30,6 +30,7 @@ jobs:
       - run: npm run test:atlas-ai-evidence
       - run: npm run test:api-contract
       - run: npm run test:reachability:reviewed-access
+      - run: npm run test:transit-review-authority
       - run: npm run test:routing
       - run: bash -n routing/cameroon/prepare.sh
       - run: node --check routing/cameroon/verify.mjs
