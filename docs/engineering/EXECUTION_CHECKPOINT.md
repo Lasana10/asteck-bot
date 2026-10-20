@@ -1,3 +1,9 @@
+# Update — 2026-10-20 spatial observation integration extended
+
+- `AtlasContributionPanel` now gates GPS samples before live ingestion or offline enqueue; `FieldMapper` also gates field evidence before offline persistence. Both use the same evidence-aware positioning validator. Existing queue items and server-side direct submissions still require independent server validation; no claim of universal end-to-end trust.
+- CI runs on successive branch updates; only the final head SHA should be accepted. Final CI/merge/deployment not yet verified.
+- Next: backend ingestion validation and field/device acceptance, then integrate real visual-anchor observations and map uncertainty rendering that does not pretend to be 3D/VPS. Routing network coverage remains separate unresolved dependency.
+
 # 2026-10-20 — spatial evidence integrity implementation (pending CI)
 
 - Branch: `engineering/afat-spatial-position-integrity-20261020`. Added `dashboard/src/services/spatialPositioning.ts` with GNSS coordinate/accuracy/timestamp validation, stale/out-of-order and implausible-motion rejection, explicit uncertainty and confidence; added regression tests.
