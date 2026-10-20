@@ -35,7 +35,7 @@ let flushInFlight: Promise<{synced:number;pending:number}> | null = null;
 let lastSignedInUserId: string | null = null;
 const sessionUser = async () => {
   const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user?.id) return null;
+  if (error || !data.user?.id) { lastSignedInUserId = null; return null; }
   lastSignedInUserId = data.user.id;
   return data.user.id;
 };
@@ -92,7 +92,11 @@ export function installMobilityEvidenceSync() {
 }
 
 async function submitOrQueue(kind: MobilityEvidenceKind, payload: Record<string, any>) {
-  const userId = await sessionUser();
+  // An authenticated session can be retained locally while a device is offline.
+  // Only server-verified identities may replay when connectivity returns.
+  const online = typeof navigator === 'undefined' || navigator.onLine;
+  const userId = online ? await sessionUser() : (await supabase.auth.getSession()).data.session?.user.id || null;
+  if (userId) lastSignedInUserId = userId;
   if (!userId) return {data:null,error:{message:'Sign in to save or submit field evidence.'}};
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     try {
