@@ -4,26 +4,8 @@ import {requireAuthRole} from './routes';
 import {invokeAfatAiCore} from '../services/aiCore';
 
 const router=express.Router();
-type Evidence={id:string;kind:'place'|'road';name:string;confidence:number;evidence_status:string};
+import {reviewedAtlasEvidence} from '../services/reviewedAtlasEvidence';
 const validCoord=(n:unknown,max:number)=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=max;
-
-/** Only grounded, public, independently reviewed Atlas knowledge may enter AI-CORE. */
-export function reviewedAtlasEvidence(result:unknown):Evidence[]{
-  const r=result && typeof result==='object'?result as Record<string,unknown>:{};
-  const rows:Array<{kind:'place'|'road';row:any}>=[
-    ...(Array.isArray(r.nodes)?r.nodes.map(row=>({kind:'place' as const,row})):[]),
-    ...(Array.isArray(r.edges)?r.edges.map(row=>({kind:'road' as const,row})):[]),
-  ];
-  return rows.filter(({row})=>row&&typeof row.id==='string'&&
-    ['verified','corroborated'].includes(String(row.evidence_status||'').toLowerCase()))
-    .slice(0,20).map(({kind,row})=>({
-      id:String(row.id),
-      kind,
-      name:String(row.canonical_name||row.name|| (kind==='road'?'Unnamed road':'Unnamed place')).slice(0,120),
-      confidence:Number.isFinite(Number(row.confidence))?Number(row.confidence):0,
-      evidence_status:String(row.evidence_status),
-    }));
-}
 
 // This is informational spatial interpretation, never a route, hazard clearance,
 // dispatch instruction or proof of real-time conditions.
