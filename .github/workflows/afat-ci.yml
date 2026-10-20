@@ -27,6 +27,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:backend
+      - run: npm run test:atlas-ai-evidence
       - run: npm run test:api-contract
       - run: npm run test:routing
       - run: bash -n routing/cameroon/prepare.sh
