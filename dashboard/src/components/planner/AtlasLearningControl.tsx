@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AccessEvidenceReviewPanel, TransitEvidenceReviewPanel } from './AccessEvidenceReviewPanel';
 import { AlertTriangle, CheckCircle2, Map, RefreshCw, Route, ScanSearch, Send, ShieldCheck, XCircle } from 'lucide-react';
 import {
   createAtlasMappingMission,
@@ -173,6 +174,8 @@ export function AtlasLearningControl() {
           {!conflicts.length && <p className="rounded-xl border border-dashed border-white/15 p-5 text-xs text-white/35">No unresolved Atlas contradiction is waiting for review.</p>}
         </div>
       </div>
+
+      <div className="mt-6"><AccessEvidenceReviewPanel /><TransitEvidenceReviewPanel /></div>
 
       {notice && <p className="mt-4 flex items-center gap-2 rounded-xl border border-amber-300/15 bg-amber-300/10 p-3 text-xs text-amber-100"><AlertTriangle className="h-4 w-4" />{notice}</p>}
       <div className="mt-4 flex items-center gap-2 text-[10px] leading-5 text-white/35"><Map className="h-4 w-4" />Trusted candidates remain separate from routable Atlas truth until an explicit promotion step links them into canonical geography.</div>

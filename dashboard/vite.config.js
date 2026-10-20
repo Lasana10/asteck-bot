@@ -15,6 +15,16 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: path.resolve(__dirname, 'index.html'),
+      // Keep the app shell and each offline-precache asset under Workbox's 2 MiB limit.
+      // Splitting mature mapping/auth frameworks also improves repeat downloads
+      // for low-bandwidth users when app-specific AFAT screens change.
+      output: {
+        manualChunks: {
+          'maplibre-vendor': ['maplibre-gl'],
+          'supabase-vendor': ['@supabase/supabase-js'],
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
     },
   },
   plugins: [
