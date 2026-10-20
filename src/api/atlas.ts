@@ -45,10 +45,22 @@ router.get('/atlas/nearby', async (req: Request, res: Response) => {
     });
     if (error) throw error;
 
+    // Keep public, source-licensed place candidates separate from reviewed graph
+    // evidence. This route contains no private owner information or raw source data.
+    // Missing migration must not destroy the already-working nearby road graph.
+    const placesResult = await supabase.rpc('afat_atlas_nearby_place_candidates', {
+      p_lat: lat,
+      p_lon: lon,
+      p_radius_m: radius,
+      p_limit: Math.min(limit, 30),
+    });
+    if (placesResult.error) console.warn('Atlas public place candidates unavailable:',placesResult.error.code || 'rpc_failed');
     return res.json({
       atlas_version: 'v1',
       origin: { latitude: lat, longitude: lon },
       ...(data && typeof data === 'object' ? data : { nodes: [], edges: [], radius_m: radius }),
+      place_candidates: placesResult.error ? [] : Array.isArray(placesResult.data) ? placesResult.data : [],
+      place_candidates_status: placesResult.error ? 'unavailable' : 'ok',
     });
   } catch (error: any) {
     console.error('Atlas nearby query failed:', error);

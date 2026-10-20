@@ -32,12 +32,26 @@ export type AtlasEdge = {
   metadata?: Record<string, unknown>;
 };
 
+export type AtlasPlaceCandidate = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  distance_m: number;
+  evidence_status: string;
+  source_key: string | null;
+  place_type: string | null;
+  verified_access: false;
+};
+
 export type AtlasNearbyResponse = {
   atlas_version: string;
   origin: { latitude: number; longitude: number };
   radius_m: number;
   nodes: AtlasNode[];
   edges: AtlasEdge[];
+  place_candidates?: AtlasPlaceCandidate[];
+  place_candidates_status?: 'ok' | 'unavailable';
 };
 
 type NearbyArgs = { latitude: number; longitude: number; radiusM?: number; limit?: number };
@@ -95,6 +109,8 @@ export async function fetchAtlasNearby(args: NearbyArgs): Promise<AtlasNearbyRes
         radius_m: Number(data.radius_m || args.radiusM || 2500),
         nodes: Array.isArray(data.nodes) ? data.nodes : [],
         edges: Array.isArray(data.edges) ? data.edges : [],
+        place_candidates: Array.isArray(data.place_candidates) ? data.place_candidates : [],
+        place_candidates_status: data.place_candidates_status === 'ok' ? 'ok' : 'unavailable',
       } as AtlasNearbyResponse;
       nearbyCache.set(key, { expiresAt: Date.now() + NEARBY_CACHE_TTL_MS, value });
       pruneNearbyCache();

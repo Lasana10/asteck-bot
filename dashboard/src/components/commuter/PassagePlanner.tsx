@@ -827,6 +827,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         city={profile?.preferred_city||'yaounde'}
         selectedOrigin={originFix?{latitude:originFix.latitude,longitude:originFix.longitude,label:originFix.label}:undefined}
         onOriginResolved={fix=>updateOrigin({...fix,source:'gps'})}
+        onPlaceSelected={place=>{setShowAtlasUnderstanding(false);void handleMapPlaceSelected({...place,source_only:true});}}
       />}
     </div>
 
