@@ -48,3 +48,39 @@ export function accessAccuracyLabel(accuracy:number|null):string {
   if(accuracy > 120) return 'Uncertain GPS';
   return `GPS ±${Math.round(accuracy)} m`;
 }
+
+export type PendingTransitEvidence = {
+  id: string;
+  profile_id: string;
+  city_key: string;
+  observation_type: string;
+  node_name: string | null;
+  line_name: string | null;
+  direction_label: string | null;
+  mode: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  gps_accuracy_m: number | null;
+  wait_seconds: number | null;
+  fare_xaf: number | null;
+  created_at: string;
+  status: string;
+};
+export async function listPendingTransitEvidence(limit=30): Promise<PendingTransitEvidence[]> {
+  const {data,error}=await supabase.from('afat_transit_observations')
+    .select('id,profile_id,city_key,observation_type,node_name,line_name,direction_label,mode,latitude,longitude,gps_accuracy_m,wait_seconds,fare_xaf,created_at,status')
+    .eq('status','pending').order('created_at',{ascending:true})
+    .limit(Math.max(1,Math.min(80,Math.round(limit))));
+  if(error) throw new Error(error.message || 'Pending transit evidence is unavailable for this reviewer.');
+  return (data||[]) as unknown as PendingTransitEvidence[];
+}
+export async function decideTransitEvidence(id:string,decision:'accept'|'reject') {
+  if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error('A valid transit observation ID is required.');
+  const {data,error}=await supabase.rpc('afat_review_transit_observation',{
+    p_observation_id:id,p_decision:decision,
+  });
+  if(error) throw new Error(error.message || 'Transit evidence review failed.');
+  if(data?.status !== (decision==='accept'?'accepted':'rejected'))
+    throw new Error('Transit evidence was not confirmed in the requested state.');
+  return data as {id:string;status:'accepted'|'rejected';transit_node_id?:string;transit_line_id?:string;evidence_status?:string};
+}
