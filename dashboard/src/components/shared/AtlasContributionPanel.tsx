@@ -12,6 +12,7 @@ import {
 import { enqueueAtlasSample, flushAtlasSamples, pendingAtlasSamples } from '../../services/atlasContributionQueue';
 import { useAfatLocale } from '../../localization';
 import { decideSensing, readDeviceSensingContext, type SensingProfile } from '../../services/adaptiveSensing';
+import { evaluateSpatialFix, type SpatialFix } from '../../services/spatialPositioning';
 
 const MODES:Array<{value:AtlasContributionMode;label:string}>=[
   {value:'walk',label:'Walking'},{value:'moto',label:'Moto'},{value:'taxi',label:'Taxi'},
@@ -38,6 +39,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
   const [sensingReason,setSensingReason]=useState('balanced');
   const watchId=useRef<number|null>(null);
   const lastSentAt=useRef(0);
+  const lastAcceptedSpatialFix=useRef<SpatialFix|null>(null);
   const lastMatched=useRef<boolean|null>(null);
   const sessionStartedAt=useRef(0);
   const deviceContext=useRef<{batteryLevel:number|null;charging:boolean|null;connection:'slow'|'normal'|'fast'|'offline'}>({batteryLevel:null,charging:null,connection:'normal'});
@@ -63,6 +65,16 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
     const decision=decideSensing({profile:sensingProfile,speedKph,accuracyM:position.coords.accuracy,matched:lastMatched.current,hidden:document.hidden,batteryLevel:deviceContext.current.batteryLevel,charging:deviceContext.current.charging,connection:navigator.onLine?deviceContext.current.connection:'offline',sessionMinutes:(now-sessionStartedAt.current)/60000});
     setSensingReason(decision.reason.join(' · ')||'balanced');
     if(lastSentAt.current&&now-lastSentAt.current<decision.minimumIntervalMs)return true;
+    const spatial=evaluateSpatialFix({
+      latitude:position.coords.latitude,longitude:position.coords.longitude,
+      accuracyM:position.coords.accuracy,timestampMs:position.timestamp,
+      source:'device_gnss',
+    },lastAcceptedSpatialFix.current,now);
+    if(!spatial.accepted||!spatial.fix){
+      setNotice(`GPS observation rejected (${spatial.reason.replace(/_/g,' ')}); nothing saved or queued.`);
+      return false;
+    }
+    lastAcceptedSpatialFix.current=spatial.fix;
     lastSentAt.current=now;
     setCaptured(v=>v+1);
     setAccuracy(position.coords.accuracy);
@@ -108,7 +120,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
       setAccuracy(position.coords.accuracy);setPhase('saving_first');setNotice(`GPS received (±${Math.round(position.coords.accuracy)} m). Saving the first point before AFAT calls this recording.`);
       const {data,error}=await startCityAtlasContributionSession({cityKey:'cm-yaounde',movementMode:mode,purpose:'community_movement',privacyMode:privacy,metadata:{source_surface:'living_atlas_workspace',offline_capable:true,adaptive_sensing:true,sensing_profile:sensingProfile}});
       if(error||!data?.id){setBusy(false);setPhase('error');setNotice(error?.message||'Could not create a contribution session. Nothing is being recorded.');return;}
-      const id=String(data.id);setSessionId(id);setCaptured(0);setSaved(0);setMatched(0);setQueued(pendingAtlasSamples(uid,id));sessionStartedAt.current=Date.now();lastMatched.current=null;lastSentAt.current=0;
+      const id=String(data.id);setSessionId(id);setCaptured(0);setSaved(0);setMatched(0);setQueued(pendingAtlasSamples(uid,id));sessionStartedAt.current=Date.now();lastMatched.current=null;lastSentAt.current=0;lastAcceptedSpatialFix.current=null;
       const firstSaved=await persistPosition(id,uid,position,false);
       setBusy(false);
       if(!firstSaved){
