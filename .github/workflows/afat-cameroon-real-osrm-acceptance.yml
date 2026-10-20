@@ -99,7 +99,7 @@ jobs:
           set -euo pipefail
           docker build --file routing/cameroon/Dockerfile.prebuilt \
             --tag afat-cameroon-osrm:acceptance routing/cameroon
-          docker run -d --rm --name afat-osrm-prebuilt-smoke -p 127.0.0.1:5001:5000 \
+          docker run -d --name afat-osrm-prebuilt-smoke -p 127.0.0.1:5001:5000 \
             afat-cameroon-osrm:acceptance
           ready=0
           for attempt in $(seq 1 35); do
@@ -139,7 +139,9 @@ jobs:
       - name: On failure, show isolated engine diagnostics
         if: failure()
         shell: bash
-        run: docker logs --tail 150 afat-cameroon-osrm-acceptance || true
+        run: |
+          docker logs --tail 150 afat-cameroon-osrm-acceptance || true
+          docker logs --tail 150 afat-osrm-prebuilt-smoke || true
       - name: Remove ephemeral route engine
         if: always()
         shell: bash
