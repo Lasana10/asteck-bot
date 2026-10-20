@@ -10,6 +10,6 @@ assert.match(sql,/limit least\(greatest\(p_limit,1\),30\)/);
 assert.match(sql,/revoke all on function public\.afat_atlas_nearby_place_candidates[\s\S]*from public,anon,authenticated/);
 assert.match(sql,/grant execute on function public\.afat_atlas_nearby_place_candidates[\s\S]*to service_role/);
 assert.doesNotMatch(sql,/phone|owner_id|email|profile_id|photo_url|source_properties/i);
-assert.match(sql,/order by public\\.st_distance\\(p\\.location,v_origin\\)/);
-assert.doesNotMatch(sql,/\\s<->\\s/);
+assert.match(sql,/order by public\.st_distance\(p\.location,v_origin\)/);
+assert.doesNotMatch(sql,/\s<->\s/);
 console.log('Licensed candidate Atlas nearby privacy and bounded-geometry contract passed');
