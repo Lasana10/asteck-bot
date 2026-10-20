@@ -1,0 +1,14 @@
+# Immutable runtime layer from an already checksum-verified real Cameroon OSRM MLD build.
+# The source is public OpenStreetMap via Geofabrik; its derived database remains ODbL 1.0.
+# No production service or paid resources are created by building this image.
+FROM ghcr.io/project-osrm/osrm-backend:v5.27.1
+LABEL org.opencontainers.image.source="https://github.com/Lasana10/asteck-bot"
+LABEL org.opencontainers.image.description="AFAT Cameroon OSRM routing graph (OSM-derived, no live traffic)"
+LABEL org.opencontainers.image.licenses="ODbL-1.0"
+LABEL org.opencontainers.image.vendor="AFAT / OpenStreetMap contributors"
+WORKDIR /data
+COPY data/cameroon-latest.osrm.* /data/
+COPY data/graph-provenance.txt /data/graph-provenance.txt
+RUN test -s /data/cameroon-latest.osrm.partition && test -s /data/cameroon-latest.osrm.cells
+EXPOSE 5000
+CMD ["osrm-routed","--algorithm","mld","--ip","0.0.0.0","--port","5000","/data/cameroon-latest.osrm"]
