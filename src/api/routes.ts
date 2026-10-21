@@ -3881,6 +3881,29 @@ router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
     if (!allowed.includes(status)) {
       return res.status(400).json({ error: 'Invalid compliance status' });
     }
+    const recordResult=await supabase.from('compliance_records').select('id,profile_id,role,document_type,file_url,status,due_at')
+      .eq('id',id).maybeSingle();
+    if(recordResult.error)return res.status(503).json({error:'COMPLIANCE_LOOKUP_UNAVAILABLE'});
+    if(!recordResult.data)return res.status(404).json({error:'COMPLIANCE_RECORD_NOT_FOUND'});
+    const sensitive=recordResult.data.role==='operator'&&
+      ['vehicle_registration','insurance','national_id','license'].includes(recordResult.data.document_type);
+    if(status==='verified'&&sensitive){
+      const source=String(recordResult.data.file_url||'');
+      const prefix=`${complianceBucket}/${recordResult.data.profile_id}/${id}/`;
+      if(!source.startsWith(prefix)||!/^\w/.test(source.slice(prefix.length)))
+        return res.status(409).json({error:'ORIGINAL_PRIVATE_DOCUMENT_REQUIRED'});
+      if(recordResult.data.due_at&&Date.parse(recordResult.data.due_at)<=Date.now())
+        return res.status(409).json({error:'DOCUMENT_EXPIRED'});
+      if(typeof notes!=='string'||notes.trim().length<25)
+        return res.status(400).json({error:'HUMAN_REVIEW_NOTES_MINIMUM_25_CHARACTERS'});
+      const objectPath=source.slice(complianceBucket.length+1);
+      const objectName=objectPath.slice(objectPath.lastIndexOf('/')+1);
+      const located=await supabase.storage.from(complianceBucket)
+        .list(`${recordResult.data.profile_id}/${id}`,{search:objectName,limit:30});
+      if(located.error)return res.status(503).json({error:'ORIGINAL_DOCUMENT_LOOKUP_UNAVAILABLE'});
+      if(!(located.data||[]).some(obj=>obj.name===objectName&&obj.id))
+        return res.status(409).json({error:'ORIGINAL_DOCUMENT_NOT_PRESENT'});
+    }
 
     const { data, error } = await supabase
       .from('compliance_records')
