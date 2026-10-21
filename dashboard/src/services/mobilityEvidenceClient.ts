@@ -147,8 +147,8 @@ export function submitAccessEvidence(input: {
     p_access_modes: input.accessModes || [],
     p_gps_accuracy_m: input.gpsAccuracyM ?? null,
     p_photo_url: input.photoUrl ?? null,
-    // The receipt retains original capture time through offline replay.
-    // Server-side evidence projection is independently controlled.
+    // Original capture time survives local queue replay and participates in the
+    // request fingerprint. Current access SQL does not yet persist this field.
     p_observed_at: input.observedAt ?? null,
   });
 }
