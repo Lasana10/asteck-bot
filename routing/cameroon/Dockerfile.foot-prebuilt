@@ -6,11 +6,7 @@ LABEL org.opencontainers.image.licenses="ODbL-1.0"
 WORKDIR /data
 COPY foot-data/cameroon-latest.osrm.* /data/
 COPY foot-data/graph-provenance.txt /data/graph-provenance.txt
-# Preserve the large OSRM index via a complete tar member: BuildKit glob-copy of
-# this OSRM sparse index yielded a 0-byte file while other sidecars were intact.
-COPY foot-file-index.tar /tmp/foot-file-index.tar
-RUN tar -xf /tmp/foot-file-index.tar -C /data && rm /tmp/foot-file-index.tar && \
-    grep -q '^profile=foot
+RUN grep -q '^profile=foot
 EXPOSE 5000
 ENTRYPOINT []
 CMD ["osrm-routed","--algorithm","mld","--ip","0.0.0.0","--port","5000","/data/cameroon-latest.osrm"]
