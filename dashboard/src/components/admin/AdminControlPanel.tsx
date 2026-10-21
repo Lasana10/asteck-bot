@@ -1125,7 +1125,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                             {record.due_at ? 'dated' : 'queue'}
                           </span>
                         </div>
-                        {record.role==='operator'&&['vehicle_registration','insurance','license','national_id'].includes(record.document_type)&&(
+                        {['operator','bike_rider'].includes(record.role)&&['vehicle_registration','bike_registration','helmet_compliance','insurance','license','national_id'].includes(record.document_type)&&(
                           <div className="mt-3 space-y-2">
                             <button type="button" onClick={()=>void inspectComplianceFile(record.id)}
                               className="rounded-lg border border-cyan-200/30 px-3 py-2 text-[10px] font-bold text-cyan-100">Open private submitted file (staff only)</button>

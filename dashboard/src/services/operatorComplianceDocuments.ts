@@ -13,7 +13,7 @@ async function api(path:string,init:RequestInit={}){
 }
 export async function getOperatorComplianceRecords(profileId:string):Promise<ComplianceRecord[]>{
  const result=await api(`/api/compliance/summary/${encodeURIComponent(profileId)}`);
- return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&r.role==='operator');
+ return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&['operator','bike_rider'].includes(r.role));
 }
 export async function submitOperatorComplianceDocument(recordId:string,file:File){
  const mime=file.type.toLowerCase();
@@ -37,4 +37,14 @@ export async function getStaffComplianceReviewFile(recordId:string):Promise<stri
  if(!data.success||typeof data.url!=='string'||data.automatically_verified!==false)
   throw new Error('Verified private evidence link was not issued');
  return data.url;
+}
+
+/** Reconcile missing required documentation rows only; never mark them verified. */
+export async function ensureOperatorRequiredDocuments(){
+ const result=await api('/api/compliance/operator/ensure-required',{
+  method:'POST',body:JSON.stringify({}),
+ });
+ if(result.automatically_verified!==false||result.review_required!==true)
+  throw new Error('Operator credential safety contract not confirmed');
+ return result.created_missing as string[];
 }

@@ -51,7 +51,7 @@ export function VehicleClearanceReview(){
   {notice&&<p role="status" className="mt-3 rounded-lg border border-amber-200/20 p-3 text-xs text-amber-100">{notice}</p>}
   <div className="mt-4 max-h-96 space-y-3 overflow-auto">
    {cases.map(item=>{
-    const documents=['vehicle_registration','insurance'].map(type=>({
+    const documents=[item.type==='moto'?'bike_registration':'vehicle_registration','insurance'].map(type=>({
       type,matched:item.documents.filter(d=>d.document_type===type),
     }));
     const eligible=item.operator?.verification_status==='verified'&&item.operator?.operator_application_status==='APPROVED'&&

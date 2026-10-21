@@ -1,10 +1,10 @@
 import React,{useEffect,useState} from 'react';
-import {getOperatorComplianceRecords,submitOperatorComplianceDocument} from '../../services/operatorComplianceDocuments';
+import {getOperatorComplianceRecords,submitOperatorComplianceDocument,ensureOperatorRequiredDocuments} from '../../services/operatorComplianceDocuments';
 
 type RecordRow={id:string;document_type:string;status:string;verified_at?:string|null;due_at?:string|null};
-const wanted=['vehicle_registration','insurance','license','national_id'];
+const wanted=['vehicle_registration','bike_registration','helmet_compliance','insurance','license','national_id'];
 const titles:Record<string,string>={
- vehicle_registration:'Vehicle registration card',insurance:'Vehicle insurance',
+ vehicle_registration:'Vehicle registration card',bike_registration:'Motorcycle registration',helmet_compliance:'Helmet and rider safety evidence',insurance:'Vehicle insurance',
  license:'Driver licence',national_id:'National ID',
 };
 export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:string;onChanged:()=>void}){
@@ -20,7 +20,16 @@ export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:stri
   catch(error:any){setNotice(error?.message||'Unable to load compliance documents');}
   finally{setLoading(false);}
  };
- useEffect(()=>{if(profileId)void refresh();},[profileId]);
+ useEffect(()=>{
+  if(!profileId)return;
+  let active=true;
+  (async()=>{
+   try{await ensureOperatorRequiredDocuments();}
+   catch(error:any){if(active)setNotice(error?.message||'Cannot prepare missing operator documents');}
+   if(active)await refresh();
+  })();
+  return ()=>{active=false;};
+ },[profileId]);
  const upload=async(row:RecordRow)=>{
   const file=files[row.id];if(!file)return;
   setActive(row.id);setNotice('');
@@ -38,7 +47,7 @@ export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:stri
    <p className="mt-2 text-xs leading-5 text-white/60">Documents are private, not published on AFAT maps. An uploaded file is not a verified credential or cleared vehicle.</p>
   </div><button disabled={loading||!!active} onClick={()=>void refresh()} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-50">Refresh</button></div>
   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-   {wanted.map(type=>{
+   {wanted.filter(type=>rows.some(row=>row.document_type===type)).map(type=>{
     const row=rows.find(r=>r.document_type===type);
     const file=row?files[row.id]:null;
     return <div key={type} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
