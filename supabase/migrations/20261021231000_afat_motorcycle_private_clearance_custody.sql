@@ -33,10 +33,10 @@ begin
   -- can satisfy clearance, never unverified free-form links or AI OCR text.
   select count(distinct document_type) into evidence_count from public.compliance_records d
    where d.profile_id=v.operator_id and d.role in ('operator','bike_rider') and d.status='verified'
-     and d.document_type in (case when v.type='moto' then 'bike_registration' else 'vehicle_registration' end,'insurance')
+     and d.document_type in (case when v.type='moto' then 'bike_registration' else 'vehicle_registration' end,'insurance','helmet_compliance')
      and (d.due_at is null or d.due_at>now())
      and d.file_url like 'afat-operator-compliance/'||d.profile_id::text||'/'||d.id::text||'/%';
-  if evidence_count<2 then
+  if evidence_count<(case when v.type='moto' then 3 else 2 end) then
     raise exception 'VEHICLE_COMPLIANCE_DOCUMENTS_NOT_VERIFIED' using errcode='P0001';
   end if;
  end if;
