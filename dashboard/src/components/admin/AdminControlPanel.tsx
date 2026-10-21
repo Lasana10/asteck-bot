@@ -5,6 +5,7 @@ import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, Arro
 import { createDispatchAssignment, enrollCheckpoint, fetchAccessApprovalInbox, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewAccessApplication, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle, updateStaffLifecycle } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
 import {VehicleClearanceReview} from './VehicleClearanceReview';
+import {getStaffComplianceReviewFile} from '../../services/operatorComplianceDocuments';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
@@ -193,6 +194,14 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
     setCommandFeedback('Compliance desk opened with permit, payment, and rollout follow-up.');
   };
 
+  const [documentReviewReasons,setDocumentReviewReasons]=useState<Record<string,string>>({});
+  const inspectComplianceFile=async(recordId:string)=>{
+    try{
+      const url=await getStaffComplianceReviewFile(recordId);
+      window.open(url,'_blank','noopener,noreferrer');
+      setCommandFeedback('Private compliance document opened with temporary reviewer access. Manual inspection is required.');
+    }catch(error:any){setCommandFeedback(error?.message||'Private document not available for review');}
+  };
   const handleComplianceAction = async (recordId: string, status: string, notes?: string) => {
     setCommandFeedback(`Updating compliance record to ${status}...`);
     const { error } = await updateComplianceStatus(recordId, status, notes);
@@ -1116,9 +1125,24 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
                             {record.due_at ? 'dated' : 'queue'}
                           </span>
                         </div>
+                        {record.role==='operator'&&['vehicle_registration','insurance','license','national_id'].includes(record.document_type)&&(
+                          <div className="mt-3 space-y-2">
+                            <button type="button" onClick={()=>void inspectComplianceFile(record.id)}
+                              className="rounded-lg border border-cyan-200/30 px-3 py-2 text-[10px] font-bold text-cyan-100">Open private submitted file (staff only)</button>
+                            <textarea aria-label={`Review evidence for ${record.document_type}`}
+                              placeholder="Reviewed document contents, expiry, issuer, validity and reason. Never verify from text alone."
+                              value={documentReviewReasons[record.id]||''}
+                              onChange={e=>setDocumentReviewReasons(old=>({...old,[record.id]:e.target.value}))}
+                              className="min-h-20 w-full rounded-lg border border-white/10 bg-slate-900 p-3 text-xs text-white"/>
+                          </div>
+                        )}
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button
-                            onClick={() => handleComplianceAction(record.id, 'verified', 'Verified from admin intelligence desk.')}
+                            onClick={() => {
+                              const reason=(documentReviewReasons[record.id]||'').trim();
+                              if(reason.length<25){setCommandFeedback('Document what you actually inspected, including the evidence and validity assessment (25+ characters).');return;}
+                              void handleComplianceAction(record.id, 'verified', reason);
+                            }}
                             className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-emerald-200 transition hover:bg-emerald-500/15"
                           >
                             Verify

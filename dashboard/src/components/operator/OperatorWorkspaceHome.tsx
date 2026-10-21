@@ -5,6 +5,7 @@ import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import { OperatorMissionLifecycle } from './OperatorMissionLifecycle';
 import {ScheduledDeparturePublisher} from './ScheduledDeparturePublisher';
 import {OperatorVehicleRegistration} from './OperatorVehicleRegistration';
+import {OperatorComplianceEvidence} from './OperatorComplianceEvidence';
 import { updatePassageIntentStatus } from '../../supabaseClient';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import {
@@ -232,6 +233,7 @@ export function OperatorWorkspaceHome({
       </div>
 
       {!vehicle && <OperatorVehicleRegistration onRegistered={()=>{onChanged();void refreshExecution();}} />}
+      {profile?.id&&<OperatorComplianceEvidence profileId={String(profile.id)} onChanged={()=>{onChanged();void refreshExecution();}} />}
       <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{onChanged();void refreshExecution();}} />
 
       <Surface className="p-5 sm:p-6">
