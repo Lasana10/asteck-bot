@@ -7,8 +7,17 @@ const startedAt='2026-10-21T10:00:00.000Z';
 const base={profileId:'test-alice',cityKey:'cm-yaounde',placeId:'3d491f54-a75c-4887-84ed-8d88fb6078d0',placeName:'Test source-backed place',
  destinationLatitude:3.88,destinationLongitude:11.53,mode:'car',intentType:'go',routeDistanceM:1950};
 
+function memoryStorage():Storage{
+ const values=new Map<string,string>();
+ return {get length(){return values.size;},clear(){values.clear();},getItem(k){return values.get(k)??null;},
+ key(i){return [...values.keys()][i]??null;},removeItem(k){values.delete(k);},setItem(k,v){values.set(k,String(v));}} as Storage;
+}
 beforeEach(()=>{
- localStorage.clear();mocks.rpc.mockReset();mocks.getUser.mockReset();
+ const storage=memoryStorage();
+ vi.stubGlobal('localStorage',storage);
+ vi.stubGlobal('window',{dispatchEvent:vi.fn(),addEventListener:vi.fn()});
+ vi.stubGlobal('CustomEvent',class{constructor(public type:string,public options:any){}});
+ mocks.rpc.mockReset();mocks.getUser.mockReset();
  mocks.getUser.mockResolvedValue({data:{user:{id:'test-alice'}},error:null});
  mocks.rpc.mockImplementation(async (name:string)=>{
   if(name==='afat_start_navigation_session_once')return {data:{id:'bed390b5-bd6c-438b-b347-0f9c61b5956e'},error:null};
