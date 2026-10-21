@@ -136,8 +136,11 @@ export function AtlasContextPanel({ city = 'yaounde', selectedOrigin, onOriginRe
       </label>
       <button type="button" onClick={requestExplanation} disabled={explainBusy||explainQuestion.trim().length<3||loading} className="mt-2 min-h-10 rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 text-[10px] font-black text-cyan-100 disabled:opacity-45">{explainBusy?'Checking reviewed evidence…':'Explain with AFAT intelligence'}</button>
       {explanation&&<div role="status" className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/65">
+        {explanation.status==='source_context'&&<p className="mb-2 font-bold text-amber-200">Source-mapped orientation only · no reviewed entrances, roads or AI-generated place claims</p>}
         {explanation.text||explanation.message||'No verified interpretation available.'}
-        <p className="mt-2 text-[10px] text-amber-200/65">Advisory only · {explanation.evidence?.length||0} reviewed Atlas references · Not verified routing or live hazard information.</p>
+        <p className="mt-2 text-[10px] text-amber-200/65">{explanation.status==='source_context'
+          ? `Advisory source context · ${explanation.source_places?.length||0} licensed but unverified place candidates · Zero reviewed Atlas references`
+          : `Advisory only · ${explanation.evidence?.length||0} reviewed Atlas references`} · Not verified routing or live hazard information.</p>
       </div>}
     </div>
     {error && <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-500/8 px-3 py-2 text-[10px] font-semibold text-amber-100/75">{error}</div>}
