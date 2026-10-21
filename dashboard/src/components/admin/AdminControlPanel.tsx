@@ -4,6 +4,7 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 import { ShieldAlert, LogOut, Database, Megaphone, Target, Settings, Users, ArrowUpRight, Plus, AlertCircle, Activity, MapPin, Download, CheckCircle, CreditCard, FileCheck, Globe2, GraduationCap, HandHeart, Landmark, X, Sparkles } from 'lucide-react';
 import { createDispatchAssignment, enrollCheckpoint, fetchAccessApprovalInbox, fetchComplianceRadar, fetchLiveMapOps, fetchPaymentProviderReadiness, getApiBaseUrl, reviewAccessApplication, reviewMapSignal, sendOpsNotification, setApiBaseOverride, supabase, updateCompanyLifecycle, updateComplianceStatus, updateOperatorLifecycle, updateStaffLifecycle } from '../../supabaseClient';
 import { RevenueDashboard } from './RevenueDashboard';
+import {VehicleClearanceReview} from './VehicleClearanceReview';
 import { AFATLogo } from '../shared/AFATLogo';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
@@ -1072,6 +1073,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
               </button>
             </div>
 
+            <VehicleClearanceReview />
             <div className="grid flex-1 gap-4 overflow-y-auto p-6 lg:grid-cols-[1.1fr_0.9fr]">
               <div className="space-y-4">
                 <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">

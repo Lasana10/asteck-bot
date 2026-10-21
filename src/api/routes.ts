@@ -2045,6 +2045,68 @@ router.post('/mobility/departures/publish', async (req: Request, res: Response) 
   }
 });
 
+// Staff clearance is not AI or automatic evidence promotion. The same
+// verified vehicle is then eligible for operator schedule publication.
+router.get('/mobility/vehicle-clearance/queue', async (req: Request, res: Response) => {
+  const access=await requireAuthRole(req,res,['admin','planner']);
+  if(!access)return;
+  try{
+    const result=await supabase.from('vehicles')
+      .select('id,operator_id,plate_number,type,capacity,clearance_status,is_available,created_at,updated_at')
+      .order('created_at',{ascending:false}).limit(80);
+    if(result.error)throw result.error;
+    const ids=Array.from(new Set((result.data||[]).map((v:any)=>v.operator_id)));
+    const [people,documents]=await Promise.all([
+      ids.length?supabase.from('profiles')
+        .select('id,full_name,operator_application_status,verification_status').in('id',ids)
+        :Promise.resolve({data:[],error:null}),
+      ids.length?supabase.from('compliance_records')
+        .select('id,profile_id,document_type,status,due_at,verified_at,file_url')
+        .in('profile_id',ids).eq('role','operator')
+        .in('document_type',['vehicle_registration','insurance','license'])
+        :Promise.resolve({data:[],error:null}),
+    ]);
+    if(people.error||documents.error)throw people.error||documents.error;
+    const byOperator=new Map((people.data||[]).map((p:any)=>[p.id,p]));
+    const cases=(result.data||[]).map((vehicle:any)=>({
+      ...vehicle,operator:byOperator.get(vehicle.operator_id)||null,
+      documents:(documents.data||[]).filter((d:any)=>d.profile_id===vehicle.operator_id)
+        .map((d:any)=>({id:d.id,document_type:d.document_type,status:d.status,
+          due_at:d.due_at,verified_at:d.verified_at,
+          has_document:Boolean(d.file_url)})),
+    }));
+    return res.status(200).json({success:true,cases,review_authority:'human_staff_only'});
+  }catch(error:any){
+    console.error('Vehicle clearance review queue unavailable',error);
+    return res.status(503).json({error:'VEHICLE_REVIEW_QUEUE_UNAVAILABLE'});
+  }
+});
+router.post('/mobility/vehicle-clearance/:id/review', async(req:Request,res:Response)=>{
+  const access=await requireAuthRole(req,res,['admin','planner']);
+  if(!access)return;
+  const decision=String(req.body?.decision||'');
+  const reason=String(req.body?.reason||'').trim();
+  if(!['verified','rejected','needs_followup'].includes(decision)||reason.length<15||reason.length>2000)
+    return res.status(400).json({error:'VALID_DECISION_AND_REVIEW_REASON_REQUIRED'});
+  if(!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(String(req.params.id||'')))
+    return res.status(400).json({error:'VALID_VEHICLE_ID_REQUIRED'});
+  try{
+    const {data,error}=await supabase.rpc('afat_staff_review_vehicle',{
+      p_staff_id:access.profile.id,p_vehicle_id:req.params.id,
+      p_decision:decision,p_reason:reason,
+    });
+    if(error){
+      const code=String(error.message||'VEHICLE_REVIEW_DENIED');
+      const status=/NOT_FOUND/.test(code)?404:/REQUIRED|NOT_APPROVED|NOT_VERIFIED|ALREADY_RECORDED|INCOMPLETE/.test(code)?409:503;
+      return res.status(status).json({error:code});
+    }
+    return res.status(200).json({success:true,vehicle:data,verified_by_human_review:true});
+  }catch(error:any){
+    console.error('Vehicle clearance review failed',error);
+    return res.status(503).json({error:'VEHICLE_REVIEW_UNAVAILABLE'});
+  }
+});
+
 router.get('/mobility/departures', async (_req: Request, res: Response) => {
   try {
     const { data: routes, error } = await supabase
