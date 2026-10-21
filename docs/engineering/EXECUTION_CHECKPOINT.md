@@ -1,3 +1,9 @@
+# Deployment confirmation for Atlas AI fallback frontend — 2026-10-21
+
+- Cloudflare Pages GitHub check for merged AI-CORE fallback code commit `9be0dda979963a51421271f4a5809f391c013878` completed **success / Deployed successfully**. Check for checkpoint-only follow-up commit `43cdcf735304b2b990d2fb044d166ee1ca51de42` also completed **success / Deployed successfully**. This establishes frontend deployment of the reviewed-context integration, not a successfully run authenticated AI outage user journey.
+- Backend Render service version and shared AI-CORE inference configuration remain unverified through this connector environment; do not attribute new backend behavior to live production until the matching deployment and authenticated endpoint are checked.
+- Preserve previously verified live driving OSRM and Atlas Find→Reach operational evidence. Next actual field acceptance: on real device, select licensed place, obtain full route, navigate offline/reconnect, capture GNSS provenance, confirm pending reviewer receipt without promoting unreviewed access; separately prove AI outage degraded reviewed-context response and complete foot-only routing service deployment after Render workspace approval.
+
 # Shared AI-CORE passenger degraded-mode implementation merged — 2026-10-21
 
 - PR #166 merged to `master` as `9be0dda979963a51421271f4a5809f391c013878` after GitHub AFAT CI run `39600405255` completed successfully in backend and dashboard jobs.
