@@ -1,3 +1,4 @@
+import {validateOperatorVehicleRegistration} from '../services/operatorVehicleRegistration';
 /**
  * AFAT OS — Onboarding & Registration System
  * Handles: Driver registration, Vehicle registration, Passenger registration
@@ -490,32 +491,32 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
   try {
     const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
     if (!access) return;
-    const { driver_id, plate_number, vehicle_type, capacity, brand, model, year, color } = req.body;
-    const resolvedDriverId = access.workspaceRole === 'operator' ? access.profile.id : driver_id;
-
-    if (!resolvedDriverId || !plate_number || !vehicle_type) {
-      return res.status(400).json({ error: 'Missing: driver_id, plate_number, vehicle_type' });
+    const isOperator=access.workspaceRole==='operator'||access.profile.role==='operator';
+    const resolvedOperatorId=isOperator ? access.profile.id : req.body?.driver_id;
+    if(!resolvedOperatorId)return res.status(400).json({error:'OPERATOR_ID_REQUIRED'});
+    let declared;
+    try{declared=validateOperatorVehicleRegistration(req.body);}
+    catch(error:any){return res.status(400).json({error:String(error?.message||'INVALID_VEHICLE')});}
+    const existing=await supabase.from('vehicles').select('id,operator_id,clearance_status')
+      .ilike('plate_number',declared.plate_number).limit(1);
+    if(existing.error)throw existing.error;
+    if(existing.data?.length){
+      return res.status(409).json({error:'REGISTRATION_PLATE_ALREADY_RECORDED',
+        existing_vehicle_owned_by_you:existing.data[0].operator_id===resolvedOperatorId});
     }
-
     const { data, error } = await supabase
       .from('vehicles')
       .insert({
-        operator_id: resolvedDriverId,
-        plate_number,
-        type: vehicle_type,
-        capacity: capacity || 4,
-        brand: brand || null,
-        model: model || null,
-        year: year || null,
-        color: color || null,
-        status: 'inactive',
-        created_at: new Date().toISOString()
+        operator_id:resolvedOperatorId,
+        plate_number:declared.plate_number,type:declared.type,capacity:declared.capacity,
+        clearance_status:'unreviewed',is_available:false,
       })
-      .select()
+      .select('id,operator_id,plate_number,type,capacity,clearance_status,is_available')
       .single();
-
-    if (error) throw error;
-    res.status(201).json({ success: true, vehicle: data });
+    if(error)throw error;
+    return res.status(201).json({success:true,vehicle:data,
+      ready_for_dispatch:false,ready_for_published_departures:false,
+      message:'Vehicle registered for independent human clearance. No live supply or bookings permitted until verified.'});
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Vehicle registration failed' });
   }
