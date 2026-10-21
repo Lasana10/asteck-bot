@@ -58,6 +58,7 @@ describe('canonical route integration', () => {
       json: async () => ({
         source: 'osrm', primary: {
           summary: 'Road', distanceMeters: 1200, durationValue: 180,
+          originSnapMeters:8.5,destinationSnapMeters:215.3,
           geometry: { type: 'LineString', coordinates: [[11.516, 3.866], [11.526, 3.875]] },
         },
       }),
@@ -70,6 +71,8 @@ describe('canonical route integration', () => {
     expect(route.traffic_aware).toBe(false);
     expect(routeToLatLngs(route)).toEqual([[3.866, 11.516], [3.875, 11.526]]);
     expect(route.eta_seconds).toBe(180);
+    expect(route.origin_snap_m).toBe(8.5);
+    expect(route.destination_snap_m).toBe(215.3);
     expect(network).toHaveBeenCalledTimes(1);
   });
 
