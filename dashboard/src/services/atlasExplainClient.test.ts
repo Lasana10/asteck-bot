@@ -36,6 +36,24 @@ describe('reviewed Atlas + shared intelligence contract',()=>{
   expect(opts.headers.Authorization).toBe('Bearer verified-token');
   expect(JSON.parse(opts.body)).toEqual({latitude:3.866,longitude:11.516,question:'overview'});
  });
+ it('keeps reviewed knowledge available without silently claiming model inference',async()=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+    status:'reviewed_context',ai_used:false,advisory_only:true,requires_human_review:true,
+    source:'afat_reviewed_atlas',text:'Reviewed Central Market; entrance access not confirmed.',
+    evidence:[{id:'market',kind:'place',name:'Central Market',confidence:80,evidence_status:'verified'}]
+  })}));
+  const result=await explainReviewedAtlas({latitude:3.866,longitude:11.516,question:'access'});
+  expect(result.status).toBe('reviewed_context');
+  expect(result.ai_used).toBe(false);
+  expect(result.evidence?.[0]?.name).toBe('Central Market');
+ });
+ it('rejects fake grounded fallback without reviewed evidence or provenance',async()=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+    status:'reviewed_context',text:'Entrance is safe',advisory_only:true,ai_used:false,requires_human_review:true,
+    evidence:[{kind:'place',name:'Unreviewed',confidence:100,evidence_status:'limited'}]
+  })}));
+  await expect(explainReviewedAtlas({latitude:3.866,longitude:11.516,question:'access'})).rejects.toThrow();
+ });
  it('does not pretend an AI explanation exists when no reviewed evidence is found',async()=>{
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({status:'insufficient_evidence',evidence:[],text:null})}));
   expect((await explainReviewedAtlas({latitude:3,longitude:11,question:'access'})).status).toBe('insufficient_evidence');

@@ -1,3 +1,11 @@
+# Shared AI-CORE → passenger Atlas degraded-mode integration — 2026-10-21
+
+- Integration target: authenticated real Atlas query → reviewed public evidence classification → shared `invokeAfatAiCore` when available → same passenger Atlas UX even if no inference capacity exists. Existing AI-CORE tenant-signed client and public-data-only policy preserved.
+- Current branch adds a conservative deterministic `reviewedAtlasContext` for AI-CORE failures, sourcing only independently reviewed/corroborated Atlas place and road evidence. It never invents current hazards, access, road connectivity, entrances, routability or availability. Explicit `ai_used:false`, `advisory_only:true`, `requires_human_review:true` and `status:reviewed_context` prevent an outage fallback being misrepresented as AI output.
+- Existing `sourceBackedAtlasUnderstanding` remains the separate explicitly unreviewed OSM/Overture source-only fallback; new code does not blend provisional sources into the reviewed set or add an AI provider. Passenger AtlasContextPanel labels degraded non-AI behavior, and AtlasExplainClient validates reviewed evidence trust instead of accepting a bare text response.
+- Tests cover backend reviewed evidence sanitization, separation of access from route/safety certainty, and client refusal of unsupported fallback evidence. CI, merge and production/backend deployed acceptance remain independent gates.
+- Previously verified live driving route, Cloudflare published passenger assets and production timestamp custody retained. Following this branch: deploy and verify authenticated reviewed-AI outage fallback; continue independent spatial/informal transit integration and actual device navigation+field review acceptance, and await confirmed Render workspace for independent foot OSRM.
+
 # Verified Cloudflare passenger release — 2026-10-21
 
 - PR #165 merged as `79f4eaa26fdff7e5cbdb260c14b41fd94002922c`; extends existing live Cloudflare acceptance triggers to canonical routes, offline journey custody, PassagePlanner and field GPS evidence and checks published browser assets for the connected journey rather than local build artifacts.
