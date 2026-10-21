@@ -166,5 +166,24 @@ for(const item of [
  console.log('PASS production anonymous fleet/approval boundary:',item.path,'HTTP 401');
 }
 
+// Private operator document custody belongs to authenticated operator/staff
+// identities only. Probe deployed routes without files or mutations. A missing
+// backend route (404) must not pass release acceptance.
+const dummyCompliance='00000000-0000-0000-0000-000000000000';
+for(const item of [
+ {path:'/api/compliance/operator/ensure-required',method:'POST',body:{}},
+ {path:'/api/compliance/'+dummyCompliance+'/upload-authorize',method:'POST',body:{mime_type:'application/pdf',bytes:1234}},
+ {path:'/api/compliance/'+dummyCompliance+'/upload-confirm',method:'POST',body:{path:'not-an-owned-file'}},
+ {path:'/api/compliance/'+dummyCompliance+'/review-file',method:'GET'},
+]){
+ const response=await fetch(new URL(item.path,backend),{
+  method:item.method,headers:{accept:'application/json','content-type':'application/json'},
+  ...(item.method==='POST'?{body:JSON.stringify(item.body)}:{}),
+  signal:AbortSignal.timeout(25000),
+ });
+ assert.equal(response.status,401,'Private operator evidence endpoint not protected or undeployed: '+item.path);
+ console.log('PASS live private evidence authentication boundary:',item.path,'HTTP 401');
+}
+
 console.log('PASS AFAT production two-city road routing AND real licensed-place discovery→routing integration (no field validation)');
 
