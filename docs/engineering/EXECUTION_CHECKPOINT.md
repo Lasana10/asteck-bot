@@ -1,3 +1,11 @@
+# Verified production database integration — 2026-10-21
+
+- **PR #161** merged as `559ad9a1267ef3419869030f28121de456fd4358`, CI `39596992842` passed backend/dashboard. Pending evidence queue requires authenticated pending-review receipts and preserves original capture time in offline replay.
+- **PR #162** merged as `ef7c0e37b0c1e50cfaf72b395c981609e250d725`, CI `39597645889` passed backend/dashboard. Integrated corresponding access observation provenance into the existing authenticated, idempotent SQL function and aligned transit capture metadata.
+- **Production Supabase migration applied successfully** to TRAFFIC project `rkijcxxryhfrqsgkwtbu`: `afat_access_observation_time_custody`. Subsequent read-only SQL query verified live `afat_submit_mobility_evidence_once` contains `observation_time_verified`, `v_reported_capture`, and its `auth.uid()` authorization guard. Original device-report timestamps remain unverified evidence, not real-world truth.
+- **Acceptance distinction:** deployed SQL verified; no fabricated production user observations or authenticated human/device capture-to-review acceptance. No verification yet of latest dashboard/Render production commit, or foot OSRM passenger service.
+- **Next executable integration:** verify deployed public destination discovery → route → passenger navigation, plus authenticated field-device capture → offline queue → replay → pending reviewer evidence row; capture independently confirmed live deployment and field results. Continue independent multimodal/spatial/AI-CORE work; retain Render workspace selection/cost decision as external blocker.
+
 # 2026-10-21 — server-side access-observation review custody continuation
 
 - PR #161 merged to `master` at `559ad9a1267ef3419869030f28121de456fd4358`, AFAT CI run `39596992842` passed both backend and dashboard. The client now requires an actual pending review receipt rather than trusting HTTP 200 and preserves reported GNSS capture time in account-scoped replay.
