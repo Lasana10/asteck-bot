@@ -34,10 +34,10 @@ export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>voi
    <label className="text-[10px] font-semibold text-white/75">Vehicle type
      <select value={type} onChange={e=>setType(e.target.value)}
       className="mt-2 block min-h-11 w-full rounded-lg border border-white/15 bg-slate-950 px-3 text-xs text-white">
-       <option value="taxi">Taxi</option><option value="shared_taxi">Shared taxi</option>
-       <option value="moto">Moto</option><option value="moto_taxi">Moto taxi</option>
-       <option value="car">Car</option><option value="minibus">Minibus</option>
-       <option value="bus">Bus</option><option value="van">Van</option>
+       <option value="taxi">Taxi / shared taxi</option>
+       <option value="moto">Moto / moto taxi</option>
+       <option value="minibus">Minibus / van</option>
+       <option value="bus">Bus</option><option value="private">Private vehicle</option>
      </select></label>
    <label className="text-[10px] font-semibold text-white/75">Actual passenger seats
      <input type="number" min="1" max="200" value={capacity} onChange={e=>setCapacity(e.target.value)}
