@@ -169,6 +169,7 @@ function buildOperatorComplianceRecords(params: {
     ? [
         { document_type: 'helmet_compliance', document_label: 'Helmet and rider safety check' },
         { document_type: 'bike_registration', document_label: 'Bike registration or ownership proof' },
+        { document_type: 'insurance', document_label: 'Current motorcycle insurance certificate' },
       ]
     : [
         { document_type: 'vehicle_registration', document_label: 'Vehicle registration card' },
