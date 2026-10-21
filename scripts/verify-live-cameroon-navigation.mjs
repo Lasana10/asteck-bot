@@ -39,6 +39,9 @@ for(const {city,a,b} of cities){
  const route=integrated.primary;
  assert.ok(route?.distanceMeters>0&&route?.durationValue>0&&route.geometry?.type==='LineString'&&route.geometry.coordinates.length>=2&&route.geometry.coordinates.every(validPoint),city+' AFAT navigation did not return actual route geometry');
  assert.ok(Array.isArray(route.maneuvers)&&route.maneuvers.length>0,city+' AFAT failed to preserve provider geolocated maneuvers');
+ assert.ok(Number.isFinite(route.originSnapMeters)&&route.originSnapMeters>=0&&
+   Number.isFinite(route.destinationSnapMeters)&&route.destinationSnapMeters>=0,
+   city+' AFAT lost actual OSRM road-network snapping evidence');
  assert.ok(route.maneuvers.every(m=>Number.isFinite(m.latitude)&&Number.isFinite(m.longitude)&&typeof m.instruction==='string'&&m.instruction.length>0),city+' invalid actual directions');
  // Geometric and distance continuity: backend must not substitute another route.
  assert.ok(Math.abs(route.distanceMeters-candidate.distance)<Math.max(50,candidate.distance*0.04),city+' backend distance differs materially from OSRM result');
@@ -52,9 +55,12 @@ const discovery=await getJson(nearbyUrl);
 assert.equal(discovery.place_candidates_status,'ok','Actual source-licensed geographic lookup is unavailable');
 const discovered=Array.isArray(discovery.place_candidates)?discovery.place_candidates:[];
 assert.ok(discovered.length>0,'No actual Yaounde places were returned; cannot accept Find→Reach');
+const meaningful=discovered.filter(p=>!['road','transportation_connector'].includes(p.place_type));
+assert.ok(meaningful.length>=10,'Source search is overwhelmed by generic road connectors instead of actual destinations');
+assert.ok(!['road','transportation_connector'].includes(discovered[0]?.place_type),'Nearby Find ranks a routing connector ahead of useful destinations');
 let acceptedPlace=null;
 let lastCandidateError='';
-for(const place of discovered.filter(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)&&Number.isFinite(p.distance_m)&&p.distance_m>=120).slice(0,12)){
+for(const place of meaningful.filter(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)&&Number.isFinite(p.distance_m)&&p.distance_m>=120).slice(0,16)){
  assert.ok(['limited','corroborated','verified','field_verified'].includes(place.evidence_status),'Unreviewed source record was represented as reviewed geographic truth');
  assert.equal(place.verified_access,false,'A source place must not automatically certify its entrance');
  assert.ok(['overture_maps','openstreetmap'].includes(place.source_key),'Non-licensed source leaked into public discovery');
@@ -69,8 +75,8 @@ for(const place of discovered.filter(p=>Number.isFinite(p.latitude)&&Number.isFi
   const roadSnapDistanceM=Math.hypot(latDelta,lonDelta);
   // A 500m mismatch may be a legitimate absent access road, but is NOT accepted
   // as safely reaching that destination. Look for a better proven candidate.
-  if(roadSnapDistanceM>500){lastCandidateError='Road route ends '+Math.round(roadSnapDistanceM)+' m from '+place.name;continue;}
-  acceptedPlace={name:place.name,id:place.id,source:place.source_key,evidence:place.evidence_status,distance:route.distanceMeters,snapDistance:roadSnapDistanceM,turns:route.maneuvers.length};
+  if(roadSnapDistanceM>500 || !Number.isFinite(route.destinationSnapMeters) || route.destinationSnapMeters>500){lastCandidateError='Road route ends '+Math.round(roadSnapDistanceM)+' m from '+place.name;continue;}
+  acceptedPlace={name:place.name,kind:place.place_type,id:place.id,source:place.source_key,evidence:place.evidence_status,distance:route.distanceMeters,snapDistance:roadSnapDistanceM,providerSnapMeters:route.destinationSnapMeters,turns:route.maneuvers.length};
   break;
  }catch(e){lastCandidateError=String(e).slice(0,200);}
 }
