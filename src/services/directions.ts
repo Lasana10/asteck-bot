@@ -6,6 +6,7 @@ dotenv.config();
 
 const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const OSRM_URL = (process.env.AFAT_OSRM_BASE_URL || '').replace(/\/+$/, '');
+const FOOT_OSRM_URL = (process.env.AFAT_OSRM_FOOT_BASE_URL || '').replace(/\/+$/, '');
 const ALLOW_DEMO = process.env.NODE_ENV !== 'production' || process.env.AFAT_ALLOW_PUBLIC_OSRM === 'true';
 const GOOGLE_OPT_IN = process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK === 'true';
 function validCoordinates(c: Coordinates): boolean {
@@ -28,9 +29,12 @@ export function validatedOsrmEndpoint(raw: string, privateHttp = false): string 
     return u.origin;
   } catch { return null; }
 }
-function routingEndpoint(): string | null {
-  if (!OSRM_URL) return ALLOW_DEMO ? 'https://router.project-osrm.org' : null;
-  return validatedOsrmEndpoint(OSRM_URL, process.env.AFAT_ALLOW_PRIVATE_OSRM_HTTP === 'true');
+function routingEndpoint(mode: 'driving' | 'foot'): string | null {
+  // Walking requires a real foot-built graph. Never silently reuse car or public
+  // demo routing for pedestrian safety or accessibility estimates.
+  const raw = mode === 'foot' ? FOOT_OSRM_URL : OSRM_URL;
+  if (!raw) return mode === 'driving' && ALLOW_DEMO ? 'https://router.project-osrm.org' : null;
+  return validatedOsrmEndpoint(raw, process.env.AFAT_ALLOW_PRIVATE_OSRM_HTTP === 'true');
 }
 
 export interface RoadManeuver { latitude:number; longitude:number; instruction:string; distanceMeters:number; kind:string; }
@@ -63,11 +67,13 @@ export class DirectionsService {
   static async getDirections(
     origin: Coordinates,
     destination: Coordinates,
-    options: { allowMeteredFallback?: boolean } = {}
+    options: { allowMeteredFallback?: boolean; travelMode?: 'driving' | 'foot' } = {}
   ): Promise<DirectionsResult | null> {
     if (!validCoordinates(origin) || !validCoordinates(destination)) return null;
-    const local = await this.osrmDirections(origin, destination);
+    const travelMode=options.travelMode || 'driving';
+    const local = await this.osrmDirections(origin, destination, travelMode);
     if (local) return local;
+    if (travelMode === 'foot') return null;
     // Preserve the legacy configured Google route path until AFAT operates OSRM.
     // Once OSRM is configured, metered failover remains explicit opt-in.
     return options.allowMeteredFallback !== false && GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
@@ -195,9 +201,9 @@ export class DirectionsService {
     destination: Coordinates
   ): Promise<DirectionsResult | null> {
     try {
-      const base = routingEndpoint();
+      const base = routingEndpoint(travelMode);
       if (!base) return null;
-      const url = `${base}/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=geojson&alternatives=true&steps=true`;
+      const url = `${base}/route/v1/${travelMode}/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=geojson&alternatives=true&steps=true`;
 
       const response = await axios.get(url, { timeout: 10000 });
       const data = response.data;
