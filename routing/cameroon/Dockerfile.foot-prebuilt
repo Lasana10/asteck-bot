@@ -1,0 +1,12 @@
+# Foot-specific Cameroon OSM/ODbL walking graph. Not the driving network.
+FROM ghcr.io/project-osrm/osrm-backend:v5.27.1
+LABEL org.opencontainers.image.source="https://github.com/Lasana10/asteck-bot"
+LABEL org.opencontainers.image.description="AFAT Cameroon pedestrian-only OSRM graph"
+LABEL org.opencontainers.image.licenses="ODbL-1.0"
+WORKDIR /data
+COPY foot-data/cameroon-latest.osrm.* /data/
+COPY foot-data/graph-provenance.txt /data/graph-provenance.txt
+RUN grep -q '^profile=foot$' /data/graph-provenance.txt && test -s /data/cameroon-latest.osrm.partition && test -s /data/cameroon-latest.osrm.cells && test -s /data/cameroon-latest.osrm.fileIndex
+EXPOSE 5000
+ENTRYPOINT []
+CMD ["osrm-routed","--algorithm","mld","--ip","0.0.0.0","--port","5000","/data/cameroon-latest.osrm"]
