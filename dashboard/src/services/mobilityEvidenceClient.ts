@@ -183,7 +183,8 @@ export function submitTransitObservation(input: {
     p_fare_xaf: input.fareXaf ?? null,
     p_gps_accuracy_m: input.gpsAccuracyM ?? null,
     p_evidence: { ...(input.evidence || {}), observed_at: input.observedAt ?? null,
-      observation_time_source: input.observedAt ? 'device_gnss' : 'not_provided', automatic_truth: false },
+      observation_time_source: input.observedAt ? 'device_reported_gnss' : 'not_provided',
+      observation_time_verified: false, automatic_truth: false },
   });
 }
 
