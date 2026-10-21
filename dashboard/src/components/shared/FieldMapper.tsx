@@ -11,25 +11,32 @@ const TYPES=[
  ['missing_path','Missing path'],['missing_road','Missing road'],['restriction','Restriction'],
 ] as const;
 
-export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk'}:{cityKey?:string;defaultMode?:string}){
+export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk',placeId,placeName}:{cityKey?:string;defaultMode?:string;placeId?:string;placeName?:string}){
  const {t}=useAfatLocale();
  const [type,setType]=useState<string>('entrance'); const [label,setLabel]=useState(''); const [description,setDescription]=useState('');
  const [mode,setMode]=useState(defaultMode); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState('');
- const [photo,setPhoto]=useState<File|null>(null); const [userId,setUserId]=useState<string|null>(null); const [pending,setPending]=useState(0);
- useEffect(()=>{let mounted=true;void supabase.auth.getUser().then(({data})=>{if(mounted&&data.user){setUserId(data.user.id);void pendingFieldObservations(data.user.id).then(items=>{if(mounted)setPending(items.length);}).catch(()=>{});}});return()=>{mounted=false;};},[]);
+ const [photo,setPhoto]=useState<File|null>(null); const [photoConsent,setPhotoConsent]=useState(false); const [userId,setUserId]=useState<string|null>(null); const [pending,setPending]=useState(0);
+ useEffect(()=>{let mounted=true;
+  void (async()=>{
+    const user=navigator.onLine?(await supabase.auth.getUser()).data.user:(await supabase.auth.getSession()).data.session?.user;
+    if(mounted&&user){setUserId(user.id);void pendingFieldObservations(user.id).then(items=>{if(mounted)setPending(items.length);}).catch(()=>{});}
+  })().catch(()=>{});
+  return()=>{mounted=false;};},[]);
  useEffect(()=>{const onOnline=()=>{if(userId)void flushFieldObservations(userId).then(x=>setPending(x.pending)).catch(()=>setNotice('Evidence remains safely queued; synchronization needs retry.'));};window.addEventListener('online',onOnline);return()=>window.removeEventListener('online',onOnline);},[userId]);
  const submit=()=>{
+  if(photo&&!photoConsent){setNotice('Confirm you have permission to share this photo and have avoided identifiable people or private details.');return;}
   if(!navigator.geolocation){setNotice('Location is not available on this device.');return;}
   setBusy(true);setNotice('');
   navigator.geolocation.getCurrentPosition(async pos=>{
     const spatial=evaluateSpatialFix({latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracyM:pos.coords.accuracy,timestampMs:pos.timestamp,source:'field_observation'});
     if(!spatial.accepted){setBusy(false);setNotice(`Field evidence requires a credible location fix: ${spatial.reason.replace(/_/g,' ')}. Nothing was queued.`);return;}
-    const user=(await supabase.auth.getUser()).data.user;
+    const user=navigator.onLine?(await supabase.auth.getUser()).data.user:(await supabase.auth.getSession()).data.session?.user;
     if(!user){setBusy(false);setNotice('Sign in before adding field evidence.');return;}
     setUserId(user.id);
     const item={
       id:crypto.randomUUID(),userId:user.id,cityKey,type,latitude:pos.coords.latitude,longitude:pos.coords.longitude,
-      accuracyM:pos.coords.accuracy,movementMode:mode||null,label:label||null,description:description||null,
+      accuracyM:pos.coords.accuracy,movementMode:mode||null,label:label||placeName||null,description:description||null,
+      placeId:placeId||null,placeName:placeName||null,
       observedAt:new Date(pos.timestamp).toISOString(),photo,
     };
     try{
@@ -41,20 +48,22 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk'}:{cityKey?:
         const items=await pendingFieldObservations(user.id);setPending(items.length);
         setNotice('Field evidence and its photo are saved on this device and will synchronize after reconnection.');
       }
-      setLabel('');setDescription('');setPhoto(null);
+      setLabel('');setDescription('');setPhoto(null);setPhotoConsent(false);
     }catch(error:any){setNotice(error?.message||'Could not save field evidence.');}
     setBusy(false);
   },err=>{setBusy(false);setNotice(err.message);},{enableHighAccuracy:true,timeout:20000,maximumAge:3000});
  };
  return <section className="rounded-[1.5rem] border border-emerald-300/15 bg-emerald-400/[0.04] p-5">
    <div className="flex items-start gap-3"><div className="rounded-xl bg-emerald-300/10 p-2"><MapPinPlus className="h-5 w-5 text-emerald-200"/></div><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">{t('atlas.fieldMapper')}</p><h2 className="mt-1 text-lg font-black">Add what the map is missing</h2><p className="mt-1 text-xs leading-5 text-white/45">Use this only when you deliberately notice something useful: an entrance, local name, pickup point, missing path, road condition or access rule. AFAT records it as evidence first.</p></div></div>
+   {placeId&&<p className="mt-3 rounded-xl border border-cyan-300/15 bg-cyan-300/5 p-3 text-xs text-cyan-100/75">Destination context: {placeName||'Selected place'} · proposed evidence only, awaiting independent review</p>}
    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
     <label className="text-[9px] font-black uppercase tracking-wider text-white/35">Observation<select value={type} onChange={e=>setType(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white">{TYPES.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
     <label className="text-[9px] font-black uppercase tracking-wider text-white/35">Mode<select value={mode} onChange={e=>setMode(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white"><option value="walk">Walking</option><option value="moto">Moto</option><option value="taxi">Taxi</option><option value="car">Car</option><option value="minibus">Minibus</option><option value="bus">Bus</option><option value="bike">Bicycle</option></select></label>
     <label className="text-[9px] font-black uppercase tracking-wider text-white/35">Name / local label<input value={label} onChange={e=>setLabel(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm normal-case text-white" placeholder="e.g. Carrefour Mvog-Mbi"/></label>
     <label className="text-[9px] font-black uppercase tracking-wider text-white/35">What did you observe?<input value={description} onChange={e=>setDescription(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm normal-case text-white" placeholder="Short field note"/></label>
    </div>
-   <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 text-[9px] font-black uppercase text-white/55"><Camera className="h-4 w-4"/>{photo?photo.name:t('atlas.fieldPhoto')} · {pending} queued<input type="file" accept="image/jpeg,image/png,image/webp,image/heic" capture="environment" className="hidden" onChange={e=>setPhoto(e.target.files?.[0]||null)}/></label>
+   <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 text-[9px] font-black uppercase text-white/55"><Camera className="h-4 w-4"/>{photo?photo.name:t('atlas.fieldPhoto')} · {pending} queued<input type="file" accept="image/jpeg,image/png,image/webp,image/heic" capture="environment" className="hidden" onChange={e=>{setPhoto(e.target.files?.[0]||null);setPhotoConsent(false);}}/></label>
+   {photo&&<label className="mt-3 flex items-start gap-2 text-[10px] leading-5 text-white/65"><input type="checkbox" checked={photoConsent} onChange={e=>setPhotoConsent(e.target.checked)} className="mt-1"/> I am permitted to share this image, and it does not disclose identifiable people, number plates or private interiors. Field photos are stored privately for authorized reviewers.</label>}
    <button onClick={submit} disabled={busy} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35"><Crosshair className="h-4 w-4"/>{busy?'Reading location…':t('atlas.recordPlace')}</button>
    {notice&&<p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/55"><Navigation className="mr-2 inline h-4 w-4 text-emerald-200"/>{notice}</p>}
  </section>;

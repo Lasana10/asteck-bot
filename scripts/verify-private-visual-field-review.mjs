@@ -1,0 +1,10 @@
+import {readFileSync} from 'node:fs';
+import {strict as assert} from 'node:assert';
+const sql=readFileSync('supabase/migrations/20261021100000_afat_private_visual_field_review.sql','utf8');
+assert.match(sql,/drop policy if exists afat_field_evidence_read_own_or_review on storage\.objects/i);
+assert.match(sql,/create policy afat_field_evidence_read_own_or_review/i);
+assert.match(sql,/bucket_id='afat-field-evidence'/);
+assert.match(sql,/auth\.uid\(\)::text/);
+assert.match(sql,/afat_has_permission\('map\.evidence\.review'\)/);
+assert.doesNotMatch(sql,/planning\.aggregate\.view/);
+console.log('AFAT private visual field evidence: owner and authorized-reviewer policy contract passed');

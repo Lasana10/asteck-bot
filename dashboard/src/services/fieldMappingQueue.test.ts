@@ -21,6 +21,11 @@ describe('offline field evidence integrity',()=>{
     expect(()=>validateFieldObservation({...base,accuracyM:500})).toThrow();
     expect(()=>validateFieldObservation({...base,accuracyM:12})).not.toThrow();
   });
+  it('links genuine passenger destination evidence only with bounded place identity',()=>{
+    expect(()=>validateFieldObservation({...base,placeId:'99f9922d-c06a-4b01-a1a3-487a262e4b6a',placeName:'Helios High Tech Academy'})).not.toThrow();
+    expect(()=>validateFieldObservation({...base,placeId:'../../private'})).toThrow();
+    expect(()=>validateFieldObservation({...base,placeName:'x'.repeat(181)})).toThrow();
+  });
   it('preserves older offline observations and rejects unsupported photo formats',()=>{
     expect(()=>validateFieldObservation({...base,observedAt:new Date(Date.now()-14*86400000).toISOString()})).not.toThrow();
     expect(()=>validateFieldObservation({...base,photo:new File(['x'],'x.svg',{type:'image/svg+xml'})})).toThrow();
