@@ -53,8 +53,16 @@ jobs:
           set -euo pipefail
           echo "Source foot graph index and routing sidecar sizes:"
           find routing/cameroon/foot-data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\n' | sort
-          tar -C routing/cameroon/foot-data -cf routing/cameroon/foot-file-index.tar cameroon-latest.osrm.fileIndex
+          # osrm-extract writes this index root-owned with mode 0600; the Docker
+          # build context previously copied it as an unusable zero-byte file.
+          sudo chmod a+r routing/cameroon/foot-data/cameroon-latest.osrm.fileIndex
+          test -r routing/cameroon/foot-data/cameroon-latest.osrm.fileIndex
+          SOURCE_INDEX_HASH="$(sha256sum routing/cameroon/foot-data/cameroon-latest.osrm.fileIndex | cut -d' ' -f1)"
+          echo "FOOT_SOURCE_INDEX_SHA256=$SOURCE_INDEX_HASH" >> "$GITHUB_ENV"
           docker build -f routing/cameroon/Dockerfile.foot-prebuilt -t afat-cameroon-foot:accept routing/cameroon
+          RUNTIME_INDEX_HASH="$(docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "sha256sum /data/cameroon-latest.osrm.fileIndex" | cut -d' ' -f1)"
+          test "$RUNTIME_INDEX_HASH" = "$FOOT_SOURCE_INDEX_SHA256" || { echo "Walking graph index differs from accepted source" >&2; exit 1; }
+          echo "Packaged graph index verified by SHA256: $RUNTIME_INDEX_HASH"
           echo "Packaged graph index and routing sidecar sizes:"
           docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "find /data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort"
           docker run -d --name afat-foot-runtime -p 127.0.0.1:5001:5000 afat-cameroon-foot:accept
