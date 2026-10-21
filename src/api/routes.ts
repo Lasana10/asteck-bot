@@ -2086,7 +2086,7 @@ router.post('/mobility/vehicle-clearance/:id/review', async(req:Request,res:Resp
   if(!access)return;
   const decision=String(req.body?.decision||'');
   const reason=String(req.body?.reason||'').trim();
-  if(!['verified','rejected','needs_followup'].includes(decision)||reason.length<15||reason.length>2000)
+  if(!['verified','restricted','under_review'].includes(decision)||reason.length<15||reason.length>2000)
     return res.status(400).json({error:'VALID_DECISION_AND_REVIEW_REASON_REQUIRED'});
   if(!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(String(req.params.id||'')))
     return res.status(400).json({error:'VALID_VEHICLE_ID_REQUIRED'});
