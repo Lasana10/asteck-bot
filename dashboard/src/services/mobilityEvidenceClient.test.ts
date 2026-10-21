@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({rpc:vi.fn(),getUser:vi.fn(),getSession:vi.fn()}));
 vi.mock('../supabaseClient',()=>({supabase:{rpc:mocks.rpc,auth:{getUser:mocks.getUser,getSession:mocks.getSession}}}));
-import {submitAccessEvidence,flushMobilityEvidenceQueue} from './mobilityEvidenceClient';
+import {submitAccessEvidence,submitTransitObservation,flushMobilityEvidenceQueue} from './mobilityEvidenceClient';
 function makeStorage():Storage{
  const values=new Map<string,string>();
  return {get length(){return values.size;},clear(){values.clear();},key(i){return [...values.keys()][i]??null;},getItem(k){return values.get(k)??null;},setItem(k,v){values.set(k,String(v));},removeItem(k){values.delete(k)}} as Storage;
@@ -49,6 +49,27 @@ describe('server idempotent mobility evidence replay',()=>{
   expect(sync).toEqual({synced:1,pending:0});
   expect(mocks.rpc.mock.calls[0][1].p_idempotency_key).toBe(id);
   expect(mocks.rpc.mock.calls[1][1].p_idempotency_key).toBe(id);
+ });
+ it('keeps GNSS time unverified inside replayed transit review evidence',async()=>{
+  vi.stubGlobal('navigator',{onLine:false});
+  mocks.getSession.mockResolvedValue({data:{session:{user:{id:'alice'}}}});
+  const submitted=await submitTransitObservation({
+    cityKey:'cm-yaounde',observationType:'stop',mode:'minibus',
+    latitude:3.866,longitude:11.516,gpsAccuracyM:18,
+    observedAt:'2026-10-21T10:07:00.000Z',
+    evidence:{place_id:'known-destination'}
+  });
+  expect((submitted.data as any)?.queued).toBe(true);
+  vi.stubGlobal('navigator',{onLine:true});
+  mocks.rpc.mockResolvedValueOnce({data:{id:'reviewed-pending',status:'pending',automatic_truth:false},error:null});
+  await flushMobilityEvidenceQueue();
+  const replay=mocks.rpc.mock.calls[0][1];
+  expect(replay.p_kind).toBe('transit');
+  expect(replay.p_payload.p_evidence).toMatchObject({
+    observed_at:'2026-10-21T10:07:00.000Z',
+    observation_time_source:'device_reported_gnss',
+    observation_time_verified:false,automatic_truth:false,
+  });
  });
  it('never submits queued evidence under another account',async()=>{
   vi.stubGlobal('navigator',{onLine:false});
