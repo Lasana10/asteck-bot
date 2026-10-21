@@ -3804,6 +3804,43 @@ router.get('/compliance/:id/review-file',async(req:Request,res:Response)=>{
     review_required:true,automatically_verified:false});
 });
 
+// Repair legacy motorcycle operator intakes that predated mandatory
+// insurance records. Creates an EMPTY pending record only, never evidence.
+router.post('/compliance/operator/ensure-required',async(req:Request,res:Response)=>{
+ const access=await requireAuthRole(req,res,['operator']);
+ if(!access)return;
+ const id=access.profile.id;
+ try{
+  const existing=await supabase.from('compliance_records')
+   .select('id,document_type,role').eq('profile_id',id).in('role',['operator','bike_rider']);
+  if(existing.error)throw existing.error;
+  const prior=existing.data||[];
+  const isMoto=prior.some(r=>r.role==='bike_rider'||r.document_type==='bike_registration');
+  const required=isMoto
+    ? [{document_type:'bike_registration',document_label:'Motorcycle registration'},
+       {document_type:'insurance',document_label:'Current motorcycle insurance'},
+       {document_type:'helmet_compliance',document_label:'Helmet and rider safety'}]
+    : [{document_type:'vehicle_registration',document_label:'Vehicle registration card'},
+       {document_type:'insurance',document_label:'Vehicle insurance'}];
+  const role=isMoto?'bike_rider':'operator';
+  const missing=required.filter(item=>!prior.some(r=>r.role===role&&r.document_type===item.document_type));
+  // A one-time existing profile reconciliation, not arbitrary document creation.
+  if(missing.length){
+   const inserted=await supabase.from('compliance_records').insert(missing.map(item=>({
+    profile_id:id,role,document_type:item.document_type,document_label:item.document_label,
+    package_tier:'core_operator',status:'pending',followup_channel:'manual',
+    notes:'Missing mandatory evidence record seeded for operator self-submission; not verified.',
+   })));
+   if(inserted.error)throw inserted.error;
+  }
+  return res.status(200).json({success:true,created_missing:missing.map(x=>x.document_type),
+    automatically_verified:false,review_required:true});
+ }catch(error:any){
+  console.error('Operator evidence intake reconciliation failed',error);
+  return res.status(503).json({error:'OPERATOR_COMPLIANCE_RECONCILIATION_UNAVAILABLE'});
+ }
+});
+
 router.get('/compliance/summary/:profileId', async (req: Request, res: Response) => {
   try {
     const access = await requireAuthRole(req, res);
