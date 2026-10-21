@@ -26,7 +26,7 @@ describe('canonical route integration', () => {
   it('carries real geolocated provider turns from backend to GPS-aware passenger guidance', async () => {
     rpc.mockResolvedValue({data:{status:'unavailable',mode:'car'},error:null});
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
-      source:'osrm',primary:{
+      source:'osrm',travel_mode:'driving',primary:{
         summary:'Actual road',distanceMeters:1800,durationValue:240,
         geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.526,3.866],[11.536,3.866]]},
         maneuvers:[{latitude:3.866,longitude:11.516,kind:'depart',instruction:'Depart',distanceMeters:800},
@@ -56,7 +56,7 @@ describe('canonical route integration', () => {
     const network = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        source: 'osrm', primary: {
+        source: 'osrm', travel_mode:'driving', primary: {
           summary: 'Road', distanceMeters: 1200, durationValue: 180,
           originSnapMeters:8.5,destinationSnapMeters:215.3,
           geometry: { type: 'LineString', coordinates: [[11.516, 3.866], [11.526, 3.875]] },
@@ -74,6 +74,36 @@ describe('canonical route integration', () => {
     expect(route.origin_snap_m).toBe(8.5);
     expect(route.destination_snap_m).toBe(215.3);
     expect(network).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts only actual separately sourced foot graph for pedestrian navigation',async()=>{
+    rpc.mockResolvedValue({data:{status:'unavailable',mode:'walk'},error:null});
+    const network=vi.fn().mockResolvedValue({ok:true,json:async()=>({
+      source:'osrm',travel_mode:'foot',primary:{
+        summary:'Pedestrian path',distanceMeters:270,durationValue:210,
+        geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.517,3.867]]},
+        originSnapMeters:12,destinationSnapMeters:18,
+        maneuvers:[{kind:'depart',latitude:3.866,longitude:11.516,instruction:'Depart on foot',distanceMeters:270}],
+      },
+    })});
+    vi.stubGlobal('fetch',network);
+    const route=await fetchCanonicalAfatRoute({...input,mode:'walk'});
+    expect(route.status).toBe('ok');
+    expect(route.mode).toBe('walk');
+    expect(route.route_source).toBe('osrm');
+    expect(route.reason).toBe('unverified_osm_pedestrian_route');
+    expect(route.eta_reason).toBe('baseline_no_live_traffic');
+    expect(route.destination_snap_m).toBe(18);
+    expect(network.mock.calls[0][0]).toContain('mode=foot');
+  });
+  it('refuses to relabel the driving service as a pedestrian route',async()=>{
+    rpc.mockResolvedValue({data:{status:'unavailable',mode:'walk'},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+       source:'osrm',travel_mode:'driving',primary:{summary:'car',distanceMeters:270,durationValue:18,
+         geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.517,3.867]]}},
+    })}));
+    const route=await fetchCanonicalAfatRoute({...input,mode:'walk'});
+    expect(route.status).toBe('unavailable');
   });
 
   it('does not present driving route as walking or minibus directions', async () => {
