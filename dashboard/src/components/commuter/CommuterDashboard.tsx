@@ -103,6 +103,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [selectedDeparture, setSelectedDeparture] = useState<any>(null);
   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
   const [currentSeatHoldId, setCurrentSeatHoldId] = useState<string | null>(null);
+  const [currentSeatHoldExpiresAt,setCurrentSeatHoldExpiresAt]=useState<string|null>(null);
   const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
   const [bookingResult, setBookingResult] = useState<any>(null);
   const [activeVehicles, setActiveVehicles] = useState<any[]>([]);
@@ -300,6 +301,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setSelectedDeparture(departure);
     setSelectedSeatId(null);
     setCurrentSeatHoldId(null);
+    setCurrentSeatHoldExpiresAt(null);
     setCurrentBookingId(null);
     setBookingResult(null);
     setBookingError(null);
@@ -333,6 +335,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
     setSelectedSeatId(seatLabel);
     setCurrentSeatHoldId(data.hold.id);
+    setCurrentSeatHoldExpiresAt(data.hold.expires_at||null);
     setCurrentBookingId(null);
     setView('fare');
   };
@@ -341,6 +344,10 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   const handleFareConfirm = async () => {
     if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId || bookingInFlight) return;
+    if(!currentSeatHoldExpiresAt||Date.parse(currentSeatHoldExpiresAt)<=Date.now()){
+      setBookingError('La réservation temporaire a expiré. Sélectionnez de nouveau votre place.');
+      setCurrentSeatHoldId(null);setView('seats');return;
+    }
     if (Date.parse(selectedDeparture.departure_time) <= Date.now()) {setBookingError('Départ expiré. Veuillez choisir un autre trajet.');return;}
 
     setBookingError(null);
@@ -568,6 +575,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           <h1 className="mt-3 text-2xl font-black">Confirmer le tarif publié</h1>
           <p className="mt-3 text-sm text-white/65">{selectedDeparture.origin} → {selectedDeparture.destination}</p>
           <p className="mt-2 text-sm text-white/65">Place {selectedSeatId} · Départ {new Date(selectedDeparture.departure_time).toLocaleString('fr-CM')}</p>
+          {currentSeatHoldExpiresAt&&<p className="mt-3 text-xs text-amber-200">Place retenue temporairement jusqu’à {new Date(currentSeatHoldExpiresAt).toLocaleTimeString('fr-CM')} (confirmation serveur requise).</p>}
           <p className="mt-5 text-3xl font-black text-cyan-100">{Number(selectedDeparture.price_xaf).toLocaleString('fr-CM')} FCFA</p>
           <p className="mt-3 text-xs leading-5 text-white/55">Ce tarif a été publié par l'opérateur. AFAT ne négocie pas automatiquement et n'affirme pas qu'un chauffeur a accepté une offre. Le serveur confirmera le prix lors de la création du billet.</p>
           {bookingError&&<p role="alert" className="mt-4 rounded-xl border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-100">{bookingError}</p>}
@@ -575,7 +583,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
             className="mt-6 w-full rounded-xl bg-cyan-300 px-4 py-4 text-sm font-black text-slate-950 disabled:opacity-40">
             {bookingInFlight?'Vérification en cours…':'Confirmer le billet au tarif publié'}
           </button>
-          <button type="button" disabled={bookingInFlight} onClick={()=>{if(currentSeatHoldId)void releaseSeatHold(currentSeatHoldId);setCurrentSeatHoldId(null);setSelectedSeatId(null);setView('seats');}}
+          <button type="button" disabled={bookingInFlight} onClick={()=>{if(currentSeatHoldId)void releaseSeatHold(currentSeatHoldId);setCurrentSeatHoldId(null);setCurrentSeatHoldExpiresAt(null);setSelectedSeatId(null);setView('seats');}}
             className="mt-3 w-full rounded-xl border border-white/15 px-4 py-3 text-xs font-bold text-white/75 disabled:opacity-40">
             Choisir une autre place
           </button>
