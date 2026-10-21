@@ -71,6 +71,18 @@ describe('end-to-end offline route geometry custody',()=>{
   expect(routeCanBeKeptOffline(invalid)).toBe(false);
   expect(storeOfflineJourneyRoute({...journey,route:{...route,mode:'walk'}},s)).toBe(false);
  });
+ it('keeps the latest accepted reroute as the only offline navigation route',()=>{
+  const s=memory();
+  const earlier={...route,distance_m:2171,segments:[{...route.segments![0],distance_m:2171}]};
+  const updated={...route,distance_m:2860,segments:[{...route.segments![0],distance_m:2860,
+    geometry:{type:'LineString' as const,coordinates:[[11.516,3.866],[11.52,3.87],[11.526,3.875]]}}]};
+  expect(storeOfflineJourneyRoute({...journey,route:earlier},s)).toBe(true);
+  expect(storeOfflineJourneyRoute({...journey,route:updated},s)).toBe(true);
+  expect(s.length).toBe(1);
+  const saved=loadOfflineJourneyRoute('alice','place-1',s,{mode:'car',latitude:3.875,longitude:11.526});
+  expect(saved?.route.distance_m).toBe(2860);
+  expect(saved?.route.segments?.[0]?.geometry?.coordinates).toHaveLength(3);
+ });
  it('rejects expired route snapshots instead of certifying stale path knowledge',()=>{
   const s=memory();storeOfflineJourneyRoute(journey,s);
   const k=s.key(0)!;const saved=JSON.parse(s.getItem(k)!);

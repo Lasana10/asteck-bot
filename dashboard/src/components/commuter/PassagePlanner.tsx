@@ -358,6 +358,20 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     return () => { active = false; };
   }, [routingOrigin?.latitude, routingOrigin?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, navigationActive, vehicleType, selectedPlace?.id, cityKey, online]);
 
+  // A real online reroute supersedes the previously saved offline path.
+  // Keep that exact mode and arrival target available if the connection drops
+  // again; do not save an unavailable or mismatched route as a safe path.
+  useEffect(() => {
+    if(!navigationActive || !online || !selectedPlace || !arrivalPoint ||
+       canonicalRoute?.status!=='ok' || canonicalRoute.mode!==vehicleType || !profile?.id) return;
+    storeOfflineJourneyRoute({
+      profileId:String(profile.id),placeId:String(selectedPlace.id),placeName:selectedPlace.name,
+      latitude:arrivalPoint.latitude,longitude:arrivalPoint.longitude,
+      mode:vehicleType,intentType,route:canonicalRoute,
+    });
+  },[navigationActive,online,selectedPlace?.id,arrivalPoint?.latitude,arrivalPoint?.longitude,
+      canonicalRoute,vehicleType,intentType,profile?.id]);
+
   useEffect(() => {
     if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok' || navigationActive) return;
     saveJourneyRuntime({

@@ -3,7 +3,7 @@ import { Bus, DoorOpen, LocateFixed, Send, X } from 'lucide-react';
 import { submitAccessEvidence, submitTransitObservation } from '../../services/mobilityEvidenceClient';
 import { evaluateSpatialFix } from '../../services/spatialPositioning';
 
-type Fix = { latitude:number; longitude:number; accuracy:number };
+type Fix = { latitude:number; longitude:number; accuracy:number; timestampMs:number };
 type Mode = 'entrance' | 'transit';
 
 export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' }:{ placeId:string; placeName?:string|null; cityKey?:string }) {
@@ -34,7 +34,7 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
         setNotice(`GPS observation rejected (${spatial.reason.replace(/_/g,' ')}). No entrance or transit evidence will be submitted from this fix.`);
         return;
       }
-      const next={latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy};
+      const next={latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy,timestampMs:position.timestamp};
       setFix(next); setLocating(false);
       setNotice(`GPS fix ready · ±${Math.round(next.accuracy)} m. This remains pending evidence until reviewed.`);
     },(error)=>{
@@ -43,18 +43,34 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
     },{enableHighAccuracy:true,timeout:15000,maximumAge:3000});
   };
 
+  const currentFieldFix=(): Fix|null=>{
+    if(!fix){setNotice('Capture a real GPS fix at the observation location first.');return null;}
+    const checked=evaluateSpatialFix({
+      latitude:fix.latitude,longitude:fix.longitude,accuracyM:fix.accuracy,
+      timestampMs:fix.timestampMs,source:'field_observation',
+    });
+    if(!checked.accepted){
+      setFix(null);
+      setNotice('The captured GPS fix is '+checked.reason.replace(/_/g,' ')+
+        '. Capture a new location before submitting any place or transport observation.');
+      return null;
+    }
+    return fix;
+  };
+
   const submitEntrance=async()=>{
-    if(!fix){setNotice('Capture a real GPS fix at the entrance or access point first.');return;}
+    const observed=currentFieldFix();
+    if(!observed)return;
     setBusy(true);
     const result=await submitAccessEvidence({
       placeId,
       accessType,
-      latitude:fix.latitude,
-      longitude:fix.longitude,
+      latitude:observed.latitude,
+      longitude:observed.longitude,
       name:name.trim()||`${placeName||'Place'} access`,
       instructions:instructions.trim()||null,
       accessModes:accessType==='pedestrian'?['walk']:accessType==='vehicle'?['car','moto']:accessType==='moto'?['moto']:accessType==='delivery'?['delivery','moto','car']:accessType==='transit'?['minibus','walk']:[],
-      gpsAccuracyM:fix.accuracy,
+      gpsAccuracyM:observed.accuracy,
     });
     setBusy(false);
     if(result.error && !(result.data as any)?.queued){setNotice(result.error.message||'Evidence could not be saved.');return;}
@@ -65,6 +81,10 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
 
   const submitTransit=async()=>{
     if(!fix && ['stop','boarding','transfer','terminus'].includes(transitType)){setNotice('Capture a real GPS fix for this transit location first.');return;}
+    // An optional captured position must also be fresh. Do not submit a stale
+    // recorded location after the person has moved away from the observation.
+    const observed=fix?currentFieldFix():null;
+    if(fix && !observed)return;
     const fareValue=fare.trim()?Math.round(Number(fare)):null;
     const waitValue=waitMinutes.trim()?Math.round(Number(waitMinutes)*60):null;
     if(fareValue!=null && (!Number.isFinite(fareValue)||fareValue<0)){setNotice('Enter a valid observed fare.');return;}
@@ -76,9 +96,9 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
       nodeName:nodeName.trim()||placeName||null,
       lineName:lineName.trim()||null,
       mode:'minibus',
-      latitude:fix?.latitude??null,
-      longitude:fix?.longitude??null,
-      gpsAccuracyM:fix?.accuracy??null,
+      latitude:observed?.latitude??null,
+      longitude:observed?.longitude??null,
+      gpsAccuracyM:observed?.accuracy??null,
       fareXaf:fareValue,
       waitSeconds:waitValue,
       evidence:{ place_id:placeId, place_name:placeName||null, source_surface:'reachability_evidence_capture' },
