@@ -26,6 +26,10 @@ export function VehicleClearanceReview(){
  const decide=async(id:string,decision:string)=>{
   const reason=String(reasons[id]||'').trim();
   if(reason.length<15){setNotice('Document the evidence examined and the decision reason (15 characters minimum).');return;}
+  const subject=cases.find(item=>item.id===id);
+  if(decision==='verified'&&subject&&!reason.toUpperCase().includes(subject.plate_number.toUpperCase())){
+   setNotice('Include the physically inspected plate number in the written clearance evidence.');return;
+  }
   if(decision==='verified'&&!window.confirm('Confirm you personally inspected the vehicle and corresponding verified documents? This will permit real departure publication.'))return;
   setBusy(true);
   try{
@@ -58,7 +62,7 @@ export function VehicleClearanceReview(){
      <p className="mt-2 text-xs text-white/60">{documents.map(d=>`${d.type}: ${d.matched.some(x=>x.status==='verified'&&x.has_document)?'verified document recorded':'review outstanding'}`).join(' · ')}</p>
      <p className="mt-1 text-[11px] text-white/40">Human physical inspection and matching vehicle identity must also be established outside automated record checks.</p>
      <textarea value={reasons[item.id]||''} onChange={e=>setReasons(old=>({...old,[item.id]:e.target.value}))}
-      placeholder="Reviewed documents, plate/vehicle match, condition and factual justification"
+      placeholder={`Inspected plate ${item.plate_number}, verified vehicle registration, insurance, physical match and factual reason`}
       className="mt-3 min-h-20 w-full rounded-xl border border-white/15 bg-slate-900 p-3 text-xs"/>
      <div className="mt-2 flex flex-wrap gap-2">
       <button type="button" disabled={busy||!eligible||item.clearance_status==='verified'}
