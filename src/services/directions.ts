@@ -198,7 +198,8 @@ export class DirectionsService {
   // ========== OSRM (FREE FALLBACK) ==========
   private static async osrmDirections(
     origin: Coordinates,
-    destination: Coordinates
+    destination: Coordinates,
+    travelMode: 'driving' | 'foot' = 'driving',
   ): Promise<DirectionsResult | null> {
     try {
       const base = routingEndpoint(travelMode);
