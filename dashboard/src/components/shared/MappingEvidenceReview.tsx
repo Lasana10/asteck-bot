@@ -11,7 +11,7 @@ export function MappingEvidenceReview(){
  const act=async(id:string,decision:'corroborate'|'trust'|'reject')=>{setBusy(true);const {error}=await supabase.rpc('afat_review_mapping_observation',{p_observation_id:id,p_decision:decision,p_notes:null});setBusy(false);setNotice(error?error.message:`Observation marked ${decision}.`);if(!error)await load();};
  const viewPhoto=async(item:any)=>{
    const path=Array.isArray(item.media_paths)?item.media_paths.find((value:unknown)=>
-     typeof value==='string'&&/^[0-9a-f-]{36}\\/[0-9a-f-]{36}\\.(jpg|png|webp|heic)$/i.test(value)):null;
+     typeof value==='string'&&new RegExp('^[0-9a-f-]{36}/[0-9a-f-]{36}[.](jpg|png|webp|heic)$','i').test(value)):null;
    if(!path){setNotice('No valid private field photo reference is attached to this observation.');return;}
    setBusy(true);
    const {data,error}=await supabase.storage.from('afat-field-evidence').createSignedUrl(path,120);
