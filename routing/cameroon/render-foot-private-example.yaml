@@ -1,0 +1,14 @@
+# EXPLICIT OPERATOR OPT-IN ONLY. Not referenced by root render.yaml.
+# Provisioning incurs charges; confirm workspace, Oregon region, capacity and plan first.
+# Use the already accepted immutable foot-only graph image. Never substitute driving.
+services:
+  - type: pserv
+    name: afat-osrm-cameroon-foot
+    runtime: docker
+    region: oregon
+    plan: standard
+    dockerContext: .
+    dockerfilePath: routing/cameroon/Dockerfile.foot-runtime
+    envVars:
+      - key: NODE_ENV
+        value: production
