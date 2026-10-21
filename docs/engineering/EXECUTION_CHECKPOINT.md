@@ -1,3 +1,10 @@
+# Release acceptance continuation — 2026-10-21
+
+- Merged PR #163 into master as `c11428efd6c760d61c043f690e70e79b61d9e0b8` after backend/dashboard AFAT CI run `39598878723` succeeded. Canonical Atlas route `status=ok` is no longer enough to certify navigable passenger guidance; actual bounded geometry, mode, distance and ETA are required. Existing genuine OSRM car/foot fallback remains separate and unverified for access/safety.
+- This acceptance branch extends the existing live two-city **OSRM → backend → passenger contract** run, requiring correct car mode identity and testing walking requests as either independently sourced foot routing or honest 503 unavailable. It retains actual licensed-place discovery→road reachability, geometry/maneuvers and network snap verification without creating data.
+- End-to-end production and field acceptance remain distinct: passing browser-neutral live API calls does not demonstrate Cloudflare UI deployment or device offline navigation. Actual user field observation and reviewer promotion must be confirmed with genuine authorized evidence. The separately hosted Cameroon walking service still needs confirmed Render workspace/cost decision to become operational.
+- Exact continuation: run linked live GitHub-hosted acceptance with real production services, record results/failures rather than treating release source as deployed, resolve any real integration faults, and continue independent mobility/Atlas/spatial/AI-CORE journeys.
+
 # Continuation — 2026-10-21 passenger Find→Reach canonical geometry truth
 
 - The connected passenger journey already performs Atlas-first discovery/routing and separate real OSRM driving/foot fallback. A new trust gap was found: the dashboard accepted `afat_route_canonical` returning `status=ok` without verifying route geometry; this could display a successful route where map guidance and offline persistence had no navigable path.
