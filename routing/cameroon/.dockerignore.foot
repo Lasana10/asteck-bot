@@ -1,0 +1,4 @@
+data/
+foot-data/*
+!foot-data/cameroon-latest.osrm.*
+!foot-data/graph-provenance.txt
