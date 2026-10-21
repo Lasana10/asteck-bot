@@ -90,13 +90,19 @@ export const offlineSync = {
     if(!queue.length)return;
     flushing=true;
     const remainingQueue:OfflineMutation[]=[];
+    let accountChanged=false;
     try {
 
-    for (const mutation of queue) {
+    for (let index=0;index<queue.length;index++) {
+      const mutation=queue[index];
       try {
         // Stop on account switch during replay, retaining the rest for
         // the original owner rather than sending it under another token.
-        if(await accountQueueKey()!==storageKey)throw new Error('Account changed during offline replay.');
+        if(await accountQueueKey()!==storageKey){
+          accountChanged=true;
+          remainingQueue.push(...queue.slice(index));
+          break;
+        }
         const authHeaders = await authenticatedApiHeaders();
 
         if (mutation.type === 'INSERT_INCIDENT') {
@@ -188,9 +194,13 @@ export const offlineSync = {
       }
     }
 
-    writeQueue(storageKey,remainingQueue);
+    // Preserve any new records added while the network request was in flight.
+    // Never overwrite concurrently enqueued evidence with the old snapshot.
+    const processedIds=new Set(queue.map(item=>item.id));
+    const newlyQueued=readQueue(storageKey).filter(item=>!processedIds.has(item.id));
+    writeQueue(storageKey,[...remainingQueue,...newlyQueued]);
     } finally { flushing=false; }
-    console.log(remainingQueue.length === 0
+    console.log(!accountChanged && readQueue(storageKey).length === 0
       ? '[OfflineSync] All replayable items synced.'
       : `[OfflineSync] ${remainingQueue.length} item(s) remain queued.`);
   },
