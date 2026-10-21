@@ -43,12 +43,59 @@ describe('canonical route integration', () => {
   });
 
   it('preserves authoritative AFAT route without requesting external routing', async () => {
-    rpc.mockResolvedValue({ data: { status: 'ok', mode: 'car', segments: [] }, error: null });
+    rpc.mockResolvedValue({ data: { status: 'ok', mode: 'car', distance_m:1200, segments: [{
+      seq:0,edge_id:'atlas-real-segment',distance_m:1200,
+      geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.526,3.875]]}
+    }] }, error: null });
     const network = vi.fn();
     vi.stubGlobal('fetch', network);
     const route = await fetchCanonicalAfatRoute(input);
     expect(route.route_source).toBe('afat_atlas');
     expect(network).not.toHaveBeenCalled();
+  });
+
+  it('does not display a geometry-free Atlas success as a navigable journey', async () => {
+    rpc.mockResolvedValue({data:{status:'ok',mode:'car',distance_m:1200,segments:[]},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:false,status:503}));
+    const route=await fetchCanonicalAfatRoute(input);
+    expect(route.status).toBe('unavailable');
+    expect(route.reason).toBe('invalid_atlas_route_geometry');
+    expect(routeToLatLngs(route)).toEqual([]);
+  });
+
+  it('uses a real road provider when Atlas says ok but cannot supply physical geometry', async () => {
+    rpc.mockResolvedValue({data:{status:'ok',mode:'car',distance_m:1000,segments:[{
+      seq:0,edge_id:'missing',distance_m:1000
+    }]},error:null});
+    const network=vi.fn().mockResolvedValue({ok:true,json:async()=>({
+      source:'osrm',travel_mode:'driving',primary:{
+        summary:'Verified backend geometry, access unverified',distanceMeters:1400,durationValue:250,
+        geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.526,3.875]]}
+      }
+    })});
+    vi.stubGlobal('fetch',network);
+    const route=await fetchCanonicalAfatRoute(input);
+    expect(route.route_source).toBe('osrm');
+    expect(route.reason).toBe('unverified_external_road_route');
+    expect(network).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses Atlas routes whose mode, bounds or numeric geometry do not match', async () => {
+    const bad=[
+      {mode:'walk',distance_m:1200,segments:[{distance_m:1200,geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.526,3.875]]}}]},
+      {mode:'car',distance_m:1200,segments:[{distance_m:1200,geometry:{type:'LineString',coordinates:[[999,3.866],[11.526,3.875]]}}]},
+      {mode:'car',distance_m:1200,segments:[{distance_m:1200,geometry:{type:'LineString',coordinates:[['11.516',3.866],[11.526,3.875]]}}]},
+    ];
+    const network=vi.fn().mockResolvedValue({ok:false,status:503});
+    vi.stubGlobal('fetch',network);
+    for(const candidate of bad){
+      clearCanonicalRouteCache();
+      rpc.mockResolvedValueOnce({data:{status:'ok',...candidate},error:null});
+      const route=await fetchCanonicalAfatRoute(input);
+      expect(route.status).toBe('unavailable');
+      expect(route.reason).toBe('invalid_atlas_route_geometry');
+    }
+    expect(network).toHaveBeenCalledTimes(3);
   });
 
   it('falls back to a real road geometry when the atlas is incomplete', async () => {
