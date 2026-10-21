@@ -6,6 +6,7 @@ import {invokeAfatAiCore} from '../services/aiCore';
 const router=express.Router();
 import {reviewedAtlasEvidence} from '../services/reviewedAtlasEvidence';
 import {sourceBackedAtlasUnderstanding} from '../services/atlasSourceUnderstanding';
+import {reviewedAtlasContext} from '../services/reviewedAtlasContext';
 const validCoord=(n:unknown,max:number)=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=max;
 
 // This is informational spatial interpretation, never a route, hazard clearance,
@@ -51,9 +52,13 @@ router.post('/atlas/explain',async(req:Request,res:Response)=>{
     let ai;
     try{ai=await invokeAfatAiCore({tenantId:'AFAT',task:'mobility',prompt,publicEvidenceOnly:true});}
     catch(e:any){
-      const unavailable=String(e?.message||'').startsWith('AI_CORE_');
+      // If the shared inference plane is unavailable, the passenger still
+      // receives only the independently reviewed map facts. This does not
+      // silently replace AI-CORE or claim the route has been field-validated.
+      const grounded=reviewedAtlasContext(evidence,question as 'overview'|'access'|'roads');
+      if(grounded)return res.status(200).json(grounded);
       return res.status(503).json({status:'ai_unavailable',evidence,
-        message:unavailable?'Shared AI-CORE is not configured or available.':'Grounded AI interpretation is temporarily unavailable.'});
+        message:'Grounded AI interpretation is temporarily unavailable.'});
     }
     return res.status(200).json({
       status:'explained',text:ai.output,evidence,request_id:ai.requestId,
