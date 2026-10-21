@@ -76,7 +76,7 @@ begin
     exception when invalid_datetime_format or datetime_field_overflow then
       raise exception 'Invalid device observation timestamp';
     end;
-    if v_reported_capture > now() + interval '5 minutes'
+    if not isfinite(v_reported_capture) or v_reported_capture > now() + interval '5 minutes'
        or v_reported_capture < now() - interval '72 hours' then
       raise exception 'Device observation timestamp is outside the permitted replay window';
     end if;
