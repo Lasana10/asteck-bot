@@ -1,3 +1,11 @@
+# Integrated community spatial GNSS → authenticated Atlas review — 2026-10-21
+
+- Graphify located the separate `CommunityEvidencePanel` passenger contribution path alongside existing `FieldEvidenceCapture`, `spatialPositioning`, `mobilityEvidenceClient` and the production `afat_submit_mobility_evidence_once` RPC. The primary community surface previously accepted cached GPS without the shared two-minute freshness/120m accuracy contract or capture-time custody: a connected path gap, not a new technology requirement.
+- This branch reuses `evaluateSpatialFix` during real GPS acquisition **and again at evidence submission**; rejects stale, uncertain, malformed or future samples; binds original geolocation `position.timestamp` to `observedAt` for reviewed access and transit evidence, including offline replay. Re-capture required if the selected entrance place changes. Location-based stops/boarding/transfer/terminus require real GPS; fare/wait/line narrative may be submitted without fabricated coordinates.
+- Existing authenticated, per-account offline queue, idempotent pending review receipt and live Supabase `observed_at` persistence are reused unchanged. Transit samples never become guaranteed service or safe access by GPS alone. No new places/routes or user data added.
+- Relevant regression extends spatial positioning tests for actual capture vs delayed submission, accuracy uncertainty, spoof-like future samples and original ISO timestamp fidelity.
+- Operational gates: dashboard/backend CI, merge and Cloudflare deployed-asset verification; real signed-in device GPS capture → airplane/offline queue → reconnect → authentic review receipt and reviewer evidence remains field acceptance. Meanwhile approved future operator departure feed is merged, but actual production shows no published operator supply.
+
 # Operator departure → passenger seat-hold truth integration — 2026-10-21
 
 - Graphify traced actual operator fare publication, approved `routes`/`profiles`/`vehicles`, `GET /api/mobility/departures`, `DepartureBoard`, authenticated `/api/booking/seat-hold` and booking-from-hold. Existing booking/dispatch services retained; no new inventory ledger or false transport supply.
