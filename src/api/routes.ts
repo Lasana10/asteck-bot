@@ -2063,7 +2063,7 @@ router.get('/mobility/vehicle-clearance/queue', async (req: Request, res: Respon
       ids.length?supabase.from('compliance_records')
         .select('id,profile_id,document_type,status,due_at,verified_at,file_url')
         .in('profile_id',ids).eq('role','operator')
-        .in('document_type',['vehicle_registration','insurance','license'])
+        .in('document_type',['vehicle_registration','bike_registration','helmet_compliance','insurance','license'])
         :Promise.resolve({data:[],error:null}),
     ]);
     if(people.error||documents.error)throw people.error||documents.error;
@@ -3718,7 +3718,7 @@ async function complianceRecordForCaller(req:Request,res:Response,recordId:strin
   if(!staff&&record.data.profile_id!==access.profile.id){
     res.status(403).json({error:'DOCUMENT_OWNERSHIP_REQUIRED'});return null;
   }
-  if(!staff&&record.data.role!=='operator'){
+  if(!staff&&!['operator','bike_rider'].includes(record.data.role)){
     res.status(403).json({error:'OPERATOR_DOCUMENT_REQUIRED'});return null;
   }
   return {access,record:record.data,staff};
@@ -3737,7 +3737,7 @@ router.post('/compliance/:id/upload-authorize',async(req:Request,res:Response)=>
   const ext=supportedComplianceMime[mime];
   if(!ext||!Number.isSafeInteger(bytes)||bytes<1||bytes>8*1024*1024)
     return res.status(400).json({error:'PDF_OR_IMAGE_UNDER_8MB_REQUIRED'});
-  if(!['vehicle_registration','insurance','license','national_id'].includes(scope.record.document_type))
+  if(!['vehicle_registration','bike_registration','helmet_compliance','insurance','license','national_id'].includes(scope.record.document_type))
     return res.status(400).json({error:'DOCUMENT_TYPE_NOT_SUPPORTED_FOR_UPLOAD'});
   const filename=`${crypto.randomUUID()}.${ext}`;
   const prefix=`${scope.record.profile_id}/${scope.record.id}`;
@@ -3885,8 +3885,8 @@ router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
       .eq('id',id).maybeSingle();
     if(recordResult.error)return res.status(503).json({error:'COMPLIANCE_LOOKUP_UNAVAILABLE'});
     if(!recordResult.data)return res.status(404).json({error:'COMPLIANCE_RECORD_NOT_FOUND'});
-    const sensitive=recordResult.data.role==='operator'&&
-      ['vehicle_registration','insurance','national_id','license'].includes(recordResult.data.document_type);
+    const sensitive=['operator','bike_rider'].includes(recordResult.data.role)&&
+      ['vehicle_registration','bike_registration','helmet_compliance','insurance','national_id','license'].includes(recordResult.data.document_type);
     if(status==='verified'&&sensitive){
       const source=String(recordResult.data.file_url||'');
       const prefix=`${complianceBucket}/${recordResult.data.profile_id}/${id}/`;
