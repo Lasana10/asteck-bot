@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {getOperatorComplianceRecords,submitOperatorComplianceDocument} from '../../services/operatorComplianceDocuments';
+import {getOperatorComplianceRecords,submitOperatorComplianceDocument,ensureOperatorRequiredDocuments} from '../../services/operatorComplianceDocuments';
 
 type RecordRow={id:string;document_type:string;status:string;verified_at?:string|null;due_at?:string|null};
 const wanted=['vehicle_registration','bike_registration','helmet_compliance','insurance','license','national_id'];
@@ -20,7 +20,16 @@ export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:stri
   catch(error:any){setNotice(error?.message||'Unable to load compliance documents');}
   finally{setLoading(false);}
  };
- useEffect(()=>{if(profileId)void refresh();},[profileId]);
+ useEffect(()=>{
+  if(!profileId)return;
+  let active=true;
+  (async()=>{
+   try{await ensureOperatorRequiredDocuments();}
+   catch(error:any){if(active)setNotice(error?.message||'Cannot prepare missing operator documents');}
+   if(active)await refresh();
+  })();
+  return ()=>{active=false;};
+ },[profileId]);
  const upload=async(row:RecordRow)=>{
   const file=files[row.id];if(!file)return;
   setActive(row.id);setNotice('');
