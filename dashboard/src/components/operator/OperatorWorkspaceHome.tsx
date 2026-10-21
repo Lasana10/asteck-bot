@@ -4,6 +4,7 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import { OperatorMissionLifecycle } from './OperatorMissionLifecycle';
 import {ScheduledDeparturePublisher} from './ScheduledDeparturePublisher';
+import {OperatorVehicleRegistration} from './OperatorVehicleRegistration';
 import { updatePassageIntentStatus } from '../../supabaseClient';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import {
@@ -230,6 +231,7 @@ export function OperatorWorkspaceHome({
         </Surface>
       </div>
 
+      {!vehicle && <OperatorVehicleRegistration onRegistered={()=>{onChanged();void refreshExecution();}} />}
       <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{onChanged();void refreshExecution();}} />
 
       <Surface className="p-5 sm:p-6">
