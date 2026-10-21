@@ -5,7 +5,7 @@ create or replace function public.afat_staff_review_vehicle(
 ) returns public.vehicles
 language plpgsql security invoker set search_path=''
 as $$
-declare v public.vehicles; op public.profiles; evidence_count int; staff_role text;
+declare v public.vehicles; op public.profiles; evidence_count int; staff_role text; previous_clearance text;
 begin
  select role into staff_role from public.profiles where id=p_staff_id;
  if staff_role not in ('admin','planner') then raise exception 'STAFF_REVIEW_REQUIRED' using errcode='42501'; end if;
@@ -32,12 +32,13 @@ begin
     raise exception 'VEHICLE_COMPLIANCE_DOCUMENTS_NOT_VERIFIED' using errcode='P0001';
   end if;
  end if;
+ previous_clearance:=v.clearance_status;
  update public.vehicles set clearance_status=p_decision,is_available=false,updated_at=now()
  where id=p_vehicle_id returning * into v;
  insert into public.access_audit_events(actor_profile_id,event_type,target_type,target_id,reason,
  previous_state,new_state,request_context)
  values (p_staff_id,'vehicle_clearance_review','vehicle',v.id::text,trim(p_reason),
- jsonb_build_object('clearance_status',(select clearance_status from public.vehicles where id=v.id)), 
+ jsonb_build_object('clearance_status',previous_clearance), 
  jsonb_build_object('decision',p_decision,'available',false),
  jsonb_build_object('source','staff_human_review','operator_id',v.operator_id));
  return v;
