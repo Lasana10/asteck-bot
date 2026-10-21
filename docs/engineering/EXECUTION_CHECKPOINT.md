@@ -1,3 +1,11 @@
+# Verified Cloudflare passenger release — 2026-10-21
+
+- PR #165 merged as `79f4eaa26fdff7e5cbdb260c14b41fd94002922c`; extends existing live Cloudflare acceptance triggers to canonical routes, offline journey custody, PassagePlanner and field GPS evidence and checks published browser assets for the connected journey rather than local build artifacts.
+- GitHub-hosted production Cloudflare workflow **39599781462** passed (job `119221054571`), loading actual `https://asteck-bot.pages.dev/assets/index-aw86P1mA.js` (910,128 bytes). Confirmed deployed bundle includes Atlas discovery, provider turns, offline route mismatch guidance, rerouting feedback and fresh GPS field recapture safety text.
+- Independent Cloudflare Pages check on merge commit `79f4eaa26fdff7e5cbdb260c14b41fd94002922c` reached **completed / success / Deployed successfully**; this verifies Cloudflare deployed that commit, not merely served a previously published build.
+- Verified user-facing passenger capability scope: licensed real place discovery→actual Yaoundé/Douala driving routes (live API accepted via workflow `39599209348`) plus served Cloudflare route/offline/evidence frontend; database evidence timestamp custody production migration applied and inspected. **No authenticated physical passenger route→offline GPS→field contributor→human review field test yet**. No real walking passenger service (both modes intentionally return 503).
+- Exact next: device-level full Find→Reach→Move→Learn user acceptance and safe field evidence review; connect foot-only OSRM via authorized Render workspace and approved costs, then outdoor pedestrian field safety validation. Parallelize transit/AI-CORE/spatial workstream integration and do not reset to previous routing setup.
+
 # Cloudflare passenger release verification — 2026-10-21
 
 - Prior live GitHub-hosted read-only acceptance `39599209348` **passed** with actual Yaoundé road route (2,171m, 177s, 92 points, 14 maneuvers), Douala road route (1,034m, 152s, 41 points, 8 maneuvers) and source-licensed Find→Reach route to Helios High Tech Academy (3,650.6m, ~40.59m destination network snap, entrance unverified).
