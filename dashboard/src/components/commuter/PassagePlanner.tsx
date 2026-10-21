@@ -186,6 +186,13 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [preflight, setPreflight] = useState<Record<string, any>>({});
   const [navigationActive, setNavigationActive] = useState(false);
+  const [online,setOnline] = useState(() => typeof navigator==='undefined'||navigator.onLine);
+  useEffect(()=>{
+    const update=()=>setOnline(navigator.onLine);
+    window.addEventListener('online',update);
+    window.addEventListener('offline',update);
+    return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
   const [navigationSamples, setNavigationSamples] = useState(0);
   const [routeProgress, setRouteProgress] = useState<AfatRouteProgress | null>(null);
   const [reachability, setReachability] = useState<AfatReachabilityAssessment | null>(null);
@@ -283,14 +290,22 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       setRouteMessage('');
       return;
     }
-    if (navigationActive && typeof navigator !== 'undefined' && !navigator.onLine) {
-      const cached=loadOfflineJourneyRoute(String(profile?.id||''),String(selectedPlace?.id||''));
+    if (!online) {
+      // Do not repeatedly call Supabase or OSRM while disconnected, and never
+      // substitute a different mode or arrival point from the saved journey.
+      const cached=navigationActive ? loadOfflineJourneyRoute(
+        String(profile?.id||''),String(selectedPlace?.id||''),localStorage,
+        {mode:vehicleType,latitude:arrivalPoint.latitude,longitude:arrivalPoint.longitude},
+      ) : null;
       if(cached){
         setCanonicalRoute(cached.route);
-        setRouteMessage('Offline navigation · using saved route geometry, not a live traffic or road verification. Recheck before continuing.');
-        setRouteLoading(false);
-        return;
+        setRouteMessage('Offline navigation · saved route geometry only. No live routing, road safety or entrance verification. Recheck on reconnection.');
+      }else{
+        setCanonicalRoute({status:'unavailable',mode:vehicleType,reason:'offline_route_unavailable'});
+        setRouteMessage('Offline: no matching saved route for this mode and arrival point. Reconnect before starting or changing navigation.');
       }
+      setRouteLoading(false);
+      return;
     }
     const modes: AfatRouteMode[] = navigationActive ? [vehicleType] : ['walk', 'moto', 'car', 'minibus'];
     setRouteLoading(true);
@@ -341,7 +356,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       }
     }).finally(() => { if (active) setRouteLoading(false); });
     return () => { active = false; };
-  }, [routingOrigin?.latitude, routingOrigin?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, navigationActive, vehicleType, selectedPlace?.id, cityKey]);
+  }, [routingOrigin?.latitude, routingOrigin?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, navigationActive, vehicleType, selectedPlace?.id, cityKey, online]);
 
   useEffect(() => {
     if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok' || navigationActive) return;
@@ -713,7 +728,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       setStatusText('This saved journey belongs to a different account and cannot be resumed here.');
       return;
     }
-    const cached=loadOfflineJourneyRoute(String(profile.id),String(snapshot.placeId));
+    const cached=loadOfflineJourneyRoute(String(profile.id),String(snapshot.placeId),localStorage,{
+      mode:snapshot.mode as AfatRouteMode,
+      latitude:Number(snapshot.destinationLatitude),longitude:Number(snapshot.destinationLongitude),
+    });
     if(!cached){
       setStatusText('The prior route geometry is missing or expired. Reconnect, select the destination and calculate a fresh route.');
       return;
