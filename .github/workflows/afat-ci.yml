@@ -32,6 +32,7 @@ jobs:
       - run: npm run test:api-contract
       - run: npm run test:reachability:reviewed-access
       - run: npm run test:transit-review-authority
+      - run: npm run test:published-departures
       - run: npm run test:place-candidate-contract
       - run: npm run test:private-visual-evidence
       - run: npm run test:routing
