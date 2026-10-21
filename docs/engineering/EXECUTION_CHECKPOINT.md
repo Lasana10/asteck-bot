@@ -1,3 +1,12 @@
+# Continuation — 2026-10-21 mobility observation replay and reviewer receipt custody
+
+- Current integration batch uses the existing passenger FieldEvidenceCapture → authenticated mobilityEvidenceClient → account-scoped offline queue → `afat_submit_mobility_evidence_once` → existing access/transit review tables. No duplicate service or truth store.
+- Original captured GPS time is supplied to the evidence client when the device provides a validated fix. Transit observation metadata includes `observed_at` and device GNSS provenance. Access observation `p_observed_at` remains on the replayed request and influences idempotency fingerprint; current production access SQL **does not yet persist it on the access-evidence row**. This server-side persistence remains a real acceptance gap.
+- The evidence queue now requires an explicit authenticated review receipt (`id`, `status=pending`, `automatic_truth=false`) before deleting offline data; HTTP 200 without a review receipt cannot erase observations. Existing account-bound reauthentication and idempotency keys retained.
+- Server function definitions inspected read-only from live TRAFFIC project: `afat_submit_mobility_evidence_once` calls reviewed access/transit functions; access submissions include an `evidence` JSONB field; transit supports observation metadata. No production SQL mutation claimed.
+- Exact next work: verify CI, merge and production versions, implement server-side access observation timestamp projection under strict authenticated/verified review controls, then exercise capture → airplane/offline → reconnect → receipt → reviewer approval in the actual passenger journey. Stored GNSS provenance remains a device claim, not physical proof or automatic map verification.
+- Render workspace ownership and optional private pedestrian deployment still require external confirmation; continue independent integration instead of guessing billable workspace.
+
 # Merged continuation evidence — 2026-10-21
 
 - **PR #159 merged** to master at `216d23c7363457dbd3094c0b562fbfd9b0b68433`; AFAT CI run `39594999141` completed successfully, backend and dashboard. Passenger route fallback now respects offline connectivity and per-account, destination, mode and arrival-point snapshot custody.
