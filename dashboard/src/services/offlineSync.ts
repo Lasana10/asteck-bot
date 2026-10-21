@@ -15,8 +15,16 @@ const MAX_AGE_MS = 7*24*60*60*1000;
 const MAX_ITEM_BYTES = 32_000;
 let flushing = false;
 async function accountQueueKey():Promise<string>{
+ // Supabase getUser needs a network round-trip. Offline capture must derive
+ // ownership from the locally held authenticated session instead, while an
+ // online replay requires server-confirmed account identity.
+ if(typeof navigator!=='undefined'&&!navigator.onLine){
+  const {data,error}=await supabase.auth.getSession();
+  if(error||!data.session?.user?.id)throw new Error('Sign in before collecting offline evidence.');
+  return STORAGE_PREFIX+encodeURIComponent(data.session.user.id);
+ }
  const {data,error}=await supabase.auth.getUser();
- if(error||!data.user?.id)throw new Error('Sign in before collecting or replaying offline evidence.');
+ if(error||!data.user?.id)throw new Error('Sign in before replaying offline evidence.');
  return STORAGE_PREFIX+encodeURIComponent(data.user.id);
 }
 function readQueue(storageKey:string):OfflineMutation[]{
