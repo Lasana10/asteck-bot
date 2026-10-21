@@ -3,6 +3,7 @@ import { Car, Clock3, MapPin, Radio, ShieldCheck, Wallet } from 'lucide-react';
 import { InteractiveMap } from '../shared/InteractiveMap';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import { OperatorMissionLifecycle } from './OperatorMissionLifecycle';
+import {ScheduledDeparturePublisher} from './ScheduledDeparturePublisher';
 import { updatePassageIntentStatus } from '../../supabaseClient';
 import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import {
@@ -228,6 +229,8 @@ export function OperatorWorkspaceHome({
           <button onClick={accept} disabled={!vehicle?.is_available || !mission?.id || busy || missionLocked} className="mt-5 min-h-12 w-full rounded-xl bg-emerald-400 px-4 text-xs font-black text-slate-950 disabled:opacity-35">Accept verified request</button>
         </Surface>
       </div>
+
+      <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{onChanged();void refreshExecution();}} />
 
       <Surface className="p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
