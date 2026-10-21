@@ -13,7 +13,7 @@ async function api(path:string,init:RequestInit={}){
 }
 export async function getOperatorComplianceRecords(profileId:string):Promise<ComplianceRecord[]>{
  const result=await api(`/api/compliance/summary/${encodeURIComponent(profileId)}`);
- return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&r.role==='operator');
+ return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&['operator','bike_rider'].includes(r.role));
 }
 export async function submitOperatorComplianceDocument(recordId:string,file:File){
  const mime=file.type.toLowerCase();
