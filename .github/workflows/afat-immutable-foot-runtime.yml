@@ -1,0 +1,37 @@
+name: AFAT Cameroon Immutable Pedestrian Runtime
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'routing/cameroon/Dockerfile.foot-runtime'
+      - '.github/workflows/afat-immutable-foot-runtime.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-foot-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pull exactly the production pedestrian graph without registry login
+        run: docker build -f routing/cameroon/Dockerfile.foot-runtime -t afat-foot-runtime:accept routing/cameroon
+      - name: Start packaged immutable graph and verify real two-city foot geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name afat-foot-prod-accept -p 127.0.0.1:5000:5000 afat-foot-runtime:accept
+          for attempt in $(seq 1 40); do
+            if curl -fsS --max-time 2 'http://127.0.0.1:5000/nearest/v1/foot/11.516,3.866' >/dev/null; then break; fi
+            sleep 2
+          done
+          AFAT_WALK_OSRM_URL=http://127.0.0.1:5000 node routing/cameroon/verify-foot.mjs
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker logs --tail 150 afat-foot-prod-accept || true
+      - name: Tear down
+        if: always()
+        run: docker rm -f afat-foot-prod-accept || true
