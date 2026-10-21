@@ -71,6 +71,7 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
       instructions:instructions.trim()||null,
       accessModes:accessType==='pedestrian'?['walk']:accessType==='vehicle'?['car','moto']:accessType==='moto'?['moto']:accessType==='delivery'?['delivery','moto','car']:accessType==='transit'?['minibus','walk']:[],
       gpsAccuracyM:observed.accuracy,
+      observedAt:new Date(observed.timestampMs).toISOString(),
     });
     setBusy(false);
     if(result.error && !(result.data as any)?.queued){setNotice(result.error.message||'Evidence could not be saved.');return;}
@@ -99,6 +100,7 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde' 
       latitude:observed?.latitude??null,
       longitude:observed?.longitude??null,
       gpsAccuracyM:observed?.accuracy??null,
+      observedAt:observed?new Date(observed.timestampMs).toISOString():null,
       fareXaf:fareValue,
       waitSeconds:waitValue,
       evidence:{ place_id:placeId, place_name:placeName||null, source_surface:'reachability_evidence_capture' },
