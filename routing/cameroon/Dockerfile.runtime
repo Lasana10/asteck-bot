@@ -1,0 +1,7 @@
+# Immutable, checksum-verified OSM-derived Cameroon OSRM MLD graph.
+# Source: Geofabrik Cameroon (OpenStreetMap contributors, ODbL 1.0).
+# This image was built & proven with Yaoundé and Douala geometry acceptance.
+FROM ghcr.io/lasana10/afat-cameroon-osrm@sha256:7bb10a75e122fadafc2977830866f89d40d15f0bd31e0fa3f30ecb3cc447cb10
+LABEL org.opencontainers.image.source="https://github.com/Lasana10/asteck-bot"
+LABEL org.opencontainers.image.licenses="ODbL-1.0"
+EXPOSE 5000
