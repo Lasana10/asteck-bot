@@ -44,4 +44,37 @@ for(const {city,a,b} of cities){
  assert.ok(Math.abs(route.distanceMeters-candidate.distance)<Math.max(50,candidate.distance*0.04),city+' backend distance differs materially from OSRM result');
  console.log(city+': LIVE OSRM→AFAT path '+Math.round(route.distanceMeters)+' m / '+Math.round(route.durationValue)+' sec; '+route.geometry.coordinates.length+' GPS geometry points, '+route.maneuvers.length+' provider maneuvers (baseline ETA; no field/traffic validation)');
 }
-console.log('PASS AFAT operational Cameroon two-city origin→backend→OSRM→geometry/maneuvers integration (no real-device field validation)');
+// Validate an actual public geospatial discovery → destination → road route.
+// Choose an eligible place returned by the current live database, never a fixture.
+const sourceOrigin={latitude:3.866,longitude:11.516};
+const nearbyUrl=new URL('/api/atlas/nearby?'+new URLSearchParams({lat:String(sourceOrigin.latitude),lon:String(sourceOrigin.longitude),radius_m:'3000',limit:'20'}),backend);
+const discovery=await getJson(nearbyUrl);
+assert.equal(discovery.place_candidates_status,'ok','Actual source-licensed geographic lookup is unavailable');
+const discovered=Array.isArray(discovery.place_candidates)?discovery.place_candidates:[];
+assert.ok(discovered.length>0,'No actual Yaounde places were returned; cannot accept Find→Reach');
+let acceptedPlace=null;
+let lastCandidateError='';
+for(const place of discovered.filter(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)&&Number.isFinite(p.distance_m)&&p.distance_m>=120).slice(0,12)){
+ assert.ok(['limited','corroborated','verified','field_verified'].includes(place.evidence_status),'Unreviewed source record was represented as reviewed geographic truth');
+ assert.equal(place.verified_access,false,'A source place must not automatically certify its entrance');
+ assert.ok(['overture_maps','openstreetmap'].includes(place.source_key),'Non-licensed source leaked into public discovery');
+ const params=new URLSearchParams({origin_lat:String(sourceOrigin.latitude),origin_lon:String(sourceOrigin.longitude),destination_lat:String(place.latitude),destination_lon:String(place.longitude)});
+ try{
+  const result=await getJson(new URL('/api/navigation/route?'+params,backend),1);
+  const route=result.primary;
+  if(result.source!=='osrm'||route?.distanceMeters<=0||route?.geometry?.type!=='LineString'||route.geometry.coordinates.length<2||!Array.isArray(route.maneuvers)||!route.maneuvers.length)continue;
+  const last=route.geometry.coordinates.at(-1);
+  const latDelta=(last[1]-place.latitude)*111000;
+  const lonDelta=(last[0]-place.longitude)*111000*Math.cos(place.latitude*Math.PI/180);
+  const roadSnapDistanceM=Math.hypot(latDelta,lonDelta);
+  // A 500m mismatch may be a legitimate absent access road, but is NOT accepted
+  // as safely reaching that destination. Look for a better proven candidate.
+  if(roadSnapDistanceM>500){lastCandidateError='Road route ends '+Math.round(roadSnapDistanceM)+' m from '+place.name;continue;}
+  acceptedPlace={name:place.name,id:place.id,source:place.source_key,evidence:place.evidence_status,distance:route.distanceMeters,snapDistance:roadSnapDistanceM,turns:route.maneuvers.length};
+  break;
+ }catch(e){lastCandidateError=String(e).slice(0,200);}
+}
+assert.ok(acceptedPlace,'No actual licensed place could be routed to on the live Cameroon graph. '+lastCandidateError);
+console.log('FIND→REACH actual source place: '+JSON.stringify(acceptedPlace)+' · route access/entrance remains unverified');
+console.log('PASS AFAT production two-city road routing AND real licensed-place discovery→routing integration (no field validation)');
+
