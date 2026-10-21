@@ -1,3 +1,11 @@
+# Merged continuation evidence — 2026-10-21
+
+- **PR #159 merged** to master at `216d23c7363457dbd3094c0b562fbfd9b0b68433`; AFAT CI run `39594999141` completed successfully, backend and dashboard. Passenger route fallback now respects offline connectivity and per-account, destination, mode and arrival-point snapshot custody.
+- **PR #160 merged** to master at `64f76a71f835d1f63bddfc8d2d67441f59e8f33d`; AFAT CI run `39595422023` completed successfully, backend and dashboard. Live reroutes replace prior saved offline geometry; FieldEvidenceCapture revalidates captured GPS freshness before entrance/transit submissions. Existing reviewer-governed queue retained.
+- Supabase TRAFFIC `rkijcxxryhfrqsgkwtbu` checked `ACTIVE_HEALTHY`; Atlas graph queried read-only: 839 nodes and 878 edges. These figures demonstrate a stored network, **not** operational street connectivity or valid navigation.
+- Operational status of Find → Understand → Reach → Navigate → Learn: **implemented/tested and merged in constituent parts**, but **not yet accepted end-to-end in production or on target devices**. Paid/private foot service and external walking cutover remain dependent on confirmed Render workspace/capacity. No independent Cloudflare production commit verification or real device/GPS field trial has been recorded.
+- Exact follow-on engineering: independently validate production frontend/backend versions; run real two-city passenger route and nearby-place discovery, then authenticated on-device offline-to-online navigation and field observation review. Complete server-side observed-at custody for queued field evidence, preserve zero automatic verification, and parallelize suitable spatial/transit/AI-CORE work.
+
 # Active continuation — 2026-10-21 Move → Learn integration
 
 - PR #159 merged as `216d23c7363457dbd3094c0b562fbfd9b0b68433` after AFAT CI #612 completed successfully (backend and dashboard). It added offline route custody bound to account, destination, mode and exact arrival point; the planner stops requesting live route services when disconnected. This is **CI-tested source integration**, not a field-validated journey or verified production frontend.
