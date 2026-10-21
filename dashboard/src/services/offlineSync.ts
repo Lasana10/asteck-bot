@@ -1,4 +1,4 @@
-import { authenticatedApiHeaders, getApiBaseUrl } from '../supabaseClient';
+import { authenticatedApiHeaders, getApiBaseUrl, supabase } from '../supabaseClient';
 
 /**
  * AFAT offline mutation queue.
@@ -7,7 +7,32 @@ import { authenticatedApiHeaders, getApiBaseUrl } from '../supabaseClient';
  * contracts. The browser must never bypass AFAT authorization by writing
  * protected operational tables directly with the Supabase client.
  */
-const STORAGE_KEY = 'afat_offline_sync_queue';
+// Legacy unscoped items cannot safely be attributed to an account. Never replay them.
+const LEGACY_STORAGE_KEY = 'afat_offline_sync_queue';
+const STORAGE_PREFIX = 'afat_offline_sync_queue_v2:';
+const MAX_ITEMS = 120;
+const MAX_AGE_MS = 7*24*60*60*1000;
+const MAX_ITEM_BYTES = 32_000;
+let flushing = false;
+async function accountQueueKey():Promise<string>{
+ const {data,error}=await supabase.auth.getUser();
+ if(error||!data.user?.id)throw new Error('Sign in before collecting or replaying offline evidence.');
+ return STORAGE_PREFIX+encodeURIComponent(data.user.id);
+}
+function readQueue(storageKey:string):OfflineMutation[]{
+ try{
+  const parsed=JSON.parse(localStorage.getItem(storageKey)||'[]');
+  if(!Array.isArray(parsed))return [];
+  return parsed.filter((item:any)=>item&&typeof item.id==='string'&&
+   ['INSERT_INCIDENT','VOICE_REPORT_UPLOAD','UPDATE_BOOKING','INSERT_TELEMETRY'].includes(item.type)&&
+   Number.isFinite(item.timestamp)&&item.timestamp<=Date.now()&&
+   Date.now()-item.timestamp<=MAX_AGE_MS&&JSON.stringify(item).length<=MAX_ITEM_BYTES
+  ).slice(0,MAX_ITEMS);
+ }catch{return [];}
+}
+function writeQueue(storageKey:string,queue:OfflineMutation[]){
+ localStorage.setItem(storageKey,JSON.stringify(queue.slice(0,MAX_ITEMS)));
+}
 
 export interface OfflineMutation {
   id: string;
@@ -34,20 +59,19 @@ async function readJsonResponse(response: Response) {
 
 export const offlineSync = {
   async enqueue(type: OfflineMutation['type'], payload: any) {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const queue: OfflineMutation[] = raw ? JSON.parse(raw) : [];
-    queue.push({ id: queueId(), type, payload, timestamp: Date.now() });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-    console.log(`[OfflineSync] Enqueued ${type}. Queue size: ${queue.length}`);
+    const storageKey=await accountQueueKey();
+    const queue=readQueue(storageKey);
+    if(queue.length>=MAX_ITEMS)throw new Error('Offline queue is full. Synchronize before collecting more evidence.');
+    const mutation={id:queueId(),type,payload,timestamp:Date.now()};
+    if(JSON.stringify(mutation).length>MAX_ITEM_BYTES)throw new Error('Offline evidence exceeds safe device storage limit.');
+    writeQueue(storageKey,[...queue,mutation]);
   },
 
   async enqueueBatch(type: OfflineMutation['type'], payloadArray: any[]) {
-    if (payloadArray.length === 0) return;
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const queue: OfflineMutation[] = raw ? JSON.parse(raw) : [];
-    queue.push({ id: queueId(), type, payload: payloadArray, timestamp: Date.now() });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-    console.log(`[OfflineSync] Enqueued batch of ${type} (${payloadArray.length} items).`);
+    if(!payloadArray.length)return;
+    // Individual mutations provide bounded, resumable replay and avoid one
+    // oversized batch making every observation impossible to synchronize.
+    for(const payload of payloadArray)await this.enqueue(type,payload);
   },
 
   async flush() {
@@ -56,14 +80,23 @@ export const offlineSync = {
       return;
     }
 
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const queue: OfflineMutation[] = raw ? JSON.parse(raw) : [];
-    if (queue.length === 0) return;
-
-    const remainingQueue: OfflineMutation[] = [];
+    if(flushing)return;
+    let storageKey:string;
+    try{storageKey=await accountQueueKey();}catch{return;}
+    // Old global queues are quarantined, never silently attributed to a new
+    // signed-in person after a shared-device account switch.
+    if(localStorage.getItem(LEGACY_STORAGE_KEY))localStorage.removeItem(LEGACY_STORAGE_KEY);
+    const queue=readQueue(storageKey);
+    if(!queue.length)return;
+    flushing=true;
+    const remainingQueue:OfflineMutation[]=[];
+    try {
 
     for (const mutation of queue) {
       try {
+        // Stop on account switch during replay, retaining the rest for
+        // the original owner rather than sending it under another token.
+        if(await accountQueueKey()!==storageKey)throw new Error('Account changed during offline replay.');
         const authHeaders = await authenticatedApiHeaders();
 
         if (mutation.type === 'INSERT_INCIDENT') {
@@ -155,7 +188,8 @@ export const offlineSync = {
       }
     }
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(remainingQueue));
+    writeQueue(storageKey,remainingQueue);
+    } finally { flushing=false; }
     console.log(remainingQueue.length === 0
       ? '[OfflineSync] All replayable items synced.'
       : `[OfflineSync] ${remainingQueue.length} item(s) remain queued.`);
