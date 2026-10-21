@@ -18,6 +18,8 @@ interface Departure {
   plate_number: string;
   rating: number;
   occupied_seats?: string[];
+  available_seats?: number;
+  inventory_note?: string;
 }
 
 interface Props {
@@ -75,7 +77,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
       d.origin.toLowerCase().includes(searchQuery.toLowerCase()) || 
       d.destination.toLowerCase().includes(searchQuery.toLowerCase());
     const matchType = filterType === 'all' || d.vehicle_type === filterType;
-    return matchSearch && matchType;
+    return matchSearch && matchType && Number.isFinite(Date.parse(d.departure_time)) && Date.parse(d.departure_time)>Date.now() && (d.available_seats ?? (d.total_seats-d.booked_seats))>0;
   });
 
   const getTimeUntil = (isoTime: string) => {
@@ -166,7 +168,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
         ) : (
           filtered.map(departure => {
             const availability = getAvailability(departure.total_seats, departure.booked_seats);
-            const availableSeats = departure.total_seats - departure.booked_seats;
+            const availableSeats = departure.available_seats ?? (departure.total_seats - departure.booked_seats);
             
             return (
               <button
@@ -213,6 +215,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
                     </div>
                   )}
                 </div>
+                <p className="mt-3 text-[10px] text-slate-400">Places indicatives · disponibilité confirmée uniquement après réservation de siège sécurisée.</p>
               </button>
             );
           })
