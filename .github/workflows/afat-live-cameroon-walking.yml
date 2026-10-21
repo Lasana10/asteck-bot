@@ -9,6 +9,14 @@ on:
 permissions:
   contents: read
 jobs:
+  validate-acceptance-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/verify-live-cameroon-walking.mjs
   live-foot-service:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
