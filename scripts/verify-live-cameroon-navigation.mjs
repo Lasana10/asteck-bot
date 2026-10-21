@@ -34,6 +34,7 @@ for(const {city,a,b} of cities){
  const args=new URLSearchParams({origin_lat:String(a[1]),origin_lon:String(a[0]),destination_lat:String(b[1]),destination_lon:String(b[0])});
  const apiUrl=new URL('/api/navigation/route?'+args,backend);
  const integrated=await getJson(apiUrl);
+ assert.equal(integrated.travel_mode,'driving',city+' backend did not preserve driving mode identity');
  assert.equal(integrated.source,'osrm',city+' AFAT backend not integrated with country engine');
  assert.equal(integrated.traffic_aware,false,city+' cannot claim live traffic');
  const route=integrated.primary;
@@ -46,6 +47,32 @@ for(const {city,a,b} of cities){
  // Geometric and distance continuity: backend must not substitute another route.
  assert.ok(Math.abs(route.distanceMeters-candidate.distance)<Math.max(50,candidate.distance*0.04),city+' backend distance differs materially from OSRM result');
  console.log(city+': LIVE OSRM→AFAT path '+Math.round(route.distanceMeters)+' m / '+Math.round(route.durationValue)+' sec; '+route.geometry.coordinates.length+' GPS geometry points, '+route.maneuvers.length+' provider maneuvers (baseline ETA; no field/traffic validation)');
+}
+// The same passenger backend must never relabel a driving graph as walking.
+// An unavailable foot service is an honest 503, not a fake successful journey.
+for(const {city,a,b} of cities){
+ const params=new URLSearchParams({
+  origin_lat:String(a[1]),origin_lon:String(a[0]),
+  destination_lat:String(b[1]),destination_lon:String(b[0]),mode:'foot'
+ });
+ const url=new URL('/api/navigation/route?'+params,backend);
+ const response=await fetch(url,{headers:{accept:'application/json'},signal:AbortSignal.timeout(45000)});
+ const body=await response.json().catch(()=>null);
+ if(response.status===503){
+  assert.equal(body?.code,'ROUTING_UNAVAILABLE',city+' walking unavailable must fail with explicit unavailable status');
+  console.log(city+': passenger pedestrian route NOT deployed; backend fails closed without inventing walking geometry');
+ } else {
+  assert.equal(response.status,200,city+' walking response invalid: '+response.status);
+  assert.equal(body?.travel_mode,'foot',city+' backend mislabels walking mode');
+  assert.equal(body?.source,'osrm',city+' pedestrian route must use real foot OSRM');
+  const route=body?.primary;
+  assert.ok(route?.distanceMeters>0&&route?.durationValue>0&&
+    route?.geometry?.type==='LineString'&&route.geometry.coordinates.length>=2&&
+    route.geometry.coordinates.every(validPoint),city+' passenger pedestrian geometry invalid');
+  const kmh=3.6*route.distanceMeters/route.durationValue;
+  assert.ok(kmh>0.5&&kmh<12,city+' walking engine returned non-walking speed');
+  console.log(city+': live passenger pedestrian geometry '+Math.round(route.distanceMeters)+' m; crossings and accessibility unverified');
+ }
 }
 // Validate an actual public geospatial discovery → destination → road route.
 // Choose an eligible place returned by the current live database, never a fixture.
