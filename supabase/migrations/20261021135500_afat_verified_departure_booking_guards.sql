@@ -81,7 +81,7 @@ begin
 
   return v_hold;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.afat_create_booking_from_hold(p_passenger_id uuid, p_hold_id uuid)
@@ -143,5 +143,5 @@ begin
   values (v_booking.id, p_passenger_id, 'booking_created', jsonb_build_object('seat', v_hold.seat_label));
   return v_booking;
 end;
-$function$
+$function$;
 
