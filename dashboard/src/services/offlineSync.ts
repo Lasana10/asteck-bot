@@ -93,7 +93,9 @@ export const offlineSync = {
     try{storageKey=await accountQueueKey();}catch{return;}
     // Old global queues are quarantined, never silently attributed to a new
     // signed-in person after a shared-device account switch.
-    if(localStorage.getItem(LEGACY_STORAGE_KEY))localStorage.removeItem(LEGACY_STORAGE_KEY);
+    // Preserve legacy evidence in place for controlled/manual recovery; never
+    // assume its owner or silently delete unsent safety observations.
+    void LEGACY_STORAGE_KEY;
     const queue=readQueue(storageKey);
     if(!queue.length)return;
     flushing=true;
