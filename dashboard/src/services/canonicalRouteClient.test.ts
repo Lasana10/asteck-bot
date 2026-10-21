@@ -12,6 +12,7 @@ vi.mock('./performanceMetrics', () => ({
 }));
 
 import { clearCanonicalRouteCache, fetchCanonicalAfatRoute, routeToLatLngs } from './canonicalRouteClient';
+import {nextRoadManeuver} from './routeGuidance';
 
 const input = {
   originLatitude: 3.866, originLongitude: 11.516,
@@ -22,6 +23,25 @@ beforeEach(() => { clearCanonicalRouteCache(); rpc.mockReset(); metric.mockReset
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('canonical route integration', () => {
+  it('carries real geolocated provider turns from backend to GPS-aware passenger guidance', async () => {
+    rpc.mockResolvedValue({data:{status:'unavailable',mode:'car'},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+      source:'osrm',primary:{
+        summary:'Actual road',distanceMeters:1800,durationValue:240,
+        geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.526,3.866],[11.536,3.866]]},
+        maneuvers:[{latitude:3.866,longitude:11.516,kind:'depart',instruction:'Depart',distanceMeters:800},
+          {latitude:3.866,longitude:11.526,kind:'turn',instruction:'Turn right on Market Street',distanceMeters:900},
+          {latitude:300,longitude:11.5,kind:'invalid',instruction:'Invalid',distanceMeters:1}],
+      },
+    })}));
+    const route=await fetchCanonicalAfatRoute(input);
+    expect(route.maneuvers).toHaveLength(2);
+    const next=nextRoadManeuver(route,{latitude:3.866,longitude:11.522,accuracy:12});
+    expect(next?.instruction).toContain('Turn right');
+    expect(next?.untilM).toBeGreaterThan(0);
+    expect(nextRoadManeuver(route,{latitude:3.866,longitude:11.522,accuracy:180})).toBeNull();
+  });
+
   it('preserves authoritative AFAT route without requesting external routing', async () => {
     rpc.mockResolvedValue({ data: { status: 'ok', mode: 'car', segments: [] }, error: null });
     const network = vi.fn();
