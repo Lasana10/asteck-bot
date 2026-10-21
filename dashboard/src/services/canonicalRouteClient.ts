@@ -3,6 +3,7 @@ import { elapsedMs, performanceNow, recordAfatMetric } from './performanceMetric
 
 export type AfatRouteMode = 'walk' | 'bike' | 'moto' | 'car' | 'minibus';
 
+export type AfatRoadManeuver = {latitude:number;longitude:number;instruction:string;distanceMeters:number;kind:string};
 export type AfatCanonicalRouteSegment = {
   seq: number;
   edge_id: string;
@@ -17,6 +18,7 @@ export type AfatCanonicalRoute = {
   status: 'ok' | 'unavailable';
   route_source?: 'afat_atlas' | 'osrm' | 'google';
   traffic_aware?: boolean;
+  maneuvers?: AfatRoadManeuver[];
   mode: AfatRouteMode;
   reason?: string;
   distance_m?: number;
@@ -84,6 +86,14 @@ async function externalCarRoute(input: RouteInput): Promise<AfatCanonicalRoute |
       distance_m: Number.isFinite(distanceM) && distanceM >= 0 ? distanceM : undefined,
       eta_seconds: Number.isFinite(duration) && duration > 0 ? duration : null,
       eta_reason: 'baseline_no_live_traffic',
+      maneuvers: Array.isArray(primary.maneuvers) ? primary.maneuvers.slice(0,300).filter((m:unknown)=>{
+        if(!m||typeof m!=='object')return false;
+        const item=m as Record<string,unknown>;
+        return typeof item.latitude==='number'&&Number.isFinite(item.latitude)&&Math.abs(item.latitude)<=90&&
+          typeof item.longitude==='number'&&Number.isFinite(item.longitude)&&Math.abs(item.longitude)<=180&&
+          typeof item.instruction==='string'&&item.instruction.length>0&&item.instruction.length<=180&&
+          typeof item.distanceMeters==='number'&&Number.isFinite(item.distanceMeters)&&item.distanceMeters>=0;
+      }) : [],
       segments: [{
         seq: 0,
         edge_id: 'external-road-route',
