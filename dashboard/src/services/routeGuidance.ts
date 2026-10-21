@@ -139,3 +139,19 @@ export function formatRouteProgress(progress: AfatRouteProgress | null) {
     : `${(progress.remainingDistanceM / 1000).toFixed(1)} km`;
   return { percent: pct, remaining, offRoute: progress.offRoute, confidence: progress.confidence };
 }
+
+/** Provider-supplied maneuvers only. Never invent turns from map geometry.
+ * Orders turns by their projected position along the actual routed geometry. */
+export function nextRoadManeuver(route: AfatCanonicalRoute | null | undefined, position: RoutePosition) {
+  if (!route || route.status !== 'ok' || !['osrm','google'].includes(String(route.route_source)) ||
+    !Array.isArray(route.maneuvers) || !route.maneuvers.length) return null;
+  const current=calculateRouteProgress(route,position);
+  if (!current || current.offRoute || current.confidence==='low') return null;
+  const remaining=route.maneuvers.flatMap((step,index)=>{
+    if(!Number.isFinite(step.latitude)||!Number.isFinite(step.longitude)||!step.instruction)return [];
+    const at=calculateRouteProgress(route,{latitude:step.latitude,longitude:step.longitude,accuracy:5});
+    if(!at||at.nearestDistanceM>120||at.travelledDistanceM<current.travelledDistanceM-20)return [];
+    return [{...step,index,untilM:Math.max(0,at.travelledDistanceM-current.travelledDistanceM)}];
+  }).sort((a,b)=>a.untilM-b.untilM);
+  return remaining[0]||null;
+}

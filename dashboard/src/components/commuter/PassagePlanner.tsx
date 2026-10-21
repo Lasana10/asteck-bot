@@ -34,6 +34,7 @@ import {
   type AfatReachabilityAssessment,
 } from '../../services/mobilityEvidenceClient';
 import { decideReroute, formatRouteProgress, type AfatRouteProgress } from '../../services/routeGuidance';
+import {nextRoadInstruction} from '../../services/providerTurnGuidance';
 import {storeOfflineJourneyRoute,loadOfflineJourneyRoute,clearOfflineJourneyRoute} from '../../services/offlineJourneyRoute';
 import {searchCachedPlaces, type AfatOfflinePlace} from '../../services/offlineSpatialCache';
 
@@ -264,6 +265,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const journeyDecision = useMemo(() => chooseJourneyDecision(routeOptions, preflight), [routeOptions, preflight]);
   const routingOrigin = routeOriginFix || originFix;
   const progressCopy = useMemo(() => formatRouteProgress(routeProgress), [routeProgress]);
+  const upcomingTurn=useMemo(()=>navigationActive&&originFix&&canonicalRoute
+    ?nextRoadInstruction(canonicalRoute,{latitude:originFix.latitude,longitude:originFix.longitude,accuracy:originFix.accuracy})
+    :null,[navigationActive,originFix?.latitude,originFix?.longitude,originFix?.accuracy,canonicalRoute]);
   const cityKey = preferredCityKey(profile);
 
   useEffect(() => {
@@ -925,6 +929,11 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     {navigationActive && (
       <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-400/[0.07] p-4">
+        {upcomingTurn&&<div className="mb-3 rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-3" aria-live="polite">
+          <p className="text-[9px] font-black uppercase tracking-widest text-cyan-200">Provider road turn · {Math.round(upcomingTurn.distanceM)} m ahead</p>
+          <p className="mt-1 text-sm font-bold text-white">{upcomingTurn.instruction}</p>
+          <p className="mt-1 text-[9px] text-white/45">From recorded routing geometry. Not a verified road condition or safe entrance.</p>
+        </div>}
         <div className="flex items-start justify-between gap-4">
           <div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Live journey runtime</p><p className="mt-1 text-sm font-black text-white">Navigating to {selectedPlace?.name}</p><p className="mt-1 text-[10px] text-white/45">{navigationSamples} live position update{navigationSamples === 1 ? '' : 's'} processed{progressCopy ? ` · ${progressCopy.percent}% route progress · ${progressCopy.remaining} remaining` : ''}.</p>{routeProgress?.offRoute ? <p className="mt-1 text-[10px] font-bold text-amber-200">Off-route signal · {Math.round(routeProgress.nearestDistanceM)} m from path · GPS confidence {routeProgress.confidence}</p> : null}</div>
           <button type="button" onClick={stopNavigation} className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 text-[9px] font-black uppercase text-rose-100"><Square className="h-3.5 w-3.5"/>Stop</button>
@@ -944,7 +953,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
           {([['walk', Footprints, 'Walk'], ['moto', Bike, 'Moto'], ['car', Car, 'Taxi / car'], ['minibus', Navigation2, 'Shared']] as const).map(([mode, Icon, label]) => {
             const option = routeOptions[mode]; const available = option?.status === 'ok'; const selected = vehicleType === mode; const km = Number(option?.distance_m || 0) / 1000; const dispatchable = mode !== 'walk';
             return <button key={mode} type="button" disabled={!available} onClick={() => { setVehicleType(mode); setCanonicalRoute(option || null); setRouteMessage(routeMessageFor(option || null)); }} className={`rounded-2xl border p-3 text-left transition disabled:opacity-35 ${selected ? 'border-cyan-300/45 bg-cyan-400/12' : 'border-white/10 bg-white/[0.025]'}`}>
-              <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} /><p className="mt-3 text-xs font-black text-white">{label}</p><p className="mt-1 text-[9px] leading-4 text-white/40">{!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + ' min observed' : option.eta_profile_coverage ? Math.round(Number(option.eta_profile_coverage) * 100) + '% ETA evidence' : 'ETA learning'}` : 'No connected path'}</p>
+              <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} /><p className="mt-3 text-xs font-black text-white">{label}</p><p className="mt-1 text-[9px] leading-4 text-white/40">{!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + (option.route_source==='osrm'||option.route_source==='google'?' min baseline':' min evidence ETA') : option.eta_profile_coverage ? Math.round(Number(option.eta_profile_coverage) * 100) + '% ETA evidence' : 'ETA learning'}` : 'No connected path'}</p>
               {available && dispatchable && preflight[mode] && <div className="mt-2 space-y-1 text-[8px] font-bold uppercase tracking-wide"><p className={preflight[mode]?.supply?.observed > 0 ? 'text-emerald-200' : 'text-amber-200'}>{preflight[mode]?.supply?.observed > 0 ? `${preflight[mode].supply.observed} live supply observed` : 'No live supply observed'}</p><p className="text-white/35">{preflight[mode]?.fare?.state === 'historical_range' ? `${preflight[mode].fare.low}–${preflight[mode].fare.high} XAF historical · not final` : 'Fare evidence insufficient'}</p></div>}
             </button>;
           })}

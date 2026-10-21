@@ -3,6 +3,10 @@ import { elapsedMs, performanceNow, recordAfatMetric } from './performanceMetric
 
 export type AfatRouteMode = 'walk' | 'bike' | 'moto' | 'car' | 'minibus';
 
+export type AfatRoadManeuver = {latitude:number;longitude:number;instruction:string;distanceMeters:number;kind:string};
+export type AfatRoadManeuver = {
+ latitude:number; longitude:number; instruction:string; distanceMeters:number; kind:string;
+};
 export type AfatCanonicalRouteSegment = {
   seq: number;
   edge_id: string;
@@ -17,6 +21,7 @@ export type AfatCanonicalRoute = {
   status: 'ok' | 'unavailable';
   route_source?: 'afat_atlas' | 'osrm' | 'google';
   traffic_aware?: boolean;
+  maneuvers?: AfatRoadManeuver[];
   mode: AfatRouteMode;
   reason?: string;
   distance_m?: number;
@@ -32,6 +37,7 @@ export type AfatCanonicalRoute = {
   origin?: { atlas_node_id: string; name?: string | null; snap_distance_m: number; latitude: number; longitude: number };
   destination?: { atlas_node_id: string; name?: string | null; snap_distance_m: number; latitude: number; longitude: number };
   segments?: AfatCanonicalRouteSegment[];
+  maneuvers?: AfatRoadManeuver[];
 };
 
 type RouteInput = {
@@ -72,6 +78,16 @@ async function externalCarRoute(input: RouteInput): Promise<AfatCanonicalRoute |
       Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90)) return null;
     if (typeof primary.distanceMeters !== 'number' || !Number.isFinite(primary.distanceMeters) || primary.distanceMeters <= 0 ||
         typeof primary.durationValue !== 'number' || !Number.isFinite(primary.durationValue) || primary.durationValue <= 0) return null;
+    const maneuvers:AfatRoadManeuver[] = Array.isArray(primary.maneuvers)
+      ? primary.maneuvers.slice(0,300).flatMap((step:unknown)=>{
+        if(!step||typeof step!=='object')return [];
+        const m=step as Record<string,unknown>;
+        const latitude=Number(m.latitude),longitude=Number(m.longitude),distance=Number(m.distanceMeters);
+        const instruction=typeof m.instruction==='string'?m.instruction.trim():'';
+        if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180||
+          !instruction||instruction.length>180||!Number.isFinite(distance)||distance<0)return [];
+        return [{latitude,longitude,distanceMeters:distance,instruction,kind:String(m.kind||'continue').slice(0,48)}];
+      }):[];
     const duration = primary.durationValue;
     const steps = coordinates.map((point: number[]) => [point[0], point[1]]);
     const distanceM = primary.distanceMeters;
@@ -80,10 +96,19 @@ async function externalCarRoute(input: RouteInput): Promise<AfatCanonicalRoute |
       mode: 'car',
       route_source: data.source === 'google' ? 'google' : 'osrm',
       traffic_aware: false,
+      maneuvers,
       reason: 'unverified_external_road_route',
       distance_m: Number.isFinite(distanceM) && distanceM >= 0 ? distanceM : undefined,
       eta_seconds: Number.isFinite(duration) && duration > 0 ? duration : null,
       eta_reason: 'baseline_no_live_traffic',
+      maneuvers: Array.isArray(primary.maneuvers) ? primary.maneuvers.slice(0,300).filter((m:unknown)=>{
+        if(!m||typeof m!=='object')return false;
+        const item=m as Record<string,unknown>;
+        return typeof item.latitude==='number'&&Number.isFinite(item.latitude)&&Math.abs(item.latitude)<=90&&
+          typeof item.longitude==='number'&&Number.isFinite(item.longitude)&&Math.abs(item.longitude)<=180&&
+          typeof item.instruction==='string'&&item.instruction.length>0&&item.instruction.length<=180&&
+          typeof item.distanceMeters==='number'&&Number.isFinite(item.distanceMeters)&&item.distanceMeters>=0;
+      }) : [],
       segments: [{
         seq: 0,
         edge_id: 'external-road-route',
