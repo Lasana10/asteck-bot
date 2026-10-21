@@ -1056,7 +1056,8 @@ router.post('/fare/driver-post', async (req: Request, res: Response) => {
     res.status(201).json({
       success: true,
       offer: data,
-      message: `Offer posted: ${origin} → ${destination} at ${price} XAF. Passengers can now book you.`
+      bookable_departure: false,
+      message: `Negotiable offer posted: ${origin} → ${destination} at ${price} XAF. Seat bookings require a separately published, approved scheduled departure.`
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Driver offer posting failed' });
