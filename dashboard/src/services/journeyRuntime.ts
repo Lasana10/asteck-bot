@@ -39,6 +39,7 @@ export type AfatJourneyRuntimeSnapshot = {
   lastPosition?: AfatRuntimePosition | null;
   sampleCount: number;
   serverSessionId?: string | null;
+  clientStartKey?: string | null;
   serverSyncState?: 'idle' | 'starting' | 'active' | 'offline' | 'finished' | 'failed';
   lastServerSyncAt?: string | null;
   pendingSampleCount?: number;
@@ -150,12 +151,16 @@ export function loadJourneyRuntime(): AfatJourneyRuntimeSnapshot | null {
 }
 
 async function ensureServerSession(current: AfatJourneyRuntimeSnapshot) {
-  if (current.serverSessionId || current.state !== 'navigating') return current;
+  if (current.serverSessionId || !['navigating','arrived','cancelled'].includes(current.state) || !current.startedAt) return current;
   const destinationLatitude = validNumber(current.destinationLatitude);
   const destinationLongitude = validNumber(current.destinationLongitude);
   if (destinationLatitude == null || destinationLongitude == null || !current.placeId) return current;
+  if(!current.clientStartKey){
+    current={...current,clientStartKey:crypto.randomUUID()};
+    persist(current);
+  }
   persist({ ...current, serverSyncState: 'starting', pendingSampleCount: readQueue().samples.length, updatedAt: new Date().toISOString() });
-  const { data, error } = await supabase.rpc('afat_start_navigation_session', {
+  const { data, error } = await supabase.rpc('afat_start_navigation_session_once', {
     p_city_key: current.cityKey || 'cm-yaounde',
     p_place_id: current.placeId,
     p_access_point_id: current.accessPointId || null,
@@ -165,6 +170,7 @@ async function ensureServerSession(current: AfatJourneyRuntimeSnapshot) {
     p_destination_latitude: destinationLatitude,
     p_destination_longitude: destinationLongitude,
     p_route_distance_m: current.routeDistanceM ?? null,
+    p_client_start_key: current.clientStartKey,
   });
   if (error || !data?.id) throw new Error(error?.message || 'Navigation evidence session could not start');
   return persist({
@@ -198,13 +204,21 @@ async function flushQueuedSamples(current: AfatJourneyRuntimeSnapshot) {
       p_idempotency_key: item.key,
     });
     if (error) {
-      queue.samples[0] = { ...item, attempts: item.attempts + 1 };
-      writeQueue(queue);
+      const fresh=readQueue();
+      if(fresh.journeyStartedAt===queue.journeyStartedAt){
+        fresh.samples=fresh.samples.map(sample=>sample.key===item.key?{...sample,attempts:sample.attempts+1}:sample);
+        writeQueue(fresh);
+      }
       throw new Error(error.message || 'Navigation sample could not sync');
     }
-    // Quality/outlier rejections are terminal for this sample; retrying cannot improve the observation.
-    queue.samples.shift();
-    writeQueue(queue);
+    // Remove only this acknowledged key from the freshest queue, preserving GPS
+    // positions captured during an in-flight network request.
+    const fresh=readQueue();
+    if(fresh.journeyStartedAt===queue.journeyStartedAt){
+      fresh.samples=fresh.samples.filter(sample=>sample.key!==item.key);
+      writeQueue(fresh);
+    }
+    queue=readQueue();
     processed += 1;
     if (data?.accepted === false && !data?.reason) break;
   }
@@ -232,6 +246,11 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
   syncInFlight = true;
   try {
     let current = loadJourneyRuntime() || snapshot;
+    const {data:identity,error:identityError}=await supabase.auth.getUser();
+    if(identityError||!identity.user?.id||identity.user.id!==current.profileId){
+      // No cross-account GPS upload or session creation on shared devices.
+      return;
+    }
     current = await ensureServerSession(current);
 
     if (current.serverSessionId) {
@@ -272,6 +291,14 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
   }
 }
 
+/** Trigger an explicit same-account reconnect after app foreground/auth changes.
+ * The same routine is used by automatic network restoration. */
+export async function reconcileJourneyRuntime() {
+  const latest=loadJourneyRuntime();
+  if(latest)await syncJourneyRuntime(latest);
+  return loadJourneyRuntime();
+}
+
 export function saveJourneyRuntime(
   patch: Partial<AfatJourneyRuntimeSnapshot>,
   fallbackState: AfatJourneyRuntimeState = 'idle',
@@ -297,6 +324,7 @@ export function saveJourneyRuntime(
     lastPosition: patch.lastPosition ?? current?.lastPosition ?? null,
     sampleCount: Number.isFinite(Number(patch.sampleCount)) ? Number(patch.sampleCount) : Number(current?.sampleCount || 0),
     serverSessionId: startingNewJourney ? null : (patch.serverSessionId ?? current?.serverSessionId ?? null),
+    clientStartKey: startingNewJourney ? crypto.randomUUID() : (patch.clientStartKey ?? current?.clientStartKey ?? (patch.startedAt ? crypto.randomUUID() : null)),
     serverSyncState: startingNewJourney ? 'idle' : (patch.serverSyncState ?? current?.serverSyncState ?? 'idle'),
     lastServerSyncAt: startingNewJourney ? null : (patch.lastServerSyncAt ?? current?.lastServerSyncAt ?? null),
     updatedAt: new Date().toISOString(),
@@ -311,8 +339,13 @@ export function saveJourneyRuntime(
 
 export function clearJourneyRuntime(state: 'idle' | 'cancelled' = 'idle') {
   const previous = loadJourneyRuntime();
-  if (state === 'cancelled' && previous?.serverSessionId) {
-    const cancelled = persist({ ...previous, state: 'cancelled', pendingSampleCount: readQueue().samples.length, updatedAt: new Date().toISOString() });
+  if (state === 'cancelled' && previous?.startedAt && previous.profileId &&
+      ['navigating','arriving','route_ready'].includes(previous.state)) {
+    // Keep offline samples and original client start key even if the server
+    // never acknowledged the start. Reconnect creates the SAME session first,
+    // ingests the original samples, then sends the cancellation receipt.
+    const cancelled = persist({ ...previous, state: 'cancelled',
+      pendingSampleCount: readQueue().samples.length, updatedAt: new Date().toISOString() });
     void syncJourneyRuntime(cancelled);
     return cancelled;
   }
