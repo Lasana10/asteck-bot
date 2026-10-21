@@ -148,5 +148,23 @@ for(const path of ['/api/booking/seat-hold','/api/booking/create-from-hold']){
  console.log('PASS anonymous booking mutation denied:',path,'HTTP',response.status);
 }
 
+// Test real production auth boundaries without registering vehicles or
+// supplying compliance documents. A 404 means backend is stale, NOT accepted.
+for(const item of [
+ {path:'/api/onboard/vehicle/register',method:'POST',payload:{plate_number:'NOT-A-REAL-REGISTRATION',vehicle_type:'taxi',capacity:4}},
+ {path:'/api/mobility/departures/publish',method:'POST',payload:{vehicle_id:'00000000-0000-0000-0000-000000000000'}},
+ {path:'/api/mobility/vehicle-clearance/queue',method:'GET'},
+ {path:'/api/mobility/vehicle-clearance/00000000-0000-0000-0000-000000000000/review',method:'POST',payload:{decision:'verified',reason:'no genuine evidence or authorization'}},
+]){
+ const response=await fetch(new URL(item.path,backend),{
+  method:item.method,
+  headers:{accept:'application/json','content-type':'application/json'},
+  ...(item.method==='POST'?{body:JSON.stringify(item.payload)}:{}),
+  signal:AbortSignal.timeout(25000),
+ });
+ assert.equal(response.status,401,'Unauthenticated vehicle/operator mutation or protected queue not denied (404 indicates stale backend): '+item.path);
+ console.log('PASS production anonymous fleet/approval boundary:',item.path,'HTTP 401');
+}
+
 console.log('PASS AFAT production two-city road routing AND real licensed-place discovery→routing integration (no field validation)');
 
