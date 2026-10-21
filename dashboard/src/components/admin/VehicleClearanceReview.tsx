@@ -67,8 +67,8 @@ export function VehicleClearanceReview(){
      <div className="mt-2 flex flex-wrap gap-2">
       <button type="button" disabled={busy||!eligible||item.clearance_status==='verified'}
        onClick={()=>void decide(item.id,'verified')} className="rounded-lg bg-emerald-300 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-30">Approve after inspection</button>
-      <button type="button" disabled={busy||item.clearance_status==='needs_followup'} onClick={()=>void decide(item.id,'needs_followup')} className="rounded-lg border border-amber-200/25 px-3 py-2 text-xs disabled:opacity-30">Need evidence</button>
-      <button type="button" disabled={busy||item.clearance_status==='rejected'} onClick={()=>void decide(item.id,'rejected')} className="rounded-lg border border-rose-200/25 px-3 py-2 text-xs disabled:opacity-30">Reject</button>
+      <button type="button" disabled={busy||item.clearance_status==='under_review'} onClick={()=>void decide(item.id,'under_review')} className="rounded-lg border border-amber-200/25 px-3 py-2 text-xs disabled:opacity-30">Need evidence</button>
+      <button type="button" disabled={busy||item.clearance_status==='restricted'} onClick={()=>void decide(item.id,'restricted')} className="rounded-lg border border-rose-200/25 px-3 py-2 text-xs disabled:opacity-30">Reject</button>
      </div>
     </article>;
    })}
