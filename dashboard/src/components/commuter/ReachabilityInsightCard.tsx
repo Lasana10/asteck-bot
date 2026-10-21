@@ -24,17 +24,22 @@ export function ReachabilityInsightCard({
   assessment,
   multimodal,
   loading = false,
+  limited = false,
+  cityKey = 'cm-yaounde',
 }: {
   assessment?: AfatReachabilityAssessment | null;
   multimodal?: AfatMultimodalPlan | null;
   loading?: boolean;
+  limited?: boolean;
+  cityKey?: string;
 }) {
-  if (!assessment && !multimodal && !loading) return null;
+  if (!assessment && !multimodal && !loading && !limited) return null;
   const reliability = Math.max(0, Math.min(100, Number(assessment?.reliability_score || 0)));
   const strong = assessment?.state === 'reachable_high_confidence';
   const connected = String(assessment?.state || '').startsWith('reachable');
   const chain = multimodal?.multimodal_chain;
-  const canContribute = Boolean(assessment?.place_id && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
+  const evidencePlaceId = assessment?.place_id || multimodal?.place_id;
+  const canContribute = Boolean(evidencePlaceId && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
 
   return (
     <div className="rounded-2xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[0.07] via-slate-950/70 to-emerald-400/[0.04] p-4">
@@ -43,11 +48,13 @@ export function ReachabilityInsightCard({
           <p className="text-[9px] font-black uppercase tracking-[0.18em] text-cyan-200/70">Can I really get there?</p>
           <div className="mt-2 flex items-center gap-2">
             {strong ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : connected ? <Route className="h-4 w-4 text-cyan-300" /> : <AlertTriangle className="h-4 w-4 text-amber-300" />}
-            <p className="text-sm font-black text-white">{loading ? 'Checking live reachability…' : labelForState(assessment?.state)}</p>
+            <p className="text-sm font-black text-white">{loading ? 'Checking live reachability…' : assessment ? labelForState(assessment.state) : multimodal ? 'Transport observations available · access unconfirmed' : 'Live mobility assessment unavailable'}</p>
           </div>
         </div>
         {assessment && <div className="min-w-[74px] rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-right"><p className="text-lg font-black text-white">{Math.round(reliability)}</p><p className="text-[8px] font-black uppercase text-white/35">reliability</p></div>}
       </div>
+
+      {limited && !loading && <p role="status" className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2 text-[10px] leading-4 text-amber-100/85">Some current geographic or informal transport evidence could not be checked. Available observations remain advisory; missing information is not proof of access, service or safety.</p>}
 
       {assessment && <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${reliability}%` }} /></div>}
 
@@ -65,6 +72,7 @@ export function ReachabilityInsightCard({
         <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
           <div className="flex items-center gap-2"><Footprints className="h-4 w-4 text-violet-200"/><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Observed multimodal option</p></div>
           <p className="mt-2 text-xs font-black text-white">Walk → {chain.line?.name || chain.line?.mode || 'transit'} → Walk</p>
+          <p className="mt-1 text-[10px] leading-4 text-amber-200/75">Observed transfer possibility only; walking connections and boarding availability have not been independently confirmed.</p>
           <p className="mt-1 text-[10px] leading-4 text-white/45">Board at {chain.boarding?.name || 'observed stop'} · leave at {chain.alighting?.name || 'observed stop'}.</p>
           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-bold text-white/55">
             {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min observed wait</span>}
@@ -79,7 +87,7 @@ export function ReachabilityInsightCard({
         </div>
       )}
 
-      {canContribute && assessment?.place_id && <FieldEvidenceCapture placeId={assessment.place_id} placeName={assessment.name} />}
+      {canContribute && evidencePlaceId && <FieldEvidenceCapture placeId={evidencePlaceId} placeName={assessment?.name} cityKey={cityKey} />}
     </div>
   );
 }

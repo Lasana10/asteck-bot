@@ -28,8 +28,7 @@ import {
   type AfatJourneyRuntimeSnapshot,
 } from '../../services/journeyRuntime';
 import {
-  assessPlaceReachability,
-  planMultimodalJourney,
+  resolveJourneyMobilityIntelligence,
   recordMobilityGap,
   type AfatMultimodalPlan,
   type AfatReachabilityAssessment,
@@ -197,6 +196,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [routeProgress, setRouteProgress] = useState<AfatRouteProgress | null>(null);
   const [reachability, setReachability] = useState<AfatReachabilityAssessment | null>(null);
   const [multimodal, setMultimodal] = useState<AfatMultimodalPlan | null>(null);
+  const [intelligenceLimited,setIntelligenceLimited]=useState(false);
   const [intelligenceLoading, setIntelligenceLoading] = useState(false);
   const [resumeSnapshot, setResumeSnapshot] = useState<AfatJourneyRuntimeSnapshot | null>(() => loadJourneyRuntime());
   const lastRerouteAtRef = useRef<number | null>(null);
@@ -392,53 +392,51 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   }, [selectedPlace?.id, selectedAccessPoint?.id, selectedMeetingPoint?.id, originFix?.latitude, originFix?.longitude, canonicalRoute?.status, canonicalRoute?.distance_m, vehicleType, intentType, navigationActive, cityKey]);
 
   useEffect(() => {
-    let active = true;
-    if (!selectedPlace?.id || !originFix) {
-      setReachability(null);
-      setMultimodal(null);
+    let active=true;
+    // Offline discovery and cached route guidance still work, but a live
+    // reachability/transit assessment cannot be inferred from old conditions.
+    setReachability(null);
+    setMultimodal(null);
+    setIntelligenceLimited(false);
+    if(!selectedPlace?.id||!originFix||!online){
       setIntelligenceLoading(false);
-      return;
+      if(selectedPlace?.id&&!online)setIntelligenceLimited(true);
+      return ()=>{active=false;};
     }
     setIntelligenceLoading(true);
-    Promise.all([
-      assessPlaceReachability({ placeId: selectedPlace.id, originLatitude: originFix.latitude, originLongitude: originFix.longitude, mode: vehicleType }),
-      planMultimodalJourney({ placeId: selectedPlace.id, originLatitude: originFix.latitude, originLongitude: originFix.longitude }),
-    ]).then(([assessment, plan]) => {
-      if (!active) return;
+    void resolveJourneyMobilityIntelligence({
+      placeId:selectedPlace.id,
+      originLatitude:originFix.latitude,
+      originLongitude:originFix.longitude,
+      mode:vehicleType,
+    }).then(({assessment,plan,partial})=>{
+      if(!active)return;
       setReachability(assessment);
       setMultimodal(plan);
-      if (assessment.missing_evidence?.includes('verified_access_or_entrance')) {
-        recordGapOnce(`access:${selectedPlace.id}`, {
-          cityKey,
-          signalType: 'access_gap',
-          label: `${selectedPlace.name} · entrance/access evidence missing`,
-          placeId: selectedPlace.id,
-          mode: vehicleType,
-          latitude: Number(selectedPlace.latitude),
-          longitude: Number(selectedPlace.longitude),
-          metadata: { reachability_state: assessment.state, reliability_score: assessment.reliability_score },
+      setIntelligenceLimited(partial);
+      if(assessment?.missing_evidence?.includes('verified_access_or_entrance')){
+        recordGapOnce(`access:${selectedPlace.id}`,{
+          cityKey,signalType:'access_gap',
+          label:`${selectedPlace.name} · entrance/access evidence missing`,
+          placeId:selectedPlace.id,mode:vehicleType,
+          latitude:Number(selectedPlace.latitude),longitude:Number(selectedPlace.longitude),
+          metadata:{reachability_state:assessment.state,reliability_score:assessment.reliability_score},
         });
       }
-      if ((intentType === 'board' || vehicleType === 'minibus') && plan.multimodal_chain_status === 'insufficient_transit_evidence') {
-        recordGapOnce(`transit:${selectedPlace.id}`, {
-          cityKey,
-          signalType: 'transit_gap',
-          label: `${selectedPlace.name} · transit evidence insufficient`,
-          placeId: selectedPlace.id,
-          mode: vehicleType,
-          latitude: Number(selectedPlace.latitude),
-          longitude: Number(selectedPlace.longitude),
-          metadata: { multimodal_chain_status: plan.multimodal_chain_status },
+      if((intentType==='board'||vehicleType==='minibus')&&plan?.multimodal_chain_status==='insufficient_transit_evidence'){
+        recordGapOnce(`transit:${selectedPlace.id}`,{
+          cityKey,signalType:'transit_gap',
+          label:`${selectedPlace.name} · transit evidence insufficient`,
+          placeId:selectedPlace.id,mode:vehicleType,
+          latitude:Number(selectedPlace.latitude),longitude:Number(selectedPlace.longitude),
+          metadata:{multimodal_chain_status:plan.multimodal_chain_status},
         });
       }
-    }).catch(() => {
-      if (active) {
-        setReachability(null);
-        setMultimodal(null);
-      }
-    }).finally(() => { if (active) setIntelligenceLoading(false); });
-    return () => { active = false; };
-  }, [selectedPlace?.id, originFix?.latitude, originFix?.longitude, vehicleType, intentType, cityKey]);
+    }).catch(()=>{
+      if(active)setIntelligenceLimited(true);
+    }).finally(()=>{if(active)setIntelligenceLoading(false);});
+    return ()=>{active=false;};
+  },[selectedPlace?.id,originFix?.latitude,originFix?.longitude,vehicleType,intentType,cityKey,online]);
 
   useEffect(() => {
     let active = true;
@@ -960,7 +958,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     {selectedPlace && originFix && (
       <div className="mt-4">
-        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} loading={intelligenceLoading} />
+        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} loading={intelligenceLoading} limited={intelligenceLimited} cityKey={cityKey} />
       </div>
     )}
 

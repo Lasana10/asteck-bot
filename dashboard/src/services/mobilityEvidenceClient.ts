@@ -243,3 +243,17 @@ export async function planMultimodalJourney(input: {
 export function pendingMobilityEvidenceCount() {
   return currentPending();
 }
+
+/** Keep independently available reachability and informal-transit knowledge.
+ * A failure in either RPC must not erase the other's real observations. */
+export async function resolveJourneyMobilityIntelligence(input:{
+  placeId:string;originLatitude:number;originLongitude:number;mode:string;
+}):Promise<{assessment:AfatReachabilityAssessment|null;plan:AfatMultimodalPlan|null;partial:boolean}>{
+  const [reach,transit]=await Promise.allSettled([
+    assessPlaceReachability(input),
+    planMultimodalJourney(input),
+  ]);
+  const assessment=reach.status==='fulfilled'?reach.value:null;
+  const plan=transit.status==='fulfilled'?transit.value:null;
+  return {assessment,plan,partial:reach.status==='rejected'||transit.status==='rejected'};
+}
