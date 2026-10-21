@@ -10,6 +10,9 @@ on:
     paths:
       - 'scripts/verify-live-cameroon-navigation.mjs'
       - '.github/workflows/afat-live-cameroon-navigation.yml'
+  schedule:
+    # Detect routing outages after free-tier cold starts, without paid polling.
+    - cron: '17 1,9,17 * * *'
   workflow_dispatch:
 permissions:
   contents: read
