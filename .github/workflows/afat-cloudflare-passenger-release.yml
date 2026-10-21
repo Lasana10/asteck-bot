@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/afat-cloudflare-passenger-release.yml'
       - 'scripts/verify-cloudflare-passenger-atlas.mjs'
+      - 'dashboard/src/components/commuter/PassengerSpatialMap.tsx'
+      - 'dashboard/src/services/routeGuidance.ts'
   workflow_dispatch:
 
 permissions:

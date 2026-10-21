@@ -1,6 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {storeOfflineJourneyRoute,loadOfflineJourneyRoute,clearOfflineJourneyRoute,routeCanBeKeptOffline} from './offlineJourneyRoute';
 import type {AfatCanonicalRoute} from './canonicalRouteClient';
+import {nextRoadManeuver} from './routeGuidance';
 
 function memory():Storage{const m=new Map<string,string>();return {
  get length(){return m.size;},key(i){return [...m.keys()][i]??null;},
@@ -13,6 +14,23 @@ const route:AfatCanonicalRoute={status:'ok',mode:'car',route_source:'osrm',traff
 }]};
 const journey={profileId:'alice',placeId:'place-1',placeName:'Destination',latitude:3.875,longitude:11.526,mode:'car' as const,intentType:'go',route};
 describe('end-to-end offline route geometry custody',()=>{
+ it('preserves provider turns through a lost-network journey and resumes GPS guidance',()=>{
+  const store=memory();
+  const routed:AfatCanonicalRoute={...route,
+    segments:[{seq:0,edge_id:'external-road-route',distance_m:2171,
+      geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.526,3.866],[11.536,3.866]]}}],
+    maneuvers:[
+      {latitude:3.866,longitude:11.516,instruction:'Depart',kind:'depart',distanceMeters:1000},
+      {latitude:3.866,longitude:11.526,instruction:'Turn right',kind:'turn',distanceMeters:1171},
+    ]};
+  expect(storeOfflineJourneyRoute({...journey,route:routed},store)).toBe(true);
+  const resumed=loadOfflineJourneyRoute('alice','place-1',store);
+  expect(resumed?.route.maneuvers).toHaveLength(2);
+  const instruction=nextRoadManeuver(resumed?.route,{latitude:3.866,longitude:11.522,accuracy:12});
+  expect(instruction?.instruction).toBe('Turn right');
+  expect(nextRoadManeuver(resumed?.route,{latitude:3.866,longitude:11.522,accuracy:180})).toBeNull();
+ });
+
  it('restores a real route for same account and destination without network requests',()=>{
   const s=memory();expect(storeOfflineJourneyRoute(journey,s)).toBe(true);
   const loaded=loadOfflineJourneyRoute('alice','place-1',s);
