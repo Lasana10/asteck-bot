@@ -186,6 +186,13 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [preflight, setPreflight] = useState<Record<string, any>>({});
   const [navigationActive, setNavigationActive] = useState(false);
+  const [online,setOnline] = useState(() => typeof navigator==='undefined'||navigator.onLine);
+  useEffect(()=>{
+    const update=()=>setOnline(navigator.onLine);
+    window.addEventListener('online',update);
+    window.addEventListener('offline',update);
+    return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
   const [navigationSamples, setNavigationSamples] = useState(0);
   const [routeProgress, setRouteProgress] = useState<AfatRouteProgress | null>(null);
   const [reachability, setReachability] = useState<AfatReachabilityAssessment | null>(null);
@@ -283,7 +290,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       setRouteMessage('');
       return;
     }
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (!online) {
       // Do not repeatedly call Supabase or OSRM while disconnected, and never
       // substitute a different mode or arrival point from the saved journey.
       const cached=navigationActive ? loadOfflineJourneyRoute(
@@ -349,7 +356,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       }
     }).finally(() => { if (active) setRouteLoading(false); });
     return () => { active = false; };
-  }, [routingOrigin?.latitude, routingOrigin?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, navigationActive, vehicleType, selectedPlace?.id, cityKey]);
+  }, [routingOrigin?.latitude, routingOrigin?.longitude, arrivalPoint?.latitude, arrivalPoint?.longitude, navigationActive, vehicleType, selectedPlace?.id, cityKey, online]);
 
   useEffect(() => {
     if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok' || navigationActive) return;
