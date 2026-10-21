@@ -2007,6 +2007,9 @@ router.post('/mobility/departures/publish', async (req: Request, res: Response) 
     if(operator?.verification_status!=='verified'||operator?.operator_application_status!=='APPROVED'||
        vehicle?.clearance_status!=='verified')
       return res.status(403).json({error:'VERIFIED_OPERATOR_AND_VEHICLE_REQUIRED'});
+    const eligibility=await supabase.rpc('afat_vehicle_compliance_current',{p_vehicle_id:draft.vehicle_id});
+    if(eligibility.error)throw eligibility.error;
+    if(eligibility.data!==true)return res.status(409).json({error:'CURRENT_VEHICLE_DOCUMENTS_AND_CLEARANCE_REQUIRED'});
     const capacity=Number(vehicle.capacity);
     if(!Number.isSafeInteger(capacity)||capacity<1||capacity>200)
       return res.status(409).json({error:'VEHICLE_CAPACITY_NOT_APPROVED'});
@@ -2062,7 +2065,7 @@ router.get('/mobility/vehicle-clearance/queue', async (req: Request, res: Respon
         :Promise.resolve({data:[],error:null}),
       ids.length?supabase.from('compliance_records')
         .select('id,profile_id,document_type,status,due_at,verified_at,file_url')
-        .in('profile_id',ids).eq('role','operator')
+        .in('profile_id',ids).in('role',['operator','bike_rider'])
         .in('document_type',['vehicle_registration','bike_registration','helmet_compliance','insurance','license'])
         :Promise.resolve({data:[],error:null}),
     ]);
@@ -2137,7 +2140,17 @@ router.get('/mobility/departures', async (_req: Request, res: Response) => {
     if (operatorsResult.error) throw operatorsResult.error;
     if (vehiclesResult.error) throw vehiclesResult.error;
 
-    const departures = projectPublishedDepartures({routes:routes||[],bookings:bookingsResult.data||[],operators:operatorsResult.data||[],vehicles:vehiclesResult.data||[],nowMs:Date.now()});
+    // Verified on EACH read: current time-based insurance/registration expiry
+    // must not advertise a bookable service, even before a cron or operator
+    // event has changed an existing vehicle's clearance state.
+    const compliant=await Promise.all(
+      (vehiclesResult.data||[]).filter((v:any)=>v.clearance_status==='verified')
+        .map(async(v:any)=>({id:v.id,result:await supabase.rpc('afat_vehicle_compliance_current',{p_vehicle_id:v.id})}))
+    );
+    if(compliant.some(x=>x.result.error))throw new Error('CURRENT_VEHICLE_CLEARANCE_LOOKUP_UNAVAILABLE');
+    const safeIds=new Set(compliant.filter(x=>x.result.data===true).map(x=>x.id));
+    const eligibleVehicles=(vehiclesResult.data||[]).filter((v:any)=>safeIds.has(v.id));
+    const departures = projectPublishedDepartures({routes:routes||[],bookings:bookingsResult.data||[],operators:operatorsResult.data||[],vehicles:eligibleVehicles,nowMs:Date.now()});
     res.status(200).json({ success: true, departures });
   } catch (error: any) {
     console.error('Departure feed error:', error);
