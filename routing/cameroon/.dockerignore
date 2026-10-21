@@ -2,3 +2,8 @@
 data/*
 !data/cameroon-latest.osrm.*
 !data/graph-provenance.txt
+
+# Preserve only compiled foot MLD graph artifacts, not the raw OSM download.
+foot-data/*
+!foot-data/cameroon-latest.osrm.*
+!foot-data/graph-provenance.txt
