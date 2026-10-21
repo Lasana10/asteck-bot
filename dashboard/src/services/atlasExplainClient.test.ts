@@ -8,6 +8,23 @@ beforeEach(()=>{
  vi.restoreAllMocks();
  auth.headers.mockResolvedValue({Authorization:'Bearer verified-token'});
 });
+describe('source-backed Find→Understand fallback',()=>{
+ it('accepts only explicitly provisional licensed place context, never a false AI review',async()=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+   status:'source_context',text:'Nearby source-mapped places include Helios High Tech Academy.',
+   source_context_only:true,advisory_only:true,evidence:[],
+   source_places:[{id:'place1',name:'Helios High Tech Academy',source_key:'overture_maps',verified_access:false}],
+  })}));
+  expect((await explainReviewedAtlas({latitude:3.866,longitude:11.516,question:'overview'})).status).toBe('source_context');
+ });
+ it('rejects purported field-verified access as a source-only explanation',async()=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+   status:'source_context',text:'Entrance verified',source_context_only:true,advisory_only:true,evidence:[],
+   source_places:[{source_key:'overture_maps',verified_access:true}],
+  })}));
+  await expect(explainReviewedAtlas({latitude:3.866,longitude:11.516,question:'access'})).rejects.toThrow();
+ });
+});
 describe('reviewed Atlas + shared intelligence contract',()=>{
  it('passes only intended category and geographic context with authenticated request',async()=>{
   const f=vi.fn().mockResolvedValue({ok:true,json:async()=>({status:'explained',text:'Reviewed landmarks exist.',evidence:[{id:'n1'}],advisory_only:true})});
