@@ -25,18 +25,21 @@ export function ReachabilityInsightCard({
   multimodal,
   loading = false,
   limited = false,
+  cityKey = 'cm-yaounde',
 }: {
   assessment?: AfatReachabilityAssessment | null;
   multimodal?: AfatMultimodalPlan | null;
   loading?: boolean;
   limited?: boolean;
+  cityKey?: string;
 }) {
   if (!assessment && !multimodal && !loading && !limited) return null;
   const reliability = Math.max(0, Math.min(100, Number(assessment?.reliability_score || 0)));
   const strong = assessment?.state === 'reachable_high_confidence';
   const connected = String(assessment?.state || '').startsWith('reachable');
   const chain = multimodal?.multimodal_chain;
-  const canContribute = Boolean(assessment?.place_id && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
+  const evidencePlaceId = assessment?.place_id || multimodal?.place_id;
+  const canContribute = Boolean(evidencePlaceId && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
 
   return (
     <div className="rounded-2xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[0.07] via-slate-950/70 to-emerald-400/[0.04] p-4">
@@ -84,7 +87,7 @@ export function ReachabilityInsightCard({
         </div>
       )}
 
-      {canContribute && assessment?.place_id && <FieldEvidenceCapture placeId={assessment.place_id} placeName={assessment.name} />}
+      {canContribute && evidencePlaceId && <FieldEvidenceCapture placeId={evidencePlaceId} placeName={assessment?.name} cityKey={cityKey} />}
     </div>
   );
 }
