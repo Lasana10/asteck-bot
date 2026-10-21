@@ -22,11 +22,13 @@ export function projectPublishedDepartures(input:{
   if(operator?.operator_application_status!=='APPROVED'||operator?.verification_status!=='verified'||
      vehicle?.clearance_status!=='verified'||route?.is_active===false)return [];
   const departure=Date.parse(String(route?.departure_time||''));
-  const capacity=Number(vehicle?.capacity||route?.capacity);
+  const routeCapacity=Number(route?.capacity),vehicleCapacity=Number(vehicle?.capacity);
+  const validCapacity=(n:number)=>Number.isSafeInteger(n)&&n>=1&&n<=200;
+  const capacity=Math.min(routeCapacity,vehicleCapacity);
   const price=Number(route?.price_per_seat);
   const occupied=Array.from(booked.get(route.id)||[]);
   if(!Number.isFinite(departure)||departure<=input.nowMs||
-     !Number.isSafeInteger(capacity)||capacity<1||capacity>200||
+     !validCapacity(routeCapacity)||!validCapacity(vehicleCapacity)||
      !Number.isSafeInteger(price)||price<=0||
      occupied.length>=capacity||typeof route.id!=='string')return [];
   if(typeof route.origin!=='string'||!route.origin.trim()||
