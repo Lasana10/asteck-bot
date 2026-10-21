@@ -20,6 +20,15 @@ describe('Atlas spatial positioning evidence', () => {
     expect(evaluateSpatialFix({ ...sample, longitude: 200 }, null, now).reason).toBe('invalid_coordinate');
     expect(evaluateSpatialFix({ ...sample, timestampMs: now + 30000 }, null, now).reason).toBe('missing_timestamp');
   });
+  it('requires a newly captured field fix when delayed community evidence is submitted',()=>{
+    const captured={...sample,source:'field_observation' as const};
+    expect(evaluateSpatialFix(captured,null,now).accepted).toBe(true);
+    expect(evaluateSpatialFix(captured,null,now+120_001).reason).toBe('stale');
+    expect(evaluateSpatialFix({...captured,timestampMs:now+15_000},null,now).accepted).toBe(false);
+    expect(evaluateSpatialFix({...captured,accuracyM:180},null,now).reason).toBe('uncertain');
+    const observedAt=new Date(captured.timestampMs).toISOString();
+    expect(Date.parse(observedAt)).toBe(captured.timestampMs);
+  });
   it('accounts for GNSS uncertainty before rejecting a jump', () => {
     const previous = { ...sample, timestampMs: now - 7000, accuracyM: 100 };
     expect(evaluateSpatialFix({ ...sample, longitude: 11.517, timestampMs: now - 2000, accuracyM: 100 }, previous, now).accepted).toBe(true);

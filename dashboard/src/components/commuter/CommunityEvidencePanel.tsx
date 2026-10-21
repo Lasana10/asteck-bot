@@ -3,9 +3,10 @@ import { Bus, LocateFixed, MapPin, Plus, X } from 'lucide-react';
 import { discoverAfatPlaces } from '../../supabaseClient';
 import type { AfatPlaceCandidate } from '../../supabaseClient';
 import { submitAccessEvidence, submitTransitObservation } from '../../services/mobilityEvidenceClient';
+import { evaluateSpatialFix } from '../../services/spatialPositioning';
 
 type Mode = 'closed'|'entrance'|'transit';
-type GpsFix = { latitude:number; longitude:number; accuracy:number };
+type GpsFix = { latitude:number; longitude:number; accuracy:number; timestampMs:number };
 
 function cityKey(profile:any) {
   const city=String(profile?.preferred_city||'yaounde').trim().toLowerCase().replace(/\s+/g,'-');
@@ -31,14 +32,24 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
 
   const locate=()=>{
     if(!navigator.geolocation){setNotice('Device GPS is unavailable. Entrance evidence requires a real position; transit notes can still be submitted without coordinates.');return;}
-    setBusy(true);setNotice('Getting a current GPS fix…');
+    setBusy(true);setFix(null);setNotice('Getting a current GPS fix…');
     navigator.geolocation.getCurrentPosition((position)=>{
       setBusy(false);
-      const next={latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy};
+      const spatial=evaluateSpatialFix({
+        latitude:position.coords.latitude,longitude:position.coords.longitude,
+        accuracyM:position.coords.accuracy,timestampMs:position.timestamp,source:'field_observation',
+      });
+      if(!spatial.accepted){
+        setFix(null);
+        setNotice(`GPS rejected (${spatial.reason.replace(/_/g,' ')}). Move outdoors or capture a new fix before submitting.`);
+        return;
+      }
+      const next={latitude:position.coords.latitude,longitude:position.coords.longitude,
+        accuracy:position.coords.accuracy,timestampMs:position.timestamp};
       setFix(next);
-      setNotice(`GPS ready · ±${Math.round(next.accuracy)} m. This remains submitted evidence until review.`);
+      setNotice(`GPS ready · ±${Math.round(next.accuracy)} m. This remains pending evidence until review.`);
     },(error)=>{
-      setBusy(false);
+      setBusy(false);setFix(null);
       setNotice(error.code===1?'Location permission was denied.':'AFAT could not get a reliable current GPS fix.');
     },{enableHighAccuracy:true,timeout:12000,maximumAge:3000});
   };
@@ -54,19 +65,35 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
     setNotice(results.length?'Choose the exact place whose entrance you are standing at.':'AFAT could not confirm that place. Search another name rather than attaching evidence to a guessed place.');
   };
 
+  const currentFieldFix=():GpsFix|null=>{
+    if(!fix){setNotice('Capture a current GPS observation first.');return null;}
+    const checked=evaluateSpatialFix({
+      latitude:fix.latitude,longitude:fix.longitude,accuracyM:fix.accuracy,
+      timestampMs:fix.timestampMs,source:'field_observation',
+    });
+    if(!checked.accepted){
+      setFix(null);
+      setNotice(`GPS ${checked.reason.replace(/_/g,' ')}. Capture a new fix at the actual observation point.`);
+      return null;
+    }
+    return fix;
+  };
+
   const submitEntrance=async()=>{
     if(!place){setNotice('Choose the exact AFAT place first.');return;}
-    if(!fix){setNotice('Capture a current GPS fix at the entrance first.');return;}
+    const observed=currentFieldFix();
+    if(!observed)return;
     setBusy(true);
     const {data,error}=await submitAccessEvidence({
       placeId:place.id,
       accessType,
-      latitude:fix.latitude,
-      longitude:fix.longitude,
+      latitude:observed.latitude,
+      longitude:observed.longitude,
       name:`Observed ${accessType} access`,
       instructions:instructions.trim()||null,
       accessModes:accessType==='pedestrian'?['walk']:accessType==='moto'?['moto']:accessType==='delivery'?['moto','car','delivery']:accessType==='transit'?['walk','minibus']:accessType==='vehicle'?['car','moto','minibus']:[],
-      gpsAccuracyM:fix.accuracy,
+      gpsAccuracyM:observed.accuracy,
+      observedAt:new Date(observed.timestampMs).toISOString(),
     });
     setBusy(false);
     if(error&&!data?.queued){setNotice(error.message);return;}
@@ -75,6 +102,12 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
   };
 
   const submitTransit=async()=>{
+    // Observed boarding/stop locations require a fresh position, but a fare
+    // or wait account can still be contributed without invented coordinates.
+    const locationRequired=['stop','boarding','terminus','transfer'].includes(observationType);
+    if(locationRequired&&!fix){setNotice('Capture current GPS at this stop or boarding point first.');return;}
+    const observed=fix?currentFieldFix():null;
+    if(fix&&!observed)return;
     const wait=waitMinutes.trim()?Math.round(Number(waitMinutes)*60):null;
     const fareXaf=fare.trim()?Math.round(Number(fare)):null;
     if(observationType==='fare'&&(!Number.isFinite(fareXaf)||Number(fareXaf)<0)){setNotice('Enter the observed fare in XAF.');return;}
@@ -83,14 +116,15 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
     setBusy(true);
     const {data,error}=await submitTransitObservation({
       cityKey:cityKey(profile),observationType,nodeName:nodeName.trim()||null,lineName:lineName.trim()||null,mode:transitMode,
-      latitude:fix?.latitude??null,longitude:fix?.longitude??null,gpsAccuracyM:fix?.accuracy??null,
+      latitude:observed?.latitude??null,longitude:observed?.longitude??null,gpsAccuracyM:observed?.accuracy??null,
+      observedAt:observed?new Date(observed.timestampMs).toISOString():null,
       waitSeconds:Number.isFinite(wait)?wait:null,fareXaf:Number.isFinite(fareXaf)?fareXaf:null,
       evidence:{source_surface:'community_evidence_panel'},
     });
     setBusy(false);
     if(error&&!data?.queued){setNotice(error.message);return;}
     setNotice(data?.queued?'Transit observation saved offline and queued for sync.':'Transit observation submitted for review. It will not become a route or fare automatically.');
-    setNodeName('');setLineName('');setFare('');setWaitMinutes('');
+    setNodeName('');setLineName('');setFare('');setWaitMinutes('');setFix(null);
   };
 
   if(mode==='closed') return <section className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.045] p-4">
@@ -103,7 +137,7 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
 
     {mode==='entrance'?<div className="mt-4 space-y-3">
       <div className="flex gap-2"><input value={query} onChange={e=>{setQuery(e.target.value);setPlace(null);setPlaces([]);}} placeholder="Search the school, shop, market, building…" className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 text-sm outline-none"/><button onClick={searchPlaces} disabled={busy||query.trim().length<2} className="rounded-xl bg-emerald-300 px-4 text-[9px] font-black text-slate-950 disabled:opacity-40">Find</button></div>
-      {!!places.length&&!place&&<div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">{places.map(item=><button key={item.id} onClick={()=>{setPlace(item);setQuery(item.name);setPlaces([]);}} className="block w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-white/5"><span className="font-bold">{item.name}</span><span className="ml-2 text-[9px] text-white/35">{item.city}</span></button>)}</div>}
+      {!!places.length&&!place&&<div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">{places.map(item=><button key={item.id} onClick={()=>{setPlace(item);setQuery(item.name);setPlaces([]);setFix(null);}} className="block w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-white/5"><span className="font-bold">{item.name}</span><span className="ml-2 text-[9px] text-white/35">{item.city}</span></button>)}</div>}
       {place&&<p className="rounded-xl border border-cyan-300/15 bg-cyan-400/[0.05] p-3 text-xs text-cyan-50">Evidence will attach to <strong>{place.name}</strong>.</p>}
       <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto]"><select value={accessType} onChange={e=>setAccessType(e.target.value as any)} className="min-h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-xs"><option value="vehicle">Vehicle gate</option><option value="pedestrian">Pedestrian entrance</option><option value="moto">Moto access</option><option value="delivery">Delivery entrance</option><option value="transit">Transit access</option><option value="unknown">Other access</option></select><input value={instructions} onChange={e=>setInstructions(e.target.value)} placeholder="e.g. blue gate after pharmacy, use right side" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/><button onClick={locate} disabled={busy} className="min-h-11 rounded-xl border border-white/10 px-3 text-[9px] font-black"><LocateFixed className="mr-2 inline h-4 w-4"/>{fix?`±${Math.round(fix.accuracy)}m`:'GPS'}</button></div>
       <button onClick={submitEntrance} disabled={busy||!place||!fix} className="min-h-12 w-full rounded-xl bg-emerald-300 text-xs font-black text-slate-950 disabled:opacity-35">Submit entrance for review</button>
