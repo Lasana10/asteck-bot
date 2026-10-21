@@ -20,6 +20,9 @@ begin
   if op.id is null or op.verification_status <> 'verified' or op.operator_application_status <> 'APPROVED' then
     raise exception 'OPERATOR_NOT_APPROVED' using errcode='P0001';
   end if;
+  if position(upper(v.plate_number) in upper(p_reason))=0 then
+    raise exception 'PLATE_IDENTITY_REVIEW_ATTESTATION_REQUIRED' using errcode='P0001';
+  end if;
   if v.capacity<1 or v.capacity>200 or length(trim(v.plate_number))<4 then
     raise exception 'VEHICLE_FACTS_INCOMPLETE' using errcode='P0001';
   end if;
