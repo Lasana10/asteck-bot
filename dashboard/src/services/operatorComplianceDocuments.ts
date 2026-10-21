@@ -38,3 +38,13 @@ export async function getStaffComplianceReviewFile(recordId:string):Promise<stri
   throw new Error('Verified private evidence link was not issued');
  return data.url;
 }
+
+/** Reconcile missing required documentation rows only; never mark them verified. */
+export async function ensureOperatorRequiredDocuments(){
+ const result=await api('/api/compliance/operator/ensure-required',{
+  method:'POST',body:JSON.stringify({}),
+ });
+ if(result.automatically_verified!==false||result.review_required!==true)
+  throw new Error('Operator credential safety contract not confirmed');
+ return result.created_missing as string[];
+}
