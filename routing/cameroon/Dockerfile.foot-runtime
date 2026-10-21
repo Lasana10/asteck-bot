@@ -1,0 +1,6 @@
+# Immutable real Cameroon foot-only OSRM graph, built from checksum-verified
+# Geofabrik / OpenStreetMap ODbL. Never use this image for driving.
+FROM ghcr.io/lasana10/afat-cameroon-foot-osrm@sha256:a5b2ce7e14c9afdab004945cae04a1a82d208e8470c0f7fe3d50496cbb3ee215
+LABEL org.opencontainers.image.source="https://github.com/Lasana10/asteck-bot"
+LABEL org.opencontainers.image.licenses="ODbL-1.0"
+EXPOSE 5000
