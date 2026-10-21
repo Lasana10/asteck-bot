@@ -1,3 +1,10 @@
+# Cloudflare passenger release verification — 2026-10-21
+
+- Prior live GitHub-hosted read-only acceptance `39599209348` **passed** with actual Yaoundé road route (2,171m, 177s, 92 points, 14 maneuvers), Douala road route (1,034m, 152s, 41 points, 8 maneuvers) and source-licensed Find→Reach route to Helios High Tech Academy (3,650.6m, ~40.59m destination network snap, entrance unverified).
+- Both live passenger foot requests returned explicit 503 unavailable: correct failure honesty but pedestrian service is not operational. PR #164 merged at `339fac1b1c7b08f16df774cf5439ebc0bdd1d3e8` after CI `39599209384` passed.
+- This release batch expands existing Cloudflare Pages published-JavaScript acceptance triggers to changes in canonical route, offline journey custody, PassagePlanner and FieldEvidenceCapture. It checks production bundles for actual connected offline-route mismatch feedback, off-route rerouting feedback and re-capture safeguards in addition to established discovery, provider turns and Atlas surface.
+- This checks delivered client build/version presence, not actual browser GPS, offline storage execution, authenticated sync, or physical field conditions. No deployment claimed until GitHub-hosted production Cloudflare verification succeeds. A stale bundle must fail, not be declared current. Exact next: inspect Cloudflare acceptance logs and real deployment, then run authorized device-level full journey, preserving existing Atlas review trust boundaries.
+
 # Live two-city Find → Reach evidence — 2026-10-21 (GitHub-hosted production run)
 
 - PR #163 merged `c11428efd6c760d61c043f690e70e79b61d9e0b8`, AFAT CI `39598878723` passed; Atlas `status=ok` no longer bypasses geometry and mode validation in passenger route client.
