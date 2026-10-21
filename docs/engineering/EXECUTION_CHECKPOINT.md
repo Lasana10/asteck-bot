@@ -1,3 +1,12 @@
+# Operator departure → passenger seat-hold truth integration — 2026-10-21
+
+- Graphify traced actual operator fare publication, approved `routes`/`profiles`/`vehicles`, `GET /api/mobility/departures`, `DepartureBoard`, authenticated `/api/booking/seat-hold` and booking-from-hold. Existing booking/dispatch services retained; no new inventory ledger or false transport supply.
+- Production TRAFFIC project read-only confirmed **zero active published routes** at checkpoint. This is an actual operator-onboarding and supply acceptance blocker, not a reason to invent departures.
+- Connected implementation on this branch: backend departure feed now reads only upcoming active departures, requires approved/verified operator and verified vehicle, positive published fare, both route and vehicle capacity limits, origin/destination and remaining unique booked seats. Fully booked and expired services are excluded. Passenger board suppresses stale entries and warns that displayed seats are provisional until existing authenticated seat-hold succeeds; successful hold remains authoritative inventory decision.
+- New pure acceptance script verifies approved future supply, booking-seat de-duplication, expired/null departure, denied operator, vehicle clearance, invalid fare/capacity and exhausted capacity. AFAT CI runs it. No synthetic rows written to production.
+- Operational acceptance level pending: CI → merge → confirmed backend deployment and published passenger frontend → real approved operator posts real future departure → passenger holds seat and books → operator fulfils movement. Absence of operator supply means full booking remains unaccepted even when code and CI pass.
+- Reuse/adapt/patch: existing database, route/operator reviews, authenticated seat-hold RPC and frontend booking controls reused. Existing Cameroon Atlas/OSRM/MapLibre/offline/AI-CORE retained. Review constraints for planning/informal transport continue separately.
+
 # Operational continuation — 2026-10-21: Graphify + GitHub multimodal journey
 
 - **GitHub authoritative release:** PR #167 merged as `b3503ba7f0851aab30bb9139c8daac9eb7158f1d`. AFAT CI `39601703934` completed with **backend contract and dashboard build/tests success**. GitHub check-run on merge SHA also confirmed **Cloudflare Pages: completed/success/Deployed successfully**, and **Confirm deployed Cloudflare passenger Atlas experience: success**.
