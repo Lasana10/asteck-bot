@@ -37,7 +37,6 @@ export type AfatCanonicalRoute = {
   origin?: { atlas_node_id: string; name?: string | null; snap_distance_m: number; latitude: number; longitude: number };
   destination?: { atlas_node_id: string; name?: string | null; snap_distance_m: number; latitude: number; longitude: number };
   segments?: AfatCanonicalRouteSegment[];
-  maneuvers?: AfatRoadManeuver[];
 };
 
 type RouteInput = {
@@ -101,14 +100,8 @@ async function externalCarRoute(input: RouteInput): Promise<AfatCanonicalRoute |
       distance_m: Number.isFinite(distanceM) && distanceM >= 0 ? distanceM : undefined,
       eta_seconds: Number.isFinite(duration) && duration > 0 ? duration : null,
       eta_reason: 'baseline_no_live_traffic',
-      maneuvers: Array.isArray(primary.maneuvers) ? primary.maneuvers.slice(0,300).filter((m:unknown)=>{
-        if(!m||typeof m!=='object')return false;
-        const item=m as Record<string,unknown>;
-        return typeof item.latitude==='number'&&Number.isFinite(item.latitude)&&Math.abs(item.latitude)<=90&&
-          typeof item.longitude==='number'&&Number.isFinite(item.longitude)&&Math.abs(item.longitude)<=180&&
-          typeof item.instruction==='string'&&item.instruction.length>0&&item.instruction.length<=180&&
-          typeof item.distanceMeters==='number'&&Number.isFinite(item.distanceMeters)&&item.distanceMeters>=0;
-      }) : [],
+      origin_snap_m: typeof primary.originSnapMeters==='number'&&Number.isFinite(primary.originSnapMeters)&&primary.originSnapMeters>=0?primary.originSnapMeters:undefined,
+      destination_snap_m: typeof primary.destinationSnapMeters==='number'&&Number.isFinite(primary.destinationSnapMeters)&&primary.destinationSnapMeters>=0?primary.destinationSnapMeters:undefined,
       segments: [{
         seq: 0,
         edge_id: 'external-road-route',

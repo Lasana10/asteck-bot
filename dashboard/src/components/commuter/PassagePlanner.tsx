@@ -91,7 +91,10 @@ function routeMessageFor(route: AfatCanonicalRoute | null) {
     if (route.route_source === 'osrm' || route.route_source === 'google') {
       const provider = route.route_source === 'osrm' ? 'OSRM' : 'Google';
       const baseline = route.eta_seconds ? ` · approximately ${Math.ceil(route.eta_seconds / 60)} min baseline (no live traffic)` : '';
-      return `${provider} driving road route${distance}${baseline}. Road passability, destination entrance and live traffic are not field-verified.`;
+      const snap = typeof route.destination_snap_m==='number' && route.destination_snap_m>75
+        ? ` The routable road ends around ${Math.round(route.destination_snap_m)} m from the destination pin; last-metre access is unknown.`
+        : '';
+      return `${provider} driving road route${distance}${baseline}.${snap} Road passability, destination entrance and live traffic are not field-verified.`;
     }
     if (route.eta_seconds) return `Connected AFAT route ready${distance} · ${Math.ceil(route.eta_seconds / 60)} min evidence-based ETA.`;
     const coverage = Number(route.eta_profile_coverage || 0);

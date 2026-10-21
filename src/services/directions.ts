@@ -38,6 +38,8 @@ export interface RouteResult { maneuvers?:RoadManeuver[];
   summary: string;
   distance: string;
   distanceMeters?: number;
+  originSnapMeters?: number;
+  destinationSnapMeters?: number;
   duration: string;
   durationValue: number; // seconds
   startAddress: string;
@@ -214,7 +216,7 @@ export class DirectionsService {
           Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90);
       if (!data.routes.every(valid)) return null;
 
-      const routes = data.routes.map((route: any) => this.parseOSRMRoute(route));
+      const routes = data.routes.map((route: any) => this.parseOSRMRoute(route, data.waypoints));
 
       return {
         source: 'osrm',
@@ -227,7 +229,7 @@ export class DirectionsService {
     }
   }
 
-  private static parseOSRMRoute(route: any): RouteResult {
+  private static parseOSRMRoute(route: any, waypoints: any[] | undefined): RouteResult {
     const distKm = (route.distance / 1000).toFixed(1);
     const durMin = Math.round(route.duration / 60);
 
@@ -246,6 +248,10 @@ export class DirectionsService {
       summary: route.legs?.[0]?.steps?.[0]?.name || 'Route',
       distance: `${distKm} km`,
       distanceMeters: route.distance,
+      // Actual OSRM network snapping distance; a matched road vertex is not
+      // proof of building entrance or last-metre accessibility.
+      originSnapMeters: Number.isFinite(waypoints?.[0]?.distance) && waypoints![0].distance>=0 ? waypoints![0].distance : undefined,
+      destinationSnapMeters: Number.isFinite(waypoints?.[1]?.distance) && waypoints![1].distance>=0 ? waypoints![1].distance : undefined,
       geometry: route.geometry?.type === 'LineString' && Array.isArray(route.geometry.coordinates) ? route.geometry : undefined,
       duration: `${durMin} min`,
       durationValue: route.duration,

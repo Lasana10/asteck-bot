@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
 import {strict as assert} from 'node:assert';
-const sql=readFileSync('supabase/migrations/20261020162000_afat_atlas_place_distance_order_runtime.sql','utf8');
+const sql=readFileSync('supabase/migrations/20261021094500_afat_poi_priority_nearby_route_discovery.sql','utf8');
 assert.match(sql,/security definer/);
 assert.match(sql,/p\.evidence_status in \('limited','corroborated','verified','field_verified'\)/);
 assert.match(sql,/s\.commercial_use_reviewed=true/);
@@ -10,6 +10,7 @@ assert.match(sql,/limit least\(greatest\(p_limit,1\),30\)/);
 assert.match(sql,/revoke all on function public\.afat_atlas_nearby_place_candidates[\s\S]*from public,anon,authenticated/);
 assert.match(sql,/grant execute on function public\.afat_atlas_nearby_place_candidates[\s\S]*to service_role/);
 assert.doesNotMatch(sql,/phone|owner_id|email|profile_id|photo_url|source_properties/i);
-assert.match(sql,/order by public\.st_distance\(p\.location,v_origin\)/);
+assert.match(sql,/order by p\.display_priority,public\.st_distance\(p\.location,v_origin\)/);
+assert.match(sql,/p\.place_type in \('road','transportation_connector'\) then 2/);
 assert.doesNotMatch(sql,/\s<->\s/);
 console.log('Licensed candidate Atlas nearby privacy and bounded-geometry contract passed');
