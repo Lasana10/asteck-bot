@@ -33,7 +33,8 @@ function routingEndpoint(): string | null {
   return validatedOsrmEndpoint(OSRM_URL, process.env.AFAT_ALLOW_PRIVATE_OSRM_HTTP === 'true');
 }
 
-export interface RouteResult {
+export interface RoadManeuver { latitude:number; longitude:number; instruction:string; distanceMeters:number; kind:string; }
+export interface RouteResult { maneuvers?:RoadManeuver[];
   summary: string;
   distance: string;
   distanceMeters?: number;
@@ -172,6 +173,13 @@ export class DirectionsService {
       durationValue: leg.duration?.value || 0,
       startAddress: leg.start_address || '',
       endAddress: leg.end_address || '',
+      maneuvers:(leg.steps||[]).slice(0,200).flatMap((step:any)=>{
+       const latitude=Number(step.start_location?.lat),longitude=Number(step.start_location?.lng);
+       if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)return [];
+       return [{latitude,longitude,kind:String(step.maneuver||'continue').slice(0,48),
+        instruction:String(step.html_instructions||'Continue').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,180),
+        distanceMeters:Math.max(0,Number(step.distance?.value)||0)}];
+      }),
       steps: (leg.steps || [])
         .slice(0, 8)
         .map((s: any) => s.html_instructions?.replace(/<[^>]*>/g, '') || ''),
@@ -244,6 +252,19 @@ export class DirectionsService {
       startAddress: '',
       endAddress: '',
       steps,
+      maneuvers:(route.legs||[]).flatMap((leg:any)=>(leg.steps||[]).slice(0,200)).slice(0,300).flatMap((step:any)=>{
+       const loc=step.maneuver?.location;
+       if(!Array.isArray(loc)||loc.length<2)return [];
+       const [longitude,latitude]=loc.map(Number);
+       if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)return [];
+       const kind=String(step.maneuver?.type||'continue').slice(0,48);
+       const modifier=String(step.maneuver?.modifier||'').slice(0,32);
+       const road=String(step.name||'unnamed road').slice(0,100);
+       const instruction=kind==='arrive'?'Arrive at destination':kind==='depart'?'Depart':
+        kind==='turn'?'Turn '+(modifier||'as indicated')+' on '+road:
+        kind==='roundabout'?'Enter roundabout toward '+road:'Continue on '+road;
+       return [{latitude,longitude,kind,instruction,distanceMeters:Math.max(0,Number(step.distance)||0)}];
+      }),
       warnings: [],
     };
   }
