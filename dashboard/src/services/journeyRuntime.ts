@@ -59,7 +59,11 @@ type NavigationQueue = {
 };
 
 const STORAGE_KEY = 'afat_journey_runtime_v1';
-const QUEUE_KEY = 'afat_navigation_sample_queue_v1';
+const QUEUE_PREFIX = 'afat_navigation_sample_queue_v2:';
+function ownerQueueKey(profileId:string | null | undefined){return profileId?QUEUE_PREFIX+encodeURIComponent(profileId):null;}
+function currentQueueOwner():string|null{
+ try{return (JSON.parse(localStorage.getItem(STORAGE_KEY)||'null') as AfatJourneyRuntimeSnapshot)?.profileId||null;}catch{return null;}
+}
 const EVENT_NAME = 'afat:journey-runtime';
 const MAX_QUEUE_SAMPLES = 360;
 const FLUSH_BATCH_SIZE = 48;
@@ -80,10 +84,12 @@ function validPosition(position?: AfatRuntimePosition | null) {
   return Number.isFinite(Date.parse(position.recordedAt));
 }
 
-function readQueue(): NavigationQueue {
+function readQueue(profileId:string|null=currentQueueOwner()): NavigationQueue {
   try {
-    const parsed = JSON.parse(localStorage.getItem(QUEUE_KEY) || '') as NavigationQueue;
-    if (parsed?.version === 1 && typeof parsed.profileId === 'string' && parsed.profileId.length > 0 && Array.isArray(parsed.samples)) return parsed;
+    const key=ownerQueueKey(profileId);
+    if(!key)throw new Error('Queue owner missing');
+    const parsed = JSON.parse(localStorage.getItem(key) || '') as NavigationQueue;
+    if (parsed?.version === 1 && parsed.profileId===profileId && Array.isArray(parsed.samples)) return parsed;
   } catch {
     // Corrupt local evidence must never block navigation.
   }
@@ -91,12 +97,12 @@ function readQueue(): NavigationQueue {
 }
 
 function writeQueue(queue: NavigationQueue) {
-  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue)); } catch { /* storage pressure should not crash navigation */ }
+  try {const key=ownerQueueKey(queue.profileId);if(key)localStorage.setItem(key, JSON.stringify(queue));} catch { /* storage pressure should not crash navigation */ }
   return queue;
 }
 
-function clearQueue() {
-  try { localStorage.removeItem(QUEUE_KEY); } catch {}
+function clearQueue(profileId:string|null=currentQueueOwner()) {
+  try {const key=ownerQueueKey(profileId);if(key)localStorage.removeItem(key);}catch{}
 }
 
 function sampleKey(position: AfatRuntimePosition) {
@@ -120,8 +126,8 @@ function shouldQueuePosition(position: AfatRuntimePosition, previous?: AfatRunti
 
 function enqueuePosition(snapshot: AfatJourneyRuntimeSnapshot) {
   const position = snapshot.lastPosition;
-  if (snapshot.state !== 'navigating' || !snapshot.startedAt || !snapshot.profileId || !position || !validPosition(position)) return readQueue();
-  let queue = readQueue();
+  if (snapshot.state !== 'navigating' || !snapshot.startedAt || !snapshot.profileId || !position || !validPosition(position)) return readQueue(snapshot.profileId);
+  let queue = readQueue(snapshot.profileId);
   if (queue.journeyStartedAt !== snapshot.startedAt || queue.profileId !== snapshot.profileId) queue = { version: 1, profileId: snapshot.profileId, journeyStartedAt: snapshot.startedAt, samples: [] };
   const previous = queue.samples.at(-1)?.position || null;
   if (!shouldQueuePosition(position, previous)) return queue;
@@ -144,7 +150,7 @@ export function loadJourneyRuntime(): AfatJourneyRuntimeSnapshot | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AfatJourneyRuntimeSnapshot;
     if (parsed?.version !== 1 || !parsed?.state) return null;
-    const queue=readQueue();
+    const queue=readQueue(parsed.profileId);
     return { ...parsed, pendingSampleCount: queue.profileId===parsed.profileId && queue.journeyStartedAt===parsed.startedAt ? queue.samples.length : 0 };
   } catch {
     return null;
@@ -156,7 +162,7 @@ async function ensureServerSession(current: AfatJourneyRuntimeSnapshot) {
   const destinationLatitude = validNumber(current.destinationLatitude);
   const destinationLongitude = validNumber(current.destinationLongitude);
   if (destinationLatitude == null || destinationLongitude == null || !current.placeId) return current;
-  persist({ ...current, serverSyncState: 'starting', pendingSampleCount: readQueue().samples.length, updatedAt: new Date().toISOString() });
+  persist({ ...current, serverSyncState: 'starting', pendingSampleCount: readQueue(current.profileId).samples.length, updatedAt: new Date().toISOString() });
   const { data, error } = await supabase.rpc('afat_start_navigation_session', {
     p_city_key: current.cityKey || 'cm-yaounde',
     p_place_id: current.placeId,
