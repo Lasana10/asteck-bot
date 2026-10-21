@@ -1,3 +1,4 @@
+import {validateScheduleDraft} from '../services/scheduledDeparturePublishing';
 import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
 import express, { Request, Response } from 'express';
 import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
@@ -1986,6 +1987,63 @@ router.post('/payment/reconcile', async (req: Request, res: Response) => {
   }
 });
 
+
+router.post('/mobility/departures/publish', async (req: Request, res: Response) => {
+  const access=await requireAuthRole(req,res,['operator']);
+  if(!access)return;
+  let draft;
+  try{
+    draft=validateScheduleDraft(req.body);
+  }catch(error:any){return res.status(400).json({error:String(error?.message||'INVALID_DEPARTURE')});}
+  try{
+    const [operatorResult,vehicleResult]=await Promise.all([
+      supabase.from('profiles').select('id,verification_status,operator_application_status')
+        .eq('id',access.profile.id).maybeSingle(),
+      supabase.from('vehicles').select('id,operator_id,type,capacity,clearance_status')
+        .eq('id',draft.vehicle_id).eq('operator_id',access.profile.id).maybeSingle(),
+    ]);
+    if(operatorResult.error||vehicleResult.error)throw operatorResult.error||vehicleResult.error;
+    const operator=operatorResult.data,vehicle=vehicleResult.data;
+    if(operator?.verification_status!=='verified'||operator?.operator_application_status!=='APPROVED'||
+       vehicle?.clearance_status!=='verified')
+      return res.status(403).json({error:'VERIFIED_OPERATOR_AND_VEHICLE_REQUIRED'});
+    const capacity=Number(vehicle.capacity);
+    if(!Number.isSafeInteger(capacity)||capacity<1||capacity>200)
+      return res.status(409).json({error:'VEHICLE_CAPACITY_NOT_APPROVED'});
+    const departMs=Date.parse(draft.departure_time);
+    const before=new Date(departMs-30*60_000).toISOString();
+    const after=new Date(departMs+30*60_000).toISOString();
+    const conflicts=await supabase.from('routes').select('id')
+      .eq('vehicle_id',draft.vehicle_id).eq('is_active',true)
+      .gte('departure_time',before).lte('departure_time',after).limit(1);
+    if(conflicts.error)throw conflicts.error;
+    if(conflicts.data?.length)return res.status(409).json({error:'VEHICLE_ALREADY_SCHEDULED_NEAR_THIS_TIME'});
+
+    // Identity and vehicle approval come from auth and the verified database,
+    // not the posted request. The operator states proposed meeting points;
+    // neither coordinates nor a map pin certify boarding/access safety.
+    const routeRow={
+      operator_id:access.profile.id,vehicle_id:vehicle.id,
+      name:`${draft.origin} → ${draft.destination}`,origin:draft.origin,
+      destination:draft.destination,origin_lat:draft.origin_lat,
+      origin_lng:draft.origin_lng,dest_lat:draft.dest_lat,dest_lng:draft.dest_lng,
+      departure_time:draft.departure_time,price_per_seat:draft.price_per_seat,
+      price_xaf:draft.price_per_seat,capacity,vehicle_type:vehicle.type||'other',
+      is_active:true,
+    };
+    const inserted=await supabase.from('routes').insert(routeRow)
+      .select('id,origin,destination,departure_time,price_per_seat,capacity,vehicle_type,is_active').single();
+    if(inserted.error)throw inserted.error;
+    return res.status(201).json({
+      success:true,departure:inserted.data,origin_status:'operator_reported',
+      destination_status:'operator_reported',verified_access:false,
+      warning:'Published schedule only; route passability, boarding access and departure fulfilment are not field verified.',
+    });
+  }catch(error:any){
+    console.error('Approved scheduled departure publication failed:',error);
+    return res.status(503).json({error:'DEPARTURE_PUBLICATION_UNAVAILABLE'});
+  }
+});
 
 router.get('/mobility/departures', async (_req: Request, res: Response) => {
   try {
