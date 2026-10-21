@@ -45,6 +45,7 @@ function db():Promise<IDBDatabase>{
 export async function queueFieldObservation(item:OfflineFieldObservation){
   validateFieldObservation(item);
   const d=await db(); await new Promise<void>((resolve,reject)=>{const tx=d.transaction(STORE,'readwrite');tx.objectStore(STORE).put(item);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);}); d.close();
+  if(typeof window!=='undefined')window.dispatchEvent(new Event('afat:field-mapping-queue'));
 }
 export async function pendingFieldObservations(userId:string){
   const d=await db(); const all=await new Promise<OfflineFieldObservation[]>((resolve,reject)=>{const req=d.transaction(STORE).objectStore(STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);});d.close();return all.filter(x=>x.userId===userId);
@@ -102,6 +103,7 @@ async function flushFieldObservationsOnce(userId:string){
     try{
       await new Promise<void>((resolve,reject)=>{const tx=d.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(item.id);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});
       flushed++;
+      if(typeof window!=='undefined')window.dispatchEvent(new Event('afat:field-mapping-queue'));
     }finally{d.close();}
   }
   return {flushed,pending:(await pending()).length};
