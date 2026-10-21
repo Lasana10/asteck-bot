@@ -1,0 +1,31 @@
+name: AFAT Live Cameroon Walking Journey Acceptance
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'scripts/verify-live-cameroon-foot.mjs'
+      - '.github/workflows/afat-live-cameroon-foot.yml'
+      - 'routing/cameroon/Dockerfile.foot-runtime'
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/verify-live-cameroon-foot.mjs'
+      - '.github/workflows/afat-live-cameroon-foot.yml'
+      - 'routing/cameroon/Dockerfile.foot-runtime'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-foot-country-journey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source-backed real walking destinations across both cities
+        env:
+          AFAT_API_URL: https://asteck-bot.onrender.com
+          AFAT_WALK_OSRM_URL: https://afat-cameroon-foot-osrm.onrender.com
+        run: node scripts/verify-live-cameroon-foot.mjs
