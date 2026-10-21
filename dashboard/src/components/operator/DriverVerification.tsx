@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Camera, ShieldCheck, CheckCircle2, Loader2, AlertTriangle, Upload } from 'lucide-react';
-import { authenticatedApiHeaders, getApiBaseUrl, supabase } from '../../supabaseClient';
+import { authenticatedApiHeaders, getApiBaseUrl } from '../../supabaseClient';
 
 export function DriverVerification() {
   const [step, setStep] = useState(1);
@@ -11,6 +11,10 @@ export function DriverVerification() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if(!file.type.startsWith('image/')||file.size>5*1024*1024){
+      setVerificationResult({valid:false,error:'Envoyez une image de 5 Mo maximum pour éviter de transmettre des données excessives.'});
+      setStep(3);return;
+    }
 
     setStep(2);
     setIsVerifying(true);
@@ -47,13 +51,8 @@ export function DriverVerification() {
 
       setVerificationResult(analysis);
       
-      // Update DB if valid
-      if (analysis.valid) {
-        const user = await supabase.auth.getUser();
-        if (user.data.user) {
-          await supabase.from('vehicles').update({ is_verified: true }).eq('owner_id', user.data.user.id);
-        }
-      }
+      // OCR assistance is not identity verification or vehicle clearance.
+      // Never mutate operator/vehicle approval based on AI-produced text.
 
       setStep(3);
 
@@ -80,7 +79,7 @@ export function DriverVerification() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-xl font-bold mb-1">Know Your Driver (KYD)</h2>
-          <p className="text-slate-400 text-sm">Vérification d'identité automatisée par Vision AI</p>
+          <p className="text-slate-400 text-sm">Extraction documentaire assistée · validation humaine requise</p>
         </div>
         <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center">
           <ShieldCheck className="w-6 h-6 text-blue-400" />
@@ -96,7 +95,7 @@ export function DriverVerification() {
         <div className="flex justify-between mb-8">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 1 ? 'bg-blue-600' : 'bg-slate-800'} text-xs font-bold ring-4 ring-slate-900`}>1</div>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 2 ? 'bg-blue-600' : 'bg-slate-800 pointer-events-none'} text-xs font-bold ring-4 ring-slate-900`}>2</div>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 3 ? (verificationResult?.valid ? 'bg-emerald-600' : 'bg-red-600') : 'bg-slate-800'} text-xs font-bold ring-4 ring-slate-900`}>3</div>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 3 ? 'bg-amber-600' : 'bg-slate-800'} text-xs font-bold ring-4 ring-slate-900`}>3</div>
         </div>
       </div>
 
@@ -107,7 +106,7 @@ export function DriverVerification() {
           </div>
           <h3 className="font-bold mb-2">Prenez en photo votre CNI ou Permis</h3>
           <p className="text-xs text-slate-500 mb-6 max-w-xs mx-auto">
-            La photo doit être claire, sans reflets. Les données sont analysées instantanément et ne sont pas stockées.
+            N'envoyez un document que si vous acceptez son traitement par le service d'analyse. L'extraction est indicative : un agent AFAT doit vérifier l'identité et autoriser le véhicule séparément.
           </p>
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
           <button 
@@ -123,7 +122,7 @@ export function DriverVerification() {
         <div className="text-center py-12">
           <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
           <h3 className="font-bold mb-2">Analyse Vision AI en cours...</h3>
-          <p className="text-xs text-slate-500">Extraction des données cryptographiques</p>
+          <p className="text-xs text-slate-500">Lecture documentaire assistée · aucune décision de conformité automatique</p>
         </div>
       )}
 
@@ -134,8 +133,8 @@ export function DriverVerification() {
               <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500" />
               </div>
-              <h3 className="font-bold text-lg mb-1">Identité Vérifiée</h3>
-              <p className="text-sm text-slate-400 mb-6">Bienvenue dans le réseau AFAT, Chauffeur.</p>
+              <h3 className="font-bold text-lg mb-1">Données extraites · non vérifiées</h3>
+              <p className="text-sm text-slate-400 mb-6">Résultat indicatif. La vérification d'identité, la conformité du permis et l'autorisation du véhicule restent soumises à un examen indépendant.</p>
 
               <div className="bg-slate-800/50 rounded-xl p-4 text-left max-w-sm mx-auto">
                 <div className="flex justify-between border-b border-white/5 pb-2 mb-2">
@@ -153,7 +152,7 @@ export function DriverVerification() {
               <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="w-8 h-8 text-red-500" />
               </div>
-              <h3 className="font-bold text-lg mb-1">Vérification Échouée</h3>
+              <h3 className="font-bold text-lg mb-1">Extraction non concluante</h3>
               <p className="text-sm text-slate-400 mb-6">{verificationResult.error}</p>
               <button onClick={() => setStep(1)} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2 rounded-xl text-sm font-bold transition-colors">
                 Réessayer
