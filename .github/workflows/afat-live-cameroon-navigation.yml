@@ -1,0 +1,30 @@
+name: AFAT Live Cameroon Navigation Acceptance
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'scripts/verify-live-cameroon-navigation.mjs'
+      - '.github/workflows/afat-live-cameroon-navigation.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/verify-live-cameroon-navigation.mjs'
+      - '.github/workflows/afat-live-cameroon-navigation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-two-city-routing:
+    name: Live OSRM → AFAT backend → canonical passenger geometry
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe both deployed production services without user credentials
+        env:
+          AFAT_ROUTER_URL: https://afat-cameroon-osrm.onrender.com
+          AFAT_API_URL: https://asteck-bot.onrender.com
+        run: node scripts/verify-live-cameroon-navigation.mjs
