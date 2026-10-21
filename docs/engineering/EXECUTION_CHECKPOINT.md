@@ -1,3 +1,11 @@
+# 2026-10-21 — server-side access-observation review custody continuation
+
+- PR #161 merged to `master` at `559ad9a1267ef3419869030f28121de456fd4358`, AFAT CI run `39596992842` passed both backend and dashboard. The client now requires an actual pending review receipt rather than trusting HTTP 200 and preserves reported GNSS capture time in account-scoped replay.
+- Current server-custody branch adds migration `20261021123000_afat_access_observation_time_custody.sql` based on inspected production `afat_submit_mobility_evidence_once`, with original auth.uid, receipt deduplication, explicit pending status and existing grant model. Pending access submissions get `observed_at` metadata only when the client supplies parseable time inside a 72-hour replay window and inside the authenticated contributor's own pending record.
+- Capture time is **device-reported and explicitly unverified**; no endpoint may infer a true building entrance, passability, verified arrival or real time from the metadata. Transit `observation_time_source` now uses the same label and has regression coverage.
+- Migration is source committed but **not applied** until merge/verification; live database must be checked for exact function definition and safe pending review behavior after application. No synthetic production observations should be inserted. Need authenticated real-user acceptance on a real device after publication.
+- Continue original Find → Understand → Reach → Navigate → Learn acceptance, while walking-engine private Render deployment still requires workspace confirmation and cost approval.
+
 # Continuation — 2026-10-21 mobility observation replay and reviewer receipt custody
 
 - Current integration batch uses the existing passenger FieldEvidenceCapture → authenticated mobilityEvidenceClient → account-scoped offline queue → `afat_submit_mobility_evidence_once` → existing access/transit review tables. No duplicate service or truth store.
