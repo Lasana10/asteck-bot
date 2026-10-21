@@ -1,3 +1,4 @@
+import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
 import express, { Request, Response } from 'express';
 import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
 import { IncidentType, Severity } from '../types';
@@ -1990,8 +1991,9 @@ router.get('/mobility/departures', async (_req: Request, res: Response) => {
   try {
     const { data: routes, error } = await supabase
       .from('routes')
-      .select('id, operator_id, vehicle_id, name, origin, destination, departure_time, price_per_seat, capacity, vehicle_type')
+      .select('id, operator_id, vehicle_id, name, origin, destination, departure_time, price_per_seat, capacity, vehicle_type, is_active')
       .eq('is_active', true)
+      .gt('departure_time',new Date().toISOString())
       .order('departure_time', { ascending: true, nullsFirst: false })
       .limit(50);
     if (error) throw error;
@@ -2015,39 +2017,7 @@ router.get('/mobility/departures', async (_req: Request, res: Response) => {
     if (operatorsResult.error) throw operatorsResult.error;
     if (vehiclesResult.error) throw vehiclesResult.error;
 
-    const operators = new Map((operatorsResult.data || []).map((profile: any) => [profile.id, profile]));
-    const vehicles = new Map((vehiclesResult.data || []).map((vehicle: any) => [vehicle.id, vehicle]));
-    const occupiedByRoute = new Map<string, Set<string>>();
-    for (const booking of bookingsResult.data || []) {
-      if (!occupiedByRoute.has(booking.route_id)) occupiedByRoute.set(booking.route_id, new Set());
-      if (booking.seat_label) occupiedByRoute.get(booking.route_id)?.add(booking.seat_label);
-    }
-
-    const departures = (routes || []).flatMap((route: any) => {
-      const operator: any = operators.get(route.operator_id);
-      const vehicle: any = vehicles.get(route.vehicle_id);
-      const operatorApproved = operator?.operator_application_status === 'APPROVED' && operator?.verification_status === 'verified';
-      const vehicleApproved = vehicle?.clearance_status === 'verified';
-      if (!operatorApproved || !vehicleApproved) return [];
-      return [{
-        id: route.id,
-        vehicle_id: route.vehicle_id,
-        route_name: route.name,
-        origin: route.origin,
-        destination: route.destination,
-        departure_time: route.departure_time,
-        price_xaf: route.price_per_seat,
-        total_seats: vehicle?.capacity || route.capacity || 4,
-        booked_seats: occupiedByRoute.get(route.id)?.size || 0,
-        occupied_seats: Array.from(occupiedByRoute.get(route.id) || []),
-        vehicle_type: vehicle?.type || route.vehicle_type || 'taxi',
-        operator_id: route.operator_id,
-        operator_name: operator?.full_name || 'Operateur AFAT verifie',
-        plate_number: vehicle?.plate_number || null,
-        rating: vehicle?.rating || null,
-      }];
-    });
-
+    const departures = projectPublishedDepartures({routes:routes||[],bookings:bookingsResult.data||[],operators:operatorsResult.data||[],vehicles:vehiclesResult.data||[],nowMs:Date.now()});
     res.status(200).json({ success: true, departures });
   } catch (error: any) {
     console.error('Departure feed error:', error);
