@@ -1,3 +1,11 @@
+# Active continuation — 2026-10-21 Move → Learn integration
+
+- PR #159 merged as `216d23c7363457dbd3094c0b562fbfd9b0b68433` after AFAT CI #612 completed successfully (backend and dashboard). It added offline route custody bound to account, destination, mode and exact arrival point; the planner stops requesting live route services when disconnected. This is **CI-tested source integration**, not a field-validated journey or verified production frontend.
+- Current branch integrates genuine online reroutes with the same per-account offline route custody so newly navigated geometry supersedes stale initial paths. FieldEvidenceCapture now validates age and accuracy of the **original GPS fix at submission time** for entrance and transit evidence, including evidence queued while disconnected. It retains the existing reviewer-governed mobility evidence queue; no new evidence store or auto-verification introduced.
+- Release gates: complete dashboard build/test CI, merge, then verify real deployment and actual user navigation/reconnection/field contribution. Remaining evidence-trust gap: observed fix capture timestamps are not yet independently validated throughout the server-side replay path; offline queued evidence should preserve capture provenance and receive server review.
+- Render workspace selection and authorized private foot service remain external blockers; do not silently charge or substitute driving paths.
+- Next integration: real destination → route → navigation → observation → reviewer promotion acceptance using legitimate data and target devices; separately continue shared AI-CORE/geospatial/transit/spatial capabilities in dependency-ready batches.
+
 # Active continuation — 2026-10-21 connected passenger Find → Reach → Navigate → Learn
 
 - Delivery objective: existing place discovery and reviewed-access assessment → canonical/real OSRM route → passenger guidance → offline route custody and reconnect → field evidence → Atlas learning. Optional booking remains independent. This is an integrated acceptance target, **not yet field accepted**.
