@@ -1,0 +1,37 @@
+name: AFAT Deployable Cameroon OSRM Runtime Acceptance
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-osrm-runtime-acceptance.yml'
+      - 'routing/cameroon/Dockerfile.runtime'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  immutable-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build exact deployment image without registry credentials
+        run: docker build --file routing/cameroon/Dockerfile.runtime --tag afat-osrm-service:accept routing/cameroon
+      - name: Run production startup contract and two real Cameroon routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name afat-osrm-service-accept -p 127.0.0.1:5000:5000 afat-osrm-service:accept
+          for i in $(seq 1 40); do
+            if curl --fail --silent --max-time 2 'http://127.0.0.1:5000/nearest/v1/driving/11.516,3.866?number=1' >/dev/null; then break; fi
+            sleep 2
+          done
+          AFAT_OSRM_SMOKE_URL='http://127.0.0.1:5000' node routing/cameroon/verify.mjs
+      - name: Capture route runtime diagnostics on failure
+        if: failure()
+        run: docker logs --tail 120 afat-osrm-service-accept || true
+      - name: Clean up temporary runtime
+        if: always()
+        run: docker rm -f afat-osrm-service-accept || true
