@@ -1,3 +1,13 @@
+# Live two-city Find → Reach evidence — 2026-10-21 (GitHub-hosted production run)
+
+- PR #163 merged `c11428efd6c760d61c043f690e70e79b61d9e0b8`, AFAT CI `39598878723` passed; Atlas `status=ok` no longer bypasses geometry and mode validation in passenger route client.
+- PR #164 merged `339fac1b1c7b08f16df774cf5439ebc0bdd1d3e8` after **AFAT CI `39599209384` and LIVE Cameroon Navigation Acceptance `39599209348` completed successfully**. The latter executed against deployed `https://afat-cameroon-osrm.onrender.com` and `https://asteck-bot.onrender.com`, not mocked responses.
+- Real production Yaoundé driving: 2,171m, 177s, 92 GPS route coordinates, 14 provider maneuvers. Real production Douala driving: 1,034m, 152s, 41 route coordinates, 8 maneuvers. Both AFAT backend responses matched real OSRM provider geometry and mode, retained network snap distances and did not claim traffic awareness.
+- Real licensed Find→Reach: Overture Maps source record **Helios High Tech Academy** (`99f9922d-c06a-4b01-a1a3-487a262e4b6a`), route 3,650.6m, destination road-network snap approximately 40.59m, 9 maneuvers. Geographic evidence limited; **entrance access, physical road passability and passenger field arrival NOT verified**.
+- Live passenger walking API in **both Yaoundé and Douala** returned explicit `503 ROUTING_UNAVAILABLE`. Backend fail-closed behavior verified; **separate foot OSRM graph not deployed/connected to passenger backend**, despite prior successful graph/OCI build.
+- Operational acceptance scope: backend driving route engine and licensed source destination→road routing accepted by read-only live integration probes. **Not accepted:** walking service, Cloudflare passenger UI version, authenticated user/device navigation, offline GPS recovery, entrance field verification/reviewer advancement, traffic or accessibility claims. Render private service still needs confirmed workspace and cost authorization.
+- Exact next dependency-ready work: validate Cloudflare passenger UI build vs source commit; run authorized physical device Find→Reach→Move→Learn field observation and offline re-sync; integrate independently deployable walking service after Render authorization, and progress independent transit/spatial/AI-CORE workstreams. Reuse this live evidence rather than rebuilding prior OSRM graph.
+
 # Release acceptance continuation — 2026-10-21
 
 - Merged PR #163 into master as `c11428efd6c760d61c043f690e70e79b61d9e0b8` after backend/dashboard AFAT CI run `39598878723` succeeded. Canonical Atlas route `status=ok` is no longer enough to certify navigable passenger guidance; actual bounded geometry, mode, distance and ETA are required. Existing genuine OSRM car/foot fallback remains separate and unverified for access/safety.
