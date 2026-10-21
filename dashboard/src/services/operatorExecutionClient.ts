@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { supabase,authenticatedApiHeaders,getApiBaseUrl } from '../supabaseClient';
 import { elapsedMs, performanceNow, recordAfatMetric } from './performanceMetrics';
 
 export type OperatorExecutionSnapshot = {
@@ -24,4 +24,21 @@ export async function fetchNearbySupply(input:{latitude:number;longitude:number;
   recordAfatMetric({operation:'nearby_supply',durationMs:elapsedMs(start),outcome:'success',mode:input.vehicleType??null,cacheState:'network',resultCount:count,surface:'passenger_preflight'});
   return{data,error};
  }catch(error:any){recordAfatMetric({operation:'nearby_supply',durationMs:elapsedMs(start),outcome:typeof navigator!=='undefined'&&!navigator.onLine?'offline':'error',mode:input.vehicleType??null,errorClass:error?.name||'supply_error',cacheState:'network',surface:'passenger_preflight'});throw error;}
+}
+
+export async function registerOperatorVehicle(input:{plate_number:string;vehicle_type:string;capacity:number}){
+ try{
+  const headers=await authenticatedApiHeaders();
+  const res=await fetch(`${getApiBaseUrl()}/api/onboard/vehicle/register`,{
+   method:'POST',headers:{'content-type':'application/json',...headers},
+   body:JSON.stringify(input),signal:AbortSignal.timeout(25000),
+  });
+  const body=await res.json().catch(()=>null);
+  if(!res.ok||!body?.vehicle?.id)return {data:null,error:{message:body?.error||'Vehicle registration is unavailable.'}};
+  if(body.vehicle.clearance_status==='verified'||body.vehicle.is_available===true)
+   return {data:null,error:{message:'Unexpected vehicle clearance state; contact AFAT operations.'}};
+  return {data:body,error:null};
+ }catch(error:any){
+  return {data:null,error:{message:error?.message||'Vehicle registration service unavailable.'}};
+ }
 }
