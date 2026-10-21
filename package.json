@@ -8,6 +8,7 @@
     "build": "npm run build:backend && npm run build:dashboard",
     "build:backend": "tsc",
     "build:dashboard": "cd dashboard && npm install && npm run build",
+    "test:atlas-source-understanding": "node --import tsx scripts/verify-atlas-source-understanding.ts",
     "test:atlas-ai-evidence": "node --import tsx scripts/verify-atlas-ai-evidence.ts",
     "test:routing": "node --import tsx scripts/verify-routing-provider.mjs",
     "test:api-contract": "node scripts/verify-api-contract.mjs",
