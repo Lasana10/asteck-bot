@@ -53,6 +53,7 @@ type QueuedNavigationSample = {
 
 type NavigationQueue = {
   version: 1;
+  profileId: string | null;
   journeyStartedAt: string | null;
   samples: QueuedNavigationSample[];
 };
@@ -82,11 +83,11 @@ function validPosition(position?: AfatRuntimePosition | null) {
 function readQueue(): NavigationQueue {
   try {
     const parsed = JSON.parse(localStorage.getItem(QUEUE_KEY) || '') as NavigationQueue;
-    if (parsed?.version === 1 && Array.isArray(parsed.samples)) return parsed;
+    if (parsed?.version === 1 && typeof parsed.profileId === 'string' && parsed.profileId.length > 0 && Array.isArray(parsed.samples)) return parsed;
   } catch {
     // Corrupt local evidence must never block navigation.
   }
-  return { version: 1, journeyStartedAt: null, samples: [] };
+  return { version: 1, profileId: null, journeyStartedAt: null, samples: [] };
 }
 
 function writeQueue(queue: NavigationQueue) {
@@ -119,9 +120,9 @@ function shouldQueuePosition(position: AfatRuntimePosition, previous?: AfatRunti
 
 function enqueuePosition(snapshot: AfatJourneyRuntimeSnapshot) {
   const position = snapshot.lastPosition;
-  if (snapshot.state !== 'navigating' || !snapshot.startedAt || !position || !validPosition(position)) return readQueue();
+  if (snapshot.state !== 'navigating' || !snapshot.startedAt || !snapshot.profileId || !position || !validPosition(position)) return readQueue();
   let queue = readQueue();
-  if (queue.journeyStartedAt !== snapshot.startedAt) queue = { version: 1, journeyStartedAt: snapshot.startedAt, samples: [] };
+  if (queue.journeyStartedAt !== snapshot.startedAt || queue.profileId !== snapshot.profileId) queue = { version: 1, profileId: snapshot.profileId, journeyStartedAt: snapshot.startedAt, samples: [] };
   const previous = queue.samples.at(-1)?.position || null;
   if (!shouldQueuePosition(position, previous)) return queue;
   const key = sampleKey(position);
@@ -143,7 +144,8 @@ export function loadJourneyRuntime(): AfatJourneyRuntimeSnapshot | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AfatJourneyRuntimeSnapshot;
     if (parsed?.version !== 1 || !parsed?.state) return null;
-    return { ...parsed, pendingSampleCount: readQueue().samples.length };
+    const queue=readQueue();
+    return { ...parsed, pendingSampleCount: queue.profileId===parsed.profileId && queue.journeyStartedAt===parsed.startedAt ? queue.samples.length : 0 };
   } catch {
     return null;
   }
@@ -178,45 +180,45 @@ async function ensureServerSession(current: AfatJourneyRuntimeSnapshot) {
 }
 
 async function flushQueuedSamples(current: AfatJourneyRuntimeSnapshot) {
-  if (!current.serverSessionId) return { current, remaining: readQueue().samples.length };
-  let queue = readQueue();
-  if (current.startedAt && queue.journeyStartedAt && queue.journeyStartedAt !== current.startedAt) {
-    clearQueue();
-    return { current, remaining: 0 };
-  }
-  let processed = 0;
-  while (queue.samples.length && processed < FLUSH_BATCH_SIZE) {
-    const item = queue.samples[0];
-    const { data, error } = await supabase.rpc('afat_ingest_navigation_sample_v2', {
-      p_session_id: current.serverSessionId,
-      p_latitude: item.position.latitude,
-      p_longitude: item.position.longitude,
-      p_accuracy_m: item.position.accuracy ?? null,
-      p_speed_kph: item.position.speedKph ?? null,
-      p_heading: item.position.heading ?? null,
-      p_recorded_at: item.position.recordedAt,
-      p_idempotency_key: item.key,
+  if (!current.serverSessionId || !current.profileId || !current.startedAt) return { current, remaining: 0 };
+  const belongs=(queue:NavigationQueue) => queue.profileId===current.profileId && queue.journeyStartedAt===current.startedAt;
+  let queue=readQueue();
+  if (!belongs(queue)) return {current,remaining:0};
+  let processed=0;
+  while(queue.samples.length && processed<FLUSH_BATCH_SIZE){
+    // Never replay an old contributor's offline GPS under a new local session.
+    const session=await supabase.auth.getSession();
+    if(session.error || session.data.session?.user.id!==current.profileId)throw new Error('Navigation account changed during replay');
+    const item=queue.samples[0];
+    const {data,error}=await supabase.rpc('afat_ingest_navigation_sample_v2',{
+      p_session_id:current.serverSessionId,
+      p_latitude:item.position.latitude,p_longitude:item.position.longitude,
+      p_accuracy_m:item.position.accuracy??null,p_speed_kph:item.position.speedKph??null,
+      p_heading:item.position.heading??null,p_recorded_at:item.position.recordedAt,p_idempotency_key:item.key,
     });
-    if (error) {
-      queue.samples[0] = { ...item, attempts: item.attempts + 1 };
-      writeQueue(queue);
-      throw new Error(error.message || 'Navigation sample could not sync');
+    // Read the current queue after the network call. Local GPS capture may
+    // have added new samples while the request was outstanding.
+    const fresh=readQueue();
+    if(!belongs(fresh))return {current,remaining:0};
+    const found=fresh.samples.findIndex(entry=>entry.key===item.key);
+    if(error){
+      if(found!==-1)fresh.samples[found]={...fresh.samples[found],attempts:fresh.samples[found].attempts+1};
+      writeQueue(fresh);
+      throw new Error(error.message||'Navigation sample could not sync');
     }
-    // Quality/outlier rejections are terminal for this sample; retrying cannot improve the observation.
-    queue.samples.shift();
-    writeQueue(queue);
-    processed += 1;
-    if (data?.accepted === false && !data?.reason) break;
+    if(found!==-1)fresh.samples.splice(found,1);
+    writeQueue(fresh);
+    processed+=1;
+    queue=readQueue();
+    if(data?.accepted===false&&!data?.reason)break;
   }
-  const remaining = queue.samples.length;
-  current = persist({
-    ...(loadJourneyRuntime() || current),
-    serverSyncState: 'active',
-    lastServerSyncAt: new Date().toISOString(),
-    pendingSampleCount: remaining,
-    updatedAt: new Date().toISOString(),
-  });
-  return { current, remaining };
+  const latest=loadJourneyRuntime();
+  if(latest?.profileId!==current.profileId||latest?.startedAt!==current.startedAt)
+    return {current,remaining:0};
+  const remaining=belongs(queue)?queue.samples.length:0;
+  current=persist({...latest,serverSyncState:'active',lastServerSyncAt:new Date().toISOString(),
+    pendingSampleCount:remaining,updatedAt:new Date().toISOString()});
+  return {current,remaining};
 }
 
 async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
@@ -231,7 +233,13 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
   }
   syncInFlight = true;
   try {
+    // Confirm identity with Auth before any server-side session or sample RPC.
+    // The old v1 unowned queue intentionally cannot be replayed.
+    const identity=await supabase.auth.getUser();
+    if(identity.error||!identity.data.user||identity.data.user.id!==snapshot.profileId)
+      return;
     let current = loadJourneyRuntime() || snapshot;
+    if(current.profileId!==snapshot.profileId||current.startedAt!==snapshot.startedAt)return;
     current = await ensureServerSession(current);
 
     if (current.serverSessionId) {
@@ -301,7 +309,7 @@ export function saveJourneyRuntime(
     lastServerSyncAt: startingNewJourney ? null : (patch.lastServerSyncAt ?? current?.lastServerSyncAt ?? null),
     updatedAt: new Date().toISOString(),
   };
-  if (startingNewJourney) clearQueue();
+  if (startingNewJourney || (patch.profileId && current?.profileId && patch.profileId!==current.profileId)) clearQueue();
   const queue = enqueuePosition(next);
   next.pendingSampleCount = queue.samples.length;
   persist(next);
