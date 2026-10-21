@@ -26,7 +26,8 @@ interface Props {
     occupied_seats?: string[];
   };
   onBack: () => void;
-  onConfirmSeat: (seatId: string) => void;
+  onConfirmSeat: (seatLabel: string) => void;
+  errorText?: string|null;
 }
 
 // Visual Blueprint Definitions for standard vehicle chassis
@@ -87,7 +88,7 @@ export function generateBlueprint(type: string, bookedLabels: string[], maxPasse
   return { seats, layoutRows, maxCols: bp.cols };
 }
 
-export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
+export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Props) {
   const [seats, setSeats] = useState<SeatData[]>([]);
   const [layoutRows, setLayoutRows] = useState<any[]>([]);
   const [maxCols, setMaxCols] = useState(4);
@@ -191,6 +192,7 @@ export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
       </header>
 
       <main className="flex-1 flex flex-col items-center p-6">
+        {errorText&&<p role="alert" className="mb-4 w-full max-w-sm rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-xs text-rose-100">{errorText}</p>}
         {!loading&&!feedHealthy&&<p role="alert" className="mb-4 w-full max-w-sm rounded-xl border border-amber-300/25 bg-amber-300/10 p-3 text-xs text-amber-100">Ce départ n’est plus disponible ou le nombre de places ne peut pas être confirmé. Retournez à la liste des départs.</p>}
         {/* Vehicle Info */}
         <div className="w-full max-w-sm bg-slate-900/50 border border-white/5 rounded-2xl p-4 mb-8 flex items-center justify-between">
