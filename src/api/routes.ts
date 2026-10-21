@@ -3747,7 +3747,7 @@ router.post('/compliance/:id/upload-authorize',async(req:Request,res:Response)=>
     return res.status(503).json({error:'PRIVATE_DOCUMENT_UPLOAD_UNAVAILABLE'});
   return res.status(200).json({
     success:true,bucket:complianceBucket,path,token:token.data.token,
-    expires_in_seconds:120,private:true,maximum_bytes:8*1024*1024,
+    private:true,maximum_bytes:8*1024*1024,
     review_status:'not_verified', // signed upload does not prove contents
   });
 });
