@@ -88,12 +88,22 @@ export function generateBlueprint(type: string, bookedLabels: string[], maxPasse
   return { seats, layoutRows, maxCols: bp.cols };
 }
 
+/** Blueprint IDs are screen positions, never server seat labels. */
+export function realSeatLabelForSelection(
+ seats:Array<Pick<SeatData,'id'|'label'|'status'>>,
+ selectedId:string|null,
+ feedHealthy:boolean,
+):string|null{
+ if(!selectedId||!feedHealthy)return null;
+ const seat=seats.find(s=>s.id===selectedId&&s.status==='selected');
+ return seat?.label||null;
+}
+
 export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Props) {
   const [seats, setSeats] = useState<SeatData[]>([]);
   const [layoutRows, setLayoutRows] = useState<any[]>([]);
   const [maxCols, setMaxCols] = useState(4);
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null);
-  const [lockTimer, setLockTimer] = useState(480); // 8 minutes in seconds
 
   const [loading, setLoading] = useState(true);
   const [feedHealthy,setFeedHealthy]=useState(true);
@@ -126,23 +136,6 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
     setLoading(false);
   };
 
-  // Countdown timer for seat lock
-  useEffect(() => {
-    if (!selectedSeat) return;
-    const interval = setInterval(() => {
-      setLockTimer(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setSelectedSeat(null);
-          setSeats(s => s.map(seat => seat.status === 'selected' ? { ...seat, status: 'available' } : seat));
-          return 480;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [selectedSeat]);
-
   const handleSeatTap = (seatId: string) => {
     setSeats(prev => prev.map(s => {
       if (s.id === seatId && s.status === 'available' && feedHealthy) return { ...s, status: 'selected' };
@@ -151,7 +144,6 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
     }));
     if(!feedHealthy)return;
     setSelectedSeat(seatId);
-    setLockTimer(480);
   };
 
   const getTimeUntil = (isoTime: string) => {
@@ -263,21 +255,11 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
           <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-500/10 border border-red-500/20 rounded"></div> Occupé</div>
         </div>
 
-        {/* Lock Timer */}
-        {selectedSeat && (
-          <div className="w-full max-w-sm bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 mb-6 flex items-center justify-between">
-            <span className="text-xs text-amber-500 font-bold">Sélection locale · pas encore réservée:</span>
-            <span className="text-sm font-mono font-black text-amber-400">
-              {Math.floor(lockTimer / 60)}:{String(lockTimer % 60).padStart(2, '0')}
-            </span>
-          </div>
-        )}
-
         {/* Confirm Button */}
         <button
           onClick={() => {
-            const seat=seats.find(s=>s.id===selectedSeat && s.status==='selected');
-            if(seat&&feedHealthy)onConfirmSeat(seat.label);
+            const label=realSeatLabelForSelection(seats,selectedSeat,feedHealthy);
+            if(label)onConfirmSeat(label);
           }}
           disabled={!selectedSeat||!feedHealthy||loading}
           className={`w-full max-w-sm py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${
