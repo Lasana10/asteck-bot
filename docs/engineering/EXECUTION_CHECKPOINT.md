@@ -1,3 +1,11 @@
+# Shared AI-CORE passenger degraded-mode implementation merged — 2026-10-21
+
+- PR #166 merged to `master` as `9be0dda979963a51421271f4a5809f391c013878` after GitHub AFAT CI run `39600405255` completed successfully in backend and dashboard jobs.
+- Existing authenticated Atlas explanation pipeline now keeps reviewed place/road knowledge understandable during AI-CORE inference failure through a conservative deterministic `reviewedAtlasContext`. Shared signed multi-tenant `invokeAfatAiCore` remains the normal configured path. Fallback is `reviewed_context`, `ai_used=false`, `advisory_only=true`, `requires_human_review=true` and never proves route, access, traffic or hazard safety; unreviewed OSM/Overture source_context remains separate.
+- Reviewed Atlas fallback has backend evidence-sanitization test assertions and dashboard client trust/provenance tests. CI acceptance is **not equivalent to a live AI outage trial**. Backend production deployment and Cloudflare commit `9be0dda` are still unverified at this checkpoint; deploy checks were in progress when observed.
+- Independently previously accepted production driving and licensed Find→Reach in Yaoundé/Douala via `39599209348`, and Cloudflare passenger published frontend assets via `39599781462` / successful Pages deployment `79f4eaa`. Field device GPS/offline queue and walking live deployment remain incomplete.
+- Next precise execution: verify Render backend and Cloudflare current AI release, then authenticated reviewed-Atlas explanation during intentionally disabled AI-CORE (without disrupting normal production); proceed with field-tested Find→Reach→Move→Learn, foot OSRM authorized infrastructure, informal transit, spatial computing and Earth intelligence.
+
 # Shared AI-CORE → passenger Atlas degraded-mode integration — 2026-10-21
 
 - Integration target: authenticated real Atlas query → reviewed public evidence classification → shared `invokeAfatAiCore` when available → same passenger Atlas UX even if no inference capacity exists. Existing AI-CORE tenant-signed client and public-data-only policy preserved.
