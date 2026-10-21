@@ -109,5 +109,44 @@ for(const place of meaningful.filter(p=>Number.isFinite(p.latitude)&&Number.isFi
 }
 assert.ok(acceptedPlace,'No actual licensed place could be routed to on the live Cameroon graph. '+lastCandidateError);
 console.log('FIND→REACH actual source place: '+JSON.stringify(acceptedPlace)+' · route access/entrance remains unverified');
+
+// Continue from verified real destination → routing into the existing optional
+// approved-operator supply → seat-hold → booking path, without creating bookings.
+const departureUrl=new URL('/api/mobility/departures',backend);
+const published=await getJson(departureUrl,2);
+assert.equal(published.success,true,'AFAT public approved operator departure feed unavailable');
+assert.ok(Array.isArray(published.departures),'AFAT departure feed missing genuine inventory array');
+for(const departure of published.departures){
+ const leavesAt=Date.parse(departure.departure_time);
+ assert.ok(Number.isFinite(leavesAt)&&leavesAt>Date.now(),'Old/unscheduled departure exposed as bookable');
+ assert.ok(typeof departure.id==='string'&&departure.id.length>0,'Departure missing real route identifier');
+ assert.ok(Number.isSafeInteger(departure.price_xaf)&&departure.price_xaf>0,'Invalid advertised XAF fare');
+ assert.ok(Number.isSafeInteger(departure.total_seats)&&departure.total_seats>=1,'Invalid vehicle capacity');
+ assert.ok(Number.isSafeInteger(departure.booked_seats)&&departure.booked_seats>=0,'Invalid booked seat inventory');
+ assert.equal(departure.available_seats,departure.total_seats-departure.booked_seats,
+   'Departure seat availability not consistent with current bookings');
+ assert.ok(departure.available_seats>0,'Sold-out departure incorrectly shown as bookable');
+ assert.ok(Array.isArray(departure.occupied_seats),'Occupancy labels unavailable');
+ assert.ok(departure.inventory_note?.includes('seat hold'),'Passenger inventory not clearly provisional');
+ for(const secret of ['passenger_id','payment_token','payment_reference','passenger_phone']){
+  assert.equal(Object.hasOwn(departure,secret),false,'Private booking data exposed by public departure feed');
+ }
+}
+console.log('Production approved future operator departures:',published.departures.length,
+ published.departures.length?'real operator supply published':'NO ACTIVE SUPPLY: full operator booking cannot be operationally accepted');
+
+// No real booking or reservation is created here. Anonymous callers must
+// reach the authorization gate before any mutation.
+for(const path of ['/api/booking/seat-hold','/api/booking/create-from-hold']){
+ const response=await fetch(new URL(path,backend),{
+  method:'POST',headers:{'content-type':'application/json','accept':'application/json'},
+  body:JSON.stringify({hold_id:'00000000-0000-0000-0000-000000000000',
+    route_id:'00000000-0000-0000-0000-000000000000',seat_label:'1'}),
+  signal:AbortSignal.timeout(25000),
+ });
+ assert.equal(response.status,401,'Unauthenticated passenger mutation not protected: '+path);
+ console.log('PASS anonymous booking mutation denied:',path,'HTTP',response.status);
+}
+
 console.log('PASS AFAT production two-city road routing AND real licensed-place discovery→routing integration (no field validation)');
 
