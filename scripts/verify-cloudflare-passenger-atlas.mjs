@@ -21,6 +21,6 @@ for(const asset of [...new Set(assets)].slice(0,8)){
  bundles+=js.slice(0,3_500_000);
  console.log('Loaded Cloudflare client JS:',url.pathname,'bytes:',js.length);
 }
-const signals=['Understand nearby landmarks and reviewed geographic evidence','Real nearby place records','Provisional local map knowledge','Offline place references found','Saved journey restored with its existing navigation session'];
+const signals=['Provider road turn','GPS observation not accepted','Understand nearby landmarks and reviewed geographic evidence','Real nearby place records','Provisional local map knowledge','Offline place references found','Saved journey restored with its existing navigation session'];
 for(const signal of signals)assert.ok(bundles.includes(signal),'Cloudflare is serving a stale dashboard: missing '+signal);
 console.log('PASS actual Cloudflare passenger Atlas/limited-place frontend release:',site.origin);
