@@ -48,6 +48,29 @@ describe('end-to-end offline route geometry custody',()=>{
   expect(storeOfflineJourneyRoute({...journey,route:{...route,status:'unavailable'}},s)).toBe(false);
   expect(s.length).toBe(0);
  });
+
+ it('isolates mode and physical arrival point within the same account and place',()=>{
+  const s=memory();
+  expect(storeOfflineJourneyRoute(journey,s)).toBe(true);
+  expect(loadOfflineJourneyRoute('alice','place-1',s,{mode:'car',latitude:3.875,longitude:11.526})?.mode).toBe('car');
+  expect(loadOfflineJourneyRoute('alice','place-1',s,{mode:'walk'})).toBeNull();
+  expect(loadOfflineJourneyRoute('alice','place-1',s,{latitude:3.876,longitude:11.526})).toBeNull();
+  expect(storeOfflineJourneyRoute({...journey,mode:'walk'},s)).toBe(false);
+ });
+ it('does not revive legacy snapshots whose mode and arrival location were not checked',()=>{
+  const s=memory();
+  s.setItem('afat_offline_journey_route_v1:alice',JSON.stringify({version:1,...journey,savedAt:new Date().toISOString()}));
+  expect(loadOfflineJourneyRoute('alice','place-1',s)).toBeNull();
+  clearOfflineJourneyRoute('alice',s);
+  expect(s.length).toBe(0);
+ });
+ it('rejects cached routes with coerced string geometry or forged mode',()=>{
+  const s=memory();
+  const invalid={...route,segments:[{seq:0,edge_id:'x',distance_m:2171,
+    geometry:{type:'LineString' as const,coordinates:[['11.516',3.866],[11.526,3.875]] as unknown as number[][]}}]};
+  expect(routeCanBeKeptOffline(invalid)).toBe(false);
+  expect(storeOfflineJourneyRoute({...journey,route:{...route,mode:'walk'}},s)).toBe(false);
+ });
  it('rejects expired route snapshots instead of certifying stale path knowledge',()=>{
   const s=memory();storeOfflineJourneyRoute(journey,s);
   const k=s.key(0)!;const saved=JSON.parse(s.getItem(k)!);
