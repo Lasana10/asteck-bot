@@ -31,7 +31,6 @@ import { mapOfflineService } from '../../services/MapOfflineService';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { CommuterWallet } from './CommuterWallet';
 import { ConciergeHelp } from '../shared/ConciergeHelp';
-import { NegotiationPanel } from '../shared/NegotiationPanel';
 import { PointsSystem } from '../shared/PointsSystem';
 import { SentinelIDCard } from '../shared/SentinelIDCard';
 import { OperationsMissionControl } from '../shared/OperationsMissionControl';
@@ -47,7 +46,7 @@ interface Props {
   isGuest?: boolean;
 }
 
-type ViewState = 'home' | 'departures' | 'seats' | 'waiting' | 'negotiate' | 'payment' | 'ticket' | 'alerts';
+type ViewState = 'home' | 'departures' | 'seats' | 'waiting' | 'fare' | 'payment' | 'ticket' | 'alerts';
 
 export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGuest = false }: Props) {
   const [view, setView] = useState<ViewState>('home');
@@ -104,6 +103,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [selectedDeparture, setSelectedDeparture] = useState<any>(null);
   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
   const [currentSeatHoldId, setCurrentSeatHoldId] = useState<string | null>(null);
+  const [currentSeatHoldExpiresAt,setCurrentSeatHoldExpiresAt]=useState<string|null>(null);
   const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
   const [bookingResult, setBookingResult] = useState<any>(null);
   const [activeVehicles, setActiveVehicles] = useState<any[]>([]);
@@ -301,16 +301,16 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setSelectedDeparture(departure);
     setSelectedSeatId(null);
     setCurrentSeatHoldId(null);
+    setCurrentSeatHoldExpiresAt(null);
     setCurrentBookingId(null);
     setBookingResult(null);
     setBookingError(null);
     setView('seats');
   };
 
-  const handleSeatSelect = async (seatId: string) => {
-    if (!selectedDeparture || !profile?.id) {
-      return;
-    }
+  const handleSeatSelect = async (seatLabel: string) => {
+    if (!selectedDeparture || !profile?.id || bookingInFlight) return;
+    if (Date.parse(selectedDeparture.departure_time) <= Date.now()) {setBookingError('Ce départ a déjà commencé. Choisissez un départ futur.');return;}
 
     setBookingInFlight(true);
     setBookingError(null);
@@ -319,7 +319,6 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       await releaseSeatHold(currentSeatHoldId);
     }
 
-    const seatLabel = seatId.split('-').pop() || seatId;
     const { data, error } = await createSeatHold({
       passenger_id: profile.id,
       operator_id: selectedDeparture.operator_id,
@@ -334,18 +333,22 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       return;
     }
 
-    setSelectedSeatId(seatId);
+    setSelectedSeatId(seatLabel);
     setCurrentSeatHoldId(data.hold.id);
+    setCurrentSeatHoldExpiresAt(data.hold.expires_at||null);
     setCurrentBookingId(null);
-    setView('negotiate');
+    setView('fare');
   };
 
   const handleBookingConfirm = (result: any) => { setBookingResult(result); setCurrentBookingId(result?.booking?.id); setView('ticket'); };
 
-  const handleNegotiationAccept = async (_finalPrice: number) => {
-    if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId) {
-      return;
+  const handleFareConfirm = async () => {
+    if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId || bookingInFlight) return;
+    if(!currentSeatHoldExpiresAt||Date.parse(currentSeatHoldExpiresAt)<=Date.now()){
+      setBookingError('La réservation temporaire a expiré. Sélectionnez de nouveau votre place.');
+      setCurrentSeatHoldId(null);setView('seats');return;
     }
+    if (Date.parse(selectedDeparture.departure_time) <= Date.now()) {setBookingError('Départ expiré. Veuillez choisir un autre trajet.');return;}
 
     setBookingError(null);
     setBookingInFlight(true);
@@ -363,7 +366,11 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       return;
     }
 
-    const serverFare = Number(data.booking.price_paid || data.booking.price_xaf || selectedDeparture.price_xaf);
+    const serverFare = Number(data.booking.price_paid ?? data.booking.price_xaf);
+    if(!Number.isSafeInteger(serverFare)||serverFare<=0){
+      setBookingError('Le tarif du billet ne peut pas être vérifié auprès du serveur. Aucun paiement ne sera lancé.');
+      return;
+    }
     setSelectedDeparture({ ...selectedDeparture, price_xaf: serverFare });
     setCurrentBookingId(data.booking.id);
     setView('payment');
@@ -558,49 +565,30 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   // Sub-views
   if (view === 'departures') return <DepartureBoard onSelectDeparture={handleDepartureSelect} onBack={() => setView('home')} />;
-  if (view === 'seats' && selectedDeparture) return <SeatSelector departure={selectedDeparture} onConfirmSeat={handleSeatSelect} onBack={() => setView('departures')} />;
+  if (view === 'seats' && selectedDeparture) return <SeatSelector departure={selectedDeparture} onConfirmSeat={handleSeatSelect} errorText={bookingError} onBack={() => setView('departures')} />;
   
-  if (view === 'negotiate' && selectedDeparture) {
+  if (view === 'fare' && selectedDeparture) {
     return (
-      <div className="min-h-screen sentinel-bg flex flex-col p-6 pt-16">
-        <div className="mesh-gradient" />
-        <div className="relative z-10 flex-1">
-          <div className="mb-10 text-center animate-in fade-in slide-in-from-top duration-700">
-            <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-3">Live Bidding</h2>
-            <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em]">Propose your fare to the operator</p>
-          </div>
-          
-          <NegotiationPanel 
-            initialPrice={selectedDeparture.price_xaf}
-            role="commuter"
-            otherPartyName={selectedDeparture.operator_name}
-            onAccept={handleNegotiationAccept}
-            onReject={() => setView('seats')}
-            onCounter={(price) => {
-               // In a real app, this would push to Supabase. For now, we simulate a "Fast Acceptance"
-               handleNegotiationAccept(price);
-            }}
-          />
-
-          {bookingInFlight && (
-            <div className="mt-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-center text-[11px] font-bold uppercase tracking-widest text-blue-300">
-              Reservation de la place en cours...
-            </div>
-          )}
-
-          {bookingError && (
-            <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-[11px] font-bold uppercase tracking-widest text-red-300">
-              {bookingError}
-            </div>
-          )}
-          
-          <div className="mt-12 bg-white/5 border border-white/10 rounded-[2rem] p-6 text-center backdrop-blur-md">
-            <ShieldCheck className="w-8 h-8 text-blue-400 mx-auto mb-3" />
-            <p className="text-white font-black text-[14px] uppercase italic tracking-tighter">Safe Passage Protocol</p>
-            <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest mt-1">Your bid is encrypted and sent to the grid.</p>
-          </div>
+      <section className="min-h-screen bg-slate-950 p-6 pt-16 text-white">
+        <div className="mx-auto max-w-md rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+          <p className="text-[10px] font-black uppercase tracking-wider text-cyan-200">Verified operator · published fare</p>
+          <h1 className="mt-3 text-2xl font-black">Confirmer le tarif publié</h1>
+          <p className="mt-3 text-sm text-white/65">{selectedDeparture.origin} → {selectedDeparture.destination}</p>
+          <p className="mt-2 text-sm text-white/65">Place {selectedSeatId} · Départ {new Date(selectedDeparture.departure_time).toLocaleString('fr-CM')}</p>
+          {currentSeatHoldExpiresAt&&<p className="mt-3 text-xs text-amber-200">Place retenue temporairement jusqu’à {new Date(currentSeatHoldExpiresAt).toLocaleTimeString('fr-CM')} (confirmation serveur requise).</p>}
+          <p className="mt-5 text-3xl font-black text-cyan-100">{Number(selectedDeparture.price_xaf).toLocaleString('fr-CM')} FCFA</p>
+          <p className="mt-3 text-xs leading-5 text-white/55">Ce tarif a été publié par l'opérateur. AFAT ne négocie pas automatiquement et n'affirme pas qu'un chauffeur a accepté une offre. Le serveur confirmera le prix lors de la création du billet.</p>
+          {bookingError&&<p role="alert" className="mt-4 rounded-xl border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-100">{bookingError}</p>}
+          <button type="button" disabled={bookingInFlight||!currentSeatHoldId||!selectedSeatId} onClick={()=>{void handleFareConfirm();}}
+            className="mt-6 w-full rounded-xl bg-cyan-300 px-4 py-4 text-sm font-black text-slate-950 disabled:opacity-40">
+            {bookingInFlight?'Vérification en cours…':'Confirmer le billet au tarif publié'}
+          </button>
+          <button type="button" disabled={bookingInFlight} onClick={()=>{if(currentSeatHoldId)void releaseSeatHold(currentSeatHoldId);setCurrentSeatHoldId(null);setCurrentSeatHoldExpiresAt(null);setSelectedSeatId(null);setView('seats');}}
+            className="mt-3 w-full rounded-xl border border-white/15 px-4 py-3 text-xs font-bold text-white/75 disabled:opacity-40">
+            Choisir une autre place
+          </button>
         </div>
-      </div>
+      </section>
     );
   }
 
@@ -611,21 +599,21 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         amount={selectedDeparture.price_xaf} 
         operatorName={selectedDeparture.operator_name} 
         routeName={selectedDeparture.route_name} 
-        seatLabel={selectedSeatId.split('-').pop() || '1'} 
+        seatLabel={selectedSeatId} 
         onPaymentComplete={(method, txId) => handleBookingConfirm({
           id: currentBookingId,
           transactionId: txId,
           paymentMethod: method,
           origin: selectedDeparture.origin,
           destination: selectedDeparture.destination,
-          seatLabel: selectedSeatId.split('-').pop(),
+          seatLabel: selectedSeatId,
           price: selectedDeparture.price_xaf,
           operatorName: selectedDeparture.operator_name,
           departureTime: selectedDeparture.departure_time,
           routeName: selectedDeparture.route_name,
           booking: { id: currentBookingId }
         })} 
-        onBack={() => setView('negotiate')} 
+        onBack={() => {setBookingError('Réservation créée mais non payée. Consultez vos réservations pour reprendre le paiement.');setView('home');}} 
       />
     );
   }

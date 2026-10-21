@@ -26,7 +26,8 @@ interface Props {
     occupied_seats?: string[];
   };
   onBack: () => void;
-  onConfirmSeat: (seatId: string) => void;
+  onConfirmSeat: (seatLabel: string) => void;
+  errorText?: string|null;
 }
 
 // Visual Blueprint Definitions for standard vehicle chassis
@@ -58,7 +59,7 @@ const BLUEPRINTS: Record<string, { rows: number; cols: number; visualStructure: 
   }
 };
 
-function generateBlueprint(type: string, bookedLabels: string[]): { seats: SeatData[], layoutRows: any[], maxCols: number } {
+export function generateBlueprint(type: string, bookedLabels: string[], maxPassengers: number): { seats: SeatData[], layoutRows: any[], maxCols: number } {
   const seats: SeatData[] = [];
   const bookedSet = new Set(bookedLabels);
   const bp = BLUEPRINTS[type] || BLUEPRINTS['minibus'];
@@ -76,7 +77,7 @@ function generateBlueprint(type: string, bookedLabels: string[]): { seats: SeatD
         id: `seat-${rIdx}-${cIdx}`,
         row: rIdx,
         col: cIdx,
-        status: isBooked ? 'booked' : 'available',
+        status: Number(labelStr)>maxPassengers ? 'locked' : isBooked ? 'booked' : 'available',
         label: labelStr,
       };
       seats.push(seatData);
@@ -87,14 +88,25 @@ function generateBlueprint(type: string, bookedLabels: string[]): { seats: SeatD
   return { seats, layoutRows, maxCols: bp.cols };
 }
 
-export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
+/** Blueprint IDs are screen positions, never server seat labels. */
+export function realSeatLabelForSelection(
+ seats:Array<Pick<SeatData,'id'|'label'|'status'>>,
+ selectedId:string|null,
+ feedHealthy:boolean,
+):string|null{
+ if(!selectedId||!feedHealthy)return null;
+ const seat=seats.find(s=>s.id===selectedId&&s.status==='selected');
+ return seat?.label||null;
+}
+
+export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Props) {
   const [seats, setSeats] = useState<SeatData[]>([]);
   const [layoutRows, setLayoutRows] = useState<any[]>([]);
   const [maxCols, setMaxCols] = useState(4);
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null);
-  const [lockTimer, setLockTimer] = useState(480); // 8 minutes in seconds
 
   const [loading, setLoading] = useState(true);
+  const [feedHealthy,setFeedHealthy]=useState(true);
 
   useEffect(() => {
     fetchOccupancy();
@@ -111,41 +123,27 @@ export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
 
   const fetchOccupancy = async () => {
     setLoading(true);
-    const { data } = await fetchPublishedDepartures();
+    const { data,error } = await fetchPublishedDepartures();
     const current = data?.departures?.find((item: any) => item.id === departure.id);
-    const bookedLabels = (current?.occupied_seats || departure.occupied_seats || []) as string[];
-    const layout = generateBlueprint(departure.vehicle_type, bookedLabels);
+    const available = !error && current && Date.parse(current.departure_time)>Date.now() && Number(current.available_seats ?? current.total_seats-current.booked_seats)>0;
+    setFeedHealthy(Boolean(available));
+    if(!available)setSelectedSeat(null);
+    const bookedLabels = available ? (current.occupied_seats||[]) as string[] : [];
+    const layout = generateBlueprint(departure.vehicle_type, bookedLabels, available?Number(current.total_seats):0);
     setSeats(layout.seats);
     setLayoutRows(layout.layoutRows);
     setMaxCols(layout.maxCols);
     setLoading(false);
   };
 
-  // Countdown timer for seat lock
-  useEffect(() => {
-    if (!selectedSeat) return;
-    const interval = setInterval(() => {
-      setLockTimer(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setSelectedSeat(null);
-          setSeats(s => s.map(seat => seat.status === 'selected' ? { ...seat, status: 'available' } : seat));
-          return 480;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [selectedSeat]);
-
   const handleSeatTap = (seatId: string) => {
     setSeats(prev => prev.map(s => {
-      if (s.id === seatId && s.status === 'available') return { ...s, status: 'selected' };
+      if (s.id === seatId && s.status === 'available' && feedHealthy) return { ...s, status: 'selected' };
       if (s.id !== seatId && s.status === 'selected') return { ...s, status: 'available' };
       return s;
     }));
+    if(!feedHealthy)return;
     setSelectedSeat(seatId);
-    setLockTimer(480);
   };
 
   const getTimeUntil = (isoTime: string) => {
@@ -186,6 +184,8 @@ export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
       </header>
 
       <main className="flex-1 flex flex-col items-center p-6">
+        {errorText&&<p role="alert" className="mb-4 w-full max-w-sm rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-xs text-rose-100">{errorText}</p>}
+        {!loading&&!feedHealthy&&<p role="alert" className="mb-4 w-full max-w-sm rounded-xl border border-amber-300/25 bg-amber-300/10 p-3 text-xs text-amber-100">Ce départ n’est plus disponible ou le nombre de places ne peut pas être confirmé. Retournez à la liste des départs.</p>}
         {/* Vehicle Info */}
         <div className="w-full max-w-sm bg-slate-900/50 border border-white/5 rounded-2xl p-4 mb-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -228,8 +228,8 @@ export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
                      return (
                        <button
                          key={seat.id}
-                         onClick={() => seat.status === 'available' || seat.status === 'selected' ? handleSeatTap(seat.id) : null}
-                         disabled={seat.status === 'booked' || seat.status === 'locked'}
+                         onClick={() => feedHealthy && (seat.status === 'available' || seat.status === 'selected') ? handleSeatTap(seat.id) : null}
+                         disabled={!feedHealthy||seat.status === 'booked' || seat.status === 'locked'}
                          className={`w-14 h-14 rounded-xl border-2 flex flex-col items-center justify-center transition-all active:scale-95 ${seatColor(seat.status)}`}
                        >
                          {seat.status === 'selected' ? (
@@ -255,20 +255,13 @@ export function SeatSelector({ departure, onBack, onConfirmSeat }: Props) {
           <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-500/10 border border-red-500/20 rounded"></div> Occupé</div>
         </div>
 
-        {/* Lock Timer */}
-        {selectedSeat && (
-          <div className="w-full max-w-sm bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 mb-6 flex items-center justify-between">
-            <span className="text-xs text-amber-500 font-bold">Place réservée pour:</span>
-            <span className="text-sm font-mono font-black text-amber-400">
-              {Math.floor(lockTimer / 60)}:{String(lockTimer % 60).padStart(2, '0')}
-            </span>
-          </div>
-        )}
-
         {/* Confirm Button */}
         <button
-          onClick={() => selectedSeat && onConfirmSeat(selectedSeat)}
-          disabled={!selectedSeat}
+          onClick={() => {
+            const label=realSeatLabelForSelection(seats,selectedSeat,feedHealthy);
+            if(label)onConfirmSeat(label);
+          }}
+          disabled={!selectedSeat||!feedHealthy||loading}
           className={`w-full max-w-sm py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${
             selectedSeat 
               ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]' 
