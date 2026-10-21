@@ -8,6 +8,10 @@ on:
       - 'scripts/verify-cloudflare-passenger-atlas.mjs'
       - 'dashboard/src/components/commuter/PassengerSpatialMap.tsx'
       - 'dashboard/src/services/routeGuidance.ts'
+      - 'dashboard/src/services/canonicalRouteClient.ts'
+      - 'dashboard/src/services/offlineJourneyRoute.ts'
+      - 'dashboard/src/components/commuter/PassagePlanner.tsx'
+      - 'dashboard/src/components/commuter/FieldEvidenceCapture.tsx'
   workflow_dispatch:
 
 permissions:
