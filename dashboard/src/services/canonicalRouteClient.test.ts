@@ -106,13 +106,17 @@ describe('canonical route integration', () => {
     expect(route.status).toBe('unavailable');
   });
 
-  it('does not present driving route as walking or minibus directions', async () => {
+  it('does not misrepresent an unavailable foot route as successful pedestrian navigation', async () => {
     rpc.mockResolvedValue({ data: { status: 'unavailable', mode: 'walk' }, error: null });
-    const network = vi.fn();
+    const network = vi.fn().mockResolvedValue({ok:false,status:503});
     vi.stubGlobal('fetch', network);
     const route = await fetchCanonicalAfatRoute({ ...input, mode: 'walk' });
     expect(route.status).toBe('unavailable');
-    expect(network).not.toHaveBeenCalled();
+    expect(network).toHaveBeenCalledTimes(1);
+    expect(network.mock.calls[0][0]).toContain('mode=foot');
+    const minibus = await fetchCanonicalAfatRoute({ ...input, mode: 'minibus' });
+    expect(minibus.status).toBe('unavailable');
+    expect(network).toHaveBeenCalledTimes(1);
   });
 
   it('rejects missing provider provenance and invented zero ETA', async () => {
