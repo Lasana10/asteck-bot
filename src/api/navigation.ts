@@ -27,10 +27,13 @@ router.get('/navigation/route', async (req: Request, res: Response) => {
       error: 'origin_lat, origin_lon, destination_lat and destination_lon must be valid coordinates.',
     });
   }
+  const mode = req.query.mode === undefined ? 'driving' : req.query.mode;
+  if(mode !== 'driving' && mode !== 'foot')return res.status(400).json({code:'INVALID_TRAVEL_MODE',error:'Supported mode must be driving or foot.'});
   try {
     // A publicly reachable endpoint must not silently spend metered Google quota.
     const directions = await DirectionsService.getDirections(origin, destination, {
-      allowMeteredFallback: process.env.AFAT_ALLOW_PUBLIC_PAID_ROUTING === 'true',
+      allowMeteredFallback: mode === 'driving' && process.env.AFAT_ALLOW_PUBLIC_PAID_ROUTING === 'true',
+      travelMode: mode,
     });
     if (!directions) {
       return res.status(503).json({
@@ -41,7 +44,7 @@ router.get('/navigation/route', async (req: Request, res: Response) => {
     return res.json({
       origin,
       destination,
-      travel_mode: 'driving',
+      travel_mode: mode,
       traffic_aware: false,
       source: directions.source,
       primary: directions.primary,
