@@ -51,7 +51,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "Source foot graph index and routing sidecar sizes:"
+          find routing/cameroon/foot-data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\n' | sort
           docker build -f routing/cameroon/Dockerfile.foot-prebuilt -t afat-cameroon-foot:accept routing/cameroon
+          echo "Packaged graph index and routing sidecar sizes:"
+          docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "find /data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort"
           docker run -d --name afat-foot-runtime -p 127.0.0.1:5001:5000 afat-cameroon-foot:accept
           for attempt in $(seq 1 35); do
             if curl --fail --silent --max-time 2 'http://127.0.0.1:5001/nearest/v1/foot/11.516,3.866' > /dev/null; then break; fi
