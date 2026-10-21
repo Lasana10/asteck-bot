@@ -78,6 +78,10 @@ try {
     console.error = previous;
   }
   assert.equal(paths.length, 4);
+  const footFailed = await DirectionsService.getDirections(a, b, {travelMode:'foot', allowMeteredFallback:true});
+  assert.equal(footFailed, null, 'Failed walking graph must never substitute a driving or paid Google route');
+  assert.match(paths.at(-1), /\/route\/v1\/foot\//, 'Unavailable walking must still use only dedicated foot engine');
+  assert.equal(paths.length, 5, 'Walking failure must not trigger another provider request');
   console.log('AFAT routing provider checks passed');
 } finally {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
