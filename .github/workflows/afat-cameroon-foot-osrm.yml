@@ -61,7 +61,7 @@ jobs:
           echo "FOOT_SOURCE_INDEX_SHA256=$SOURCE_INDEX_HASH" >> "$GITHUB_ENV"
           docker build -f routing/cameroon/Dockerfile.foot-prebuilt -t afat-cameroon-foot:accept routing/cameroon
           RUNTIME_INDEX_HASH="$(docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "sha256sum /data/cameroon-latest.osrm.fileIndex" | cut -d' ' -f1)"
-          test "$RUNTIME_INDEX_HASH" = "$FOOT_SOURCE_INDEX_SHA256" || { echo "Walking graph index differs from accepted source" >&2; exit 1; }
+          test "$RUNTIME_INDEX_HASH" = "$SOURCE_INDEX_HASH" || { echo "Walking graph index differs from accepted source" >&2; exit 1; }
           echo "Packaged graph index verified by SHA256: $RUNTIME_INDEX_HASH"
           echo "Packaged graph index and routing sidecar sizes:"
           docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "find /data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort"
