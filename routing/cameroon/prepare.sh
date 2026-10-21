@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${AFAT_OSRM_DATA_DIR:-${ROOT}/data}"
 IMAGE="ghcr.io/project-osrm/osrm-backend:v5.27.1"
+PROFILE="${AFAT_OSRM_PROFILE:-car}"
+if [[ "${PROFILE}" != "car" && "${PROFILE}" != "foot" ]]; then echo "Unsupported AFAT OSRM profile" >&2; exit 2; fi
 EXTRACT="https://download.geofabrik.de/africa/cameroon-latest.osm.pbf"
 mkdir -p "${DATA_DIR}"
 cd "${DATA_DIR}"
@@ -20,12 +22,12 @@ fi
 mv -f cameroon-latest.osm.pbf.tmp cameroon-latest.osm.pbf
 echo "Extract MD5 verified: ${ACTUAL}"
 docker pull "${IMAGE}"
-docker run --rm -v "${PWD}:/data" "${IMAGE}" osrm-extract -p /opt/car.lua /data/cameroon-latest.osm.pbf
+docker run --rm -v "${PWD}:/data" "${IMAGE}" osrm-extract -p "/opt/${PROFILE}.lua" /data/cameroon-latest.osm.pbf
 docker run --rm -v "${PWD}:/data" "${IMAGE}" osrm-partition /data/cameroon-latest.osrm
 docker run --rm -v "${PWD}:/data" "${IMAGE}" osrm-customize /data/cameroon-latest.osrm
 if [[ ! -s cameroon-latest.osrm.partition || ! -s cameroon-latest.osrm.cells ]]; then
   echo 'OSRM MLD graph artifacts missing. Refusing to report a completed build.' >&2
   exit 1
 fi
-printf 'source=%s\nmd5=%s\nimage=%s\nbuilt_utc=%s\n' "${EXTRACT}" "${ACTUAL}" "${IMAGE}" "$(date -u +%FT%TZ)" > graph-provenance.txt
+printf 'source=%s\nmd5=%s\nimage=%s\nprofile=%s\nbuilt_utc=%s\n' "${EXTRACT}" "${ACTUAL}" "${IMAGE}" "${PROFILE}" "$(date -u +%FT%TZ)" > graph-provenance.txt
 echo 'Graph prepared. Start local OSRM and execute verify.mjs against real Yaounde/Douala routes before production activation.'

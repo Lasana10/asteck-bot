@@ -33,6 +33,7 @@ try {
   const address = server.address();
   process.env.NODE_ENV = 'test';
   process.env.AFAT_OSRM_BASE_URL = `http://127.0.0.1:${address.port}`;
+  process.env.AFAT_OSRM_FOOT_BASE_URL = `http://127.0.0.1:${address.port}`;
   process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK = 'true';
   process.env.GOOGLE_MAPS_API_KEY = 'test-not-used';
 
@@ -57,8 +58,12 @@ try {
   assert.match(paths[0], /11\.516,3\.866;11\.526,3\.875/);
   assert.match(paths[0], /geometries=geojson/);
 
+  const walk=await DirectionsService.getDirections(a,b,{travelMode:'foot',allowMeteredFallback:false});
+  assert.equal(walk?.source,'osrm','Walking must have separate real source provenance');
+  assert.match(paths.at(-1),/\/route\/v1\/foot\//,'Walking must request foot graph');
+  assert.equal(paths.length,2,'The car and walking service must each be requested');
   assert.equal(await DirectionsService.getDirections({ latitude: 999, longitude: 0 }, b), null);
-  assert.equal(paths.length, 1, 'Invalid coordinates must not reach providers');
+  assert.equal(paths.length, 2, 'Invalid coordinates must not reach providers');
 
   responseMode = 'invalid_geometry';
   assert.equal(await DirectionsService.getDirections(a, b, { allowMeteredFallback: false }), null,
@@ -72,7 +77,7 @@ try {
   } finally {
     console.error = previous;
   }
-  assert.equal(paths.length, 3);
+  assert.equal(paths.length, 4);
   console.log('AFAT routing provider checks passed');
 } finally {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

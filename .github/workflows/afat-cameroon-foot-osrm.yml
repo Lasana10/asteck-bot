@@ -1,0 +1,95 @@
+name: AFAT Cameroon Pedestrian OSRM Graph and OCI
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-cameroon-foot-osrm.yml'
+      - 'routing/cameroon/**'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-cameroon-foot-osrm.yml'
+      - 'routing/cameroon/prepare.sh'
+      - 'routing/cameroon/Dockerfile.foot-prebuilt'
+      - 'routing/cameroon/verify-foot.mjs'
+      - 'routing/cameroon/.dockerignore'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: afat-osrm-foot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pedestrian-country-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download checksum-verified Cameroon OpenStreetMap and build genuine foot graph
+        env:
+          AFAT_OSRM_PROFILE: foot
+          AFAT_OSRM_DATA_DIR: ${{ github.workspace }}/routing/cameroon/foot-data
+        run: bash routing/cameroon/prepare.sh
+      - name: Start real isolated foot engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name afat-foot-graph -p 127.0.0.1:5000:5000 \
+            -v "$PWD/routing/cameroon/foot-data:/data:ro" \
+            ghcr.io/project-osrm/osrm-backend:v5.27.1 \
+            osrm-routed --algorithm mld --ip 0.0.0.0 --port 5000 /data/cameroon-latest.osrm
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --max-time 2 'http://127.0.0.1:5000/nearest/v1/foot/11.516,3.866' > /dev/null; then break; fi
+            sleep 2
+          done
+          node routing/cameroon/verify-foot.mjs
+      - name: Build separate immutable walking runtime and test its real road graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Source foot graph index and routing sidecar sizes:"
+          find routing/cameroon/foot-data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\n' | sort
+          # osrm-extract writes this index root-owned with mode 0600; the Docker
+          # build context previously copied it as an unusable zero-byte file.
+          sudo chmod a+r routing/cameroon/foot-data/cameroon-latest.osrm.fileIndex
+          test -r routing/cameroon/foot-data/cameroon-latest.osrm.fileIndex
+          SOURCE_INDEX_HASH="$(sha256sum routing/cameroon/foot-data/cameroon-latest.osrm.fileIndex | cut -d' ' -f1)"
+          echo "FOOT_SOURCE_INDEX_SHA256=$SOURCE_INDEX_HASH" >> "$GITHUB_ENV"
+          docker build -f routing/cameroon/Dockerfile.foot-prebuilt -t afat-cameroon-foot:accept routing/cameroon
+          RUNTIME_INDEX_HASH="$(docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "sha256sum /data/cameroon-latest.osrm.fileIndex" | cut -d' ' -f1)"
+          test "$RUNTIME_INDEX_HASH" = "$SOURCE_INDEX_HASH" || { echo "Walking graph index differs from accepted source" >&2; exit 1; }
+          echo "Packaged graph index verified by SHA256: $RUNTIME_INDEX_HASH"
+          echo "Packaged graph index and routing sidecar sizes:"
+          docker run --rm --entrypoint /bin/sh afat-cameroon-foot:accept -c "find /data -maxdepth 1 -type f -name 'cameroon-latest.osrm.*' -printf '%f %s bytes\\n' | sort"
+          docker run -d --name afat-foot-runtime -p 127.0.0.1:5001:5000 afat-cameroon-foot:accept
+          for attempt in $(seq 1 35); do
+            if curl --fail --silent --max-time 2 'http://127.0.0.1:5001/nearest/v1/foot/11.516,3.866' > /dev/null; then break; fi
+            sleep 2
+          done
+          AFAT_WALK_OSRM_URL=http://127.0.0.1:5001 node routing/cameroon/verify-foot.mjs
+      - name: Publish only from master after real two-city route acceptance
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          TAG="ghcr.io/lasana10/afat-cameroon-foot-osrm:sha-${GITHUB_SHA:0:12}"
+          docker tag afat-cameroon-foot:accept "$TAG"
+          docker push "$TAG"
+          echo "Foot-only Cameroon OSRM OCI image: $TAG" >> "$GITHUB_STEP_SUMMARY"
+      - name: Output engine diagnostics on failure
+        if: failure()
+        run: |
+          docker logs --tail 90 afat-foot-graph || true
+          docker logs --tail 90 afat-foot-runtime || true
+      - name: Tear down test containers
+        if: always()
+        run: |
+          docker rm -f afat-foot-graph || true
+          docker rm -f afat-foot-runtime || true
