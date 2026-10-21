@@ -155,6 +155,10 @@ async function ensureServerSession(current: AfatJourneyRuntimeSnapshot) {
   const destinationLatitude = validNumber(current.destinationLatitude);
   const destinationLongitude = validNumber(current.destinationLongitude);
   if (destinationLatitude == null || destinationLongitude == null || !current.placeId) return current;
+  if(!current.clientStartKey){
+    current={...current,clientStartKey:crypto.randomUUID()};
+    persist(current);
+  }
   persist({ ...current, serverSyncState: 'starting', pendingSampleCount: readQueue().samples.length, updatedAt: new Date().toISOString() });
   const { data, error } = await supabase.rpc('afat_start_navigation_session_once', {
     p_city_key: current.cityKey || 'cm-yaounde',
@@ -285,6 +289,14 @@ async function syncJourneyRuntime(snapshot: AfatJourneyRuntimeSnapshot) {
       if (latest) queueMicrotask(() => void syncJourneyRuntime(latest));
     }
   }
+}
+
+/** Trigger an explicit same-account reconnect after app foreground/auth changes.
+ * The same routine is used by automatic network restoration. */
+export async function reconcileJourneyRuntime() {
+  const latest=loadJourneyRuntime();
+  if(latest)await syncJourneyRuntime(latest);
+  return loadJourneyRuntime();
 }
 
 export function saveJourneyRuntime(
