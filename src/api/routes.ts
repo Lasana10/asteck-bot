@@ -3700,6 +3700,110 @@ router.get('/dispatch/active', async (req: Request, res: Response) => {
   }
 });
 
+const complianceBucket='afat-operator-compliance';
+const supportedComplianceMime:Record<string,string>={
+  'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png','image/webp':'webp',
+};
+const complianceUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function complianceRecordForCaller(req:Request,res:Response,recordId:string,staffOnly=false){
+  const access=await requireAuthRole(req,res,staffOnly?['admin','planner']:undefined);
+  if(!access)return null;
+  if(!complianceUuid.test(recordId)){res.status(400).json({error:'VALID_COMPLIANCE_RECORD_REQUIRED'});return null;}
+  const record=await supabase.from('compliance_records').select(
+    'id,profile_id,role,document_type,status,file_url,due_at,verified_at',
+  ).eq('id',recordId).maybeSingle();
+  if(record.error){res.status(503).json({error:'COMPLIANCE_LOOKUP_UNAVAILABLE'});return null;}
+  if(!record.data){res.status(404).json({error:'COMPLIANCE_RECORD_NOT_FOUND'});return null;}
+  const staff=['admin','planner'].includes(String(access.workspaceRole||access.profile.role));
+  if(!staff&&record.data.profile_id!==access.profile.id){
+    res.status(403).json({error:'DOCUMENT_OWNERSHIP_REQUIRED'});return null;
+  }
+  if(!staff&&record.data.role!=='operator'){
+    res.status(403).json({error:'OPERATOR_DOCUMENT_REQUIRED'});return null;
+  }
+  return {access,record:record.data,staff};
+}
+
+// Owner-only upload URL for an already-created compliance record. Each upload
+// replaces the review request, not verification. No credentials leak to UI.
+router.post('/compliance/:id/upload-authorize',async(req:Request,res:Response)=>{
+  const scope=await complianceRecordForCaller(req,res,String(req.params.id||''));
+  if(!scope)return;
+  if(scope.access.profile.id!==scope.record.profile_id){
+    return res.status(403).json({error:'DOCUMENT_OWNER_REQUIRED'});
+  }
+  const mime=String(req.body?.mime_type||'');
+  const bytes=Number(req.body?.bytes);
+  const ext=supportedComplianceMime[mime];
+  if(!ext||!Number.isSafeInteger(bytes)||bytes<1||bytes>8*1024*1024)
+    return res.status(400).json({error:'PDF_OR_IMAGE_UNDER_8MB_REQUIRED'});
+  if(!['vehicle_registration','insurance','license','national_id'].includes(scope.record.document_type))
+    return res.status(400).json({error:'DOCUMENT_TYPE_NOT_SUPPORTED_FOR_UPLOAD'});
+  const filename=`${crypto.randomUUID()}.${ext}`;
+  const prefix=`${scope.record.profile_id}/${scope.record.id}`;
+  const path=`${prefix}/${filename}`;
+  const token=await supabase.storage.from(complianceBucket).createSignedUploadUrl(path);
+  if(token.error||!token.data?.token)
+    return res.status(503).json({error:'PRIVATE_DOCUMENT_UPLOAD_UNAVAILABLE'});
+  return res.status(200).json({
+    success:true,bucket:complianceBucket,path,token:token.data.token,
+    expires_in_seconds:120,private:true,maximum_bytes:8*1024*1024,
+    review_status:'not_verified', // signed upload does not prove contents
+  });
+});
+
+// Finalize only a file found at precisely the owner/record-specific path.
+// Old reviewed evidence is invalidated atomically at the record update.
+router.post('/compliance/:id/upload-confirm',async(req:Request,res:Response)=>{
+  const scope=await complianceRecordForCaller(req,res,String(req.params.id||''));
+  if(!scope)return;
+  if(scope.access.profile.id!==scope.record.profile_id)
+    return res.status(403).json({error:'DOCUMENT_OWNER_REQUIRED'});
+  const path=String(req.body?.path||'');
+  const prefix=`${scope.record.profile_id}/${scope.record.id}/`;
+  const filename=path.startsWith(prefix)?path.slice(prefix.length):'';
+  if(!/^[0-9a-f-]{36}\.(?:pdf|jpg|png|webp)$/i.test(filename)||!complianceUuid.test(filename.slice(0,36))||
+     path!==prefix+filename)
+    return res.status(400).json({error:'OWNED_UPLOAD_PATH_REQUIRED'});
+  const result=await supabase.storage.from(complianceBucket).list(
+    prefix.replace(/\/$/,''),{search:filename,limit:100},
+  );
+  if(result.error)return res.status(503).json({error:'PRIVATE_DOCUMENT_CHECK_UNAVAILABLE'});
+  const uploaded=(result.data||[]).find(entry=>entry.name===filename);
+  if(!uploaded||!uploaded.id||!Number.isFinite(uploaded.metadata?.size)||
+     Number(uploaded.metadata?.size)<1||Number(uploaded.metadata?.size)>8*1024*1024)
+    return res.status(409).json({error:'UPLOAD_NOT_CONFIRMED_OR_SIZE_INVALID'});
+  const uri=`${complianceBucket}/${path}`;
+  const updated=await supabase.from('compliance_records').update({
+    file_url:uri,status:'submitted',verified_at:null,
+    updated_at:new Date().toISOString(),
+  }).eq('id',scope.record.id).eq('profile_id',scope.record.profile_id)
+    .select('id,profile_id,document_type,status,verified_at').single();
+  if(updated.error)return res.status(503).json({error:'COMPLIANCE_SUBMISSION_UNAVAILABLE'});
+  return res.status(200).json({success:true,record:updated.data,
+    review_required:true,automatic_verification:false});
+});
+
+// Staff receives only a short-lived private URL for a specific reviewed record.
+// No public bucket, listing or permanent signed access is exposed.
+router.get('/compliance/:id/review-file',async(req:Request,res:Response)=>{
+  const scope=await complianceRecordForCaller(req,res,String(req.params.id||''),true);
+  if(!scope)return;
+  const full=String(scope.record.file_url||'');
+  if(!full.startsWith(complianceBucket+'/'))
+    return res.status(404).json({error:'PRIVATE_DOCUMENT_NOT_SUBMITTED'});
+  const path=full.slice(complianceBucket.length+1);
+  const prefix=`${scope.record.profile_id}/${scope.record.id}/`;
+  if(!path.startsWith(prefix)||!/^[0-9a-f-]{36}\.(?:pdf|jpg|png|webp)$/i.test(path.slice(prefix.length)))
+    return res.status(409).json({error:'DOCUMENT_STORAGE_PROVENANCE_UNTRUSTED'});
+  const signed=await supabase.storage.from(complianceBucket).createSignedUrl(path,120);
+  if(signed.error||!signed.data?.signedUrl)
+    return res.status(503).json({error:'PRIVATE_REVIEW_FILE_UNAVAILABLE'});
+  return res.status(200).json({success:true,document_type:scope.record.document_type,
+    expires_in_seconds:120,url:signed.data.signedUrl,
+    review_required:true,automatically_verified:false});
+});
+
 router.get('/compliance/summary/:profileId', async (req: Request, res: Response) => {
   try {
     const access = await requireAuthRole(req, res);
