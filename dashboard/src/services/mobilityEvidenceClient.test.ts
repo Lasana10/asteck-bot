@@ -15,7 +15,7 @@ beforeEach(()=>{
 });
 describe('server idempotent mobility evidence replay',()=>{
  it('reuses the identical receipt key after a lost online response',async()=>{
-  mocks.rpc.mockRejectedValueOnce(new Error('connection lost')).mockResolvedValue({data:{status:'pending'},error:null});
+  mocks.rpc.mockRejectedValueOnce(new Error('connection lost')).mockResolvedValue({data:{id:'receipt-1',status:'pending',automatic_truth:false},error:null});
   const result=await submitAccessEvidence({placeId:'31c823cc-453b-40e2-87f9-bb828d6abe9f',accessType:'pedestrian',latitude:3.85,longitude:11.51});
   const id=(result.data as any)?.queue_id;
   expect(id).toMatch(/^[0-9a-f-]{36}$/i);
@@ -23,6 +23,31 @@ describe('server idempotent mobility evidence replay',()=>{
   expect(mocks.rpc.mock.calls[0][1].p_idempotency_key).toBe(id);
   const synced=await flushMobilityEvidenceQueue();
   expect(synced).toEqual({synced:1,pending:0});
+  expect(mocks.rpc.mock.calls[1][1].p_idempotency_key).toBe(id);
+ });
+
+ it('keeps unacknowledged field observations queued despite HTTP-level success',async()=>{
+  mocks.rpc.mockRejectedValueOnce(new Error('connection lost'))
+    .mockResolvedValueOnce({data:{status:'ok'},error:null});
+  const result=await submitAccessEvidence({placeId:'31c823cc-453b-40e2-87f9-bb828d6abe9f',
+    accessType:'pedestrian',latitude:3.85,longitude:11.51,
+    observedAt:'2026-10-21T10:00:00.000Z'});
+  expect((result.data as any)?.queued).toBe(true);
+  const sync=await flushMobilityEvidenceQueue();
+  expect(sync).toEqual({synced:0,pending:1});
+  expect(mocks.rpc.mock.calls[0][1].p_payload.p_observed_at).toBe('2026-10-21T10:00:00.000Z');
+  expect(mocks.rpc.mock.calls[1][1].p_payload.p_observed_at).toBe('2026-10-21T10:00:00.000Z');
+ });
+ it('preserves evidence provenance on retry until the review receipt is issued',async()=>{
+  mocks.rpc.mockRejectedValueOnce(new Error('connection lost'))
+    .mockResolvedValueOnce({data:{id:'review-2',status:'pending',automatic_truth:false},error:null});
+  const result=await submitAccessEvidence({placeId:'31c823cc-453b-40e2-87f9-bb828d6abe9f',
+    accessType:'pedestrian',latitude:3.85,longitude:11.51,
+    observedAt:'2026-10-21T10:01:00.000Z'});
+  const id=(result.data as any).queue_id;
+  const sync=await flushMobilityEvidenceQueue();
+  expect(sync).toEqual({synced:1,pending:0});
+  expect(mocks.rpc.mock.calls[0][1].p_idempotency_key).toBe(id);
   expect(mocks.rpc.mock.calls[1][1].p_idempotency_key).toBe(id);
  });
  it('never submits queued evidence under another account',async()=>{

@@ -70,8 +70,12 @@ export async function flushMobilityEvidenceQueue() {
       const owner = await sessionUser();
       if (owner !== userId) break;
       try {
-        const { error } = await executeEvidence(item);
+        const { data, error } = await executeEvidence(item);
         if (error) throw error;
+        // Keep evidence locally unless the authenticated server returned an
+        // explicit pending/review receipt. A transport 200 is not acceptance.
+        if (!data || data.status !== 'pending' || data.automatic_truth !== false || !data.id)
+          throw new Error('Mobility evidence server did not issue a review receipt');
         acknowledgeMobilityEvidence(storage,item);
         synced += 1;
       } catch {
@@ -103,7 +107,8 @@ async function submitOrQueue(kind: MobilityEvidenceKind, payload: Record<string,
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     try {
       const result = await executeEvidence({kind,payload,id:requestId});
-      if (!result.error) return result;
+      if (!result.error && result.data?.status === 'pending' &&
+          result.data?.automatic_truth === false && result.data?.id) return result;
       throw result.error;
     } catch (error: any) {
       // Offline replay must remain visible, never misrepresented as submission.
@@ -130,6 +135,7 @@ export function submitAccessEvidence(input: {
   accessModes?: string[];
   gpsAccuracyM?: number | null;
   photoUrl?: string | null;
+  observedAt?: string | null;
 }) {
   return submitOrQueue('access', {
     p_place_id: input.placeId,
@@ -141,6 +147,9 @@ export function submitAccessEvidence(input: {
     p_access_modes: input.accessModes || [],
     p_gps_accuracy_m: input.gpsAccuracyM ?? null,
     p_photo_url: input.photoUrl ?? null,
+    // Original capture time survives local queue replay and participates in the
+    // request fingerprint. Current access SQL does not yet persist this field.
+    p_observed_at: input.observedAt ?? null,
   });
 }
 
@@ -158,6 +167,7 @@ export function submitTransitObservation(input: {
   fareXaf?: number | null;
   gpsAccuracyM?: number | null;
   evidence?: Record<string, unknown>;
+  observedAt?: string | null;
 }) {
   return submitOrQueue('transit', {
     p_city_key: input.cityKey || 'cm-yaounde',
@@ -172,7 +182,8 @@ export function submitTransitObservation(input: {
     p_travel_seconds: input.travelSeconds ?? null,
     p_fare_xaf: input.fareXaf ?? null,
     p_gps_accuracy_m: input.gpsAccuracyM ?? null,
-    p_evidence: { ...(input.evidence || {}), automatic_truth: false },
+    p_evidence: { ...(input.evidence || {}), observed_at: input.observedAt ?? null,
+      observation_time_source: input.observedAt ? 'device_gnss' : 'not_provided', automatic_truth: false },
   });
 }
 
