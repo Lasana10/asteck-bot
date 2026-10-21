@@ -76,7 +76,7 @@ describe('AFAT account-owned offline operational replay',()=>{
   storage.setItem('afat_offline_sync_queue',JSON.stringify([{id:'legacy',type:'INSERT_INCIDENT',payload:incident('Unowned'),timestamp:Date.now()}]));
   await offlineSync.flush();
   expect(mocks.fetch).not.toHaveBeenCalled();
-  expect(storage.getItem('afat_offline_sync_queue')).toBeNull();
+  expect(storage.getItem('afat_offline_sync_queue')).toContain('Unowned');
  });
  it('retains unsupported voice evidence and rejects oversized observations',async()=>{
   await offlineSync.enqueue('VOICE_REPORT_UPLOAD',{audio_id:'pending-review'});
