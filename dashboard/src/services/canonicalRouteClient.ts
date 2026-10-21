@@ -47,6 +47,33 @@ type RouteInput = {
   snapRadiusM?: number;
 };
 
+// Route status alone is not proof of a navigable path. A purported Atlas
+// success must contain bounded real coordinates, consistent mode and distance.
+// This validator is shared at the passenger trust boundary, before caching.
+export function isUsableCanonicalRoute(value: unknown, mode: AfatRouteMode): value is AfatCanonicalRoute {
+  if(!value || typeof value!=='object') return false;
+  const route=value as AfatCanonicalRoute;
+  if(route.status!=='ok' || route.mode!==mode ||
+     typeof route.distance_m!=='number' || !Number.isFinite(route.distance_m) || route.distance_m<=0 ||
+     !Array.isArray(route.segments) || !route.segments.length || route.segments.length>200) return false;
+  let points=0;
+  for(const segment of route.segments){
+    if(!segment || typeof segment.distance_m!=='number' ||
+       !Number.isFinite(segment.distance_m) || segment.distance_m<0 ||
+       segment.geometry?.type!=='LineString' || !Array.isArray(segment.geometry.coordinates) ||
+       segment.geometry.coordinates.length<2) return false;
+    points+=segment.geometry.coordinates.length;
+    if(points>50000 || !segment.geometry.coordinates.every(point=>
+      Array.isArray(point)&&point.length===2&&
+      typeof point[0]==='number'&&typeof point[1]==='number'&&
+      Number.isFinite(point[0])&&Number.isFinite(point[1])&&
+      Math.abs(point[0])<=180&&Math.abs(point[1])<=90))return false;
+  }
+  if(route.eta_seconds!=null &&
+     (typeof route.eta_seconds!=='number' || !Number.isFinite(route.eta_seconds) || route.eta_seconds<=0))return false;
+  return true;
+}
+
 // For unreviewed road coverage, use separate real Cameroon OSRM car and foot
 // profiles. Foot graph does not verify safe crossings or accessibility.
 async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRoute | null> {
@@ -166,8 +193,13 @@ export async function fetchCanonicalAfatRoute(input: RouteInput): Promise<AfatCa
       });
       if (error) throw new Error(error.message || 'AFAT could not calculate a trusted route.');
       const canonical = (data || { status: 'unavailable', mode: input.mode, reason: 'route_service_returned_no_result' }) as AfatCanonicalRoute;
-      const route = canonical.status === 'ok' ? { ...canonical, route_source: 'afat_atlas' as const } :
-        (await externalCameroonRoute(input)) || canonical;
+      const route = isUsableCanonicalRoute(canonical,input.mode)
+        ? { ...canonical, route_source: 'afat_atlas' as const }
+        : (await externalCameroonRoute(input)) || {
+            status:'unavailable' as const,mode:input.mode,
+            reason:canonical.status==='ok'?'invalid_atlas_route_geometry':
+              canonical.reason||'route_unavailable',
+          };
       routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, route });
       pruneRouteCache();
       recordAfatMetric({ operation:'route',durationMs:elapsedMs(start),outcome:route.status==='ok'?'success':'unavailable',mode:input.mode,cacheState:'network',resultCount:route.segments?.length||0,routeStatus:route.status,surface:'canonical_route' });
