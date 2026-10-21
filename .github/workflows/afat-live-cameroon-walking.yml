@@ -1,0 +1,25 @@
+name: AFAT Live Cameroon Pedestrian Acceptance
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'scripts/verify-live-cameroon-walking.mjs'
+      - '.github/workflows/afat-live-cameroon-walking.yml'
+permissions:
+  contents: read
+jobs:
+  live-foot-service:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm real separate foot engine and passenger backend integration
+        env:
+          AFAT_FOOT_ROUTER_URL: ${{ vars.AFAT_FOOT_ROUTER_URL }}
+          AFAT_API_URL: https://asteck-bot.onrender.com
+        run: node scripts/verify-live-cameroon-walking.mjs
