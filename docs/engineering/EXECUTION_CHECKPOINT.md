@@ -1,3 +1,11 @@
+# Continuation — 2026-10-21 passenger Find→Reach canonical geometry truth
+
+- The connected passenger journey already performs Atlas-first discovery/routing and separate real OSRM driving/foot fallback. A new trust gap was found: the dashboard accepted `afat_route_canonical` returning `status=ok` without verifying route geometry; this could display a successful route where map guidance and offline persistence had no navigable path.
+- Current integrated branch validates the canonical route at the shared passenger client boundary, requiring requested travel mode, real positive distance, bounded numeric GeoJSON for every rendered segment, bounded segment/point counts and valid provided ETA. Non-navigable Atlas responses no longer become `afat_atlas` successes; existing car/foot road fallback is attempted only where allowed and retains explicitly unverified road/entrance truth.
+- Regression tests cover complete real Atlas geometry without external provider calls, invalid/missing geometry, mismatched mode/coordinates and successful honest OSRM substitution, preserving passenger map/turn/offline semantics.
+- No new graph, geography store, route engine, API or paid infrastructure was introduced. Production activation needs CI, merge, deployed frontend verification and real licensed-place → route → passenger map test in Yaoundé and Douala. Previously merged observation timestamp Supabase migration and existing field evidence pipeline remain intact.
+- Cross-workstream continuation: independently validate spatial GNSS/visual provenance, informal-transit journey coordination, AI-CORE-grounded discovery, and field evidence review without pretending missing live pedestrian infrastructure is accepted.
+
 # Verified production database integration — 2026-10-21
 
 - **PR #161** merged as `559ad9a1267ef3419869030f28121de456fd4358`, CI `39596992842` passed backend/dashboard. Pending evidence queue requires authenticated pending-review receipts and preserves original capture time in offline replay.
