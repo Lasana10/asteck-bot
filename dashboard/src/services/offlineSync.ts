@@ -66,6 +66,18 @@ async function readJsonResponse(response: Response) {
   };
 }
 
+/** A transport response is not a durable field observation receipt. */
+export function isAcknowledgedMapSignal(body:unknown,kind:'incident'|'movement',idempotencyKey:string):boolean{
+ if(!body||typeof body!=='object')return false;
+ const value=body as Record<string,any>;
+ if(value.success!==true||value.accepted!==true||!value.movement?.id||
+   typeof value.movement.id!=='string'||value.movement.idempotency_key!==idempotencyKey)return false;
+ if(kind==='incident')return typeof value.incident?.id==='string'&&
+   value.incident.id.length>0&&value.incident.movement_log_id===value.movement.id&&
+   ['pending','verified'].includes(value.incident.verification_status);
+ return true;
+}
+
 export const offlineSync = {
   async enqueue(type: OfflineMutation['type'], payload: any) {
     const storageKey=await accountQueueKey();
@@ -130,16 +142,18 @@ export const offlineSync = {
               description: incident.description,
               severity: incident.severity,
               source: 'offline_sync',
-              actor_type: 'verified_offline_report',
-              verification_hint: 'queued_replay',
+              actor_type: 'offline_user_report',
+              verification_hint: 'unreviewed_device_report',
               metadata: {
                 offline_mutation_id: mutation.id,
                 queued_at: mutation.timestamp,
+                capture_time_source: 'local_device_unverified',
               },
             }),
           });
           const data = await readJsonResponse(response);
-          if (!response.ok) throw new Error(data.error || 'Offline incident replay failed');
+          if (!response.ok||!isAcknowledgedMapSignal(data,'incident',mutation.id))
+            throw new Error(data.error || 'Offline incident was not durably accepted for review');
         } else if (mutation.type === 'UPDATE_BOOKING') {
           const booking = mutation.payload || {};
           const bookingId = String(booking.id || booking.booking_id || '').trim();
@@ -165,14 +179,22 @@ export const offlineSync = {
             }),
           });
           const data = await readJsonResponse(response);
-          if (!response.ok) throw new Error(data.error || 'Offline booking completion replay failed');
+          if (!response.ok || data.success !== true || !data.booking ||
+              String(data.booking.id || '') !== bookingId ||
+              String(data.booking.status || '').toLowerCase() !== 'completed')
+            throw new Error(data.error || 'Server has not confirmed this booking was completed');
         } else if (mutation.type === 'VOICE_REPORT_UPLOAD') {
           // Keep the item queued until AFAT exposes an authenticated binary
           // upload/replay contract. Logging success here previously dropped the
           // report while pretending it had synchronized.
           throw new Error('Offline voice upload is waiting for a real authenticated replay contract.');
         } else if (mutation.type === 'INSERT_TELEMETRY') {
-          const payload = Array.isArray(mutation.payload) ? mutation.payload : [mutation.payload];
+          // The server deduplicates on (user, idempotency key). Multi-point
+          // arrays using one key drop all but their first observation.
+          // Require one queue item and key per physical GPS sample.
+          if(Array.isArray(mutation.payload))throw new Error(
+            'Legacy multi-sample telemetry needs individual replay keys before submission.');
+          const payload = [mutation.payload];
           for (const signal of payload) {
             const response = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
               method: 'POST',
@@ -190,11 +212,14 @@ export const offlineSync = {
                 metadata: {
                   offline_mutation_id: mutation.id,
                   queued_at: mutation.timestamp,
+                  captured_at: typeof signal.timestamp==='string'?signal.timestamp:null,
+                  capture_time_verified:false,
                 },
               }),
             });
             const data = await readJsonResponse(response);
-            if (!response.ok) throw new Error(data.error || 'Map signal sync failed');
+            if (!response.ok||!isAcknowledgedMapSignal(data,'movement',mutation.id))
+              throw new Error(data.error || 'Movement sample was not durably accepted');
           }
         }
 

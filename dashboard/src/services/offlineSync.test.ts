@@ -7,7 +7,7 @@ vi.mock('../supabaseClient',()=>({
  authenticatedApiHeaders:mocks.authHeaders,
  getApiBaseUrl:()=> 'https://backend.example.test',
 }));
-import {offlineSync} from './offlineSync';
+import {offlineSync,isAcknowledgedMapSignal} from './offlineSync';
 function memory():Storage{
  const values=new Map<string,string>();
  return {get length(){return values.size},clear(){values.clear()},getItem(k){return values.get(k)??null},
@@ -26,8 +26,14 @@ beforeEach(()=>{
  mocks.getSession.mockResolvedValue({data:{session:{user:{id:'alice'}}},error:null});
  mocks.authHeaders.mockResolvedValue({authorization:'Bearer opaque-alice-token'});
  mocks.onAuthStateChange.mockReturnValue({data:{subscription:{unsubscribe:vi.fn()}}});
- mocks.fetch.mockResolvedValue({
-  ok:true,headers:{get:()=> 'application/json'},json:async()=>({status:'pending',id:'receipt'}),
+ mocks.fetch.mockImplementation(async (_url:string,options:{body:string})=>{
+  const sent=JSON.parse(options.body);
+  const key=sent.metadata?.offline_mutation_id;
+  const receipt=String(_url).endsWith('/api/booking/complete')
+   ?{success:true,booking:{id:sent.booking_id,status:'completed'}}
+   :{success:true,accepted:true,movement:{id:'movement-1',idempotency_key:key},
+     ...(sent.signal_type==='incident'?{incident:{id:'incident-1',movement_log_id:'movement-1',verification_status:'pending'}}:{})};
+  return {ok:true,headers:{get:()=> 'application/json'},json:async()=>receipt};
  });
  vi.stubGlobal('fetch',mocks.fetch);
 });
@@ -54,7 +60,11 @@ describe('AFAT account-owned offline operational replay',()=>{
   await offlineSync.enqueue('INSERT_INCIDENT',incident('Original'));
   mocks.fetch.mockImplementationOnce(async()=>{
    await offlineSync.enqueue('INSERT_INCIDENT',incident('New after replay started'));
-   return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({id:'review',status:'pending'})};
+   const id=JSON.parse(mocks.fetch.mock.calls[0][1].body).metadata.offline_mutation_id;
+   return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({
+     success:true,accepted:true,movement:{id:'m1',idempotency_key:id},
+     incident:{id:'i1',movement_log_id:'m1',verification_status:'pending'}
+   })};
   });
   await offlineSync.flush();
   const remaining=JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]');
@@ -97,6 +107,52 @@ describe('AFAT account-owned offline operational replay',()=>{
   await vi.waitFor(()=>expect(mocks.fetch).toHaveBeenCalledTimes(2));
   expect(storage.getItem('afat_offline_sync_queue_v2:alice')).toBe('[]');
   expect(listeners.online).toBeTypeOf('function');
+ });
+
+ it('keeps passive ingestion HTTP 202 and partial HTTP 200 incidents queued',async()=>{
+  await offlineSync.enqueue('INSERT_INCIDENT',incident('Report not yet accepted'));
+  mocks.fetch.mockResolvedValueOnce({ok:true,headers:{get:()=> 'application/json'},
+   json:async()=>({success:true,accepted:false,reason:'telemetry_staged_passive'})});
+  await offlineSync.flush();
+  expect(JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]')).toHaveLength(1);
+  mocks.fetch.mockResolvedValueOnce({ok:true,headers:{get:()=> 'application/json'},
+   json:async()=>({success:true,accepted:true,movement:{id:'m1',idempotency_key:'wrong-key'}})});
+  await offlineSync.flush();
+  expect(JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]')).toHaveLength(1);
+ });
+ it('retains telemetry when accepted flag or exact movement receipt is missing',async()=>{
+  await offlineSync.enqueue('INSERT_TELEMETRY',{latitude:3.866,longitude:11.516,speed:0});
+  mocks.fetch.mockResolvedValueOnce({ok:true,headers:{get:()=> 'application/json'},
+   json:async()=>({success:true,accepted:false,reason:'telemetry_staged_passive'})});
+  await offlineSync.flush();
+  expect(JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]')).toHaveLength(1);
+  await offlineSync.flush();
+  expect(storage.getItem('afat_offline_sync_queue_v2:alice')).toBe('[]');
+ });
+ it('refuses multiple telemetry samples sharing one idempotency key',async()=>{
+  await offlineSync.enqueue('INSERT_TELEMETRY',[{latitude:3.866,longitude:11.516},
+    {latitude:3.867,longitude:11.517}]);
+  await offlineSync.flush();
+  expect(mocks.fetch).not.toHaveBeenCalled();
+  expect(JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]')).toHaveLength(1);
+ });
+ it('never treats an HTTP 200 as completed booking without matching server receipt',async()=>{
+  await offlineSync.enqueue('UPDATE_BOOKING',{id:'booking-1',action:'complete'});
+  mocks.fetch.mockResolvedValueOnce({ok:true,headers:{get:()=> 'application/json'},
+   json:async()=>({success:true,booking:{id:'another-booking',status:'completed'}})});
+  await offlineSync.flush();
+  expect(JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]')).toHaveLength(1);
+  await offlineSync.flush();
+  expect(storage.getItem('afat_offline_sync_queue_v2:alice')).toBe('[]');
+ });
+ it('requires independent incident and movement receipts linked to the original idempotency key',()=>{
+  const ok={success:true,accepted:true,movement:{id:'movement-1',idempotency_key:'original'},
+   incident:{id:'incident-1',movement_log_id:'movement-1',verification_status:'pending'}};
+  expect(isAcknowledgedMapSignal(ok,'incident','original')).toBe(true);
+  expect(isAcknowledgedMapSignal({...ok,incident:null},'incident','original')).toBe(false);
+  expect(isAcknowledgedMapSignal({...ok,movement:{id:'movement-1',idempotency_key:'other'}},'movement','original')).toBe(false);
+  expect(isAcknowledgedMapSignal({...ok,accepted:false},'incident','original')).toBe(false);
+  expect(isAcknowledgedMapSignal({...ok,incident:{...ok.incident,verification_status:'unverified'}},'incident','original')).toBe(false);
  });
  it('retains unsupported voice evidence and rejects oversized observations',async()=>{
   await offlineSync.enqueue('VOICE_REPORT_UPLOAD',{audio_id:'pending-review'});
