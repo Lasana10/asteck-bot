@@ -138,13 +138,17 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
     if (vehicle_id) {
       const { data: vehicleRow, error: vehicleError } = await supabase
         .from('vehicles')
-        .select('id, operator_id')
+        .select('id, operator_id, clearance_status')
         .eq('id', vehicle_id)
         .maybeSingle();
       if (vehicleError) throw vehicleError;
       if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
       if (!privileged && (role !== 'operator' || String(vehicleRow.operator_id) !== userId)) {
         return res.status(403).json({ error: 'Vehicle update denied.' });
+      }
+      // A geolocation ping is not a human vehicle-clearance decision.
+      if(vehicleRow.clearance_status!=='verified'){
+        return res.status(403).json({error:'VERIFIED_VEHICLE_CLEARANCE_REQUIRED'});
       }
       vehicle = vehicleRow;
     }
@@ -210,7 +214,8 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
           current_heading: Number.isFinite(Number(heading)) ? Math.round(Number(heading)) : null,
           current_speed: Number.isFinite(Number(speed_kph ?? speed)) ? Math.round(Number(speed_kph ?? speed)) : null,
           last_ping_at: createdAt,
-          is_available: true,
+          // Availability is controlled by the reviewed operator presence RPC,
+          // never promoted by an unsolicited movement or offline GPS replay.
           updated_at: createdAt,
         })
         .eq('id', vehicle.id);
