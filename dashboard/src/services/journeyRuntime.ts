@@ -203,6 +203,19 @@ async function flushQueuedSamples(current: AfatJourneyRuntimeSnapshot) {
       p_recorded_at: item.position.recordedAt,
       p_idempotency_key: item.key,
     });
+    // Supabase can return HTTP 200 for an explicitly rejected GPS sample.
+    // Only an actual persisted sample receipt for this session acknowledges
+    // the original device observation. Rejected points stay on-device for
+    // review or deliberate resolution; never silently count them as learned.
+    if (!error && (data?.accepted !== true || typeof data?.sample_id !== 'string' ||
+        !data.sample_id || data.session_id !== current.serverSessionId)) {
+      const fresh=readQueue();
+      if(fresh.journeyStartedAt===queue.journeyStartedAt){
+        fresh.samples=fresh.samples.map(sample=>sample.key===item.key?{...sample,attempts:sample.attempts+1}:sample);
+        writeQueue(fresh);
+      }
+      throw new Error('Navigation GPS sample not durably accepted: '+String(data?.reason||'missing_server_receipt'));
+    }
     if (error) {
       const fresh=readQueue();
       if(fresh.journeyStartedAt===queue.journeyStartedAt){
@@ -220,7 +233,7 @@ async function flushQueuedSamples(current: AfatJourneyRuntimeSnapshot) {
     }
     queue=readQueue();
     processed += 1;
-    if (data?.accepted === false && !data?.reason) break;
+
   }
   const remaining = queue.samples.length;
   current = persist({
