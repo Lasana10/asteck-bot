@@ -1,9 +1,9 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({
- getUser:vi.fn(),getSession:vi.fn(),authHeaders:vi.fn(),fetch:vi.fn(),
+ getUser:vi.fn(),getSession:vi.fn(),authHeaders:vi.fn(),fetch:vi.fn(),onAuthStateChange:vi.fn(),
 }));
 vi.mock('../supabaseClient',()=>({
- supabase:{auth:{getUser:mocks.getUser,getSession:mocks.getSession}},
+ supabase:{auth:{getUser:mocks.getUser,getSession:mocks.getSession,onAuthStateChange:mocks.onAuthStateChange}},
  authenticatedApiHeaders:mocks.authHeaders,
  getApiBaseUrl:()=> 'https://backend.example.test',
 }));
@@ -25,6 +25,7 @@ beforeEach(()=>{
  mocks.getUser.mockResolvedValue(account('alice'));
  mocks.getSession.mockResolvedValue({data:{session:{user:{id:'alice'}}},error:null});
  mocks.authHeaders.mockResolvedValue({authorization:'Bearer opaque-alice-token'});
+ mocks.onAuthStateChange.mockReturnValue({data:{subscription:{unsubscribe:vi.fn()}}});
  mocks.fetch.mockResolvedValue({
   ok:true,headers:{get:()=> 'application/json'},json:async()=>({status:'pending',id:'receipt'}),
  });
@@ -77,6 +78,25 @@ describe('AFAT account-owned offline operational replay',()=>{
   await offlineSync.flush();
   expect(mocks.fetch).not.toHaveBeenCalled();
   expect(storage.getItem('afat_offline_sync_queue')).toContain('Unowned');
+ });
+ it('restarts owner-scoped replay after auth restoration without syncing on logout',async()=>{
+  await offlineSync.enqueue('INSERT_INCIDENT',incident('Authenticated reconnect'));
+  const listeners:Record<string,()=>void>={};
+  vi.stubGlobal('window',{addEventListener:(name:string,cb:()=>void)=>{listeners[name]=cb;}});
+  offlineSync.init();
+  // First online boot may flush automatically; capture a second mutation to
+  // distinguish SIGNED_OUT from SIGNED_IN state transitions.
+  await vi.waitFor(()=>expect(mocks.fetch).toHaveBeenCalledTimes(1));
+  await offlineSync.enqueue('INSERT_INCIDENT',incident('Wait for login'));
+  const authCallback=mocks.onAuthStateChange.mock.calls[0]?.[0];
+  expect(authCallback).toBeTypeOf('function');
+  authCallback('SIGNED_OUT',null);
+  await Promise.resolve();
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  authCallback('SIGNED_IN',{user:{id:'alice'}});
+  await vi.waitFor(()=>expect(mocks.fetch).toHaveBeenCalledTimes(2));
+  expect(storage.getItem('afat_offline_sync_queue_v2:alice')).toBe('[]');
+  expect(listeners.online).toBeTypeOf('function');
  });
  it('retains unsupported voice evidence and rejects oversized observations',async()=>{
   await offlineSync.enqueue('VOICE_REPORT_UPLOAD',{audio_id:'pending-review'});
