@@ -1534,16 +1534,27 @@ export async function fetchDemandRadar() {
 
 export async function publishMapSignal(signalData: any) {
   try {
+    // Secured backend requires a stable 8–200-character idempotency key.
+    // Callers retrying offline must reuse this same key across both attempts.
+    const rawKey=String(signalData?.idempotency_key||'');
+    const key=rawKey || (typeof crypto!=='undefined'&&crypto.randomUUID?
+      crypto.randomUUID():'');
+    if(!/^[A-Za-z0-9_-]{8,200}$/.test(key))
+      return {data:null,error:{message:'Secure observation idempotency key unavailable.'}};
     const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/ops/map-signal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify(signalData),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key':key,...authHeaders },
+      body: JSON.stringify({...signalData,idempotency_key:key}),
     });
     const parsed = await readApiJson(res, 'Map signal publish failed.');
     if (parsed.error) return { data: null, error: parsed.error };
     const data = parsed.data;
-    if (!res.ok) return { data: null, error: { message: data.error || 'Map signal publish failed.' } };
+    if(!res.ok || data?.accepted!==true || data?.success!==true ||
+       !data?.movement?.id || data.movement.idempotency_key!==key ||
+       ((signalData.signal_type==='incident'||signalData.incident_type)&&
+         (!data?.incident?.id||data.incident.movement_log_id!==data.movement.id)))
+      return {data:null,error:{message:data?.error||data?.reason||'Map observation not durably accepted for review.'}};
     return { data, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message || 'Network error.' } };

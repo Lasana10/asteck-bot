@@ -154,6 +154,20 @@ describe('AFAT account-owned offline operational replay',()=>{
   expect(isAcknowledgedMapSignal({...ok,accepted:false},'incident','original')).toBe(false);
   expect(isAcknowledgedMapSignal({...ok,incident:{...ok.incident,verification_status:'unverified'}},'incident','original')).toBe(false);
  });
+ it('uses the exact same GPS idempotency key after a failed live send and never duplicates the queued fix',async()=>{
+  const fix={latitude:3.866,longitude:11.516,timestamp:new Date().toISOString()};
+  await offlineSync.enqueue('INSERT_TELEMETRY',fix,'real-gps-observation-1');
+  await offlineSync.enqueue('INSERT_TELEMETRY',fix,'real-gps-observation-1');
+  const queued=JSON.parse(storage.getItem('afat_offline_sync_queue_v2:alice')||'[]');
+  expect(queued).toHaveLength(1);
+  expect(queued[0].id).toBe('real-gps-observation-1');
+  await expect(offlineSync.enqueue('INSERT_TELEMETRY',{...fix,latitude:3.9},'real-gps-observation-1'))
+    .rejects.toThrow(/different evidence/);
+  await offlineSync.flush();
+  const sent=JSON.parse(mocks.fetch.mock.calls[0][1].body);
+  expect(sent.metadata.offline_mutation_id).toBe('real-gps-observation-1');
+  expect(storage.getItem('afat_offline_sync_queue_v2:alice')).toBe('[]');
+ });
  it('retains unsupported voice evidence and rejects oversized observations',async()=>{
   await offlineSync.enqueue('VOICE_REPORT_UPLOAD',{audio_id:'pending-review'});
   await offlineSync.flush();

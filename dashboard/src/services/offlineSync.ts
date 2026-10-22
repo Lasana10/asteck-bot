@@ -50,11 +50,18 @@ export interface OfflineMutation {
   timestamp: number;
 }
 
-function queueId() {
-  return (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : Math.random().toString(36).substring(2) + Date.now().toString(36);
+export function createOfflineMutationId():string{
+  if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function')
+    return crypto.randomUUID();
+  if(typeof crypto!=='undefined'&&typeof crypto.getRandomValues==='function'){
+    const bytes=new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  // Browsers lacking secure random do not supply reliable idempotency.
+  throw new Error('Secure device randomness required before collecting offline location evidence.');
 }
+function queueId(){return createOfflineMutationId();}
 
 async function readJsonResponse(response: Response) {
   const contentType = response.headers.get('content-type') || '';
@@ -79,11 +86,20 @@ export function isAcknowledgedMapSignal(body:unknown,kind:'incident'|'movement',
 }
 
 export const offlineSync = {
-  async enqueue(type: OfflineMutation['type'], payload: any) {
+  async enqueue(type: OfflineMutation['type'], payload: any, stableId?:string) {
     const storageKey=await accountQueueKey();
     const queue=readQueue(storageKey);
+    // Use the same server idempotency key when a live attempt must be queued;
+    // a timeout after a successful server commit must not create a second fix.
+    const id=stableId ?? queueId();
+    if(!/^[A-Za-z0-9_-]{8,200}$/.test(id))throw new Error('Invalid offline observation id.');
+    const existing=queue.find(item=>item.id===id);
+    if(existing){
+      if(existing.type===type&&JSON.stringify(existing.payload)===JSON.stringify(payload))return;
+      throw new Error('Offline idempotency key already belongs to different evidence.');
+    }
     if(queue.length>=MAX_ITEMS)throw new Error('Offline queue is full. Synchronize before collecting more evidence.');
-    const mutation={id:queueId(),type,payload,timestamp:Date.now()};
+    const mutation={id,type,payload,timestamp:Date.now()};
     if(JSON.stringify(mutation).length>MAX_ITEM_BYTES)throw new Error('Offline evidence exceeds safe device storage limit.');
     writeQueue(storageKey,[...queue,mutation]);
   },
