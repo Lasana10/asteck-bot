@@ -14,6 +14,7 @@ const MAX_ITEMS = 120;
 const MAX_AGE_MS = 7*24*60*60*1000;
 const MAX_ITEM_BYTES = 32_000;
 let flushing = false;
+let initialized = false;
 async function accountQueueKey():Promise<string>{
  // Supabase getUser needs a network round-trip. Offline capture must derive
  // ownership from the locally held authenticated session instead, while an
@@ -216,7 +217,19 @@ export const offlineSync = {
   },
 
   init() {
-    window.addEventListener('online', () => this.flush());
-    if (navigator.onLine) this.flush();
+    if(initialized)return;
+    initialized=true;
+    window.addEventListener('online', () => {void this.flush();});
+    // Connectivity often returns before Supabase refreshes its session.
+    // Resume pending work on a real authenticated transition, not only on
+    // network events. Never replay on SIGNED_OUT or during a token callback.
+    supabase.auth.onAuthStateChange((event, session)=>{
+      if((event==='SIGNED_IN'||event==='TOKEN_REFRESHED')&&session?.user?.id &&
+         typeof navigator!=='undefined'&&navigator.onLine){
+        // Deferral avoids awaiting Supabase auth APIs inside its callback.
+        Promise.resolve().then(()=>this.flush()).catch(()=>{});
+      }
+    });
+    if(navigator.onLine)void this.flush();
   }
 };
