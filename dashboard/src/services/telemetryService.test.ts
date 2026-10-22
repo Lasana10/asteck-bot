@@ -25,6 +25,7 @@ let callback:(pos:GeolocationPosition)=>void;
 const service=TelemetryService.getInstance();
 beforeEach(()=>{
  vi.clearAllMocks();
+ vi.stubGlobal('localStorage',{getItem:vi.fn(()=>null),setItem:vi.fn(),removeItem:vi.fn()});
  vi.stubGlobal('navigator',{
    onLine:true,platform:'test-device',
    geolocation:{
