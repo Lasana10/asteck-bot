@@ -1,3 +1,11 @@
+# 2026-10-22 — Passenger navigation GPS → durable session receipt → Atlas learning
+
+- Resumed GitHub master `32d6c8ac3fb720c48efb74f0440bce6afd9c7417`, Graphify tracing existing passenger `PassagePlanner`, account-bound offline journey route, `PassengerJourneyEvidence`, `journeyRuntime` and Supabase `afat_ingest_navigation_sample_v2` without redesigning or duplicating systems.
+- Found a critical *connected journey* evidence gap: the Supabase navigation ingestion RPC deliberately returns `accepted:false` with HTTP 200 for inaccurate GPS, stationary duplicates, non-monotonic timestamps or implausible jumps. The passenger runtime previously deleted these unsaved samples on every non-error response, and could then finish the trip and display a server receipt despite lost original observations.
+- The existing navigation runtime now retains each queued sample until an explicit `accepted:true` receipt with a real `sample_id` and matching `session_id` arrives. The same original idempotency key is retried, account ownership is rechecked, and journey closure remains blocked when samples are unresolved. No fabricated server evidence, no second navigation store and no new paid provider.
+- Tests cover successful offline navigation → authenticated replay → server finish, wrong-account refusal, idempotent lost start response, rejected GPS `accepted:false` and mismatched session receipts. Operational acceptance still requires real phone GNSS, real signed-in server sample receipts and physical journey verification; tests are not field proof.
+- Next connected steps: CI, merge, Cloudflare release check; surface explicitly rejected samples to the passenger without falsely showing completed journey, then continue Find→Understand→Reach→Move→Learn and independent spatial/AI-CORE/multimodal workstreams. Render backend current SHA remains unverified; don't claim backend release.
+
 # 2026-10-22 — Merged operational fleet GPS truth corrections
 
 - PR #185 merged as `c95709ed156f0b61a5453dd36e1e13d130db5e94` after AFAT CI `39785524570` passed backend/dashboard. Real map-signal `vehicle_id` movement now requires independently verified vehicle clearance and owner-operator or staff access; a GPS ping cannot change `is_available` and never becomes a substitute for the authoritative operator-presence RPC.
