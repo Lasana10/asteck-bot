@@ -142,11 +142,12 @@ export const offlineSync = {
               description: incident.description,
               severity: incident.severity,
               source: 'offline_sync',
-              actor_type: 'verified_offline_report',
-              verification_hint: 'queued_replay',
+              actor_type: 'offline_user_report',
+              verification_hint: 'unreviewed_device_report',
               metadata: {
                 offline_mutation_id: mutation.id,
                 queued_at: mutation.timestamp,
+                capture_time_source: 'local_device_unverified',
               },
             }),
           });
@@ -211,6 +212,8 @@ export const offlineSync = {
                 metadata: {
                   offline_mutation_id: mutation.id,
                   queued_at: mutation.timestamp,
+                  captured_at: typeof signal.timestamp==='string'?signal.timestamp:null,
+                  capture_time_verified:false,
                 },
               }),
             });
