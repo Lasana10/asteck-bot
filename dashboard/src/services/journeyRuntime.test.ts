@@ -21,7 +21,7 @@ beforeEach(()=>{
  mocks.getUser.mockResolvedValue({data:{user:{id:'test-alice'}},error:null});
  mocks.rpc.mockImplementation(async (name:string)=>{
   if(name==='afat_start_navigation_session_once')return {data:{id:'bed390b5-bd6c-438b-b347-0f9c61b5956e'},error:null};
-  if(name==='afat_ingest_navigation_sample_v2')return {data:{accepted:true,replayed:false},error:null};
+  if(name==='afat_ingest_navigation_sample_v2')return {data:{sample_id:'b1119f40-3a32-4b90-b4d3-41a66c1fd2a4',session_id:'bed390b5-bd6c-438b-b347-0f9c61b5956e',accepted:true,replayed:false},error:null};
   if(name==='afat_finish_navigation_session')return {data:{status:'cancelled'},error:null};
   return {data:null,error:{message:'Unknown RPC'}};
  });
@@ -45,6 +45,32 @@ describe('AFAT complete offline navigation session → authenticated replay → 
   expect(mocks.rpc.mock.calls[0][1].p_client_start_key).toBe(first.clientStartKey);
   expect(loadJourneyRuntime()?.serverSyncState).toBe('finished');
   expect(loadJourneyRuntime()?.pendingSampleCount).toBe(0);
+ });
+ it('keeps rejected GPS points and cannot close an offline trip on HTTP 200 accepted:false',async()=>{
+  saveJourneyRuntime({...base,state:'navigating',startedAt,lastPosition:point(startedAt,3.866)});
+  clearJourneyRuntime('cancelled');
+  vi.stubGlobal('navigator',{onLine:true});
+  mocks.rpc.mockImplementation(async (name:string)=>{
+    if(name==='afat_start_navigation_session_once')return {data:{id:'bed390b5-bd6c-438b-b347-0f9c61b5956e'},error:null};
+    if(name==='afat_ingest_navigation_sample_v2')return {data:{accepted:false,session_id:'bed390b5-bd6c-438b-b347-0f9c61b5956e',reason:'gps_jump'},error:null};
+    return {data:null,error:{message:'Unexpected RPC'}};
+  });
+  await reconcileJourneyRuntime();
+  expect(loadJourneyRuntime()?.pendingSampleCount).toBe(1);
+  expect(loadJourneyRuntime()?.serverSyncState).toBe('failed');
+  expect(mocks.rpc.mock.calls.some(x=>x[0]==='afat_finish_navigation_session')).toBe(false);
+ });
+ it('keeps samples when an HTTP 200 lacks matching session receipt',async()=>{
+  saveJourneyRuntime({...base,state:'navigating',startedAt,lastPosition:point(startedAt,3.866)});
+  vi.stubGlobal('navigator',{onLine:true});
+  mocks.rpc.mockImplementation(async (name:string)=>{
+    if(name==='afat_start_navigation_session_once')return {data:{id:'bed390b5-bd6c-438b-b347-0f9c61b5956e'},error:null};
+    if(name==='afat_ingest_navigation_sample_v2')return {data:{accepted:true,sample_id:'id',session_id:'another-trip'},error:null};
+    return {data:null,error:{message:'Unexpected RPC'}};
+  });
+  await reconcileJourneyRuntime();
+  expect(loadJourneyRuntime()?.pendingSampleCount).toBe(1);
+  expect(loadJourneyRuntime()?.serverSyncState).toBe('failed');
  });
  it('never uploads trip samples under a different signed-in account',async()=>{
   saveJourneyRuntime({...base,state:'navigating',startedAt,lastPosition:point(startedAt,3.866)});
