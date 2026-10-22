@@ -66,6 +66,7 @@ export function PassengerJourneyEvidence({profileId,placeId,placeName,cityKey}:{
   </div>
   {online&&<button type="button" disabled={busy} onClick={()=>void sync()} className="flex min-h-10 items-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 text-[10px] font-black text-cyan-100 disabled:opacity-40"><RefreshCw className={`h-4 w-4 ${busy?'animate-spin':''}`}/>Check server receipts and send pending observations</button>}
   {notice&&<p role="status" className="text-[10px] leading-5 text-cyan-100/75">{notice}</p>}
+  {isOwner&&runtime?.lastSampleRejection&&<p role="alert" className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">Some recorded GPS observations were not accepted by the server ({runtime.lastSampleRejection.replace(/_/g,' ')}). They remain on this device; the journey cannot receive a completed evidence receipt until this is resolved. This does not mean the destination or entrance has been verified.</p>}
   <FieldEvidenceCapture placeId={placeId} placeName={placeName} cityKey={cityKey}/>
   <button type="button" onClick={()=>setShowVisualMapping(v=>!v)} aria-expanded={showVisualMapping}
    className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06] px-4 text-left text-[10px] font-black text-emerald-100">
