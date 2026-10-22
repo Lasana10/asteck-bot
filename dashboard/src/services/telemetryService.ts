@@ -1,5 +1,5 @@
 import { fetchParticipantDispatches, publishMapSignal } from '../supabaseClient';
-import { offlineSync } from './offlineSync';
+import { offlineSync,createOfflineMutationId } from './offlineSync';
 import { enqueueJourneySample, flushJourneySamples } from './journeyTelemetryQueue';
 
 /**
@@ -105,6 +105,7 @@ export class TelemetryService {
 
     const speedKph = speed == null ? null : speed * 3.6;
     const timestamp = new Date(pos.timestamp).toISOString();
+    const observationId=createOfflineMutationId();
     const payload = {
       user_id: this.currentUser,
       latitude,
@@ -129,6 +130,7 @@ export class TelemetryService {
     if (navigator.onLine) {
       const { error } = await publishMapSignal({
         signal_type: 'movement',
+        idempotency_key:observationId,
         profile_id: payload.user_id,
         latitude,
         longitude,
@@ -141,10 +143,10 @@ export class TelemetryService {
       });
       if (error) {
         console.error('Telemetry Upload Error:', error.message);
-        await offlineSync.enqueue('INSERT_TELEMETRY', payload);
+        await offlineSync.enqueue('INSERT_TELEMETRY', payload,observationId);
       }
     } else {
-      await offlineSync.enqueue('INSERT_TELEMETRY', payload);
+      await offlineSync.enqueue('INSERT_TELEMETRY', payload,observationId);
     }
   }
 }
