@@ -34,6 +34,7 @@ jobs:
       - run: npm run test:transit-review-authority
       - run: npm run test:published-departures
       - run: npm run test:map-signal-fleet
+      - run: npm run test:fleet-position-freshness
       - run: npm run test:scheduled-departures
       - run: npm run test:operator-vehicle-registration
       - run: npm run test:place-candidate-contract

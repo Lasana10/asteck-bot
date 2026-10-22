@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { supabase } from '../infra/supabase';
 import { requireAuthRole } from './routes';
 import {mayPublishVehicleLocation} from '../services/mapSignalFleetAuthorization';
+import {mayRefreshFleetPosition} from '../services/fleetPositionFreshness';
 
 const router = express.Router();
 
@@ -203,7 +204,13 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
       }
     }
 
-    if (vehicle) {
+    // A delayed/offline duplicate can still be stored as movement history,
+    // but cannot overwrite a fresher vehicle dot shown to passengers.
+    const fleetPosition=mayRefreshFleetPosition({
+      replayed,source:normalizedSource,signalType:String(signal_type),
+      accuracy,speed:speed_kph??speed,heading,
+    });
+    if (vehicle && fleetPosition.allowed) {
       const { error: vehicleUpdateError } = await supabase
         .from('vehicles')
         .update({
@@ -286,7 +293,8 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
       incident,
       actor_type,
       checkpoint_id: checkpoint_id || null,
-      publish_channels: ['movement_logs', ...(incident ? ['incidents'] : []), ...(vehicle ? ['vehicles'] : [])],
+      publish_channels: ['movement_logs', ...(incident ? ['incidents'] : []), ...(vehicle && fleetPosition.allowed ? ['vehicles'] : [])],
+      fleet_location_projection:vehicle?fleetPosition:null,
       map_effect: {
         contributes_to_live_feed: true,
         contributes_to_safety_score: Boolean(incident),

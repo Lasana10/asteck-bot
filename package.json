@@ -17,6 +17,7 @@
     "test:transit-review-authority": "node scripts/verify-transit-review-authority.mjs",
     "test:published-departures": "node --import tsx scripts/verify-published-departures.ts",
     "test:map-signal-fleet": "node --import tsx scripts/verify-map-signal-fleet-authority.ts",
+    "test:fleet-position-freshness": "node --import tsx scripts/verify-live-fleet-position-freshness.ts",
     "test:scheduled-departures": "node --import tsx scripts/verify-scheduled-departure-publishing.ts",
     "test:operator-vehicle-registration": "node --import tsx scripts/verify-operator-vehicle-registration.ts",
     "test:reachability:reviewed-access": "node scripts/verify-reviewed-access-reachability.mjs",
