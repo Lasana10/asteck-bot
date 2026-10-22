@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { supabase } from '../infra/supabase';
 import { requireAuthRole } from './routes';
+import {mayPublishVehicleLocation} from '../services/mapSignalFleetAuthorization';
 
 const router = express.Router();
 
@@ -143,13 +144,11 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
         .maybeSingle();
       if (vehicleError) throw vehicleError;
       if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
-      if (!privileged && (role !== 'operator' || String(vehicleRow.operator_id) !== userId)) {
-        return res.status(403).json({ error: 'Vehicle update denied.' });
-      }
-      // A geolocation ping is not a human vehicle-clearance decision.
-      if(vehicleRow.clearance_status!=='verified'){
-        return res.status(403).json({error:'VERIFIED_VEHICLE_CLEARANCE_REQUIRED'});
-      }
+      const eligibility=mayPublishVehicleLocation({
+        vehicleId:String(vehicleRow.id),operatorId:String(vehicleRow.operator_id),
+        clearanceStatus:vehicleRow.clearance_status,actorId:userId,role,
+      });
+      if(!eligibility.allowed)return res.status(403).json({error:eligibility.reason});
       vehicle = vehicleRow;
     }
 
