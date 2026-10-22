@@ -1,3 +1,11 @@
+# 2026-10-22 — Verified fleet movement trust integrated with GPS/dispatch
+
+- Graphify traced device GPS telemetry through secured `/api/ops/map-signal` into `movement_logs`, optional `vehicles` and incident review. GitHub master remained the authoritative source. Existing reviewed fleet clearance and operator presence infrastructure are reused.
+- Critical connected safety defect: secured map ingestion allowed a vehicle position update to force `vehicles.is_available=true`, even if fleet had not entered duty via the governed `afat_update_operator_presence` RPC, and it did not require the vehicle's human-reviewed `clearance_status='verified'`. Thus a ping could accidentally advertise an unreviewed/restricted vehicle as bookable supply.
+- This batch makes fleet-linked map updates require owner-operator or authorized admin/planner plus verified clearance, and NEVER changes `is_available` from position data. A GPS observation can update movement/position but cannot certify vehicle access/driver duty; existing operator presence authority remains the only avenue to declare availability.
+- Reuses `vehicles`, authenticated role checks, mapped fleet telemetry, booking and operator-presence contracts. Adds pure shared authorization function, deterministic assertions covering all rejected clearance states and ownership, registered in AFAT backend CI. No new service or automatic approval.
+- Release status: pending CI, merge, backend production version and live protected-API acceptance. No test vehicle records inserted; physical device verification and actual operator supply remain separate field gates. Continue complete AFAT Find→Understand→Reach→Book→Move→Learn and spatial/AI-CORE/multimodal vision from this checkpoint.
+
 # 2026-10-22 — Live ↔ offline GNSS event continuity release
 
 - **PR #183 merged** `417ec1bb6f5f175f9b3cd0553365a1b4f6975280`; AFAT CI `39782717903` passed backend/dashboard. Owner-bound offline incident/movement requests now remain queued on HTTP 202 `accepted:false`, missing/mismatched movement/incident review receipt, or incomplete booking receipt. Incident and GPS device capture time are unverified source claims, not field-certified facts. One legacy multi-GPS payload with shared server idempotency cannot be replayed as distinct fixes.
