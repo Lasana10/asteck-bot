@@ -1,3 +1,10 @@
+# 2026-10-22 — Auth-restoration-connected offline field replay
+
+- Previous integrated offline owner-bound replay release PR #181 merged as `5c96b1aa30c18be76b214388ba91c0c7089a9e4f`, with backend and dashboard CI passing. Graphify traces the established `main.tsx` → `offlineSync.init` boot and `telemetryService` → queued movement capture. Its index may lag GitHub and is not release truth.
+- This next connected improvement hooks the existing Supabase auth lifecycle to flush each authenticated owner's pending incident/telemetry/booking queue after `SIGNED_IN` or `TOKEN_REFRESHED`, while leaving `SIGNED_OUT` inert. Existing online event and boot recovery still operate. A single-flight guard prevents concurrent network triggers from double replaying the same item. No new service or queue and no change to review/truth policy.
+- Regression test exercises session restore, sign out and resumed replay of exactly the stored owner's incident, with no assumption that offline route or evidence is field-verified.
+- Acceptance gates: dashboard/backend CI, merge, Cloudflare Pages published frontend, real dual-account/device capture→offline→login→reconnect→server-reviewed receipt. Field acceptance not yet claimed.
+
 # 2026-10-21 — Account-safe offline operational journey replay
 
 - Resumed from verified master checkpoint after PR #180: private operator compliance/revocation protections and read-only live Cameroon routing accepted; real passenger walking service, actual vehicle onboarding/booking, and physical GNSS field trial remain incomplete. The next dependency-independent cross-layer issue was the legacy global offline synchronization queue `offlineSync.ts`.
