@@ -178,7 +178,10 @@ export const offlineSync = {
             }),
           });
           const data = await readJsonResponse(response);
-          if (!response.ok) throw new Error(data.error || 'Offline booking completion replay failed');
+          if (!response.ok || data.success !== true || !data.booking ||
+              String(data.booking.id || '') !== bookingId ||
+              String(data.booking.status || '').toLowerCase() !== 'completed')
+            throw new Error(data.error || 'Server has not confirmed this booking was completed');
         } else if (mutation.type === 'VOICE_REPORT_UPLOAD') {
           // Keep the item queued until AFAT exposes an authenticated binary
           // upload/replay contract. Logging success here previously dropped the
