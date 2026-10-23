@@ -117,8 +117,8 @@ export function AtlasContributionPanel({defaultMode='walk',preferredCity=null}:{
       return false;
     }
     const {data:sample,error}=await ingestAtlasContributionSample(payload);
-    if(error){
-      if(allowQueue){enqueueAtlasSample(payload);setQueued(pendingAtlasSamples(uid,id));setPhase('offline');setNotice('GPS point captured but server save failed. AFAT queued it locally instead of pretending it was saved.');}
+    if(error || !sample?.sample_id || sample?.match_state==='rejected'){
+      if(allowQueue){enqueueAtlasSample(payload);setQueued(pendingAtlasSamples(uid,id));setPhase('offline');setNotice('GPS point captured but no accepted server receipt was obtained. AFAT kept it locally for review rather than counting it as saved.');}
       return false;
     }
     setSaved(v=>v+1);
