@@ -7,7 +7,7 @@ const titles:Record<string,string>={
  vehicle_registration:'Vehicle registration card',bike_registration:'Motorcycle registration',helmet_compliance:'Helmet and rider safety evidence',insurance:'Vehicle insurance',
  license:'Driver licence',national_id:'National ID',
 };
-export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:string;onChanged:()=>void}){
+export function OperatorComplianceEvidence({profileId,vehicle,onChanged}:{profileId:string;vehicle:{id:string;plate_number?:string|null;type?:string|null};onChanged:()=>void}){
  const [rows,setRows]=useState<RecordRow[]>([]);
  const [files,setFiles]=useState<Record<string,File|null>>({});
  const [loading,setLoading]=useState(false);
@@ -15,21 +15,21 @@ export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:stri
  const [notice,setNotice]=useState('');
  const refresh=async()=>{
   setLoading(true);
-  try{setRows((await getOperatorComplianceRecords(profileId)).filter(r=>wanted.includes(r.document_type)));
+  try{setRows((await getOperatorComplianceRecords(profileId,vehicle.id)).filter(r=>wanted.includes(r.document_type)));
    setNotice('');}
   catch(error:any){setNotice(error?.message||'Unable to load compliance documents');}
   finally{setLoading(false);}
  };
  useEffect(()=>{
-  if(!profileId)return;
+  if(!profileId||!vehicle?.id)return;
   let active=true;
   (async()=>{
-   try{await ensureOperatorRequiredDocuments();}
+   try{await ensureOperatorRequiredDocuments(vehicle.id);}
    catch(error:any){if(active)setNotice(error?.message||'Cannot prepare missing operator documents');}
    if(active)await refresh();
   })();
   return ()=>{active=false;};
- },[profileId]);
+ },[profileId,vehicle?.id]);
  const upload=async(row:RecordRow)=>{
   const file=files[row.id];if(!file)return;
   setActive(row.id);setNotice('');
@@ -43,8 +43,8 @@ export function OperatorComplianceEvidence({profileId,onChanged}:{profileId:stri
  return <section className="rounded-2xl border border-white/10 bg-slate-950/70 p-5 text-white">
   <div className="flex items-center justify-between gap-3"><div>
    <p className="text-[10px] font-black uppercase tracking-wider text-cyan-200">Operator credential evidence</p>
-   <h2 className="mt-2 text-lg font-black">Submit real documents for staff review</h2>
-   <p className="mt-2 text-xs leading-5 text-white/60">Documents are private, not published on AFAT maps. An uploaded file is not a verified credential or cleared vehicle.</p>
+   <h2 className="mt-2 text-lg font-black">Private documents for {vehicle.plate_number||'selected vehicle'}</h2>
+   <p className="mt-2 text-xs leading-5 text-white/60">Only documents explicitly bound to this vehicle count toward clearance. Other vehicles and legacy unbound records cannot be reused. Staff must verify each upload.</p>
   </div><button disabled={loading||!!active} onClick={()=>void refresh()} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-50">Refresh</button></div>
   <div className="mt-4 grid gap-3 sm:grid-cols-2">
    {wanted.filter(type=>rows.some(row=>row.document_type===type)).map(type=>{

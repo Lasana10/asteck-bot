@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {authenticatedApiHeaders,getApiBaseUrl} from '../../supabaseClient';
-type ReviewCase={id:string;operator_id:string;plate_number:string;type:string;capacity:number;clearance_status:string;operator?:{full_name?:string;verification_status?:string;operator_application_status?:string}|null;documents:{document_type:string;status:string;due_at?:string|null;has_document:boolean}[]};
+type ReviewCase={id:string;operator_id:string;plate_number:string;type:string;capacity:number;clearance_status:string;operator?:{full_name?:string;verification_status?:string;operator_application_status?:string}|null;documents:{document_type:string;status:string;due_at?:string|null;verified_at?:string|null;has_document:boolean}[]};
 async function staffApi(path:string,options:RequestInit={}){
  const auth=await authenticatedApiHeaders();
  const response=await fetch(`${getApiBaseUrl()}${path}`,{
@@ -51,15 +51,15 @@ export function VehicleClearanceReview(){
   {notice&&<p role="status" className="mt-3 rounded-lg border border-amber-200/20 p-3 text-xs text-amber-100">{notice}</p>}
   <div className="mt-4 max-h-96 space-y-3 overflow-auto">
    {cases.map(item=>{
-    const documents=[item.type==='moto'?'bike_registration':'vehicle_registration','insurance'].map(type=>({
+    const documents=[item.type==='moto'?'bike_registration':'vehicle_registration','insurance',...(item.type==='moto'?['helmet_compliance']:[])].map(type=>({
       type,matched:item.documents.filter(d=>d.document_type===type),
     }));
     const eligible=item.operator?.verification_status==='verified'&&item.operator?.operator_application_status==='APPROVED'&&
-      documents.every(d=>d.matched.some(x=>x.status==='verified'&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now())));
+      documents.every(d=>d.matched.some(x=>x.status==='verified'&&Boolean(x.verified_at)&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now())));
     return <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
      <p className="text-sm font-black">{item.plate_number} · {item.type} · {item.capacity} seats</p>
      <p className="mt-1 text-xs text-white/55">{item.operator?.full_name||'Operator'} · {item.clearance_status}</p>
-     <p className="mt-2 text-xs text-white/60">{documents.map(d=>`${d.type}: ${d.matched.some(x=>x.status==='verified'&&x.has_document)?'verified document recorded':'review outstanding'}`).join(' · ')}</p>
+     <p className="mt-2 text-xs text-white/60">{documents.map(d=>`${d.type}: ${d.matched.some(x=>x.status==='verified'&&Boolean(x.verified_at)&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now()))?'verified, current document':'not ready for clearance'}`).join(' · ')}</p>
      <p className="mt-1 text-[11px] text-white/40">Human physical inspection and matching vehicle identity must also be established outside automated record checks.</p>
      <textarea value={reasons[item.id]||''} onChange={e=>setReasons(old=>({...old,[item.id]:e.target.value}))}
       placeholder={`Inspected plate ${item.plate_number}, verified vehicle registration, insurance, physical match and factual reason`}

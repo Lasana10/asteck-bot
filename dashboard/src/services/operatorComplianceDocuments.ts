@@ -1,6 +1,6 @@
 import {authenticatedApiHeaders,getApiBaseUrl,supabase} from '../supabaseClient';
 
-type ComplianceRecord={id:string;profile_id:string;role:string;document_type:string;status:string;file_url?:string|null;verified_at?:string|null;due_at?:string|null};
+type ComplianceRecord={id:string;profile_id:string;vehicle_id?:string|null;role:string;document_type:string;status:string;file_url?:string|null;verified_at?:string|null;due_at?:string|null};
 async function api(path:string,init:RequestInit={}){
  const auth=await authenticatedApiHeaders();
  const response=await fetch(`${getApiBaseUrl()}${path}`,{
@@ -11,9 +11,9 @@ async function api(path:string,init:RequestInit={}){
  if(!response.ok)throw new Error(data?.error||'AFAT compliance evidence service unavailable');
  return data;
 }
-export async function getOperatorComplianceRecords(profileId:string):Promise<ComplianceRecord[]>{
+export async function getOperatorComplianceRecords(profileId:string,vehicleId:string):Promise<ComplianceRecord[]>{
  const result=await api(`/api/compliance/summary/${encodeURIComponent(profileId)}`);
- return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&['operator','bike_rider'].includes(r.role));
+ return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&r.vehicle_id===vehicleId&&['operator','bike_rider'].includes(r.role));
 }
 export async function submitOperatorComplianceDocument(recordId:string,file:File){
  const mime=file.type.toLowerCase();
@@ -40,11 +40,11 @@ export async function getStaffComplianceReviewFile(recordId:string):Promise<stri
 }
 
 /** Reconcile missing required documentation rows only; never mark them verified. */
-export async function ensureOperatorRequiredDocuments(){
+export async function ensureOperatorRequiredDocuments(vehicleId:string){
  const result=await api('/api/compliance/operator/ensure-required',{
-  method:'POST',body:JSON.stringify({}),
+  method:'POST',body:JSON.stringify({vehicle_id:vehicleId}),
  });
- if(result.automatically_verified!==false||result.review_required!==true)
+ if(result.automatically_verified!==false||result.review_required!==true||result.vehicle_id!==vehicleId)
   throw new Error('Operator credential safety contract not confirmed');
  return result.created_missing as string[];
 }
