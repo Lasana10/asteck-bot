@@ -157,6 +157,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [navigationActive, setNavigationActive] = useState(false);
   const [sosOpen,setSosOpen] = useState(false);
   const [sosDispatchId,setSosDispatchId] = useState<string|null>(null);
+  const [sosDispatchPlaceId,setSosDispatchPlaceId] = useState<string|null>(null);
   const [online,setOnline] = useState(() => typeof navigator==='undefined'||navigator.onLine);
   useEffect(()=>{
     const update=()=>setOnline(navigator.onLine);
@@ -800,7 +801,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     if (error) { setStatusText(error.message); return; }
     const hasDispatch = Boolean(data?.dispatch?.id || data?.assignment?.id || data?.passage?.dispatch_assignment_id);
     const confirmedAssignmentId = data?.dispatch?.id || data?.assignment?.id || data?.passage?.dispatch_assignment_id;
-    if (confirmedAssignmentId) setSosDispatchId(String(confirmedAssignmentId));
+    if (confirmedAssignmentId) { setSosDispatchId(String(confirmedAssignmentId)); setSosDispatchPlaceId(selectedPlace.id); }
     setStatusText(hasDispatch ? 'Transport request created and a dispatch assignment exists.' : 'Transport request created. AFAT will only show operator matching after a real dispatch assignment exists.');
     void recordAfatIntent({ intent_type:intentType, place_id:selectedPlace.id, access_point_id:selectedAccessPoint?.id, meeting_point_id:selectedMeetingPoint?.id, movement_mode:vehicleType, origin_lat:originFix.latitude, origin_lng:originFix.longitude, context:{ passage_id:data?.passage?.id||null, execution:'booking', dispatch_assignment_present:hasDispatch } });
     onPassageCreated?.(data?.passage);
@@ -996,6 +997,6 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       {profile?.id&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
        {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
-    {sosOpen && profile?.id && <EmergencySOS userId={String(profile.id)} userName={String(profile?.full_name||'AFAT passenger')} activeDispatchId={sosDispatchId} onClose={()=>setSosOpen(false)} />}
+    {sosOpen && profile?.id && <EmergencySOS userId={String(profile.id)} userName={String(profile?.full_name||'AFAT passenger')} activeDispatchId={selectedPlace?.id===sosDispatchPlaceId?sosDispatchId:null} onClose={()=>setSosOpen(false)} />}
   </section>;
 }
