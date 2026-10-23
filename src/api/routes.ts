@@ -1,4 +1,5 @@
 import {validateScheduleDraft} from '../services/scheduledDeparturePublishing';
+import {departureWithdrawalEligibility} from '../services/operatorDepartureOperations';
 import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
 import express, { Request, Response } from 'express';
 import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
@@ -2012,8 +2013,9 @@ router.get('/mobility/departures/mine', async (req: Request, res: Response) => {
     res.status(200).json({success:true,departures:(result.data||[]).map((route:any)=>({
       ...route,has_booking_history:bookingIds.has(route.id),
       has_active_holds:holdIds.has(route.id),
-      can_withdraw:route.is_active===true&&Date.parse(route.departure_time)>Date.now()&&
-        !bookingIds.has(route.id)&&!holdIds.has(route.id),
+      can_withdraw:departureWithdrawalEligibility({is_active:route.is_active,
+        departure_time:route.departure_time,has_booking_history:bookingIds.has(route.id),
+        has_active_holds:holdIds.has(route.id)}).canWithdraw,
     }))});
   }catch(error:any){
     console.error('Operator departure management unavailable',error);
