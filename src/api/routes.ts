@@ -1988,6 +1988,67 @@ router.post('/payment/reconcile', async (req: Request, res: Response) => {
 });
 
 
+// Operator's authoritative future departure inventory. Never expose another
+// operator's private schedule or pretend published supply is a seat reservation.
+router.get('/mobility/departures/mine', async (req: Request, res: Response) => {
+  const access=await requireAuthRole(req,res,['operator']);
+  if(!access)return;
+  try{
+    const result=await supabase.from('routes')
+      .select('id,vehicle_id,origin,destination,departure_time,price_per_seat,capacity,is_active,created_at')
+      .eq('operator_id',access.profile.id)
+      .gte('departure_time',new Date(Date.now()-24*60*60*1000).toISOString())
+      .order('departure_time',{ascending:true}).limit(80);
+    if(result.error)throw result.error;
+    const ids=(result.data||[]).map((row:any)=>row.id);
+    const [bookings,holds]=await Promise.all([
+      ids.length?supabase.from('bookings').select('route_id,id,status').in('route_id',ids):Promise.resolve({data:[],error:null}),
+      ids.length?supabase.from('seat_holds').select('route_id,id,status,expires_at').in('route_id',ids)
+        .eq('status','active').gt('expires_at',new Date().toISOString()):Promise.resolve({data:[],error:null}),
+    ]);
+    if(bookings.error||holds.error)throw bookings.error||holds.error;
+    const bookingIds=new Set((bookings.data||[]).map((x:any)=>x.route_id));
+    const holdIds=new Set((holds.data||[]).map((x:any)=>x.route_id));
+    res.status(200).json({success:true,departures:(result.data||[]).map((route:any)=>({
+      ...route,has_booking_history:bookingIds.has(route.id),
+      has_active_holds:holdIds.has(route.id),
+      can_withdraw:route.is_active===true&&Date.parse(route.departure_time)>Date.now()&&
+        !bookingIds.has(route.id)&&!holdIds.has(route.id),
+    }))});
+  }catch(error:any){
+    console.error('Operator departure management unavailable',error);
+    res.status(503).json({error:'OPERATOR_DEPARTURES_UNAVAILABLE'});
+  }
+});
+
+// The database RPC acquires the same route row lock as seat booking. Only a
+// verified, authenticated owner can withdraw uncommitted inventory.
+router.post('/mobility/departures/:departureId/withdraw', async(req:Request,res:Response)=>{
+  const access=await requireAuthRole(req,res,['operator']);
+  if(!access)return;
+  const id=String(req.params.departureId||'');
+  const reason=String(req.body?.reason||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    ||reason.length<12||reason.length>500)
+    return res.status(400).json({error:'VALID_DEPARTURE_ID_AND_WITHDRAWAL_REASON_REQUIRED'});
+  try{
+    const result=await supabase.rpc('afat_cancel_operator_departure',{
+      p_operator_id:access.profile.id,p_route_id:id,p_reason:reason,
+    });
+    if(result.error){
+      const message=String(result.error.message||'WITHDRAWAL_REJECTED');
+      const status=message.includes('NOT_FOUND')?404:
+        /HAS_BOOKING|HAS_ACTIVE|ALREADY_STARTED/.test(message)?409:
+        /REQUIRED/.test(message)?400:503;
+      return res.status(status).json({error:message});
+    }
+    return res.status(200).json({success:true,departure:result.data});
+  }catch(error:any){
+    console.error('Operator departure withdrawal unavailable',error);
+    return res.status(503).json({error:'WITHDRAWAL_UNAVAILABLE'});
+  }
+});
+
 router.post('/mobility/departures/publish', async (req: Request, res: Response) => {
   const access=await requireAuthRole(req,res,['operator']);
   if(!access)return;
