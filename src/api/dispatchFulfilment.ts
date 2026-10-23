@@ -226,7 +226,7 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
       heading, recorded_at: recordedAt.toISOString(), source: 'browser_geolocation'
     }, { onConflict: 'journey_id,profile_id,recorded_at' }).select('id,journey_id,recorded_at').single();
     if (sampleError) throw sampleError;
-    return res.status(202).json({ accepted: true, sample });
+    return res.status(200).json({ accepted: true, assignment_id: assignmentId, sample_id: sample.id, sample });
   } catch (error: any) {
     const mapped = publicDispatchError(error);
     return res.status(mapped.status).json({ error: mapped.error });
