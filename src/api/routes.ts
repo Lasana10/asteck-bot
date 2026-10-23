@@ -3211,7 +3211,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
         .limit(200),
       supabase
         .from('incidents')
-        .select('id, type, description, severity, status, verification_status, latitude, longitude, location, created_at, reporter_username')
+        .select('id, movement_log_id, type, description, severity, status, verification_status, latitude, longitude, location, created_at, reporter_username')
         .gte('created_at', since)
         .neq('status', 'false')
         .order('created_at', { ascending: false })
@@ -3351,6 +3351,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       alerts: urgentAlerts,
       vehicles: enrichedVehicles,
       incidents: enrichedIncidents,
+      pending_incident_reviews: enrichedIncidents.filter((incident:any)=>incident.trust_state==='needs_human_review'&&Boolean(incident.movement_log_id)),
       dispatches: scopedDispatches,
       checkpoints: scopedCheckpoints.map((checkpoint: any) => ({
         ...checkpoint,
