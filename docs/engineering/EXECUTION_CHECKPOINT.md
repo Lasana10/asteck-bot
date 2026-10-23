@@ -1,3 +1,10 @@
+# 2026-10-23 — AFAT dispatch release gate reconciled with live Supabase
+
+- Verified latest PR #189 SHA `31fc5ccec91bfbcb720cda353423e597df5ffd0e`: GitHub Actions backend typecheck/contract SUCCESS and dashboard build/tests SUCCESS; Cloudflare Pages preview SUCCESS. These checks do not constitute deployment to production or physical field acceptance.
+- Live Supabase project `TRAFFIC` (project ref `rkijcxxryhfrqsgkwtbu`) is ACTIVE_HEALTHY. Read-only live schema confirms `afat_journey_samples_journey_id_profile_id_recorded_at_key` still enforces timestamp uniqueness. New observation-id migration is not applied.
+- **BLOCKED release gate:** Existing production backend uses timestamp `onConflict`; changing the constraint first would break old server writes. New backend expects observation-id conflict target, so releasing it first breaks new writes. Coordinate migration with backend release in a controlled maintenance/rollback process, preferably staging acceptance, not piecemeal production mutation. Confirm backend Render release SHA and deploy access before proceeding. No production DDL or release performed in this session.
+- Existing customer data and accepted navigation subsystems remain untouched. PR #189 remains **IMPLEMENTED — UNVERIFIED OPERATIONALLY**; no repeat building. Exact next step: stage new schema + backend together, exercise authenticated new and legacy queued GPS receipts and duplicate/same-time collision; then coordinated production switch and signed-in field GPS journey acceptance. Cloudflare Workers build has a separate check and is not evidence of Pages failure.
+
 # 2026-10-23 — Continuation under section 16: no restart
 
 - PR #189 remains the single ongoing dispatch GPS custody workstream. CI on commit `1bbe546c`: backend typecheck/contract PASS, dashboard 133/134 tests PASS with exactly one failure: generated observation UUID made an identical fix fail queue deduplication; Cloudflare Pages preview succeeded; unrelated Cloudflare Workers build failed.
