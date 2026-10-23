@@ -294,21 +294,27 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       return;
     }
 
-    const rewardPoints = status === 'validated' ? 25 : status === 'published' ? 40 : 0;
-    const { error } = await reviewMapSignal({
-      movement_log_id: signal.id,
-      status,
-      confidence_score: status === 'dismissed' ? 20 : status === 'published' ? 90 : status === 'validated' ? 80 : 55,
-      reward_points: rewardPoints,
-      decision_notes: `Admin ${status} route-truth signal from ${signal.city || 'field zone'}.`,
-    });
-
-    if (error) {
-      setCommandFeedback(`Route signal review failed: ${error.message}`);
+    const decisionNotes=window.prompt(
+      `Describe the actual evidence you examined before marking this observation ${status}. This will be attached to an immutable reviewer audit record. Minimum 15 characters. No trust rewards are issued automatically.`,
+      ''
+    );
+    if(decisionNotes===null)return;
+    if(decisionNotes.trim().length<15){
+      setCommandFeedback('Review not submitted. Explain the actual examined evidence (15 characters minimum).');
       return;
     }
-
-    setCommandFeedback(`Route signal marked ${status}${rewardPoints ? ` and ${rewardPoints} trust points queued` : ''}.`);
+    const { error } = await reviewMapSignal({
+      movement_log_id:signal.id,
+      status,
+      confidence_score:status==='dismissed'?20:status==='published'?90:status==='validated'?80:55,
+      reward_points:0,
+      decision_notes:decisionNotes.trim(),
+    });
+    if(error){
+      setCommandFeedback(`Incident review not saved: ${error.message}`);
+      return;
+    }
+    setCommandFeedback(`Incident evidence decision ${status} stored with reviewer audit and linked incident state. No automatic trust rewards.`);
     fetchAdminData();
   };
 
