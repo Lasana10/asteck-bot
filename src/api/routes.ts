@@ -2461,92 +2461,56 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
   }
 });
 
+/** A review is an atomic incident/ledger decision, never a mere UI label.
+ * Only authenticated staff may invoke the service-role-owned RPC.
+ */
 async function persistMapSignalReview(req: Request, res: Response, movementLogIdOverride?: string) {
+  const access=await requireAuthRole(req,res,['admin','planner']);
+  if(!access)return;
+  const id=String(movementLogIdOverride||req.body?.movement_log_id||'').trim();
+  const status=String(req.body?.status||'queued').trim();
+  const notes=String(req.body?.decision_notes||'').trim();
+  const confidence=Number(req.body?.confidence_score??50);
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)||
+    !['queued','validated','dismissed','published'].includes(status)||
+    !Number.isInteger(confidence)||confidence<0||confidence>100||
+    notes.length<15||notes.length>2000) {
+    return res.status(400).json({error:'REVIEW_REQUIRES_EVIDENCE_REASON_AND_VALID_DECISION'});
+  }
+  if(Number(req.body?.reward_points||0)!==0)
+    return res.status(400).json({error:'REVIEW_REWARDS_REQUIRE_SEPARATE_APPROVED_LEDGER_ACTION'});
   try {
-    const auth = authPayloadFromRequest(req);
-    const {
-      movement_log_id: bodyMovementLogId,
-      status = 'queued',
-      confidence_score = 50,
-      decision_notes,
-      reward_points = 0,
-      reviewer_id,
-    } = req.body;
-    const movement_log_id = movementLogIdOverride || bodyMovementLogId;
-
-    if (!movement_log_id) {
-      return res.status(400).json({ error: 'movement_log_id required' });
+    const result=await supabase.rpc('afat_apply_incident_review',{
+      p_movement_log_id:id,p_reviewer_id:access.profile.id,
+      p_status:status,p_confidence:confidence,p_notes:notes,
+    });
+    if(result.error){
+      const reason=String(result.error.message||'REVIEW_UNAVAILABLE');
+      const code=reason.includes('NOT_FOUND')?404:
+        reason.includes('CLOSED_INCIDENT')?409:
+        reason.includes('NOT_ACTIVE_STAFF')?403:
+        reason.includes('REQUIRED')?400:503;
+      return res.status(code).json({error:reason});
     }
-
-    const allowed = ['queued', 'validated', 'dismissed', 'published'];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ error: 'Invalid review status' });
-    }
-
-    const reviewerId = auth?.sub || reviewer_id || null;
-    const points = Math.max(0, Math.min(100, Number(reward_points || 0)));
-    const reviewPayload = {
-      movement_log_id,
-      reviewer_id: reviewerId,
-      status,
-      confidence_score: Math.max(0, Math.min(100, Number(confidence_score || 50))),
-      decision_notes: decision_notes || null,
-      reward_points: points,
-      reviewed_at: status === 'queued' ? null : new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data: review, error } = await supabase
-      .from('map_signal_reviews')
-      .upsert(reviewPayload, { onConflict: 'movement_log_id' })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    if (points > 0 && ['validated', 'published'].includes(status)) {
-      const { data: signal } = await supabase
-        .from('movement_logs')
-        .select('user_id')
-        .eq('id', movement_log_id)
-        .maybeSingle();
-
-      if (signal?.user_id) {
-        await supabase.rpc('award_points', {
-          p_user_id: signal.user_id,
-          p_amount: points,
-          p_reason: `Route truth ${status}`,
-          p_ref_id: movement_log_id,
-        });
-      }
-    }
-
-    res.status(200).json({
-      success: true,
-      review,
-      review_effect: {
-        enters_admin_audit: true,
-        contributor_rewarded: points > 0 && ['validated', 'published'].includes(status),
-        publish_ready: status === 'published',
+    return res.status(200).json({
+      success:true,accepted:true,review:result.data,
+      review_effect:{
+        enters_admin_audit:true,
+        incident_status_updated:true,
+        contributor_rewarded:false,
+        publish_ready:result.data?.incident_verification_status==='verified',
       },
     });
-  } catch (error: any) {
-    console.error('Map signal review error:', error);
-    res.status(500).json({ error: error.message || 'Map signal review failed' });
+  } catch(error:any){
+    console.error('Atomic map signal review unavailable',error);
+    return res.status(503).json({error:'ATOMIC_INCIDENT_REVIEW_UNAVAILABLE'});
   }
 }
 
-router.post('/ops/map-signal-reviews', async (req: Request, res: Response) => {
-  const access = await requireAuthRole(req, res, ['admin', 'planner']);
-  if (!access) return;
-  return persistMapSignalReview(req, res);
-});
-
-router.patch('/ops/map-signal-reviews/:movementLogId', async (req: Request, res: Response) => {
-  const access = await requireAuthRole(req, res, ['admin', 'planner']);
-  if (!access) return;
-  return persistMapSignalReview(req, res, String(req.params.movementLogId));
-});
+router.post('/ops/map-signal-reviews', (req:Request,res:Response)=>
+  persistMapSignalReview(req,res));
+router.patch('/ops/map-signal-reviews/:movementLogId', (req:Request,res:Response)=>
+  persistMapSignalReview(req,res,String(req.params.movementLogId)));
 
 router.get('/ops/checkpoints', async (req: Request, res: Response) => {
   try {
