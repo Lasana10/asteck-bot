@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AccessEvidenceReviewPanel, TransitEvidenceReviewPanel } from './AccessEvidenceReviewPanel';
+import {AtlasSourceDisagreementDesk} from './AtlasSourceDisagreementDesk';
 import { AlertTriangle, CheckCircle2, Map, RefreshCw, Route, ScanSearch, Send, ShieldCheck, XCircle } from 'lucide-react';
 import {
   createAtlasMappingMission,
@@ -195,6 +196,7 @@ export function AtlasLearningControl() {
         </div>
       </div>
 
+      <div className="mt-6"><AtlasSourceDisagreementDesk /></div>
       <div className="mt-6"><AccessEvidenceReviewPanel /><TransitEvidenceReviewPanel /></div>
 
       {notice && <p className="mt-4 flex items-center gap-2 rounded-xl border border-amber-300/15 bg-amber-300/10 p-3 text-xs text-amber-100"><AlertTriangle className="h-4 w-4" />{notice}</p>}
