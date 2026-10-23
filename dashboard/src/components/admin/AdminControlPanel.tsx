@@ -289,8 +289,8 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
   };
 
   const handleRouteSignalReview = async (signal: any, status: 'queued' | 'validated' | 'dismissed' | 'published') => {
-    if (!signal?.id) {
-      setCommandFeedback('Route signal has no movement id and cannot be reviewed yet.');
+    if (!signal?.movement_log_id) {
+      setCommandFeedback('Incident has no secured movement evidence and cannot be reviewed in this desk.');
       return;
     }
 
@@ -304,7 +304,7 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
       return;
     }
     const { error } = await reviewMapSignal({
-      movement_log_id:signal.id,
+      movement_log_id:signal.movement_log_id,
       status,
       confidence_score:status==='dismissed'?20:status==='published'?90:status==='validated'?80:55,
       reward_points:0,
@@ -1394,57 +1394,32 @@ export function AdminControlPanel({ onSignOut, activeTab = 'home' }: Props) {
 
                 <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
                   <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Route-truth signals</h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Field incident review · linked evidence</h3>
                     <MapPin className="h-5 w-5 text-cyan-300" />
                   </div>
+                  <p className="mb-4 text-[11px] leading-5 text-white/50">Only field incidents linked to actual authenticated movement evidence can be approved here. Unreviewed observations do not enter passenger/public safety feeds. Examine evidence and give your own documented reason before changing status.</p>
                   <div className="space-y-3">
-                    {(liveMapOps?.campaign_signals || []).slice(0, 5).map((signal: any, index: number) => (
-                      <div key={signal.id || index} className="rounded-2xl border border-white/8 bg-slate-950/60 p-4">
+                    {(liveMapOps?.pending_incident_reviews || []).slice(0, 20).map((incident: any) => (
+                      <article key={incident.id} className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-xs font-black uppercase tracking-tight text-white">
-                              {signal.signal_type || 'field signal'}
-                            </p>
-                            <p className="mt-1 text-[10px] font-semibold text-white/45">
-                              {signal.city || 'city'} · {signal.publish_channel || 'ops'} · {signal.signal_age_seconds ? `${signal.signal_age_seconds}s ago` : 'fresh'}
-                            </p>
+                            <p className="text-xs font-black text-white">{incident.type || 'Observed incident'} · severity {incident.severity ?? 'unknown'}/5</p>
+                            <p className="mt-1 text-[10px] text-white/55">{incident.created_at ? new Date(incident.created_at).toLocaleString() : 'Time unknown'} · awaiting independent review</p>
+                            <p className="mt-2 text-xs leading-5 text-white/75">{incident.description || 'No additional description recorded.'}</p>
+                            <p className="mt-2 font-mono text-[10px] text-white/40">Location: {Number(incident.latitude).toFixed(5)}, {Number(incident.longitude).toFixed(5)} · movement evidence {String(incident.movement_log_id).slice(0,8)}…</p>
                           </div>
-                          <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-widest text-cyan-100">
-                            {signal.review_status || 'new'}
-                          </span>
+                          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[9px] font-bold text-amber-100">Not verified</span>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => handleRouteSignalReview(signal, 'queued')}
-                            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white/60 transition hover:text-white"
-                          >
-                            Queue
-                          </button>
-                          <button
-                            onClick={() => handleRouteSignalReview(signal, 'validated')}
-                            className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-emerald-200 transition hover:bg-emerald-500/15"
-                          >
-                            Validate
-                          </button>
-                          <button
-                            onClick={() => handleRouteSignalReview(signal, 'dismissed')}
-                            className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-red-200 transition hover:bg-red-500/15"
-                          >
-                            Dismiss
-                          </button>
-                          <button
-                            onClick={() => handleRouteSignalReview(signal, 'published')}
-                            className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-cyan-100 transition hover:bg-cyan-500/15"
-                          >
-                            Publish
-                          </button>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => handleRouteSignalReview(incident, 'validated')} className="min-h-10 rounded-xl border border-emerald-300/25 px-3 text-[10px] font-bold text-emerald-100">Validate evidence</button>
+                          <button type="button" onClick={() => handleRouteSignalReview(incident, 'published')} className="min-h-10 rounded-xl bg-cyan-300 px-3 text-[10px] font-bold text-slate-950">Verify for safety feed</button>
+                          <button type="button" onClick={() => handleRouteSignalReview(incident, 'dismissed')} className="min-h-10 rounded-xl border border-rose-300/25 px-3 text-[10px] font-bold text-rose-100">Dismiss</button>
+                          <button type="button" onClick={() => handleRouteSignalReview(incident, 'queued')} className="min-h-10 rounded-xl border border-white/15 px-3 text-[10px] text-white/70">Keep pending</button>
                         </div>
-                      </div>
+                      </article>
                     ))}
-                    {!(liveMapOps?.campaign_signals || []).length && (
-                      <div className="rounded-2xl border border-white/8 bg-slate-950/60 p-4 text-xs font-semibold text-white/45">
-                        No campaign signals yet. Commuter data missions and checkpoint reports will appear here after publication.
-                      </div>
+                    {!(liveMapOps?.pending_incident_reviews || []).length && (
+                      <p className="rounded-xl border border-white/10 p-4 text-xs text-white/50">No pending linked incident evidence in this city. Unlinked campaign movement is not silently promoted into a verified incident.</p>
                     )}
                   </div>
                 </div>
