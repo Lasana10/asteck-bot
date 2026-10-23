@@ -1,3 +1,11 @@
+# 2026-10-23 — Dispatch journey durable GPS receipt integration
+
+- On PR #189 branch, aligned secured dispatch `POST /api/dispatch/:assignmentId/journey/sample` and the owner-bound offline replay contract. The server now responds with HTTP 200 `accepted:true`, `assignment_id`, `sample_id`, and persisted `sample`, rather than HTTP 202 with only a nested sample. The client clears only when assignment and persisted sample identifiers match.
+- Updated Vitest scenarios for accepted same-assignment receipts and refusal of mismatched-assignment / mismatched-sample receipts. Commits: `232add99`, `4f210cf`, `64df7ecd`. These are implementation changes on the PR branch, not yet proven CI-green or merged/deployed.
+- Remaining genuine connected issue: the dispatch database has `onConflict:'journey_id,profile_id,recorded_at'`, so distinct fixes with the same timestamp can overwrite one another at backend despite the browser now queuing them separately. Resolve with a backward-compatible per-observation identity and database uniqueness migration before claiming lossless evidence.
+- Release gates: dashboard Vitest/build and backend TypeScript CI, merge only after passing gates, verify Cloudflare Pages production and Render backend SHA, then authenticated real-device dispatch capture/reconnect with legitimate operator/passenger. Cloudflare Workers Builds failing is separate from successful Pages preview; do not imply production backend success.
+- Continue substantial AFAT field-to-review and multimodal/supply work, not just this isolated patch.
+
 # 2026-10-23 — Dispatch journey GPS evidence custody on reconnect (PR #189)
 
 - Advanced the existing dispatch journey sample queue alongside the established passenger navigation runtime and fleet trust work. The dispatch queue silently erased rejected HTTP 400/403/404/409 observations, accepted generic HTTP 2xx without server proof, and overwrote distinct fixes sharing the same timestamp. This would permit erroneous movement history or lost field evidence.
