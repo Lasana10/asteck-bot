@@ -235,7 +235,7 @@ export function OperatorWorkspaceHome({
       </div>
 
       {!vehicle && <OperatorVehicleRegistration onRegistered={()=>{onChanged();void refreshExecution();}} />}
-      {profile?.id&&<OperatorComplianceEvidence profileId={String(profile.id)} onChanged={()=>{onChanged();void refreshExecution();}} />}
+      {profile?.id&&vehicle?.id&&<OperatorComplianceEvidence profileId={String(profile.id)} vehicle={{id:vehicle.id,plate_number:vehicle.plate_number,type:vehicle.type}} onChanged={()=>{onChanged();void refreshExecution();}} />}
       <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{setDepartureRefreshKey(k=>k+1);onChanged();void refreshExecution();}} />
       <OperatorDepartureOperations reloadKey={departureRefreshKey} onChanged={()=>{onChanged();void refreshExecution();}} />
 
