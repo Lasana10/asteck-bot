@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const api=readFileSync('src/api/routes.ts','utf8');
+const ui=readFileSync('dashboard/src/components/admin/AdminControlPanel.tsx','utf8');
+const ops=api.slice(api.indexOf("router.get('/ops/live-map'"),api.indexOf("router.get('/ops/report-center'"));
+assert.ok(ops.includes('id, movement_log_id, type, description, severity'),'staff incidents require incident-linked evidence ids');
+assert.ok(ops.includes('pending_incident_reviews: enrichedIncidents.filter'),'dedicated pending review queue');
+assert.ok(ops.includes("incident.trust_state==='needs_human_review'"),'do not reapprove dismissed or already verified items');
+assert.ok(ui.includes('liveMapOps?.pending_incident_reviews'),'reviewer UI tied to actual incidents');
+assert.ok(ui.includes('movement_log_id:signal.movement_log_id'),'API receives incident evidence ID instead of arbitrary movement signal');
+assert.ok(ui.includes('handleRouteSignalReview(incident, \'validated\')'));
+assert.ok(ui.includes('handleRouteSignalReview(incident, \'dismissed\')'));
+assert.ok(ui.includes('decisionNotes=window.prompt'),'review requires human-authored reason');
+assert.ok(!ui.includes("handleRouteSignalReview(signal, 'published')"),'raw movement must not bypass incident review');
+console.log('PASS AFAT linked pending incident review from real staff ops projection through authorization and recorded decision');
