@@ -1736,46 +1736,19 @@ router.post('/broadcast', async (req: Request, res: Response) => {
 });
 
 // ── VOICE INTELLIGENCE (Whisper transcription + AI classification) ────────
+// No backend speech-to-text pipeline is operational here. Never return
+// invented accident transcription or pretend a model classified the audio.
+// Browser speech-to-text (when available) plus user confirmation is handled
+// by VoiceReporter and enters the protected map-signal human-review path.
 router.post('/intelligence/voice-report', async (req: Request, res: Response) => {
-  try {
-    // For now: accept the audio file and return a mock classification
-    // In production: pipe audio to Groq Whisper API for transcription,
-    // then classify with Gemini/Groq
-    const groqKey = process.env.GROQ_API_KEY;
-
-    if (!groqKey) {
-      // Mock mode — return simulated transcription
-      console.log('🎙️ Voice report received (Mock Mode — no GROQ_API_KEY)');
-      return res.status(200).json({
-        transcription: 'Accident signalé près du carrefour Bastos',
-        classification: {
-          type: 'accident',
-          severity: 3,
-          location: 'Carrefour Bastos',
-          confidence: 0.85
-        }
-      });
-    }
-
-    // Real mode: call Groq Whisper
-    // The audio comes as multipart form data
-    // We'd use multer to parse it, then forward to Groq
-    console.log('🎙️ Voice report received — forwarding to Groq Whisper');
-
-    // Placeholder for real Whisper integration
-    res.status(200).json({
-      transcription: 'Processing with Groq Whisper...',
-      classification: {
-        type: 'other',
-        severity: 3,
-        location: 'Unknown',
-        confidence: 0.5
-      }
-    });
-  } catch (error) {
-    console.error('Voice report error:', error);
-    res.status(500).json({ error: 'Voice processing failed' });
-  }
+  const access=await requireAuthRole(req,res);
+  if(!access)return;
+  return res.status(501).json({
+    success:false,
+    error:'VOICE_SERVER_TRANSCRIPTION_NOT_CONFIGURED',
+    guidance:'Use voice-assisted reporting in the AFAT passenger workspace, or type your observed incident and confirm live GPS.',
+    generated_transcription:false,classified_by_ai:false,submitted_incident:false,
+  });
 });
 
 // ── PAYMENT CHECKOUT (PawaPay / MoMo / Orange Money) ──────────────────────

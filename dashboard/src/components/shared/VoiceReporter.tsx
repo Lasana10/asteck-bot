@@ -1,239 +1,148 @@
-import React, { useState, useRef } from 'react';
-import { Mic, Square, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
-import { getApiBaseUrl, publishMapSignal } from '../../supabaseClient';
+import React,{useEffect,useRef,useState} from 'react';
+import {Mic,Square,CheckCircle2,AlertTriangle,X,MapPin} from 'lucide-react';
+import {publishMapSignal} from '../../supabaseClient';
+import {captureCurrentFieldGps} from '../../services/spatialPositioning';
+import {TurnstileGate} from './TurnstileGate';
 
-export function VoiceReporter({ profile, onClose }: { profile: any, onClose?: () => void }) {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [liveTranscript, setLiveTranscript] = useState('');
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recognitionRef = useRef<any>(null);
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      setLiveTranscript('');
-
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognitionRef.current = recognition;
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = navigator.language || 'fr-CM';
-        recognition.onresult = (event: any) => {
-          const transcript = Array.from(event.results)
-            .map((result: any) => result?.[0]?.transcript || '')
-            .join(' ')
-            .trim();
-          setLiveTranscript(transcript);
-        };
-        recognition.onerror = () => undefined;
-        recognition.start();
-      }
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = processAudio;
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      setError(null);
-    } catch (err: any) {
-      setError("Please allow microphone access to report hazards.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      recognitionRef.current?.stop?.();
-      recognitionRef.current = null;
-      setIsRecording(false);
-      setIsProcessing(true);
-    }
-  };
-
-  const processAudio = async () => {
-    try {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'report.webm');
-      formData.append('reporter_id', profile.id);
-
-      const response = await fetch(`${getApiBaseUrl()}/api/intelligence/voice-report`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.error || 'Failed to process audio.');
-      const transcript = liveTranscript || data.transcription || 'Voice report received';
-
-      // Helper to get real GPS
-      const getRealLocation = (): Promise<{lat: number, lng: number}> => {
-        return new Promise((resolve) => {
-          if (!navigator.geolocation) {
-            // Fallback to Yaoundé center if no GPS
-            resolve({ lat: 3.848, lng: 11.502 });
-            return;
-          }
-          navigator.geolocation.getCurrentPosition(
-            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-            () => resolve({ lat: 3.848, lng: 11.502 }), // Fallback on error/deny
-            { enableHighAccuracy: true, timeout: 5000 }
-          );
-        });
-      };
-
-      const coords = await getRealLocation();
-      const lat = coords.lat;
-      const lng = coords.lng;
-      
-      const incidentPayload = {
-        reporter_id: profile.id,
-        reporter_username: profile.username || 'Voice Agent',
-        type: data.classification?.type || 'other',
-        description: transcript,
-        severity: data.classification?.severity || 3,
-        latitude: lat,
-        longitude: lng,
-        location: `POINT(${lng} ${lat})`
-      };
-
-      const { error: publishError } = await publishMapSignal({
-        profile_id: profile.id,
-        signal_type: 'incident',
-        incident_type: incidentPayload.type,
-        description: incidentPayload.description,
-        severity: incidentPayload.severity,
-        latitude: lat,
-        longitude: lng,
-        source: 'voice_report',
-        actor_type: 'verified_voice_report',
-        verification_hint: 'trusted',
-      });
-
-      if (publishError) {
-        throw new Error(publishError.message || 'Voice report could not be ingested by AFAT.');
-      }
-
-      setResult(incidentPayload);
-    } catch (err: any) {
-      setError(err.message || 'Error processing brain scan.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 z-[3000]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-[32px] p-8 shadow-2xl relative flex flex-col items-center">
-        {onClose && (
-           <button onClick={onClose} className="absolute top-6 right-6 text-slate-500 hover:text-white transition-colors">
-              <X className="w-6 h-6" />
-           </button>
-        )}
-
-        {/* State 1: Ready / Recording */}
-        {!isProcessing && !result && (
-           <>
-             <div className="text-center mb-8 mt-4">
-                <h3 className="text-2xl font-bold mb-2">Voice AFAT Report</h3>
-                <p className="text-sm text-slate-500 max-w-xs">Speak naturally in French, English, or Pidgin. AFAT AI will extract the hazard.</p>
-             </div>
-
-             <button
-               onMouseDown={startRecording}
-               onTouchStart={startRecording}
-               onMouseUp={stopRecording}
-               onTouchEnd={stopRecording}
-               className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${
-                 isRecording 
-                   ? 'bg-red-500/20 text-red-500 border border-red-500 shadow-[0_0_60px_rgba(239,68,68,0.4)] scale-110' 
-                   : 'bg-blue-600 hover:bg-blue-500 text-white shadow-xl shadow-blue-500/20 active:scale-95'
-               }`}
-             >
-                {isRecording ? <Square className="w-12 h-12 animate-pulse" /> : <Mic className="w-12 h-12" />}
-             </button>
-             
-             <p className={`mt-8 text-sm font-mono tracking-widest uppercase transition-opacity ${isRecording ? 'text-red-400 animate-pulse' : 'text-slate-500'}`}>
-                {isRecording ? 'Recording... Release to Transmit' : 'Hold to Speak'}
-             </p>
-             {liveTranscript && (
-               <div className="mt-4 w-full rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-left">
-                 <p className="mb-1 text-[9px] font-black uppercase tracking-[0.22em] text-blue-300">Live transcript</p>
-                 <p className="text-sm font-medium leading-relaxed text-blue-50">{liveTranscript}</p>
-               </div>
-             )}
-           </>
-        )}
-
-        {/* State 2: Processing */}
-        {isProcessing && (
-           <div className="flex flex-col items-center justify-center py-12">
-              <div className="relative w-24 h-24 flex items-center justify-center mb-6">
-                 <div className="absolute inset-0 border-4 border-t-blue-500 border-r-emerald-500 border-b-amber-500 border-l-purple-500 rounded-full animate-spin"></div>
-                 <Mic className="w-8 h-8 text-slate-400" />
-              </div>
-              <p className="text-xl font-bold italic tracking-tight">AFAT LISTENING...</p>
-              <p className="text-slate-500 text-sm font-mono uppercase tracking-widest mt-2">AFAT Intelligence Active</p>
-           </div>
-        )}
-
-        {/* State 3: Result */}
-        {result && (
-           <div className="flex flex-col items-center w-full">
-              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6 border border-emerald-500/20 self-center">
-                 <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-              </div>
-              <h3 className="text-xl font-bold mb-6 text-center">Threat Logged (Verified Intel)</h3>
-              
-              <div className="bg-slate-950/50 w-full p-4 rounded-2xl border border-slate-800 space-y-3 mb-8">
-                 <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500">Transcribed:</span>
-                    <span className="font-medium text-right max-w-[200px] truncate">"{result.description}"</span>
-                 </div>
-                 <div className="h-px w-full bg-slate-800"></div>
-                 <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500">Classification:</span>
-                    <span className="font-bold uppercase text-amber-500">{result.type.replace('_', ' ')}</span>
-                 </div>
-                 <div className="h-px w-full bg-slate-800"></div>
-                 <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500">Severity:</span>
-                    <span className="font-bold">Level {result.severity}/5</span>
-                 </div>
-              </div>
-
-              <button 
-                onClick={() => { setResult(null); onClose?.(); }}
-                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-xl transition-all"
-              >
-                 Return to Radar
-              </button>
-           </div>
-        )}
-
-        {error && !isProcessing && !result && (
-           <div className="mt-6 flex items-start gap-2 text-red-400 bg-red-500/10 p-4 rounded-xl text-sm border border-red-500/20 w-full">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <p>{error}</p>
-           </div>
-        )}
-      </div>
-    </div>
-  );
+/**
+ * Accessible voice-assisted field report. Browser speech recognition is only
+ * transcription assistance, NOT a vetted AI classification or verified event.
+ * A typed report works where SpeechRecognition is unavailable.
+ * Audio is not uploaded or retained. The reviewed text and measured device
+ * location go through the existing protected incident pipeline.
+ */
+export function VoiceReporter({profile,onClose}:{profile:any;onClose?:()=>void}){
+ const recognition=useRef<any>(null);
+ const [listening,setListening]=useState(false);
+ const [transcript,setTranscript]=useState('');
+ const [incidentType,setIncidentType]=useState('hazard');
+ const [severity,setSeverity]=useState(3);
+ const [turnstileToken,setTurnstileToken]=useState('');
+ const [busy,setBusy]=useState(false);
+ const [notice,setNotice]=useState('');
+ const [serverReceipt,setServerReceipt]=useState<string|null>(null);
+ const [speechAvailable,setSpeechAvailable]=useState(true);
+ useEffect(()=>()=>{
+   try{recognition.current?.stop?.();}catch{}
+   recognition.current=null;
+ },[]);
+ const stop=()=>{
+  try{recognition.current?.stop?.();}catch{}
+  recognition.current=null;setListening(false);
+ };
+ const start=()=>{
+  if(listening||busy)return;
+  const Speech=(window as any).SpeechRecognition||(window as any).webkitSpeechRecognition;
+  if(!Speech){
+   setSpeechAvailable(false);
+   setNotice('Voice transcription is unavailable in this browser. Type what you observed instead.');
+   return;
+  }
+  try{
+   const recognizer=new Speech();
+   recognizer.continuous=true;
+   recognizer.interimResults=false;
+   recognizer.lang=navigator.language||'fr-CM';
+   recognizer.onresult=(event:any)=>{
+    const words=Array.from(event.results).slice(event.resultIndex)
+      .filter((result:any)=>result.isFinal)
+      .map((result:any)=>String(result?.[0]?.transcript||'').trim())
+      .filter(Boolean).join(' ');
+    if(words)setTranscript(prev=>[prev.trim(),words].filter(Boolean).join(' ').slice(0,1400));
+   };
+   recognizer.onerror=(event:any)=>{
+    setListening(false);
+    setNotice(event?.error==='not-allowed'?'Microphone access denied. You can type your report.':'Speech recognition stopped. Review or type your report.');
+   };
+   recognizer.onend=()=>{setListening(false);recognition.current=null;};
+   recognition.current=recognizer;
+   recognizer.start();
+   setListening(true);
+   setNotice('Listening locally. Review the transcript before sending; voice text is not independently verified.');
+  }catch{
+   setListening(false);
+   setNotice('Speech recognition could not start. Type your report instead.');
+  }
+ };
+ const send=async()=>{
+  if(busy)return;
+  const text=transcript.trim();
+  if(!profile?.id){setNotice('Sign in before reporting an observed incident.');return;}
+  if(text.length<12||text.length>1400){setNotice('Describe the observed incident in 12–1400 characters.');return;}
+  if(!turnstileToken){setNotice('Complete the security challenge before sending.');return;}
+  stop();setBusy(true);setNotice('Checking your live device location before submission…');
+  try{
+   const fix=await captureCurrentFieldGps();
+   const {data,error}=await publishMapSignal({
+    profile_id:profile.id,
+    signal_type:'incident',incident_type:incidentType,
+    description:text,severity,
+    latitude:fix.latitude,longitude:fix.longitude,
+    accuracy:fix.accuracyM,
+    observation_time:new Date(fix.timestampMs).toISOString(),
+    source:'app',actor_type:'voice_transcript_report',
+    verification_hint:'pending',turnstileToken,
+    device_os:'web',network_type:navigator.onLine?'online':'offline',
+   });
+   setTurnstileToken('');
+   if(error)throw new Error(error.message||'The secured report was not accepted.');
+   const reference=String(data?.incident?.id||'');
+   if(!reference)throw new Error('No confirmed incident receipt returned. Do not claim it was saved.');
+   setServerReceipt(reference);
+   setNotice('Report stored as pending evidence for review. AFAT has not independently confirmed the incident or automatically broadcast an emergency.');
+  }catch(error:any){
+   setTurnstileToken('');
+   setNotice(error?.message||'AFAT did not confirm that this report was saved.');
+  }finally{setBusy(false);}
+ };
+ return <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-slate-950/95 p-3 sm:p-6">
+  <section role="dialog" aria-modal="true" aria-labelledby="afat-voice-report-title"
+   className="max-h-[95vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-5 shadow-2xl sm:p-7">
+   <header className="flex items-start justify-between gap-3">
+    <div><p className="text-[10px] font-black uppercase tracking-widest text-cyan-300">Field safety · voice-assisted</p>
+     <h2 id="afat-voice-report-title" className="mt-2 text-xl font-black">Report what you actually observed</h2>
+     <p className="mt-2 text-xs leading-5 text-white/55">Speak or type in your language. Confirm the words yourself. No AI-generated accident or guessed location; microphone audio is not uploaded.</p></div>
+    <button type="button" aria-label="Close voice report" onClick={()=>{stop();onClose?.();}} className="rounded-xl border border-white/10 p-2 text-white/70"><X className="h-5 w-5"/></button>
+   </header>
+   {serverReceipt?<div className="mt-6 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-4">
+     <CheckCircle2 className="h-7 w-7 text-emerald-200"/><p className="mt-2 font-bold text-emerald-50">Received for human review</p>
+     <p className="mt-2 text-xs text-white/70">{notice}</p><p className="mt-2 break-all text-[10px] text-white/40">Server incident reference: {serverReceipt}</p>
+     <button type="button" onClick={onClose} className="mt-4 min-h-11 rounded-xl bg-emerald-300 px-5 text-xs font-black text-slate-950">Done</button>
+   </div>:<div className="mt-6 space-y-4">
+     <div className="flex items-center gap-3">
+      <button type="button" onClick={()=>listening?stop():start()} disabled={busy}
+       className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 text-xs font-black disabled:opacity-40 ${listening?'border-red-400/35 bg-red-400/10 text-red-100':'border-cyan-300/25 bg-cyan-400/10 text-cyan-100'}`}>
+       {listening?<><Square className="h-4 w-4"/>Stop listening</>:<><Mic className="h-4 w-4"/>Start speaking</>}</button>
+      <span className="text-[10px] text-white/45">{listening?'Speech recognition active':speechAvailable?'Voice or keyboard':'Keyboard available'}</span>
+     </div>
+     <label className="block text-xs font-semibold text-white/75">Observed incident and your transcript
+      <textarea rows={5} maxLength={1400} value={transcript} disabled={busy}
+       onChange={e=>setTranscript(e.target.value)}
+       placeholder="What happened? Where were you? Include useful context, without inventing details."
+       className="mt-2 w-full rounded-xl border border-white/15 bg-black/20 p-3 text-sm text-white placeholder:text-white/30"/></label>
+     <div className="grid gap-3 sm:grid-cols-2">
+      <label className="block text-xs font-semibold text-white/70">Incident type
+       <select value={incidentType} disabled={busy} onChange={e=>setIncidentType(e.target.value)}
+        className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-slate-950 px-3 text-xs">
+        <option value="hazard">Road hazard</option><option value="accident">Accident</option>
+        <option value="traffic_jam">Traffic jam</option><option value="flooding">Flooding</option>
+        <option value="road_works">Road works</option><option value="road_damage">Road damage</option>
+       </select></label>
+      <label className="block text-xs font-semibold text-white/70">Observed severity · {severity}/5
+       <input type="range" min={1} max={5} value={severity} disabled={busy}
+        onChange={e=>setSeverity(Number(e.target.value))}
+        className="mt-4 w-full accent-amber-300"/></label>
+     </div>
+     <div className="flex items-start gap-2 rounded-xl border border-amber-300/15 bg-amber-400/[0.06] p-3 text-xs leading-5 text-amber-100">
+      <MapPin className="mt-0.5 h-4 w-4 shrink-0"/>AFAT requests a fresh, measured device GPS position only when you submit. This does not independently prove the incident location.</div>
+     <TurnstileGate action="incident_report" onToken={setTurnstileToken}
+      onExpire={()=>setTurnstileToken('')} className="rounded-xl border border-white/10 bg-black/20 p-3"/>
+     {notice&&<div role="status" className="flex gap-2 rounded-xl border border-white/10 p-3 text-xs text-white/65"><AlertTriangle className="h-4 w-4 shrink-0"/>{notice}</div>}
+     <button type="button" disabled={busy||listening||transcript.trim().length<12||!turnstileToken}
+      onClick={()=>void send()} className="min-h-12 w-full rounded-xl bg-cyan-300 px-4 text-xs font-black text-slate-950 disabled:opacity-35">
+       {busy?'Verifying GPS and submitting…':'Submit observed incident for review'}
+     </button>
+   </div>}
+  </section>
+ </div>;
 }
