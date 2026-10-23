@@ -43,6 +43,7 @@ export type AfatJourneyRuntimeSnapshot = {
   serverSyncState?: 'idle' | 'starting' | 'active' | 'offline' | 'finished' | 'failed';
   lastServerSyncAt?: string | null;
   pendingSampleCount?: number;
+  lastSampleRejection?: string | null;
 };
 
 type QueuedNavigationSample = {
@@ -214,7 +215,10 @@ async function flushQueuedSamples(current: AfatJourneyRuntimeSnapshot) {
         fresh.samples=fresh.samples.map(sample=>sample.key===item.key?{...sample,attempts:sample.attempts+1}:sample);
         writeQueue(fresh);
       }
-      throw new Error('Navigation GPS sample not durably accepted: '+String(data?.reason||'missing_server_receipt'));
+      const reason=String(data?.reason||'missing_server_receipt').slice(0,80);
+      const latest=loadJourneyRuntime();
+      if(latest)persist({...latest,lastSampleRejection:reason,updatedAt:new Date().toISOString()});
+      throw new Error('Navigation GPS sample not durably accepted: '+reason);
     }
     if (error) {
       const fresh=readQueue();
@@ -239,6 +243,7 @@ async function flushQueuedSamples(current: AfatJourneyRuntimeSnapshot) {
   current = persist({
     ...(loadJourneyRuntime() || current),
     serverSyncState: 'active',
+    lastSampleRejection: null,
     lastServerSyncAt: new Date().toISOString(),
     pendingSampleCount: remaining,
     updatedAt: new Date().toISOString(),
@@ -339,6 +344,7 @@ export function saveJourneyRuntime(
     serverSessionId: startingNewJourney ? null : (patch.serverSessionId ?? current?.serverSessionId ?? null),
     clientStartKey: startingNewJourney ? crypto.randomUUID() : (patch.clientStartKey ?? current?.clientStartKey ?? (patch.startedAt ? crypto.randomUUID() : null)),
     serverSyncState: startingNewJourney ? 'idle' : (patch.serverSyncState ?? current?.serverSyncState ?? 'idle'),
+    lastSampleRejection: startingNewJourney ? null : (patch.lastSampleRejection ?? current?.lastSampleRejection ?? null),
     lastServerSyncAt: startingNewJourney ? null : (patch.lastServerSyncAt ?? current?.lastServerSyncAt ?? null),
     updatedAt: new Date().toISOString(),
   };

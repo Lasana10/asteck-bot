@@ -58,6 +58,7 @@ describe('AFAT complete offline navigation session → authenticated replay → 
   await reconcileJourneyRuntime();
   expect(loadJourneyRuntime()?.pendingSampleCount).toBe(1);
   expect(loadJourneyRuntime()?.serverSyncState).toBe('failed');
+  expect(loadJourneyRuntime()?.lastSampleRejection).toBe('gps_jump');
   expect(mocks.rpc.mock.calls.some(x=>x[0]==='afat_finish_navigation_session')).toBe(false);
  });
  it('keeps samples when an HTTP 200 lacks matching session receipt',async()=>{
