@@ -65,7 +65,7 @@ export async function reviewAtlasCandidate(candidateId: string, decision: 'corro
   return supabase.rpc('afat_review_candidate_feature', {
     p_candidate_id: candidateId,
     p_decision: decision,
-    p_notes: notes || null,
+    p_notes: notes?.trim() || null,
   });
 }
 
@@ -101,7 +101,13 @@ export async function startCityAtlasContributionSession(input: {
   });
 }
 
-export async function promoteTrustedAtlasCandidate(candidateId: string, name?: string, cityKey = 'cm-yaounde') {
+export async function fetchAtlasCandidatePromotionReadiness(candidateId:string) {
+  return supabase.rpc('afat_candidate_promotion_readiness',{p_candidate_id:candidateId});
+}
+
+export async function promoteTrustedAtlasCandidate(candidateId: string, name: string | undefined, cityKey: string) {
+  if(!cityKey) return {data:null,error:{message:'An explicit active candidate city is required for promotion.'}};
+
   return supabase.rpc('afat_promote_trusted_candidate', {
     p_candidate_id: candidateId,
     p_name: name || null,
