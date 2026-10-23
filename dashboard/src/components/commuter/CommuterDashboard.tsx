@@ -38,6 +38,7 @@ import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 import { TurnstileGate } from '../shared/TurnstileGate';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 import { PassagePlanner } from './PassagePlanner';
+import { captureCurrentFieldGps } from '../../services/spatialPositioning';
 
 interface Props {
   onSignOut: () => void;
@@ -264,20 +265,23 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   const submitReport = async (e: React.FormEvent) => {
     e.preventDefault();
-    const lat = 3.848 + (Math.random() - 0.5) * 0.05;
-    const lng = 11.502 + (Math.random() - 0.5) * 0.05;
     if (!incidentTurnstileToken) {
       setProductNotice('Complete the AFAT security check before publishing this report.');
       return;
     }
 
+    let position;
+    try { position = await captureCurrentFieldGps(); }
+    catch (error: any) { setProductNotice(error.message || 'Current device location required.'); return; }
     const { error } = await publishMapSignal({
       profile_id: profile?.id,
       signal_type: 'incident',
       incident_type: newIncident.type,
       description: newIncident.description,
-      latitude: lat,
-      longitude: lng,
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracy: position.accuracyM,
+      observation_time: new Date(position.timestampMs).toISOString(),
       severity: newIncident.severity,
       source: 'app',
       actor_type: isGuest ? 'guest_incident_report' : 'verified_incident_report',
@@ -376,17 +380,6 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setView('payment');
   };
 
-  const resolveCitySignalPoint = (mission: any) => {
-    const cityKey = String(mission.city || mission.coverage || '').toLowerCase();
-    if (Number.isFinite(mission.latitude) && Number.isFinite(mission.longitude)) {
-      return { latitude: Number(mission.latitude), longitude: Number(mission.longitude) };
-    }
-    if (cityKey.includes('yaound')) return { latitude: 3.848, longitude: 11.502 };
-    if (cityKey.includes('douala')) return { latitude: 4.0511, longitude: 9.7679 };
-    if (cityKey.includes('cameroon')) return { latitude: 5.9631, longitude: 10.1591 };
-    return { latitude: 3.848, longitude: 11.502 };
-  };
-
   const publishMissionSignal = async (mission: any) => {
     if (!profile?.id) {
       setProductNotice('Mission publishing needs a signed AFAT session so the signal can be attributed correctly.');
@@ -394,7 +387,9 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     }
 
     setMissionInFlight(mission.id);
-    const point = resolveCitySignalPoint(mission);
+    let point;
+    try { point = await captureCurrentFieldGps(); }
+    catch (error: any) { setMissionInFlight(null); setProductNotice(error.message || 'Current GPS required; nothing was submitted.'); return; }
     const { data, error } = await publishMapSignal({
       profile_id: profile.id,
       campaign_id: mission.campaign_id || (typeof mission.id === 'string' && mission.id.startsWith('geo-') ? null : mission.id),
@@ -403,9 +398,10 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
       actor_type: 'commuter_mission',
       latitude: point.latitude,
       longitude: point.longitude,
-      accuracy: 40,
+      accuracy: point.accuracyM,
+      observation_time: new Date(point.timestampMs).toISOString(),
+      verification_hint: 'pending',
       description: `${mission.title}: ${mission.description}`,
-      verification_hint: 'trusted',
       network_type: navigator.onLine ? 'online' : 'offline',
       device_os: 'web',
     });
@@ -417,7 +413,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     }
 
     const signalId = data?.movement?.id || data?.movement_id || data?.id || 'AFAT signal';
-    setProductNotice(`Mission published: ${mission.title}. Signal ${signalId} is now feeding AFAT map intelligence.`);
+    setProductNotice(`Field observation ${signalId} received for review. It is not a verified movement or a certified city position.`);
   };
 
   const requestPassageRecovery = async (passage: any) => {
@@ -1579,7 +1575,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
               <X className="w-5 h-5" />
             </button>
             <h3 id="incident-report-title" className="text-lg font-black text-white mb-1">Signaler un Incident</h3>
-            <p className="text-[11px] text-white/30 mb-5">Partagé sur App + Telegram + SMS</p>
+            <p className="text-[11px] text-white/50 mb-5">Uses your fresh device GPS; sent for review. Not automatically broadcast to Telegram or SMS.</p>
             <form onSubmit={submitReport} className="space-y-4">
               <select
                 value={newIncident.type}
