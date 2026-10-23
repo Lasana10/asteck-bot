@@ -13,7 +13,13 @@ export function enqueueJourneySample(userId: string, assignmentId: string, sampl
   // Two legitimate GPS fixes may share a millisecond: never overwrite one.
   let key = baseKey;
   let suffix = 0;
-  while (localStorage.getItem(key) !== null) key = `${baseKey}:${++suffix}`;
+  while (localStorage.getItem(key) !== null) {
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      try { if (JSON.stringify(JSON.parse(existing).sample) === JSON.stringify(sample)) return; } catch { /* preserve corrupted evidence for review */ }
+    }
+    key = `${baseKey}:${++suffix}`;
+  }
   localStorage.setItem(key, JSON.stringify({ userId, assignmentId, sample }));
 }
 export function pendingJourneySamples(userId: string, assignmentId: string) {
@@ -48,7 +54,7 @@ export function flushJourneySamples(userId: string): Promise<void> {
       // Only final 2xx acknowledgement may clear the original observation.
       if (response.ok && response.status !== 202 && response.status !== 204) {
         const receipt = await response.json().catch(() => null);
-        if (receipt && (receipt.accepted === true || receipt.sample_id || receipt.sampleId)) {
+        if (receipt?.accepted === true && (receipt.sample_id || receipt.sampleId)) {
           localStorage.removeItem(key);
           continue;
         }
