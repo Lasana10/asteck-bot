@@ -2101,7 +2101,7 @@ router.get('/mobility/vehicle-clearance/queue', async (req: Request, res: Respon
         .select('id,full_name,operator_application_status,verification_status').in('id',ids)
         :Promise.resolve({data:[],error:null}),
       ids.length?supabase.from('compliance_records')
-        .select('id,profile_id,document_type,status,due_at,verified_at,file_url')
+        .select('id,profile_id,vehicle_id,document_type,status,due_at,verified_at,file_url')
         .in('profile_id',ids).in('role',['operator','bike_rider'])
         .in('document_type',['vehicle_registration','bike_registration','helmet_compliance','insurance','license'])
         :Promise.resolve({data:[],error:null}),
@@ -2110,7 +2110,7 @@ router.get('/mobility/vehicle-clearance/queue', async (req: Request, res: Respon
     const byOperator=new Map((people.data||[]).map((p:any)=>[p.id,p]));
     const cases=(result.data||[]).map((vehicle:any)=>({
       ...vehicle,operator:byOperator.get(vehicle.operator_id)||null,
-      documents:(documents.data||[]).filter((d:any)=>d.profile_id===vehicle.operator_id)
+      documents:(documents.data||[]).filter((d:any)=>d.profile_id===vehicle.operator_id && d.vehicle_id===vehicle.id)
         .map((d:any)=>({id:d.id,document_type:d.document_type,status:d.status,
           due_at:d.due_at,verified_at:d.verified_at,
           has_document:Boolean(d.file_url)})),
@@ -3819,35 +3819,53 @@ router.get('/compliance/:id/review-file',async(req:Request,res:Response)=>{
 router.post('/compliance/operator/ensure-required',async(req:Request,res:Response)=>{
  const access=await requireAuthRole(req,res,['operator']);
  if(!access)return;
- const id=access.profile.id;
+ const operatorId=access.profile.id;
+ const vehicleId=String(req.body?.vehicle_id||'');
+ if(!complianceUuid.test(vehicleId))
+   return res.status(400).json({error:'SELECT_REAL_OWNED_VEHICLE_FIRST'});
  try{
-  const existing=await supabase.from('compliance_records')
-   .select('id,document_type,role').eq('profile_id',id).in('role',['operator','bike_rider']);
-  if(existing.error)throw existing.error;
-  const prior=existing.data||[];
-  const isMoto=prior.some(r=>r.role==='bike_rider'||r.document_type==='bike_registration');
-  const required=isMoto
-    ? [{document_type:'bike_registration',document_label:'Motorcycle registration'},
-       {document_type:'insurance',document_label:'Current motorcycle insurance'},
-       {document_type:'helmet_compliance',document_label:'Helmet and rider safety'}]
-    : [{document_type:'vehicle_registration',document_label:'Vehicle registration card'},
-       {document_type:'insurance',document_label:'Vehicle insurance'}];
-  const role=isMoto?'bike_rider':'operator';
-  const missing=required.filter(item=>!prior.some(r=>r.role===role&&r.document_type===item.document_type));
-  // A one-time existing profile reconciliation, not arbitrary document creation.
-  if(missing.length){
-   const inserted=await supabase.from('compliance_records').insert(missing.map(item=>({
-    profile_id:id,role,document_type:item.document_type,document_label:item.document_label,
-    package_tier:'core_operator',status:'pending',followup_channel:'manual',
-    notes:'Missing mandatory evidence record seeded for operator self-submission; not verified.',
-   })));
-   if(inserted.error)throw inserted.error;
-  }
-  return res.status(200).json({success:true,created_missing:missing.map(x=>x.document_type),
-    automatically_verified:false,review_required:true});
+   const vehicle=await supabase.from('vehicles')
+     .select('id,operator_id,type,plate_number').eq('id',vehicleId)
+     .eq('operator_id',operatorId).maybeSingle();
+   if(vehicle.error)throw vehicle.error;
+   if(!vehicle.data)return res.status(404).json({error:'OWNED_VEHICLE_NOT_FOUND'});
+   const isMoto=vehicle.data.type==='moto';
+   const role=isMoto?'bike_rider':'operator';
+   const required=isMoto?[
+     {document_type:'bike_registration',document_label:'Motorcycle registration'},
+     {document_type:'insurance',document_label:'Motorcycle insurance'},
+     {document_type:'helmet_compliance',document_label:'Helmet and rider safety'},
+   ]:[
+     {document_type:'vehicle_registration',document_label:'Vehicle registration'},
+     {document_type:'insurance',document_label:'Vehicle insurance'},
+   ];
+   const existing=await supabase.from('compliance_records')
+     .select('id,vehicle_id,document_type')
+     .eq('profile_id',operatorId).eq('vehicle_id',vehicleId);
+   if(existing.error)throw existing.error;
+   const missing=required.filter(doc=>!(existing.data||[])
+     .some((row:any)=>row.document_type===doc.document_type));
+   if(missing.length){
+     const insert=await supabase.from('compliance_records').insert(missing.map(doc=>({
+       profile_id:operatorId,vehicle_id:vehicleId,role,
+       document_type:doc.document_type,document_label:doc.document_label,
+       package_tier:'core_operator',status:'pending',followup_channel:'manual',
+       notes:'Vehicle-specific mandatory private evidence, awaiting operator upload and staff verification.',
+     })));
+     if(insert.error){
+       // Unique per-vehicle index protects races. Refresh in case of duplicate attempts.
+       if(insert.error.code!=='23505')throw insert.error;
+     }
+   }
+   return res.status(200).json({
+     success:true,vehicle_id:vehicleId,
+     required_types:required.map(doc=>doc.document_type),
+     created_missing:missing.map(doc=>doc.document_type),
+     automatically_verified:false,review_required:true,
+   });
  }catch(error:any){
-  console.error('Operator evidence intake reconciliation failed',error);
-  return res.status(503).json({error:'OPERATOR_COMPLIANCE_RECONCILIATION_UNAVAILABLE'});
+   console.error('Vehicle evidence preparation failed',error);
+   return res.status(503).json({error:'VEHICLE_DOCUMENT_PREPARATION_UNAVAILABLE'});
  }
 });
 
@@ -3928,7 +3946,7 @@ router.patch('/compliance/:id/status', async (req: Request, res: Response) => {
     if (!allowed.includes(status)) {
       return res.status(400).json({ error: 'Invalid compliance status' });
     }
-    const recordResult=await supabase.from('compliance_records').select('id,profile_id,role,document_type,file_url,status,due_at')
+    const recordResult=await supabase.from('compliance_records').select('id,profile_id,vehicle_id,role,document_type,file_url,status,due_at')
       .eq('id',id).maybeSingle();
     if(recordResult.error)return res.status(503).json({error:'COMPLIANCE_LOOKUP_UNAVAILABLE'});
     if(!recordResult.data)return res.status(404).json({error:'COMPLIANCE_RECORD_NOT_FOUND'});
