@@ -5,6 +5,7 @@ import { FieldReportTriageList } from '../shared/FieldReportTriageList';
 import { OperationalHealthPanel } from '../shared/OperationalHealthPanel';
 import { DispatchWorkspace } from '../shared/DispatchWorkspace';
 import { LiveOperationsControl } from '../shared/LiveOperationsControl';
+import { EvidenceReviewQueue } from '../admin/EvidenceReviewQueue';
 
 type Tab = 'bookings' | 'notifications' | 'profile';
 
@@ -57,7 +58,7 @@ export function PlannerWorkspaceTabs({
 
   if (activeTab === 'notifications') {
     return (
-      <div className="grid gap-5 xl:grid-cols-[0.68fr_1.32fr]">
+      <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[0.68fr_1.32fr]">
         <Surface className="p-6">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-200">Movement failures</p>
           <h1 className="mt-2 text-3xl font-black">Validated conditions requiring attention</h1>
@@ -85,7 +86,7 @@ export function PlannerWorkspaceTabs({
             <FieldReportTriageList reports={fieldReports} onChanged={onChanged} />
           </div>
         </Surface>
-      </div>
+      </div><EvidenceReviewQueue /></div>
     );
   }
 
