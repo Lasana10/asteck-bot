@@ -393,7 +393,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     const { data, error } = await publishMapSignal({
       profile_id: profile.id,
       campaign_id: mission.campaign_id || (typeof mission.id === 'string' && mission.id.startsWith('geo-') ? null : mission.id),
-      signal_type: 'movement',
+      // A location contribution is not proof of traffic flow or passenger demand.
+      signal_type: 'field_observation',
       source: 'app',
       actor_type: 'commuter_mission',
       latitude: point.latitude,
