@@ -61,3 +61,49 @@ export function evaluateSpatialFix(
   }
   return result('accepted', true);
 }
+
+
+/**
+ * Legacy and role-native field reporting must use actual on-device observations.
+ * This is GNSS evidence, NOT an independently verified road or incident location.
+ * A successful position API response can still be stale/inaccurate, so check it.
+ */
+export function evaluateCurrentFieldGpsPosition(
+  position: Pick<GeolocationPosition,'coords'|'timestamp'>,
+  nowMs = Date.now(),
+): SpatialDecision {
+  const decision = evaluateSpatialFix({
+    latitude: position.coords.latitude, longitude: position.coords.longitude,
+    accuracyM: position.coords.accuracy, timestampMs: position.timestamp,
+    source:'field_observation',
+  }, null, nowMs);
+  if (!decision.accepted) return decision;
+  // Community incident and mission statements must correspond to a *fresh*
+  // observed place, not an earlier cached navigation point.
+  if (!Number.isFinite(position.timestamp) || nowMs - position.timestamp > 30_000) {
+    return { ...decision, accepted:false, reason:'stale' };
+  }
+  return decision;
+}
+
+export async function captureCurrentFieldGps(): Promise<SpatialFix> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    throw new Error('Live location is unavailable. AFAT will not invent an incident or field position.');
+  }
+  return new Promise<SpatialFix>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        const decision = evaluateCurrentFieldGpsPosition(position);
+        if (!decision.accepted || !decision.fix) {
+          reject(new Error(`Device position rejected: ${decision.reason.replace(/_/g,' ')}. Move outdoors and try again; no report was submitted.`));
+          return;
+        }
+        resolve(decision.fix);
+      },
+      error => reject(new Error(error.code === 1 ?
+        'Location permission was denied. No report was submitted.' :
+        'AFAT could not obtain a current, reliable GPS position. No report was submitted.')),
+      { enableHighAccuracy:true, timeout:15000, maximumAge:0 },
+    );
+  });
+}
