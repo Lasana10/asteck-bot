@@ -3,7 +3,7 @@ const PREFIX = 'afat_journey_sample_v1:';
 const MAX_AGE = 24 * 60 * 60 * 1000;
 // Never acknowledge a dispatch observation solely because an HTTP request completed.
 // Unacknowledged or aged-out samples remain visible until explicitly resolved.
-export type JourneySample = { latitude: number; longitude: number; accuracy_m: number | null; speed_kph: number | null; heading: number | null; recorded_at: string };
+export type JourneySample = { latitude: number; longitude: number; accuracy_m: number | null; speed_kph: number | null; heading: number | null; recorded_at: string; observation_id?: string };
 let flushing: Promise<void> | null = null;
 export function enqueueJourneySample(userId: string, assignmentId: string, sample: JourneySample) {
   if (!userId || !assignmentId) return;
@@ -20,7 +20,7 @@ export function enqueueJourneySample(userId: string, assignmentId: string, sampl
     }
     key = `${baseKey}:${++suffix}`;
   }
-  localStorage.setItem(key, JSON.stringify({ userId, assignmentId, sample }));
+  localStorage.setItem(key, JSON.stringify({ userId, assignmentId, sample: { ...sample, observation_id: crypto.randomUUID() } }));
 }
 export function pendingJourneySamples(userId: string, assignmentId: string) {
   return Object.keys(localStorage).filter(key => key.startsWith(`${PREFIX}${userId}:${assignmentId}:`)).length;
