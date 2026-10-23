@@ -75,7 +75,8 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
   }
   const fare=Number(data.booking.price_paid??data.booking.price_xaf);
   setBookingId(String(data.booking.id));setHoldId(null);setHoldExpiry(null);
-  onChanged();
+  // Do not refresh the parent into its active-dispatch screen mid-checkout.
+  // Refresh only on exit; otherwise checkout can unmount before payment resolves.
   if(!Number.isSafeInteger(fare)||fare<=0){
    setNotice('Booking was recorded but its server price cannot be verified. No payment will be started.');
    return;
@@ -84,12 +85,12 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  };
  const paymentComplete=(method:string,transactionId:string)=>{
   if(!departure||!seat||!bookingId||serverFare===null)return;
-  if(method==='cash'){setStage('cash_due');onChanged();return;}
+  if(method==='cash'){setStage('cash_due');return;}
   setTicket({id:bookingId,routeName:departure.route_name,origin:departure.origin,
    destination:departure.destination,seatLabel:seat,price:serverFare,
    operatorName:departure.operator_name,plateNumber:departure.plate_number,
    departureTime:departure.departure_time,transactionId,paymentMethod:method});
-  setStage('ticket');onChanged();
+  setStage('ticket');
  };
  if(stage==='departures')return <section className="overflow-hidden rounded-2xl border border-white/10">
   <div className="flex items-center justify-between bg-slate-950 p-3"><strong className="text-sm">Published future departures</strong>
