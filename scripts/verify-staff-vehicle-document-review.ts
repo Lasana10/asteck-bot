@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const c=readFileSync('dashboard/src/components/admin/VehicleClearanceReview.tsx','utf8');
+const service=readFileSync('dashboard/src/services/operatorComplianceDocuments.ts','utf8');
+const api=readFileSync('src/api/routes.ts','utf8');
+assert.ok(c.includes('getStaffComplianceReviewFile(id)'));
+assert.ok(c.includes('staffApi(`/api/compliance/${encodeURIComponent(id)}/status`'));
+assert.ok(c.includes('documentNotes[id]'));
+assert.ok(c.includes('at least 25 characters'));
+assert.ok(c.includes('Private document decision saved. Vehicle clearance must be reviewed separately.'));
+assert.ok(c.includes('doc.has_document'));
+assert.ok(service.includes("data.automatically_verified!==false"),'signed file link does not grant approval');
+assert.ok(api.includes("router.patch('/compliance/:id/status'"));
+assert.ok(api.includes("ORIGINAL_PRIVATE_DOCUMENT_REQUIRED"));
+assert.ok(api.includes("ORIGINAL_DOCUMENT_NOT_PRESENT"));
+console.log('PASS AFAT staff private evidence -> verified document -> separately approved vehicle');

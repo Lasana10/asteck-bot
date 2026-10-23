@@ -44,6 +44,7 @@ jobs:
       - run: npm run test:voice-field-report
       - run: npm run test:operator-vehicle-registration
       - run: npm run test:vehicle-bound-compliance
+      - run: npm run test:staff-vehicle-document-review
       - run: npm run test:place-candidate-contract
       - run: npm run test:private-visual-evidence
       - run: npm run test:routing

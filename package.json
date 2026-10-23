@@ -25,6 +25,7 @@
     "test:scheduled-departures": "node --import tsx scripts/verify-scheduled-departure-publishing.ts",
     "test:operator-departure-operations": "node --import tsx scripts/verify-operator-departure-operations.ts",
     "test:voice-field-report": "node --import tsx scripts/verify-voice-field-report.ts",
+    "test:staff-vehicle-document-review": "node --import tsx scripts/verify-staff-vehicle-document-review.ts",
     "test:vehicle-bound-compliance": "node --import tsx scripts/verify-vehicle-bound-compliance.ts",
     "test:operator-vehicle-registration": "node --import tsx scripts/verify-operator-vehicle-registration.ts",
     "test:reachability:reviewed-access": "node scripts/verify-reviewed-access-reachability.mjs",
