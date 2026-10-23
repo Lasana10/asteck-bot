@@ -4,6 +4,7 @@ import { InteractiveMap } from '../shared/InteractiveMap';
 import { ActiveDispatchMap } from '../shared/ActiveDispatchMap';
 import { OperatorMissionLifecycle } from './OperatorMissionLifecycle';
 import {ScheduledDeparturePublisher} from './ScheduledDeparturePublisher';
+import {OperatorDepartureOperations} from './OperatorDepartureOperations';
 import {OperatorVehicleRegistration} from './OperatorVehicleRegistration';
 import {OperatorComplianceEvidence} from './OperatorComplianceEvidence';
 import { updatePassageIntentStatus } from '../../supabaseClient';
@@ -45,6 +46,7 @@ export function OperatorWorkspaceHome({
   onChanged: () => void;
 }) {
   const [execution, setExecution] = useState<OperatorExecutionSnapshot | null>(null);
+  const [departureRefreshKey,setDepartureRefreshKey]=useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [payoutAmount, setPayoutAmount] = useState('');
@@ -234,7 +236,8 @@ export function OperatorWorkspaceHome({
 
       {!vehicle && <OperatorVehicleRegistration onRegistered={()=>{onChanged();void refreshExecution();}} />}
       {profile?.id&&<OperatorComplianceEvidence profileId={String(profile.id)} onChanged={()=>{onChanged();void refreshExecution();}} />}
-      <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{onChanged();void refreshExecution();}} />
+      <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{setDepartureRefreshKey(k=>k+1);onChanged();void refreshExecution();}} />
+      <OperatorDepartureOperations reloadKey={departureRefreshKey} onChanged={()=>{onChanged();void refreshExecution();}} />
 
       <Surface className="p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
