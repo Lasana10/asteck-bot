@@ -3,6 +3,7 @@ import { supabase } from '../infra/supabase';
 import { requireAuthRole } from './routes';
 import {mayPublishVehicleLocation} from '../services/mapSignalFleetAuthorization';
 import {mayRefreshFleetPosition} from '../services/fleetPositionFreshness';
+import {assessReportedObservation,isHumanAppObservation,reviewedMapEffects} from '../services/mapObservationProvenance';
 
 const router = express.Router();
 
@@ -98,6 +99,7 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
       device_os,
       actor_type = 'app_user',
       verification_hint,
+      observation_time,
     } = req.body || {};
 
     const key = idempotencyKey(req);
@@ -109,6 +111,19 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
     const lng = Number(longitude);
     if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
       return res.status(400).json({ error: 'Valid latitude and longitude required.' });
+    }
+
+    const humanAppObservation=isHumanAppObservation({
+      signalType:signal_type,incidentType:incident_type,source,actorType:actor_type,
+    });
+    const provenance=humanAppObservation?assessReportedObservation({
+      observedAt:observation_time,accuracy,latitude,longitude,networkType:network_type,
+    }):null;
+    if(provenance&&!provenance.ok){
+      return res.status(provenance.status).json({
+        error:provenance.code,accepted:false,review_state:'unavailable',
+        guidance:'Supply the observed time and measured GNSS uncertainty; this report was not saved.',
+      });
     }
 
     const normalizedSource = String(source || 'app').slice(0, 50);
@@ -163,6 +178,7 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
 
     let replayed = Boolean(movement);
     const createdAt = new Date().toISOString();
+    const movementObservedAt=provenance?.observedAt||createdAt;
 
     if (!movement) {
       const movementPayload = {
@@ -175,7 +191,7 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
         accuracy: Number(accuracy || 0),
         device_os: device_os || 'web',
         network_type: network_type || 'unknown',
-        timestamp: createdAt,
+        timestamp: movementObservedAt,
         idempotency_key: key,
       };
 
@@ -295,11 +311,18 @@ router.post('/ops/map-signal', async (req: Request, res: Response) => {
       checkpoint_id: checkpoint_id || null,
       publish_channels: ['movement_logs', ...(incident ? ['incidents'] : []), ...(vehicle && fleetPosition.allowed ? ['vehicles'] : [])],
       fleet_location_projection:vehicle?fleetPosition:null,
-      map_effect: {
-        contributes_to_live_feed: true,
-        contributes_to_safety_score: Boolean(incident),
-        contributes_to_demand_radar: signal_type === 'movement',
-      },
+      observation_provenance:provenance?{
+        source:'client_device_reported',observed_at:provenance.observedAt,
+        uncertainty_m:provenance.uncertaintyM,
+        age_ms:provenance.ageMs,independently_verified:false,
+      }:null,
+      review_state:incident?.verification_status||
+        (humanAppObservation?'pending':'not_applicable'),
+      map_effect:reviewedMapEffects({
+        isHumanObservation:humanAppObservation,isIncident:Boolean(incident),
+        trustedIncident:incident?.verification_status==='verified',
+        signalType:String(signal_type),
+      }),
     });
   } catch (error: any) {
     console.error('Secure map signal ingest error:', error);
