@@ -8,6 +8,7 @@ beforeEach(() => {
  const storage: Record<string, any> = {};
  Object.defineProperties(storage, { getItem: { value: (k: string) => storage[k] ?? null }, setItem: { value: (k: string, v: string) => { storage[k] = v; } }, removeItem: { value: (k: string) => { delete storage[k]; } } });
  vi.stubGlobal('localStorage', storage); vi.stubGlobal('navigator', { onLine: true });
+ vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('00000000-0000-4000-8000-000000000002').mockReturnValue('00000000-0000-4000-8000-000000000003') });
  auth.headers.mockResolvedValue({ Authorization: `Bearer ${token('passenger-a')}` });
  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ accepted: true, assignment_id: 'journey-a', sample_id: 'sample-server-1', sample: { id: 'sample-server-1' } }) }));
 });
@@ -21,6 +22,8 @@ describe('journey GPS replay', () => {
   const point = sample(); enqueueJourneySample('passenger-a','journey-a',point);
   enqueueJourneySample('passenger-a','journey-a',{...point, longitude: 11.51});
   expect(pendingJourneySamples('passenger-a','journey-a')).toBe(2);
+  const posted = Object.keys(localStorage).filter(k => k.startsWith('afat_journey_sample_v1:')).map(k => JSON.parse(localStorage.getItem(k)!).sample.observation_id);
+  expect(new Set(posted).size).toBe(2);
  });
  it('never deletes a rejected GPS fix or passive 202 upload', async () => {
   enqueueJourneySample('passenger-a','journey-a',sample());
