@@ -122,3 +122,25 @@ export async function resolveAtlasEvidenceConflict(conflictId: string, decision:
     p_notes: notes || null,
   });
 }
+
+export type CrossSourceRoadCheck={
+ source_record_id:string;source_key:string;feature_name:string;feature_category:string|null;
+ source_confidence:number|null;dataset_version:string|null;attribution:string|null;
+ latitude:number;longitude:number;discrepancy_type:string;
+ nearby_source_key:string|null;nearby_category:string|null;nearest_source_distance_m:number|null;
+ atlas_edge_id:string|null;atlas_edge_distance_m:number|null;
+ existing_mission_id:string|null;can_request_field_check:boolean;
+};
+export type CrossSourceRoadReview={
+ city_key:string;city_name:string;source_records_compared:number;discrepancy_count:number;
+ actionable_count:number;discrepancies:CrossSourceRoadCheck[];
+ automatic_truth:false;road_safety_verified:false;message:string;
+};
+export async function fetchCrossSourceRoadChecks(cityKey:string,limit=20){
+ return supabase.rpc('afat_atlas_cross_source_road_checks',{p_city_key:cityKey,p_limit:limit});
+}
+export async function requestCrossSourceFieldCheck(sourceRecordId:string,cityKey:string,reviewReason:string){
+ return supabase.rpc('afat_request_cross_source_field_check',{
+  p_source_record_id:sourceRecordId,p_city_key:cityKey,p_review_reason:reviewReason,
+ });
+}
