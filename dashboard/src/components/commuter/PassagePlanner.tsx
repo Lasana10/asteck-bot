@@ -18,6 +18,7 @@ import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
 import { PassengerJourneyEvidence } from './PassengerJourneyEvidence';
+import { EmergencySOS } from '../shared/EmergencySOS';
 import { AtlasContextPanel } from './AtlasContextPanel';
 import { ReachabilityInsightCard } from './ReachabilityInsightCard';
 import { fetchCanonicalAfatRoute, type AfatCanonicalRoute, type AfatRouteMode } from '../../services/canonicalRouteClient';
@@ -154,6 +155,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [preflight, setPreflight] = useState<Record<string, any>>({});
   const [navigationActive, setNavigationActive] = useState(false);
+  const [sosOpen,setSosOpen] = useState(false);
+  const [sosDispatchId,setSosDispatchId] = useState<string|null>(null);
+  const [sosDispatchPlaceId,setSosDispatchPlaceId] = useState<string|null>(null);
   const [online,setOnline] = useState(() => typeof navigator==='undefined'||navigator.onLine);
   useEffect(()=>{
     const update=()=>setOnline(navigator.onLine);
@@ -796,6 +800,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setLoading(false);
     if (error) { setStatusText(error.message); return; }
     const hasDispatch = Boolean(data?.dispatch?.id || data?.assignment?.id || data?.passage?.dispatch_assignment_id);
+    const confirmedAssignmentId = data?.dispatch?.id || data?.assignment?.id || data?.passage?.dispatch_assignment_id;
+    if (confirmedAssignmentId) { setSosDispatchId(String(confirmedAssignmentId)); setSosDispatchPlaceId(selectedPlace.id); }
     setStatusText(hasDispatch ? 'Transport request created and a dispatch assignment exists.' : 'Transport request created. AFAT will only show operator matching after a real dispatch assignment exists.');
     void recordAfatIntent({ intent_type:intentType, place_id:selectedPlace.id, access_point_id:selectedAccessPoint?.id, meeting_point_id:selectedMeetingPoint?.id, movement_mode:vehicleType, origin_lat:originFix.latitude, origin_lng:originFix.longitude, context:{ passage_id:data?.passage?.id||null, execution:'booking', dispatch_assignment_present:hasDispatch } });
     onPassageCreated?.(data?.passage);
@@ -943,7 +949,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         </div>}
         <div className="flex items-start justify-between gap-4">
           <div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Live journey runtime</p><p className="mt-1 text-sm font-black text-white">Navigating to {selectedPlace?.name}</p><p className="mt-1 text-[10px] text-white/45">{navigationSamples} live position update{navigationSamples === 1 ? '' : 's'} processed{progressCopy ? ` · ${progressCopy.percent}% route progress · ${progressCopy.remaining} remaining` : ''}.</p>{routeProgress?.offRoute ? <p className="mt-1 text-[10px] font-bold text-amber-200">Off-route signal · {Math.round(routeProgress.nearestDistanceM)} m from path · GPS confidence {routeProgress.confidence}</p> : null}</div>
-          <button type="button" onClick={stopNavigation} className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 text-[9px] font-black uppercase text-rose-100"><Square className="h-3.5 w-3.5"/>Stop</button>
+          <div className="flex flex-wrap items-center gap-2">{profile?.id && <button type="button" onClick={()=>setSosOpen(true)} aria-label="Open emergency SOS during navigation" className="flex min-h-11 items-center gap-2 rounded-xl border-2 border-red-400/50 bg-red-500/20 px-4 text-[10px] font-black uppercase text-red-100"><ShieldAlert className="h-4 w-4"/>Emergency SOS</button>}<button type="button" onClick={stopNavigation} className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 text-[9px] font-black uppercase text-rose-100"><Square className="h-3.5 w-3.5"/>Stop</button></div>
         </div>
       </div>
     )}
@@ -991,5 +997,6 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       {profile?.id&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
        {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
+    {sosOpen && profile?.id && <EmergencySOS userId={String(profile.id)} userName={String(profile?.full_name||'AFAT passenger')} activeDispatchId={selectedPlace?.id===sosDispatchPlaceId?sosDispatchId:null} onClose={()=>setSosOpen(false)} />}
   </section>;
 }
