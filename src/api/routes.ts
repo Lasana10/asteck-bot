@@ -3116,6 +3116,9 @@ router.post('/public-partner/responses', async (req: Request, res: Response) => 
     if (!incident) {
       return res.status(404).json({ error: 'The selected public mobility evidence is no longer available.' });
     }
+    if (!reviewedSafetyFeed([incident]).length) {
+      return res.status(409).json({ error: 'Independent incident review is required before public-partner action.' });
+    }
 
     const nowIso = new Date().toISOString();
     const { data: request, error: requestError } = await supabase
