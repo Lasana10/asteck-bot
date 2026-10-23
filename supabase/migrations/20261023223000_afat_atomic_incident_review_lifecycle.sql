@@ -63,7 +63,7 @@ begin
  select * into v_incident from public.incidents
   where movement_log_id=p_movement_log_id for update;
  if not found then raise exception 'AFAT_LINKED_INCIDENT_NOT_FOUND' using errcode='P0002';end if;
- if v_incident.status in ('resolved','expired','false') then
+ if v_incident.status in ('resolved','expired','false','dismissed') then
   raise exception 'AFAT_CLOSED_INCIDENT_CANNOT_BE_REPUBLISHED' using errcode='P0001';
  end if;
  v_previous:=coalesce(v_incident.verification_status,v_incident.status,'pending');
