@@ -38,6 +38,11 @@ export function flushJourneySamples(userId: string): Promise<void> {
       // Keep old data for explicit field review rather than silently erase evidence.
       if (!item?.sample || !Number.isFinite(Date.parse(item.sample.recorded_at)) || Date.parse(item.sample.recorded_at) < Date.now() - MAX_AGE) return;
       if (item.userId !== userId || !item.assignmentId) return;
+      // Persist one stable identity when replaying evidence queued by older clients.
+      if (!item.sample.observation_id) {
+        item.sample.observation_id = crypto.randomUUID();
+        localStorage.setItem(key, JSON.stringify(item));
+      }
       const headers = await authenticatedApiHeaders();
       const token = headers.Authorization?.replace(/^Bearer /, '');
       if (!token) return;
