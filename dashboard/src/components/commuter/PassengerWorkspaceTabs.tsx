@@ -50,7 +50,7 @@ export function PassengerWorkspaceTabs({
           </Surface>
         </div>
         <ClaimedDestinationsPanel />
-        <AtlasContributionPanel defaultMode="walk" />
+        <AtlasContributionPanel defaultMode="walk" preferredCity={profile?.preferred_city||null} />
       </div>
     );
   }
