@@ -59,7 +59,7 @@ export function VehicleClearanceReview(){
     return <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
      <p className="text-sm font-black">{item.plate_number} · {item.type} · {item.capacity} seats</p>
      <p className="mt-1 text-xs text-white/55">{item.operator?.full_name||'Operator'} · {item.clearance_status}</p>
-     <p className="mt-2 text-xs text-white/60">{documents.map(d=>`${d.type}: ${d.matched.some(x=>x.status==='verified'&&Boolean(x.verified_at)&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now()))?'verified, current document':'not ready for clearance':'review outstanding'}`).join(' · ')}</p>
+     <p className="mt-2 text-xs text-white/60">{documents.map(d=>`${d.type}: ${d.matched.some(x=>x.status==='verified'&&Boolean(x.verified_at)&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now()))?'verified, current document':'not ready for clearance'}`).join(' · ')}</p>
      <p className="mt-1 text-[11px] text-white/40">Human physical inspection and matching vehicle identity must also be established outside automated record checks.</p>
      <textarea value={reasons[item.id]||''} onChange={e=>setReasons(old=>({...old,[item.id]:e.target.value}))}
       placeholder={`Inspected plate ${item.plate_number}, verified vehicle registration, insurance, physical match and factual reason`}
