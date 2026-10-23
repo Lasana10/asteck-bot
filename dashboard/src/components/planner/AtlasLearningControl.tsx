@@ -7,6 +7,7 @@ import {
   reviewAtlasCandidate,
   promoteTrustedAtlasCandidate,
   resolveAtlasEvidenceConflict,
+  fetchAtlasCandidatePromotionReadiness,
 } from '../../services/livingAtlasClient';
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
@@ -18,6 +19,7 @@ export function AtlasLearningControl() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [reviewNotes,setReviewNotes]=useState<Record<string,string>>({});
 
   const load = async () => {
     setBusy(true);
@@ -39,13 +41,16 @@ export function AtlasLearningControl() {
   const conflicts = data?.conflicts || [];
 
   const review = async (candidateId: string, decision: 'corroborate' | 'trust' | 'reject') => {
+    const notes=(reviewNotes[candidateId]||'').trim();
+    if(notes.length<25){setNotice('Document the actual independent map evidence examined, at least 25 characters.');return;}
     setActingId(candidateId);
-    const { data: result, error } = await reviewAtlasCandidate(candidateId, decision);
+    const { data: result, error } = await reviewAtlasCandidate(candidateId, decision, notes);
     setActingId(null);
     if (error) {
       setNotice(error.message || 'Candidate review failed.');
       return;
     }
+    setReviewNotes(old=>({...old,[candidateId]:''}));
     setNotice(result?.status === 'trusted'
       ? 'Candidate marked trusted. It is still not routable until an explicit Atlas promotion is performed.'
       : `Candidate marked ${result?.status || decision}.`);
@@ -54,25 +59,34 @@ export function AtlasLearningControl() {
 
   const promote = async (candidateId: string) => {
     setActingId(candidateId);
-    const { data: result, error } = await promoteTrustedAtlasCandidate(candidateId);
-    setActingId(null);
-    if (error) {
-      setNotice(error.message || 'Candidate promotion failed.');
+    const {data: readiness,error: readinessError}=await fetchAtlasCandidatePromotionReadiness(candidateId);
+    if(readinessError||!readiness?.ready||!readiness?.city_key){
+      setActingId(null);
+      setNotice(readinessError?.message||`Routing promotion blocked: ${(readiness?.blockers||['readiness_not_verified']).join(', ')}. No routable geography was created.`);
       return;
     }
-    setNotice(`Trusted geography promoted into the routable Atlas as ${result?.evidence_status || 'corroborated'} evidence.`);
+    if(!window.confirm(`Promote corroborated geography for ${readiness.city_key}? This is NOT verification of passability, safety, live traffic or transport operations.`)){
+      setActingId(null);return;
+    }
+    const { data: result, error } = await promoteTrustedAtlasCandidate(candidateId, undefined, readiness.city_key);
+    setActingId(null);
+    if(error){setNotice(error.message||'Verified city-bound promotion failed.');return;}
+    setNotice(`Candidate promoted into ${result?.city_key||readiness.city_key} Atlas as ${result?.evidence_status||'corroborated'} geography, not confirmed passability.`);
     await load();
   };
 
   const resolveConflict = async (conflictId: string, decision: 'resolve' | 'dismiss') => {
+    const notes=(reviewNotes[conflictId]||'').trim();
+    if(notes.length<25){setNotice('Compare the conflicting evidence and record a factual 25-character rationale first.');return;}
     setActingId(conflictId);
-    const { data: result, error } = await resolveAtlasEvidenceConflict(conflictId, decision);
+    const { data: result, error } = await resolveAtlasEvidenceConflict(conflictId, decision, notes);
     setActingId(null);
     if (error) {
       setNotice(error.message || 'Evidence conflict review failed.');
       return;
     }
-    setNotice(`Evidence conflict ${result?.status || decision}.`);
+    setReviewNotes(old=>({...old,[conflictId]:''}));
+    setNotice(`Evidence conflict ${result?.status || decision} with documented rationale.`);
     await load();
   };
 
@@ -145,8 +159,12 @@ export function AtlasLearningControl() {
                   <div><p className="text-sm font-black capitalize">{String(candidate.feature_type).replace(/_/g, ' ')}</p><p className="mt-1 text-[10px] uppercase text-white/35">{candidate.movement_mode || 'mixed mode'} · {candidate.evidence_count} observations · {candidate.confidence}%</p></div>
                   <span className="rounded-full border border-violet-300/15 bg-violet-400/10 px-2 py-1 text-[8px] font-black text-violet-100">{candidate.status}</span>
                 </div>
+                <label className="mt-3 block text-[10px] text-white/55">Independent source, geometry and uncertainty evidence examined
+                  <textarea rows={2} maxLength={2000} value={reviewNotes[candidate.id]||''} onChange={event=>setReviewNotes(old=>({...old,[candidate.id]:event.target.value}))} placeholder="Describe the actual corroborating / conflicting source evidence, not an assumed road." className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs"/>
+                </label>
+                <p className="mt-2 text-[10px] text-white/50">Independent contributors {candidate.unique_contributors??'unknown'} · observations {candidate.evidence_count??'unknown'} · {candidate.confidence??'unknown'}% confidence. Database trust/promotion gates remain authoritative.</p>
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <button onClick={() => review(candidate.id, 'corroborate')} disabled={actingId === candidate.id} className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-cyan-300/15 bg-cyan-400/10 text-[8px] font-black uppercase text-cyan-100 disabled:opacity-35"><CheckCircle2 className="h-3 w-3" />Corroborate</button>
+                  <button onClick={() => review(candidate.id, 'corroborate')} disabled={Boolean(actingId)||(reviewNotes[candidate.id]||'').trim().length<25} className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-cyan-300/15 bg-cyan-400/10 text-[8px] font-black uppercase text-cyan-100 disabled:opacity-35"><CheckCircle2 className="h-3 w-3" />Corroborate</button>
                   <button onClick={() => review(candidate.id, 'trust')} disabled={actingId === candidate.id} className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-emerald-300/15 bg-emerald-400/10 text-[8px] font-black uppercase text-emerald-100 disabled:opacity-35"><ShieldCheck className="h-3 w-3" />Trust</button>
                   <button onClick={() => review(candidate.id, 'reject')} disabled={actingId === candidate.id} className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-rose-300/15 bg-rose-400/10 text-[8px] font-black uppercase text-rose-100 disabled:opacity-35"><XCircle className="h-3 w-3" />Reject</button>
                   {candidate.status === 'trusted' && <button onClick={() => promote(candidate.id)} disabled={actingId === candidate.id} className="flex min-h-9 items-center justify-center gap-1 rounded-lg border border-emerald-200/20 bg-emerald-300 text-[8px] font-black uppercase text-slate-950 disabled:opacity-35"><Map className="h-3 w-3" />Promote</button>}
@@ -166,8 +184,10 @@ export function AtlasLearningControl() {
               <div><p className="text-sm font-black capitalize">{String(conflict.conflict_type || 'evidence conflict').replace(/_/g,' ')}</p><p className="mt-1 text-xs text-white/45">Independent evidence disagrees. Preserve both observations, then close the contradiction only after review.</p></div>
               <span className="rounded-full border border-amber-300/15 px-2 py-1 text-[8px] font-black uppercase text-amber-100">severity {Math.round(Number(conflict.severity || 0)*100)}%</span>
             </div>
+            <label className="mt-3 block text-[10px] text-white/55">Describe which source evidence you compared and why
+              <textarea rows={2} maxLength={2000} value={reviewNotes[conflict.id]||''} onChange={event=>setReviewNotes(old=>({...old,[conflict.id]:event.target.value}))} className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs" placeholder="Evidence-based conflict decision…" /></label>
             <div className="mt-3 flex gap-2">
-              <button onClick={() => resolveConflict(conflict.id,'resolve')} disabled={actingId===conflict.id} className="min-h-9 rounded-lg bg-amber-300 px-3 text-[8px] font-black uppercase text-slate-950 disabled:opacity-35">Resolve after review</button>
+              <button onClick={() => resolveConflict(conflict.id,'resolve')} disabled={Boolean(actingId)||(reviewNotes[conflict.id]||'').trim().length<25} className="min-h-9 rounded-lg bg-amber-300 px-3 text-[8px] font-black uppercase text-slate-950 disabled:opacity-35">Resolve after review</button>
               <button onClick={() => resolveConflict(conflict.id,'dismiss')} disabled={actingId===conflict.id} className="min-h-9 rounded-lg border border-white/10 px-3 text-[8px] font-black uppercase text-white/55 disabled:opacity-35">Dismiss</button>
             </div>
           </article>)}
