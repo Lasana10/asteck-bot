@@ -28,6 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run build:backend
       - run: npm run test:atlas-ai-evidence
+      - run: npm run test:atlas-review-promotion
       - run: npm run test:atlas-source-understanding
       - run: npm run test:api-contract
       - run: npm run test:reachability:reviewed-access

@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const migration=readFileSync('supabase/migrations/20261023230500_afat_atlas_reviewed_route_promotion_guard.sql','utf8');
+const view=readFileSync('dashboard/src/components/planner/AtlasLearningControl.tsx','utf8');
+const client=readFileSync('dashboard/src/services/livingAtlasClient.ts','utf8');
+for(const term of ['afat_guard_candidate_review','ATLAS_REVIEW_REQUIRES_WRITTEN_EVIDENCE','unique_contributors,0)<3','evidence_count,0)<5','afat_guard_promoted_atlas_edge','ATLAS_PROMOTION_CITY_NOT_ACTIVE','ATLAS_UNVERIFIED_PASSABILITY','afat_candidate_promotion_readiness','route_passability_verified','afat_guard_atlas_conflict_review'])assert.ok(migration.includes(term),term);
+assert.ok(view.includes('reviewAtlasCandidate(candidateId, decision, notes)'));
+assert.ok(view.includes('fetchAtlasCandidatePromotionReadiness(candidateId)'));
+assert.ok(view.includes('readiness?.city_key'));
+assert.ok(view.includes('promoteTrustedAtlasCandidate(candidateId, undefined, readiness.city_key)'));
+assert.ok(view.includes('resolveAtlasEvidenceConflict(conflictId, decision, notes)'));
+assert.ok(client.includes("if(!cityKey) return"),'no default city');
+assert.ok(!client.includes("cityKey = 'cm-yaounde'"),'no default city for promotion');
+console.log('PASS AFAT independently reviewed candidates -> city-bound qualified Atlas route, conflict rationale and no guessed passability');
