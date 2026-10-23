@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {reviewedSafetyFeed,urgentReviewedAlerts,incidentReviewLabel,isReviewedIncident} from '../src/services/reviewedSafetyProjection';
 const reports=[
@@ -13,7 +14,7 @@ assert.deepEqual(urgentReviewedAlerts(reports).map(x=>x.id),['verified-critical'
 assert.equal(isReviewedIncident(reports[0]),false);
 assert.equal(incidentReviewLabel(reports[0]),'needs_human_review');
 assert.equal(incidentReviewLabel(reports[2]),'not_publishable');
-const routes=(await import('node:fs')).readFileSync('src/api/routes.ts','utf8');
+const routes=readFileSync('src/api/routes.ts','utf8');
 for(const method of ["router.get('/mobility/map-feed'","router.get('/public-partner/mobility-conditions'"]){
  const beginning=routes.indexOf(method);
  assert.ok(beginning>=0,method);
