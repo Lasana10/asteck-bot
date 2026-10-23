@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateSpatialFix } from './spatialPositioning';
+import { evaluateSpatialFix, evaluateCurrentFieldGpsPosition } from './spatialPositioning';
 const now = 1800000000000;
 const sample = { latitude: 3.866, longitude: 11.516, accuracyM: 16, timestampMs: now - 2000, source: 'device_gnss' };
 describe('Atlas spatial positioning evidence', () => {
@@ -33,4 +33,16 @@ describe('Atlas spatial positioning evidence', () => {
     const previous = { ...sample, timestampMs: now - 7000, accuracyM: 100 };
     expect(evaluateSpatialFix({ ...sample, longitude: 11.517, timestampMs: now - 2000, accuracyM: 100 }, previous, now).accepted).toBe(true);
   });
+});
+
+describe('legacy field contribution custody',()=>{
+ const coords={latitude:3.866,longitude:11.516,accuracy:15} as GeolocationCoordinates;
+ it('accepts real recent device observations without certifying a road',()=>{
+  expect(evaluateCurrentFieldGpsPosition({coords,timestamp:now-1_000},now)).toMatchObject({accepted:true,confidence:'medium'});
+ });
+ it('rejects stale, inaccurate and malformed field evidence',()=>{
+  expect(evaluateCurrentFieldGpsPosition({coords,timestamp:now-35_000},now).reason).toBe('stale');
+  expect(evaluateCurrentFieldGpsPosition({coords:{...coords,accuracy:280},timestamp:now-1_000},now).accepted).toBe(false);
+  expect(evaluateCurrentFieldGpsPosition({coords:{...coords,latitude:Infinity},timestamp:now-1_000},now).accepted).toBe(false);
+ });
 });
