@@ -96,3 +96,20 @@ begin
 end $$;
 revoke all on function public.afat_candidate_promotion_readiness(uuid) from public,anon;
 grant execute on function public.afat_candidate_promotion_readiness(uuid) to authenticated,service_role;
+
+-- Contradictory source evidence cannot be silently dismissed or marked resolved.
+create or replace function public.afat_guard_atlas_conflict_resolution()
+returns trigger language plpgsql set search_path='' as $$
+begin
+ if new.status is distinct from old.status and new.status in ('resolved','dismissed') then
+  if new.resolved_by is null or
+    char_length(trim(coalesce(new.resolution->>'notes','')))<25 then
+    raise exception 'ATLAS_CONFLICT_REQUIRES_DOCUMENTED_EVIDENCE_REVIEW' using errcode='22023';
+  end if;
+ end if;
+ return new;
+end $$;
+drop trigger if exists afat_guard_atlas_conflict_review on public.afat_evidence_conflicts;
+create trigger afat_guard_atlas_conflict_review
+before update of status,resolution on public.afat_evidence_conflicts
+for each row execute function public.afat_guard_atlas_conflict_resolution();
