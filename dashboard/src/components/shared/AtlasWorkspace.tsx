@@ -155,7 +155,7 @@ export function AtlasWorkspace({role,profile}:{role:'commuter'|'operator'|'plann
 
     {canContribute&&<section className="rounded-[1.6rem] border border-emerald-300/10 bg-emerald-400/[0.025] p-4 sm:p-5">
       <div className="mb-4 flex items-start justify-between gap-4"><div><p className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-200">Improve AFAT</p><h2 className="mt-1 text-xl font-black">Help only when your observation matters.</h2><p className="mt-1 max-w-3xl text-xs leading-5 text-white/40">Normal journeys already teach AFAT. Use these tools when you deliberately want to report, map or verify something.</p></div><Target className="h-5 w-5 text-emerald-200"/></div>
-      <div className="grid gap-4 xl:grid-cols-2"><AtlasContributionPanel defaultMode={defaultMode as any}/><FieldMapper cityKey={cityKey} defaultMode={defaultMode}/></div>
+      <div className="grid gap-4 xl:grid-cols-2"><AtlasContributionPanel defaultMode={defaultMode as any} preferredCity={cityKey}/><FieldMapper cityKey={cityKey} defaultMode={defaultMode}/></div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2"><RoadConditionReporter mode={role==='operator'?'taxi':'walk'}/><AtlasPrivacyPanel/></div>
     </section>}
 

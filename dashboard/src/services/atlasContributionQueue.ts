@@ -2,7 +2,6 @@ import { ingestAtlasContributionSample } from './livingAtlasClient';
 import { supabase } from '../supabaseClient';
 
 const PREFIX='afat_atlas_sample_v1:';
-const MAX_AGE=48*60*60*1000;
 let flushing:Promise<void>|null=null;
 
 export type QueuedAtlasSample={
@@ -10,21 +9,12 @@ export type QueuedAtlasSample={
   speedKph?:number|null; heading?:number|null; recordedAt:string; idempotencyKey:string;
 };
 
-function cleanup(){
-  for(const key of Object.keys(localStorage)){
-    if(!key.startsWith(PREFIX)) continue;
-    try{
-      const item=JSON.parse(localStorage.getItem(key)||'{}');
-      if(Date.parse(item.recordedAt||'')<Date.now()-MAX_AGE) localStorage.removeItem(key);
-    }catch{ localStorage.removeItem(key); }
-  }
-}
-
 export function enqueueAtlasSample(sample:QueuedAtlasSample){
-  cleanup();
   const pending=Object.keys(localStorage).filter(k=>k.startsWith(PREFIX));
+  const key=`${PREFIX}${sample.userId}:${sample.sessionId}:${sample.idempotencyKey}`;
+  if(localStorage.getItem(key)!==null)return; // Exact replay keeps the original observation.
   if(pending.length>=1500) throw new Error('Atlas offline queue is full. Reconnect to synchronize.');
-  localStorage.setItem(`${PREFIX}${sample.userId}:${sample.sessionId}:${sample.idempotencyKey}`,JSON.stringify(sample));
+  localStorage.setItem(key,JSON.stringify(sample));
 }
 
 export function pendingAtlasSamples(userId:string,sessionId?:string){
@@ -36,19 +26,20 @@ export async function flushAtlasSamples(userId:string){
   if(flushing) return flushing.then(()=>flushAtlasSamples(userId));
   if(!navigator.onLine) return;
   flushing=(async()=>{
-    cleanup();
     const {data}=await supabase.auth.getUser();
     if(data.user?.id!==userId) return;
     const keys=Object.keys(localStorage).filter(k=>k.startsWith(`${PREFIX}${userId}:`)).sort();
     for(const key of keys){
       let item:QueuedAtlasSample;
-      try{ item=JSON.parse(localStorage.getItem(key)||'{}'); }catch{ localStorage.removeItem(key); continue; }
-      const {error}=await ingestAtlasContributionSample(item);
-      if(error){
-        const msg=String(error.message||'').toLowerCase();
-        if(msg.includes('session unavailable')||msg.includes('invalid')) localStorage.removeItem(key);
-        else return;
-      } else localStorage.removeItem(key);
+      try{ item=JSON.parse(localStorage.getItem(key)||'{}'); }catch{ return; }
+      if(item.userId!==userId || !item.sessionId || !item.idempotencyKey ||
+         !Number.isFinite(Date.parse(item.recordedAt)))return;
+      // A returned HTTP success is not durable evidence if the RPC indicates
+      // 'rejected' or omits the exact saved sample identity.
+      const {data,error}=await ingestAtlasContributionSample(item);
+      if(error)return; // Preserve unresolved samples for operator/user review.
+      if(!data?.sample_id || data.match_state==='rejected')return;
+      localStorage.removeItem(key);
     }
   })().finally(()=>{flushing=null;});
   return flushing;
