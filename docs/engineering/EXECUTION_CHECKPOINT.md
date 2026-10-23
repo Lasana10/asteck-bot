@@ -1,3 +1,10 @@
+# 2026-10-23 — Continuation under section 16: no restart
+
+- PR #189 remains the single ongoing dispatch GPS custody workstream. CI on commit `1bbe546c`: backend typecheck/contract PASS, dashboard 133/134 tests PASS with exactly one failure: generated observation UUID made an identical fix fail queue deduplication; Cloudflare Pages preview succeeded; unrelated Cloudflare Workers build failed.
+- Fixed duplicate detection to compare the original GPS fields rather than generated observation identity (`47d7dcc`). Preserved previously queued legacy samples by assigning and persisting their UUID once before replay (`0066eb7`). Existing same-timestamp distinct samples continue to get distinct IDs.
+- Status **IMPLEMENTED — UNVERIFIED**. CI rerun and actual Supabase migration state still pending. No merge, production release, or device field acceptance verified. Do not repeat accepted navigation/Atlas/offline work. Next: verify current branch dashboard CI, assess database constraint migration safety and backend receipt shape, then merge only on green and verify backend and field workflow.
+- Product-wide classification remains per established accepted checkpoints; do not re-audit or declare unrelated modules incomplete without evidence.
+
 # 2026-10-23 — Dispatch journey durable GPS receipt integration
 
 - On PR #189 branch, aligned secured dispatch `POST /api/dispatch/:assignmentId/journey/sample` and the owner-bound offline replay contract. The server now responds with HTTP 200 `accepted:true`, `assignment_id`, `sample_id`, and persisted `sample`, rather than HTTP 202 with only a nested sample. The client clears only when assignment and persisted sample identifiers match.
