@@ -199,6 +199,8 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
     const speed = req.body?.speed_kph == null ? null : Number(req.body.speed_kph);
     const heading = req.body?.heading == null ? null : Number(req.body.heading);
     const recordedAt = new Date(typeof req.body?.recorded_at === 'string' ? req.body.recorded_at : NaN);
+    const observationId = typeof req.body?.observation_id === 'string' ? req.body.observation_id.trim() : '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(observationId)) return res.status(400).json({ error: 'Stable GPS observation_id UUID is required.' });
     if (latitude == null || longitude == null || Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Valid latitude, longitude and recorded_at are required.' });
     if (accuracy != null && (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > 5000)) return res.status(400).json({ error: 'accuracy_m is outside the accepted range.' });
     if (speed != null && (!Number.isFinite(speed) || speed < 0 || speed > 180)) return res.status(400).json({ error: 'speed_kph is outside the accepted range.' });
@@ -222,11 +224,28 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
 
     if (!journey.started_at || recordedAt.getTime() < new Date(journey.started_at).getTime()) return res.status(400).json({ error: 'GPS sample predates this journey.' });
     const { data: sample, error: sampleError } = await supabase.from('afat_journey_samples').upsert({
-      journey_id: journey.id, profile_id: profileId, latitude, longitude, accuracy_m: accuracy, speed_kph: speed,
+      journey_id: journey.id, profile_id: profileId, observation_id: observationId,
+      latitude, longitude, accuracy_m: accuracy, speed_kph: speed,
       heading, recorded_at: recordedAt.toISOString(), source: 'browser_geolocation'
-    }, { onConflict: 'journey_id,profile_id,recorded_at' }).select('id,journey_id,recorded_at').single();
+    }, { onConflict: 'journey_id,profile_id,observation_id', ignoreDuplicates: true })
+      .select('id,journey_id,observation_id,recorded_at').maybeSingle();
+    if (!sample && !sampleError) {
+      const existing = await supabase.from('afat_journey_samples')
+        .select('id,journey_id,observation_id,recorded_at,latitude,longitude,accuracy_m,speed_kph,heading')
+        .eq('journey_id', journey.id).eq('profile_id', profileId).eq('observation_id', observationId).maybeSingle();
+      if (existing.error) throw existing.error;
+      if (!existing.data) throw new Error('Journey receipt cannot be verified.');
+      if (existing.data.latitude !== latitude || existing.data.longitude !== longitude ||
+          existing.data.recorded_at !== recordedAt.toISOString() ||
+          Number(existing.data.accuracy_m ?? 0) !== Number(accuracy ?? 0) ||
+          Number(existing.data.speed_kph ?? 0) !== Number(speed ?? 0) ||
+          Number(existing.data.heading ?? 0) !== Number(heading ?? 0)) {
+        return res.status(409).json({ error: 'GPS observation identity conflicts with existing evidence.' });
+      }
+      return res.status(200).json({ accepted: true, assignment_id: assignmentId, sample_id: existing.data.id, sample: existing.data });
+    }
     if (sampleError) throw sampleError;
-    return res.status(202).json({ accepted: true, sample });
+    return res.status(200).json({ accepted: true, assignment_id: assignmentId, sample_id: sample.id, sample });
   } catch (error: any) {
     const mapped = publicDispatchError(error);
     return res.status(mapped.status).json({ error: mapped.error });

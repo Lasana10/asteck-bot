@@ -1,3 +1,32 @@
+# 2026-10-23 — AFAT dispatch release gate reconciled with live Supabase
+
+- Verified latest PR #189 SHA `31fc5ccec91bfbcb720cda353423e597df5ffd0e`: GitHub Actions backend typecheck/contract SUCCESS and dashboard build/tests SUCCESS; Cloudflare Pages preview SUCCESS. These checks do not constitute deployment to production or physical field acceptance.
+- Live Supabase project `TRAFFIC` (project ref `rkijcxxryhfrqsgkwtbu`) is ACTIVE_HEALTHY. Read-only live schema confirms `afat_journey_samples_journey_id_profile_id_recorded_at_key` still enforces timestamp uniqueness. New observation-id migration is not applied.
+- **BLOCKED release gate:** Existing production backend uses timestamp `onConflict`; changing the constraint first would break old server writes. New backend expects observation-id conflict target, so releasing it first breaks new writes. Coordinate migration with backend release in a controlled maintenance/rollback process, preferably staging acceptance, not piecemeal production mutation. Confirm backend Render release SHA and deploy access before proceeding. No production DDL or release performed in this session.
+- Existing customer data and accepted navigation subsystems remain untouched. PR #189 remains **IMPLEMENTED — UNVERIFIED OPERATIONALLY**; no repeat building. Exact next step: stage new schema + backend together, exercise authenticated new and legacy queued GPS receipts and duplicate/same-time collision; then coordinated production switch and signed-in field GPS journey acceptance. Cloudflare Workers build has a separate check and is not evidence of Pages failure.
+
+# 2026-10-23 — Continuation under section 16: no restart
+
+- PR #189 remains the single ongoing dispatch GPS custody workstream. CI on commit `1bbe546c`: backend typecheck/contract PASS, dashboard 133/134 tests PASS with exactly one failure: generated observation UUID made an identical fix fail queue deduplication; Cloudflare Pages preview succeeded; unrelated Cloudflare Workers build failed.
+- Fixed duplicate detection to compare the original GPS fields rather than generated observation identity (`47d7dcc`). Preserved previously queued legacy samples by assigning and persisting their UUID once before replay (`0066eb7`). Existing same-timestamp distinct samples continue to get distinct IDs.
+- Status **IMPLEMENTED — UNVERIFIED**. CI rerun and actual Supabase migration state still pending. No merge, production release, or device field acceptance verified. Do not repeat accepted navigation/Atlas/offline work. Next: verify current branch dashboard CI, assess database constraint migration safety and backend receipt shape, then merge only on green and verify backend and field workflow.
+- Product-wide classification remains per established accepted checkpoints; do not re-audit or declare unrelated modules incomplete without evidence.
+
+# 2026-10-23 — Dispatch journey durable GPS receipt integration
+
+- On PR #189 branch, aligned secured dispatch `POST /api/dispatch/:assignmentId/journey/sample` and the owner-bound offline replay contract. The server now responds with HTTP 200 `accepted:true`, `assignment_id`, `sample_id`, and persisted `sample`, rather than HTTP 202 with only a nested sample. The client clears only when assignment and persisted sample identifiers match.
+- Updated Vitest scenarios for accepted same-assignment receipts and refusal of mismatched-assignment / mismatched-sample receipts. Commits: `232add99`, `4f210cf`, `64df7ecd`. These are implementation changes on the PR branch, not yet proven CI-green or merged/deployed.
+- Remaining genuine connected issue: the dispatch database has `onConflict:'journey_id,profile_id,recorded_at'`, so distinct fixes with the same timestamp can overwrite one another at backend despite the browser now queuing them separately. Resolve with a backward-compatible per-observation identity and database uniqueness migration before claiming lossless evidence.
+- Release gates: dashboard Vitest/build and backend TypeScript CI, merge only after passing gates, verify Cloudflare Pages production and Render backend SHA, then authenticated real-device dispatch capture/reconnect with legitimate operator/passenger. Cloudflare Workers Builds failing is separate from successful Pages preview; do not imply production backend success.
+- Continue substantial AFAT field-to-review and multimodal/supply work, not just this isolated patch.
+
+# 2026-10-23 — Dispatch journey GPS evidence custody on reconnect (PR #189)
+
+- Advanced the existing dispatch journey sample queue alongside the established passenger navigation runtime and fleet trust work. The dispatch queue silently erased rejected HTTP 400/403/404/409 observations, accepted generic HTTP 2xx without server proof, and overwrote distinct fixes sharing the same timestamp. This would permit erroneous movement history or lost field evidence.
+- Implemented distinct fix preservation and exact-repeat deduplication, owner-bound authenticated replay, explicit accepted sample receipt, rejection/passive-response retention and no silent age-based deletion. Existing Vitest regression suite extended for multi-fix same timestamps, rejected 400, passive 202 and missing receipts.
+- Commit series a9d7aae, 870fe9d, bb4a9a2; PR #189. Backend response contract and real signed-in device journey remain deployment gates; no synthetic field evidence, operator approvals or fake successful route records created. AFAT CI was in progress at checkpoint.
+- Continue: confirm actual dispatch sample server receipt shape and green CI before merging; implement missing receipt adaptation at the genuine endpoint if needed, then proceed to connected field dispatch journey and wider independent spatial/multimodal/transport workstreams. Do not treat this as completion of AFAT or field certification.
+
 # 2026-10-22 — Passenger navigation GPS → durable session receipt → Atlas learning
 
 - Resumed GitHub master `32d6c8ac3fb720c48efb74f0440bce6afd9c7417`, Graphify tracing existing passenger `PassagePlanner`, account-bound offline journey route, `PassengerJourneyEvidence`, `journeyRuntime` and Supabase `afat_ingest_navigation_sample_v2` without redesigning or duplicating systems.
