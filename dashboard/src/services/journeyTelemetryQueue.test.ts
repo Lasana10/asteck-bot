@@ -9,13 +9,30 @@ beforeEach(() => {
  Object.defineProperties(storage, { getItem: { value: (k: string) => storage[k] ?? null }, setItem: { value: (k: string, v: string) => { storage[k] = v; } }, removeItem: { value: (k: string) => { delete storage[k]; } } });
  vi.stubGlobal('localStorage', storage); vi.stubGlobal('navigator', { onLine: true });
  auth.headers.mockResolvedValue({ Authorization: `Bearer ${token('passenger-a')}` });
- vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 202 }));
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ accepted: true, sample_id: 'sample-server-1' }) }));
 });
 describe('journey GPS replay', () => {
  it('deduplicates a sample and drains it after acceptance', async () => {
   const point = sample(); enqueueJourneySample('passenger-a','journey-a',point); enqueueJourneySample('passenger-a','journey-a',point);
   expect(pendingJourneySamples('passenger-a','journey-a')).toBe(1);
   await flushJourneySamples('passenger-a'); expect(fetch).toHaveBeenCalledTimes(1); expect(pendingJourneySamples('passenger-a','journey-a')).toBe(0);
+ });
+ it('preserves distinct fixes sharing a timestamp instead of overwriting evidence', () => {
+  const point = sample(); enqueueJourneySample('passenger-a','journey-a',point);
+  enqueueJourneySample('passenger-a','journey-a',{...point, longitude: 11.51});
+  expect(pendingJourneySamples('passenger-a','journey-a')).toBe(2);
+ });
+ it('never deletes a rejected GPS fix or passive 202 upload', async () => {
+  enqueueJourneySample('passenger-a','journey-a',sample());
+  vi.mocked(fetch).mockResolvedValueOnce({ok:false,status:400} as Response);
+  await flushJourneySamples('passenger-a'); expect(pendingJourneySamples('passenger-a','journey-a')).toBe(1);
+  vi.mocked(fetch).mockResolvedValueOnce({ok:true,status:202} as Response);
+  await flushJourneySamples('passenger-a'); expect(pendingJourneySamples('passenger-a','journey-a')).toBe(1);
+ });
+ it('never deletes an HTTP 200 without a durable receipt', async () => {
+  enqueueJourneySample('passenger-a','journey-a',sample());
+  vi.mocked(fetch).mockResolvedValueOnce({ok:true,status:200,json:async()=>({success:true,accepted:false})} as Response);
+  await flushJourneySamples('passenger-a'); expect(pendingJourneySamples('passenger-a','journey-a')).toBe(1);
  });
  it('does not replay across account switches', async () => {
   enqueueJourneySample('passenger-a','journey-a',sample()); auth.headers.mockResolvedValue({ Authorization: `Bearer ${token('passenger-b')}` });
