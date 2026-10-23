@@ -37,6 +37,7 @@ jobs:
       - run: npm run test:map-observation-provenance
       - run: npm run test:reviewed-safety-projection
       - run: npm run test:atomic-incident-review
+      - run: npm run test:staff-incident-review-desk
       - run: npm run test:fleet-position-freshness
       - run: npm run test:scheduled-departures
       - run: npm run test:operator-departure-operations
