@@ -1,3 +1,4 @@
+import {reviewedSafetyFeed,urgentReviewedAlerts,incidentReviewLabel} from '../services/reviewedSafetyProjection';
 import {validateScheduleDraft} from '../services/scheduledDeparturePublishing';
 import {departureWithdrawalEligibility} from '../services/operatorDepartureOperations';
 import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
@@ -3035,7 +3036,7 @@ router.get('/public-partner/mobility-conditions', async (req: Request, res: Resp
         .limit(120),
     ]);
 
-    const scopedIncidents = (incidents || []).filter((incident: any) => {
+    const scopedIncidents = reviewedSafetyFeed(incidents || []).filter((incident: any) => {
       const point = {
         latitude: Number(incident.latitude ?? parsePointText(incident.location)?.latitude),
         longitude: Number(incident.longitude ?? parsePointText(incident.location)?.longitude),
@@ -3060,9 +3061,7 @@ router.get('/public-partner/mobility-conditions', async (req: Request, res: Resp
       service_summary: {
         available_vehicle_count: scopedVehicles.length,
         active_checkpoint_count: scopedCheckpoints.length,
-        validated_incident_count: scopedIncidents.filter((incident: any) =>
-          ['verified', 'validated'].includes(String(incident.verification_status || incident.status || '').toLowerCase())
-        ).length,
+        validated_incident_count: scopedIncidents.length,
       },
       excluded_fields: ['citizen_identity', 'reporter_identity', 'operator_identity', 'operator_financials', 'dispatch_assignments'],
     });
@@ -3195,7 +3194,7 @@ router.get('/mobility/map-feed', async (req: Request, res: Response) => {
         .limit(200),
     ]);
 
-    const scopedIncidents = (incidents || []).filter((incident: any) => {
+    const scopedIncidents = reviewedSafetyFeed(incidents || []).filter((incident: any) => {
       const point = {
         latitude: Number(incident.latitude ?? parsePointText(incident.location)?.latitude),
         longitude: Number(incident.longitude ?? parsePointText(incident.location)?.longitude),
@@ -3301,8 +3300,7 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       withinRegion(Number(signal.latitude), Number(signal.longitude), regionKey)
     );
 
-    const urgentAlerts = scopedIncidents
-      .filter((incident: any) => Number(incident.severity || 0) >= 4)
+    const urgentAlerts = urgentReviewedAlerts(scopedIncidents)
       .slice(0, 6)
       .map((incident: any) => ({
         id: incident.id,
@@ -3338,16 +3336,10 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
     const enrichedIncidents = scopedIncidents.map((incident: any) => ({
       ...incident,
       publish_channel: 'incidents',
-      trust_state: ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
-        ? 'verified'
-        : Number(incident.severity || 0) >= 4
-          ? 'needs_human_review'
-          : 'field_signal',
+      trust_state: incidentReviewLabel(incident),
     }));
 
-    const verifiedIncidents = scopedIncidents.filter((incident: any) =>
-      ['verified', 'confirmed'].includes(incident.status) || incident.verification_status === 'verified'
-    );
+    const verifiedIncidents = reviewedSafetyFeed(scopedIncidents);
 
     const missionSignalIds = scopedMissionSignals.map((signal: any) => signal.id).filter(Boolean);
     const { data: signalReviews } = missionSignalIds.length
@@ -3366,7 +3358,8 @@ router.get('/ops/live-map', async (req: Request, res: Response) => {
       center: region.center,
       summary: {
         active_vehicles: scopedVehicles.length,
-        active_incidents: scopedIncidents.length,
+        active_incidents: verifiedIncidents.length,
+        pending_review_incidents: scopedIncidents.length-verifiedIncidents.length,
         urgent_alerts: urgentAlerts.length,
         verified_incidents: verifiedIncidents.length,
         active_dispatches: scopedDispatches.length,
