@@ -1,3 +1,10 @@
+# 2026-10-23 — Dispatch journey GPS evidence custody on reconnect (PR #189)
+
+- Advanced the existing dispatch journey sample queue alongside the established passenger navigation runtime and fleet trust work. The dispatch queue silently erased rejected HTTP 400/403/404/409 observations, accepted generic HTTP 2xx without server proof, and overwrote distinct fixes sharing the same timestamp. This would permit erroneous movement history or lost field evidence.
+- Implemented distinct fix preservation and exact-repeat deduplication, owner-bound authenticated replay, explicit accepted sample receipt, rejection/passive-response retention and no silent age-based deletion. Existing Vitest regression suite extended for multi-fix same timestamps, rejected 400, passive 202 and missing receipts.
+- Commit series a9d7aae, 870fe9d, bb4a9a2; PR #189. Backend response contract and real signed-in device journey remain deployment gates; no synthetic field evidence, operator approvals or fake successful route records created. AFAT CI was in progress at checkpoint.
+- Continue: confirm actual dispatch sample server receipt shape and green CI before merging; implement missing receipt adaptation at the genuine endpoint if needed, then proceed to connected field dispatch journey and wider independent spatial/multimodal/transport workstreams. Do not treat this as completion of AFAT or field certification.
+
 # 2026-10-22 — Passenger navigation GPS → durable session receipt → Atlas learning
 
 - Resumed GitHub master `32d6c8ac3fb720c48efb74f0440bce6afd9c7417`, Graphify tracing existing passenger `PassagePlanner`, account-bound offline journey route, `PassengerJourneyEvidence`, `journeyRuntime` and Supabase `afat_ingest_navigation_sample_v2` without redesigning or duplicating systems.
