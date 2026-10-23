@@ -79,7 +79,9 @@ export function PassengerWorkspaceHome({
     setToolkitPanel((current) => current === panel ? null : panel);
   };
 
-  if (currentDispatch) {
+  // Do not unmount an in-progress booking checkout when dispatch refresh creates
+  // an active assignment; finish the current seat/payment flow first.
+  if (currentDispatch && !showDepartureBooking) {
     return (
       <div className="space-y-4">
         <section className="overflow-hidden rounded-[2rem] border border-emerald-300/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] p-5 shadow-2xl sm:p-7">
