@@ -16,7 +16,7 @@ interface Departure {
   operator_id: string;
   operator_name: string;
   plate_number: string;
-  rating: number;
+  rating: number | null;
   occupied_seats?: string[];
   available_seats?: number;
   inventory_note?: string;
@@ -103,8 +103,8 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="font-extrabold text-lg tracking-tight">Tableau des Départs</h1>
-            <p className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Temps réel · Yaoundé</p>
+            <h1 className="font-extrabold text-lg tracking-tight">Départs publiés</h1>
+            <p className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Offres réelles · Cameroun</p>
           </div>
           <button onClick={fetchDepartures} className="ml-auto p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
             <RefreshCw className={`w-5 h-5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
@@ -189,7 +189,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
                         <span className="font-bold text-blue-400">{departure.destination}</span>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-1">
-                        {departure.operator_name} · {departure.plate_number} · {departure.rating}★
+                        {departure.operator_name} · {departure.plate_number || 'Véhicule identifié'} · {typeof departure.rating === 'number' ? `${departure.rating.toFixed(1)}★` : 'Pas encore noté'}
                       </p>
                     </div>
                   </div>
