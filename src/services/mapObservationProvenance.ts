@@ -7,12 +7,12 @@ export type ObservationReview = {
   observedAt:string|null; uncertaintyM:number|null; ageMs:number|null;
   reviewState:'pending'|'unavailable';
 };
-const APP_ACTORS=new Set(['app_user','voice_transcript_report','commuter_mission']);
 export function isHumanAppObservation(input:{signalType:unknown;incidentType:unknown;source:unknown;actorType:unknown}):boolean{
  const app=String(input.source||'app').toLowerCase()==='app';
  const incident=String(input.signalType||'')==='incident'||Boolean(input.incidentType);
  const field=String(input.signalType||'')==='field_observation';
- return app&&(incident||field)&&APP_ACTORS.has(String(input.actorType||'app_user'));
+ // Client-controlled actor types are display context, never a way to bypass trust gates.
+ return app&&(incident||field);
 }
 export function assessReportedObservation(input:{
  observedAt:unknown;accuracy:unknown;latitude:unknown;longitude:unknown;
