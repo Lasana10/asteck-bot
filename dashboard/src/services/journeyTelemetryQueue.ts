@@ -16,7 +16,7 @@ export function enqueueJourneySample(userId: string, assignmentId: string, sampl
   while (localStorage.getItem(key) !== null) {
     const existing = localStorage.getItem(key);
     if (existing) {
-      try { if (JSON.stringify(JSON.parse(existing).sample) === JSON.stringify(sample)) return; } catch { /* preserve corrupted evidence for review */ }
+      try { if (JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(existing).sample).filter(([name]) => name !== 'observation_id'))) === JSON.stringify(sample)) return; } catch { /* preserve corrupted evidence for review */ }
     }
     key = `${baseKey}:${++suffix}`;
   }
