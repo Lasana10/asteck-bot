@@ -17,6 +17,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { PassagePlanner } from './PassagePlanner';
+import { PassengerScheduledSeatJourney } from './PassengerScheduledSeatJourney';
 import { PassengerJourneyContinuity } from './PassengerJourneyContinuity';
 import { DeliveryRequestPanel } from './DeliveryRequestPanel';
 import { CommunityEvidencePanel } from './CommunityEvidencePanel';
@@ -48,6 +49,7 @@ export function PassengerWorkspaceHome({
   onChanged: () => void;
 }) {
   const [toolkitPanel, setToolkitPanel] = useState<ToolkitPanel>(null);
+  const [showDepartureBooking,setShowDepartureBooking] = useState(false);
   const handoffParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const initialDestination = handoffParams.get('destination') || '';
   const initialIntent = handoffParams.get('intent') || 'go';
@@ -141,6 +143,21 @@ export function PassengerWorkspaceHome({
           onNavigate('bookings');
         }}
       />
+
+      <section className="rounded-[1.6rem] border border-emerald-300/20 bg-emerald-400/[0.045] p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><p className="text-[9px] font-black uppercase tracking-widest text-emerald-200">Scheduled transport · actual published seats</p>
+            <h3 className="mt-1 text-lg font-black">Travel on an operator's published departure</h3>
+            <p className="mt-1 text-xs leading-5 text-white/55">Browse verified-operator inventory, hold a real seat, confirm the server fare and pay securely. If no verified vehicles have published departures, AFAT shows an empty board rather than imagined options.</p></div>
+          <button type="button" onClick={()=>setShowDepartureBooking(v=>!v)}
+            className="min-h-11 rounded-xl bg-emerald-300 px-4 text-xs font-black text-slate-950">
+            {showDepartureBooking?'Close departures':'Browse scheduled departures'}
+          </button>
+        </div>
+        {showDepartureBooking && profile?.id && <div className="mt-4"><PassengerScheduledSeatJourney
+          profileId={String(profile.id)} onClose={()=>{setShowDepartureBooking(false);onChanged();}}
+          onChanged={onChanged}/></div>}
+      </section>
 
       <NearbySupplyPanel />
 
