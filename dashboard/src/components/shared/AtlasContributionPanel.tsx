@@ -13,6 +13,7 @@ import { enqueueAtlasSample, flushAtlasSamples, pendingAtlasSamples } from '../.
 import { useAfatLocale } from '../../localization';
 import { decideSensing, readDeviceSensingContext, type SensingProfile } from '../../services/adaptiveSensing';
 import { evaluateSpatialFix, type SpatialFix } from '../../services/spatialPositioning';
+import { assessAtlasCityFootprint, cityFootprintMessage, selectAtlasCityKey, type AtlasCityProfile } from '../../services/atlasCityEvidence';
 
 const MODES:Array<{value:AtlasContributionMode;label:string}>=[
   {value:'walk',label:'Walking'},{value:'moto',label:'Moto'},{value:'taxi',label:'Taxi'},
@@ -21,9 +22,13 @@ const MODES:Array<{value:AtlasContributionMode;label:string}>=[
 ];
 type RecordingPhase='idle'|'waiting_gps'|'saving_first'|'recording'|'offline'|'error';
 
-export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasContributionMode}){
+export function AtlasContributionPanel({defaultMode='walk',preferredCity=null}:{defaultMode?:AtlasContributionMode;preferredCity?:string|null}){
   const {t}=useAfatLocale();
   const [mode,setMode]=useState<AtlasContributionMode>(defaultMode);
+  const [availableCities,setAvailableCities]=useState<AtlasCityProfile[]>([]);
+  const [cityKey,setCityKey]=useState('');
+  const [cityLoading,setCityLoading]=useState(true);
+  const recordingCity=useRef<AtlasCityProfile|null>(null);
   const [privacy,setPrivacy]=useState<AtlasPrivacyMode>('private_aggregate');
   const [sessionId,setSessionId]=useState<string|null>(null);
   const [userId,setUserId]=useState<string|null>(null);
@@ -44,6 +49,21 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
   const sessionStartedAt=useRef(0);
   const deviceContext=useRef<{batteryLevel:number|null;charging:boolean|null;connection:'slow'|'normal'|'fast'|'offline'}>({batteryLevel:null,charging:null,connection:'normal'});
 
+  useEffect(()=>{
+    let active=true;
+    (async()=>{
+      const {data,error}=await supabase.from('afat_city_profiles')
+        .select('city_key,city_name,status,metadata').eq('status','active').order('city_name');
+      if(!active)return;
+      const result=error?[]:(data||[]) as AtlasCityProfile[];
+      setAvailableCities(result);
+      setCityKey(current=>result.some(city=>city.city_key===current)?current:selectAtlasCityKey(result,preferredCity));
+      setCityLoading(false);
+      if(error)setNotice('Cannot load the active city coverage registry. Recording is disabled.');
+    })().catch(()=>{if(active){setCityLoading(false);setNotice('City registry is unavailable. AFAT will not assume Yaoundé.');}});
+    return()=>{active=false;};
+  },[preferredCity]);
+
   const stopWatcher=()=>{if(watchId.current!=null&&navigator.geolocation){navigator.geolocation.clearWatch(watchId.current);watchId.current=null;}};
 
   useEffect(()=>{
@@ -60,6 +80,15 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
   },[userId,sessionId]);
 
   const persistPosition=async(id:string,uid:string,position:GeolocationPosition,allowQueue=true)=>{
+    const coverage=assessAtlasCityFootprint(recordingCity.current,{
+      latitude:position.coords.latitude,longitude:position.coords.longitude,
+      accuracyM:position.coords.accuracy,
+    });
+    if(!coverage.allowed){
+      stopWatcher();setPhase('error');
+      setNotice(cityFootprintMessage(coverage.reason,recordingCity.current?.city_name||'selected'));
+      return false;
+    }
     const now=Date.now();
     const speedKph=Number.isFinite(position.coords.speed)?Number(position.coords.speed)*3.6:null;
     const decision=decideSensing({profile:sensingProfile,speedKph,accuracyM:position.coords.accuracy,matched:lastMatched.current,hidden:document.hidden,batteryLevel:deviceContext.current.batteryLevel,charging:deviceContext.current.charging,connection:navigator.onLine?deviceContext.current.connection:'offline',sessionMinutes:(now-sessionStartedAt.current)/60000});
@@ -111,14 +140,26 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
 
   const begin=async()=>{
     if(!navigator.geolocation){setPhase('error');setNotice('Location is not available on this device.');return;}
+    if(cityLoading||!cityKey||!availableCities.some(c=>c.city_key===cityKey)){
+      setNotice('Choose an active Atlas city with reviewed working coverage first.');return;
+    }
+    const selectedCity=availableCities.find(c=>c.city_key===cityKey)!;
     const auth=await supabase.auth.getUser();const uid=auth.data.user?.id;
     if(!uid){setNotice('Sign in before contributing movement.');return;}
     setUserId(uid);setBusy(true);setPhase('waiting_gps');setNotice('Waiting for a real GPS fix. Recording has not started yet.');
     deviceContext.current=await readDeviceSensingContext();
 
     navigator.geolocation.getCurrentPosition(async position=>{
+      const coverage=assessAtlasCityFootprint(selectedCity,{
+        latitude:position.coords.latitude,longitude:position.coords.longitude,
+        accuracyM:position.coords.accuracy,
+      });
+      if(!coverage.allowed){setBusy(false);setPhase('error');setNotice(cityFootprintMessage(coverage.reason,selectedCity.city_name));return;}
+      const spatial=evaluateSpatialFix({latitude:position.coords.latitude,longitude:position.coords.longitude,accuracyM:position.coords.accuracy,timestampMs:position.timestamp,source:'device_gnss'});
+      if(!spatial.accepted){setBusy(false);setPhase('error');setNotice('No session opened: '+spatial.reason.replace(/_/g,' '));return;}
+      recordingCity.current=selectedCity;
       setAccuracy(position.coords.accuracy);setPhase('saving_first');setNotice(`GPS received (±${Math.round(position.coords.accuracy)} m). Saving the first point before AFAT calls this recording.`);
-      const {data,error}=await startCityAtlasContributionSession({cityKey:'cm-yaounde',movementMode:mode,purpose:'community_movement',privacyMode:privacy,metadata:{source_surface:'living_atlas_workspace',offline_capable:true,adaptive_sensing:true,sensing_profile:sensingProfile}});
+      const {data,error}=await startCityAtlasContributionSession({cityKey:selectedCity.city_key,movementMode:mode,purpose:'community_movement',privacyMode:privacy,metadata:{source_surface:'living_atlas_workspace',offline_capable:true,adaptive_sensing:true,sensing_profile:sensingProfile,coverage_gate:'working_envelope',first_fix_observed_at:new Date(position.timestamp).toISOString()}});
       if(error||!data?.id){setBusy(false);setPhase('error');setNotice(error?.message||'Could not create a contribution session. Nothing is being recorded.');return;}
       const id=String(data.id);setSessionId(id);setCaptured(0);setSaved(0);setMatched(0);setQueued(pendingAtlasSamples(uid,id));sessionStartedAt.current=Date.now();lastMatched.current=null;lastSentAt.current=0;lastAcceptedSpatialFix.current=null;
       const firstSaved=await persistPosition(id,uid,position,false);
@@ -146,6 +187,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
     const {data,error}=await completeAtlasContributionSession(sessionId);setBusy(false);
     if(error){setPhase('error');setNotice(error.message||'Could not finish contribution.');return;}
     setNotice(`Saved contribution: ${data?.sample_count??saved} server points · ${data?.matched_sample_count??matched} matched to known roads.`);
+    recordingCity.current=null;
     window.dispatchEvent(new CustomEvent('afat:contribution-finished',{detail:{sessionId}}));
     setSessionId(null);setPhase('idle');
   };
@@ -157,6 +199,7 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
     const {data,error}=await cancelAtlasContributionSession(id,'user_cancelled');
     setBusy(false);
     if(error){setPhase('error');setNotice(error.message||'AFAT could not discard this contribution yet.');return;}
+    recordingCity.current=null;
     setSessionId(null);setPhase('idle');
     setNotice(`Contribution discarded${Number(data?.sample_count||saved)>0?' with saved points preserved as discarded evidence context':''}. AFAT did not mark the session complete.`);
     window.dispatchEvent(new CustomEvent('afat:contribution-cancelled',{detail:{sessionId:id,sampleCount:data?.sample_count??saved}}));
@@ -184,7 +227,8 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-cyan-300/15 bg-cyan-400/10"><MapPinned className="h-5 w-5 text-cyan-200"/></div>
       </div>
 
-      {!live&&<div className="relative mt-5 grid gap-3 sm:grid-cols-3">
+      {!live&&<div className="relative mt-5 grid gap-3 sm:grid-cols-4">
+        <Field label="Active city"><select aria-label="Atlas recording city" value={cityKey} disabled={cityLoading||busy} onChange={e=>setCityKey(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs"><option value="">{cityLoading?'Loading cities…':'Select city'}</option>{availableCities.map(city=><option key={city.city_key} value={city.city_key}>{city.city_name}</option>)}</select></Field>
         <Field label="Movement"><select value={mode} onChange={e=>setMode(e.target.value as AtlasContributionMode)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none">{MODES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
         <Field label="Privacy"><select value={privacy} onChange={e=>setPrivacy(e.target.value as AtlasPrivacyMode)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none"><option value="private_aggregate">{t('atlas.private')}</option><option value="trusted_review">{t('atlas.review')}</option><option value="public_mapping">{t('atlas.public')}</option></select></Field>
         <Field label="Sensing"><select value={sensingProfile} onChange={e=>setSensingProfile(e.target.value as SensingProfile)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none"><option value="saver">Saver</option><option value="balanced">Balanced</option><option value="survey">Survey</option></select></Field>
@@ -210,11 +254,12 @@ export function AtlasContributionPanel({defaultMode='walk'}:{defaultMode?:AtlasC
           <Progress label="Saved evidence" value={savedRatio}/>
           <Progress label="Known-road match" value={matchedRatio}/>
         </div>
+        <p className="mt-3 text-[9px] leading-4 text-white/35">City: {recordingCity.current?.city_name||'unconfirmed'} · working envelope only · never automatic road truth.</p>
         <p className="mt-3 text-[9px] leading-4 text-white/35">Adaptive sensing · {sensingProfile} · {sensingReason}</p>
       </div>}
 
       <div className={`relative mt-5 grid gap-2 ${sessionId?'sm:grid-cols-[1fr_auto]':''}`}>
-        <button onClick={sessionId?finish:begin} disabled={busy} className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black transition disabled:opacity-40 ${sessionId?'border border-emerald-300/20 bg-emerald-400/12 text-emerald-100':'bg-cyan-300 text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,.18)]'}`}>
+        <button onClick={sessionId?finish:begin} disabled={busy||(!sessionId&&(cityLoading||!cityKey))} className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black transition disabled:opacity-40 ${sessionId?'border border-emerald-300/20 bg-emerald-400/12 text-emerald-100':'bg-cyan-300 text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,.18)]'}`}>
           {sessionId?<CircleStop className="h-4 w-4"/>:<Navigation className="h-4 w-4"/>}{sessionId?'Finish and verify saved evidence':phase==='waiting_gps'?'Waiting for GPS…':phase==='saving_first'?'Saving first point…':'Start real recording'}
         </button>
         {sessionId&&<button onClick={cancel} disabled={busy} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 text-xs font-black text-rose-100 disabled:opacity-40"><Trash2 className="h-4 w-4"/>Discard</button>}
