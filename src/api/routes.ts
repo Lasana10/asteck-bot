@@ -2535,6 +2535,51 @@ async function persistMapSignalReview(req: Request, res: Response, movementLogId
   }
 }
 
+// Pending citizen incidents are verified or dismissed by staff, never
+// self-verified by an untrusted device report. The SQL RPC enforces role
+// authority and the state transition atomically with an immutable audit.
+router.get('/ops/incidents/review-queue', async (req:Request,res:Response)=>{
+ const access=await requireAuthRole(req,res,['admin','planner']);
+ if(!access)return;
+ try{
+  const {data,error}=await supabase.from('incidents')
+   .select('id,type,description,severity,latitude,longitude,source,status,verification_status,created_at,expires_at,movement_log_id')
+   .in('status',['new','pending'])
+   .in('verification_status',['new','pending'])
+   .order('created_at',{ascending:true}).limit(80);
+  if(error)throw error;
+  res.json({success:true,incidents:data||[],review_required:true});
+ }catch(error:any){
+  console.error('Incident review queue unavailable',error);
+  res.status(503).json({error:'INCIDENT_REVIEW_QUEUE_UNAVAILABLE'});
+ }
+});
+router.post('/ops/incidents/:incidentId/review',async(req:Request,res:Response)=>{
+ const access=await requireAuthRole(req,res,['admin','planner']);
+ if(!access)return;
+ const id=String(req.params.incidentId||''),decision=String(req.body?.decision||'');
+ const notes=String(req.body?.notes||'').trim();
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    ||!['verify','dismiss'].includes(decision)||notes.length<12||notes.length>1000){
+  return res.status(400).json({error:'INCIDENT_REVIEW_DECISION_AND_NOTES_REQUIRED'});
+ }
+ try{
+  const {data,error}=await supabase.rpc('afat_decide_pending_incident',{
+   p_incident_id:id,p_reviewer_id:access.profile.id,p_decision:decision,p_notes:notes,
+  });
+  if(error){
+   const message=String(error.message||'INCIDENT_REVIEW_FAILED');
+   return res.status(message.includes('NOT_FOUND')?404:
+     /NOT_PENDING|EXPIRED/.test(message)?409:
+     /AUTHORITY|AUTHORIZED/.test(message)?403:503).json({error:message});
+  }
+  return res.status(200).json({success:true,review:data});
+ }catch(error:any){
+  console.error('Incident review unavailable',error);
+  return res.status(503).json({error:'INCIDENT_REVIEW_UNAVAILABLE'});
+ }
+});
+
 router.post('/ops/map-signal-reviews', async (req: Request, res: Response) => {
   const access = await requireAuthRole(req, res, ['admin', 'planner']);
   if (!access) return;
