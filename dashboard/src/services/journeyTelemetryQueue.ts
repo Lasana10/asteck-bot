@@ -54,7 +54,7 @@ export function flushJourneySamples(userId: string): Promise<void> {
       // Only final 2xx acknowledgement may clear the original observation.
       if (response.ok && response.status !== 202 && response.status !== 204) {
         const receipt = await response.json().catch(() => null);
-        if (receipt?.accepted === true && (receipt.sample_id || receipt.sampleId)) {
+        if (receipt?.accepted === true && receipt.assignment_id === item.assignmentId && receipt.sample_id && receipt.sample?.id === receipt.sample_id) {
           localStorage.removeItem(key);
           continue;
         }
