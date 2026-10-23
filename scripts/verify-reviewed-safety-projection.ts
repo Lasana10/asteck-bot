@@ -19,6 +19,8 @@ for(const method of ["router.get('/mobility/map-feed'","router.get('/public-part
  assert.ok(beginning>=0,method);
  assert.ok(routes.slice(beginning,beginning+6200).includes("reviewedSafetyFeed(incidents || [])"),'unreviewed safety claims must not reach public lane');
 }
+const response=routes.slice(routes.indexOf("router.post('/public-partner/responses'"),routes.indexOf("router.get('/mobility/map-feed'"));
+assert.ok(response.includes('reviewedSafetyFeed([incident])'),'agency response must require independently verified incident');
 const ops=routes.slice(routes.indexOf("router.get('/ops/live-map'"));
 assert.ok(ops.includes('urgentReviewedAlerts(scopedIncidents)'));
 assert.ok(ops.includes('pending_review_incidents'));
