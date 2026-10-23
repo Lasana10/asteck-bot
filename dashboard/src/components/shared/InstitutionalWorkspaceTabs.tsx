@@ -4,6 +4,7 @@ import type { RoleWorkspaceLiveFeed } from '../../hooks/useRoleWorkspaceData';
 import { FieldReportTriageList } from './FieldReportTriageList';
 import { OperationalHealthPanel } from './OperationalHealthPanel';
 import { DispatchWorkspace } from './DispatchWorkspace';
+import { EvidenceReviewQueue } from '../admin/EvidenceReviewQueue';
 
 type Role = 'organization' | 'government' | 'admin';
 type Tab = 'bookings' | 'notifications' | 'profile';
@@ -79,7 +80,7 @@ export function InstitutionalWorkspaceTabs({
 
   if (activeTab === 'notifications') {
     return (
-      <div className="grid gap-5 xl:grid-cols-[0.68fr_1.32fr]">
+      <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[0.68fr_1.32fr]">
         <Surface className="p-6">
           <p className={`text-[10px] font-black uppercase tracking-widest ${copy.accent}`}>{copy.notices}</p>
           <h1 className="mt-2 text-3xl font-black">{role === 'admin' ? 'Platform integrity that needs action' : role === 'government' ? 'Conditions inside the public mandate' : 'Readiness and operating exceptions'}</h1>
@@ -109,7 +110,7 @@ export function InstitutionalWorkspaceTabs({
             </div>
           </>}
         </Surface>
-      </div>
+      </div>{role==='admin'&&<EvidenceReviewQueue />}</div>
     );
   }
 
