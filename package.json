@@ -16,6 +16,7 @@
     "test:place-candidate-contract": "node scripts/verify-public-place-candidates.mjs",
     "test:transit-review-authority": "node scripts/verify-transit-review-authority.mjs",
     "test:published-departures": "node --import tsx scripts/verify-published-departures.ts",
+    "test:reviewed-safety-projection": "node --import tsx scripts/verify-reviewed-safety-projection.ts",
     "test:map-observation-provenance": "node --import tsx scripts/verify-map-observation-provenance.ts",
     "test:map-signal-fleet": "node --import tsx scripts/verify-map-signal-fleet-authority.ts",
     "test:fleet-position-freshness": "node --import tsx scripts/verify-live-fleet-position-freshness.ts",
