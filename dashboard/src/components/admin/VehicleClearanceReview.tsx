@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {authenticatedApiHeaders,getApiBaseUrl} from '../../supabaseClient';
-type ReviewCase={id:string;operator_id:string;plate_number:string;type:string;capacity:number;clearance_status:string;operator?:{full_name?:string;verification_status?:string;operator_application_status?:string}|null;documents:{document_type:string;status:string;due_at?:string|null;verified_at?:string|null;has_document:boolean}[]};
+import {getStaffComplianceReviewFile} from '../../services/operatorComplianceDocuments';
+type ReviewCase={id:string;operator_id:string;plate_number:string;type:string;capacity:number;clearance_status:string;operator?:{full_name?:string;verification_status?:string;operator_application_status?:string}|null;documents:{id:string;document_type:string;status:string;due_at?:string|null;verified_at?:string|null;has_document:boolean}[]};
 async function staffApi(path:string,options:RequestInit={}){
  const auth=await authenticatedApiHeaders();
  const response=await fetch(`${getApiBaseUrl()}${path}`,{
@@ -16,6 +17,7 @@ export function VehicleClearanceReview(){
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
  const [reasons,setReasons]=useState<Record<string,string>>({});
+ const [documentNotes,setDocumentNotes]=useState<Record<string,string>>({});
  const refresh=async()=>{
   setBusy(true);
   try{const result=await staffApi('/api/mobility/vehicle-clearance/queue');setCases(result.cases||[]);setNotice('');}
@@ -23,6 +25,31 @@ export function VehicleClearanceReview(){
   finally{setBusy(false);}
  };
  useEffect(()=>{void refresh();},[]);
+ const openDocument=async(id:string)=>{
+  setBusy(true);setNotice('');
+  try{
+    const url=await getStaffComplianceReviewFile(id);
+    // Opening a private signed link is not approval.
+    window.open(url,'_blank','noopener,noreferrer');
+    setNotice('Private document opened for inspection. Record a factual decision separately.');
+  }catch(error:any){setNotice(error?.message||'Private evidence cannot be opened.');}
+  finally{setBusy(false);}
+ };
+ const decideDocument=async(id:string,status:'verified'|'rejected'|'needs_followup')=>{
+  const notes=String(documentNotes[id]||'').trim();
+  if(notes.length<25){setNotice('Describe the actual evidence inspected (at least 25 characters).');return;}
+  setBusy(true);setNotice('');
+  try{
+    await staffApi(`/api/compliance/${encodeURIComponent(id)}/status`,{
+      method:'PATCH',body:JSON.stringify({status,notes}),
+    });
+    setDocumentNotes(old=>({...old,[id]:''}));
+    setNotice('Private document decision saved. Vehicle clearance must be reviewed separately.');
+    const fresh=await staffApi('/api/mobility/vehicle-clearance/queue');
+    setCases(fresh.cases||[]);
+  }catch(error:any){setNotice(error?.message||'Document review was not accepted.');}
+  finally{setBusy(false);}
+ };
  const decide=async(id:string,decision:string)=>{
   const reason=String(reasons[id]||'').trim();
   if(reason.length<15){setNotice('Document the evidence examined and the decision reason (15 characters minimum).');return;}
@@ -60,6 +87,26 @@ export function VehicleClearanceReview(){
      <p className="text-sm font-black">{item.plate_number} · {item.type} · {item.capacity} seats</p>
      <p className="mt-1 text-xs text-white/55">{item.operator?.full_name||'Operator'} · {item.clearance_status}</p>
      <p className="mt-2 text-xs text-white/60">{documents.map(d=>`${d.type}: ${d.matched.some(x=>x.status==='verified'&&Boolean(x.verified_at)&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now()))?'verified, current document':'not ready for clearance'}`).join(' · ')}</p>
+     <div className="mt-3 space-y-2">{item.documents.filter(doc=>documents.some(required=>required.type===doc.document_type)).map(doc=>(
+      <div key={doc.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><p className="text-xs font-bold">{doc.document_type.replace(/_/g,' ')}</p>
+            <p className="text-[10px] text-white/45">{doc.status} · {doc.has_document?'Private file submitted':'Awaiting real document'}{doc.due_at?` · due ${new Date(doc.due_at).toLocaleDateString()}`:''}</p></div>
+          <button type="button" onClick={()=>void openDocument(doc.id)} disabled={busy||!doc.has_document} className="min-h-10 rounded-lg border border-cyan-300/25 px-3 text-xs text-cyan-100 disabled:opacity-30">Open private evidence</button>
+        </div>
+        {doc.has_document&&<div className="mt-3">
+          <label className="text-[10px] text-white/55">Human document-review findings
+            <textarea value={documentNotes[doc.id]||''} onChange={e=>setDocumentNotes(old=>({...old,[doc.id]:e.target.value}))} rows={2}
+              placeholder="Describe the exact document and expiry/plate/identity evidence examined, without inventing any facts."
+              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 p-2 text-xs" /></label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={busy||doc.status==='verified'||(documentNotes[doc.id]||'').trim().length<25} onClick={()=>void decideDocument(doc.id,'verified')} className="min-h-10 rounded-lg border border-emerald-300/20 px-3 text-xs text-emerald-100 disabled:opacity-30">Verify document</button>
+            <button type="button" disabled={busy||(documentNotes[doc.id]||'').trim().length<25} onClick={()=>void decideDocument(doc.id,'needs_followup')} className="min-h-10 rounded-lg border border-amber-300/20 px-3 text-xs text-amber-100 disabled:opacity-30">Request correction</button>
+            <button type="button" disabled={busy||(documentNotes[doc.id]||'').trim().length<25} onClick={()=>void decideDocument(doc.id,'rejected')} className="min-h-10 rounded-lg border border-rose-300/20 px-3 text-xs text-rose-100 disabled:opacity-30">Reject document</button>
+          </div>
+        </div>}
+      </div>
+     ))}</div>
      <p className="mt-1 text-[11px] text-white/40">Human physical inspection and matching vehicle identity must also be established outside automated record checks.</p>
      <textarea value={reasons[item.id]||''} onChange={e=>setReasons(old=>({...old,[item.id]:e.target.value}))}
       placeholder={`Inspected plate ${item.plate_number}, verified vehicle registration, insurance, physical match and factual reason`}
