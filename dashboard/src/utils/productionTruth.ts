@@ -16,7 +16,7 @@ function normalizePlaceText(value: string) {
     .trim();
 }
 
-export function filterRelevantPlaceCandidates<T extends { name?: string; zone_label?: string; city?: string }>(
+export function filterRelevantPlaceCandidates<T extends { name?: string; zone_label?: string; city?: string; match_reason?: string | null; match_similarity?: number | null; source_only?: boolean }>(
   query: string,
   candidates: T[],
 ) {
@@ -31,9 +31,16 @@ export function filterRelevantPlaceCandidates<T extends { name?: string; zone_la
       const city = normalizePlaceText(String(candidate.city || ''));
       const searchable = [name, zone, city].filter(Boolean).join(' ');
       const tokenMatches = queryTokens.filter((token) => searchable.includes(token)).length;
-      if (!tokenMatches) return null;
+      // Only allow explicit, quantified approximate matches returned by AFAT's
+      // city-scoped server geocoder. A general description hit cannot bypass
+      // the user's actual destination words. Never treat fuzzy as verified access.
+      const fuzzyReason = ['fuzzy_name', 'fuzzy_alias', 'fuzzy_zone'].includes(String(candidate.match_reason || ''));
+      const fuzzySimilarity = Number(candidate.match_similarity);
+      const approvedFuzzy = fuzzyReason && Number.isFinite(fuzzySimilarity)
+        && fuzzySimilarity >= 0.36 && fuzzySimilarity <= 1;
+      if (!tokenMatches && !approvedFuzzy) return null;
 
-      let relevance = tokenMatches * 10;
+      let relevance = tokenMatches * 10 + (!tokenMatches && approvedFuzzy ? Math.round(fuzzySimilarity * 15) : 0);
       if (name === normalizedQuery) relevance += 100;
       else if (name.startsWith(normalizedQuery)) relevance += 80;
       else if (name.includes(normalizedQuery)) relevance += 60;
