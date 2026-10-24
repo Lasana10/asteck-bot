@@ -20,6 +20,7 @@ import { PassengerSpatialMap } from './PassengerSpatialMap';
 import { PassengerJourneyEvidence } from './PassengerJourneyEvidence';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { AtlasContextPanel } from './AtlasContextPanel';
+import { ReviewedRouteEnvironment } from './ReviewedRouteEnvironment';
 import { ReachabilityInsightCard } from './ReachabilityInsightCard';
 import { fetchCanonicalAfatRoute, type AfatCanonicalRoute, type AfatRouteMode } from '../../services/canonicalRouteClient';
 import {
@@ -973,6 +974,9 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         </div>
       </div>
     )}
+
+    {selectedPlace && canonicalRoute?.status==='ok' && <ReviewedRouteEnvironment
+      cityKey={cityKey} route={canonicalRoute} online={online} hasAccount={Boolean(profile?.id)}/>}
 
     {selectedPlace && originFix && vehicleType !== 'walk' && <p role="status" className="mt-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3 py-2 text-[10px] leading-5 text-amber-100/80">{passengerSupplyNotice(vehicleType,preflight,online)}</p>}
 
