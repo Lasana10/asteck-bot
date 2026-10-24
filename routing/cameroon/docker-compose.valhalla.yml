@@ -1,0 +1,19 @@
+# Optional local Valhalla using AFAT's existing checksum-verified Cameroon PBF.
+# Evaluation-only image; pin validated digest before production.
+services:
+  valhalla-cameroon:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    volumes:
+      - ${AFAT_OSRM_DATA_DIR:-./data}:/custom_files
+    environment:
+      tile_urls: ""
+      build_elevation: "False"
+      build_transit: "False"
+      build_tar: "True"
+      server_threads: "2"
+      serve_tiles: "True"
+      use_tiles_ignore_pbf: "True"
+    ports:
+      - "127.0.0.1:8002:8002"
+    restart: unless-stopped
+    mem_limit: 5g
