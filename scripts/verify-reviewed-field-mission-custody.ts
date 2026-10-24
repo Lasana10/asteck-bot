@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+const sql=readFileSync('supabase/migrations/20261024170000_afat_field_mission_reviewed_evidence_custody.sql','utf8');
+const ui=readFileSync('dashboard/src/components/planner/AtlasFieldMissionReview.tsx','utf8');
+const parent=readFileSync('dashboard/src/components/planner/AtlasSourceDisagreementDesk.tsx','utf8');
+for(const clause of ['afat_submit_micro_mission','MEASURED_GNSS_ACCURACY_REQUIRED','OBSERVATION_TOO_FAR_FROM_MISSION','pending_independent_review','trust_points_awarded','afat_review_cross_source_field_check','INDEPENDENT_REVIEWER_REQUIRED','field_submission_reviewed','route_truth_updated'])assert.ok(sql.includes(clause),clause);
+assert.ok(!sql.includes('insert into public.trust_ledger'));
+assert.ok(!sql.includes('update public.afat_atlas_edges'));
+assert.ok(ui.includes("supabase.rpc('afat_review_cross_source_field_check'"));
+assert.ok(ui.includes(".eq('status','submitted')"));
+assert.ok(ui.includes("item.evidence?.source==='licensed_cross_source_spatial_comparison'"));
+assert.ok(parent.includes('<AtlasFieldMissionReview />'));
+console.log('PASS AFAT GNSS field mission submission and independent source-mission acceptance without unearned rewards or route approval');
