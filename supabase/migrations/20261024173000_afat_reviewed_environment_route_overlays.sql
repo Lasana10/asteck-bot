@@ -157,3 +157,30 @@ begin
 end $$;
 revoke all on function public.afat_review_environment_signal(uuid,text,text) from public,anon;
 grant execute on function public.afat_review_environment_signal(uuid,text,text) to authenticated,service_role;
+
+-- Staff-only queue: raw environment observations are not public road warnings.
+create or replace function public.afat_environment_review_queue(
+ p_city_key text,p_limit integer default 30
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_city public.afat_city_profiles%rowtype;v_items jsonb;
+begin
+ if (select auth.uid()) is null or not public.afat_has_permission('map.evidence.review') then
+  raise exception 'Environment review permission required' using errcode='42501';end if;
+ select * into v_city from public.afat_city_profiles
+  where city_key=p_city_key and status='active';
+ if not found then raise exception 'Active city not found' using errcode='P0002';end if;
+ select coalesce(jsonb_agg(jsonb_build_object(
+   'id',s.id,'source_key',s.source_key,'signal_type',s.signal_type,
+   'observed_at',s.observed_at,'severity',s.severity,'confidence',s.confidence,
+   'latitude',public.st_y(s.location::public.geometry),
+   'longitude',public.st_x(s.location::public.geometry),
+   'payload',s.payload,'provenance',s.provenance
+  )), '[]'::jsonb) into v_items
+ from (select * from public.afat_environment_signals
+   where city_profile_id=v_city.id and provenance->>'review_state'='pending'
+   order by observed_at desc limit greatest(1,least(coalesce(p_limit,30),100))) s;
+ return jsonb_build_object('city_key',p_city_key,'pending',v_items,
+  'route_impact_without_review',false);
+end $$;
+revoke all on function public.afat_environment_review_queue(text,integer) from public,anon;
+grant execute on function public.afat_environment_review_queue(text,integer) to authenticated,service_role;
