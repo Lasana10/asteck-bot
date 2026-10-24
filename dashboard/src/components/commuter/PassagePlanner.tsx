@@ -17,6 +17,7 @@ import type { AfatAccessPoint, AfatMeetingPoint, AfatPlaceCandidate } from '../.
 import { PlaceMediaStrip } from '../shared/PlaceMediaStrip';
 import { filterRelevantPlaceCandidates } from '../../utils/productionTruth';
 import { PassengerSpatialMap } from './PassengerSpatialMap';
+import { PassengerTransitObservationPanel } from './PassengerTransitObservationPanel';
 import { PassengerJourneyEvidence } from './PassengerJourneyEvidence';
 import { EmergencySOS } from '../shared/EmergencySOS';
 import { AtlasContextPanel } from './AtlasContextPanel';
@@ -982,6 +983,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         </div>
       </div>
     )}
+
+    {profile?.id && !navigationActive && <PassengerTransitObservationPanel cityKey={cityKey}/>}
 
     {selectedPlace && canonicalRoute?.status==='ok' && <ReviewedRouteEnvironment
       cityKey={cityKey} route={canonicalRoute} online={online} hasAccount={Boolean(profile?.id)}/>}
