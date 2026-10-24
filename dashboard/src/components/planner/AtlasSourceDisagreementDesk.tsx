@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {AtlasFieldMissionReview} from './AtlasFieldMissionReview';
 import {AlertTriangle,MapPinned,RefreshCw,SearchCheck} from 'lucide-react';
-import {fetchCrossSourceRoadChecks,requestCrossSourceFieldCheck,type CrossSourceRoadReview,type CrossSourceRoadCheck} from '../../services/livingAtlasClient';
+import {fetchCrossSourceRoadChecks,requestCrossSourceFieldCheck,fetchCrossSourceFieldReviewQueue,reviewCrossSourceFieldMission,type CrossSourceRoadReview,type CrossSourceRoadCheck} from '../../services/livingAtlasClient';
 import {supabase} from '../../supabaseClient';
 
 /** Planner-only source disagreement intelligence. Source data is not road truth. */
@@ -9,6 +9,8 @@ export function AtlasSourceDisagreementDesk(){
  const [cityKey,setCityKey]=useState('');
  const [cities,setCities]=useState<Array<{city_key:string;city_name:string}>>([]);
  const [review,setReview]=useState<CrossSourceRoadReview|null>(null);
+ const [submissions,setSubmissions]=useState<any[]>([]);
+ const [reviewNotes,setReviewNotes]=useState<Record<string,string>>({});
  const [loading,setLoading]=useState(true);
  const [acting,setActing]=useState<string|null>(null);
  const [reason,setReason]=useState<Record<string,string>>({});
@@ -32,6 +34,9 @@ export function AtlasSourceDisagreementDesk(){
   setLoading(false);
   if(error){setReview(null);setNotice(error.message||'Could not crosscheck licensed source geometry.');return;}
   setReview(data as CrossSourceRoadReview);
+  const submitted=await fetchCrossSourceFieldReviewQueue(key);
+  if(submitted.error){setSubmissions([]);setNotice(submitted.error.message||'Independent field review queue unavailable.');}
+  else setSubmissions(Array.isArray(submitted.data)?submitted.data:[]);
  };
  useEffect(()=>{void refresh(cityKey);},[cityKey]);
  const create=async(item:CrossSourceRoadCheck)=>{
@@ -44,6 +49,17 @@ export function AtlasSourceDisagreementDesk(){
   if(error){setNotice(error.message||'Field check request rejected.');await refresh(cityKey);return;}
   setReason(old=>({...old,[item.source_record_id]:''}));
   setNotice(data?.created?'Real Atlas edge field mission created for optional human checking. No road is automatically certified.':'This corridor already has an open or claimed mission. No duplicate was created.');
+  await refresh(cityKey);
+ };
+ const decide=async(item:any,decision:'accept'|'reject')=>{
+  const notes=String(reviewNotes[item.mission_id]||'').trim();
+  if(notes.length<25){setNotice('Document actual inspected field and source evidence (at least 25 characters).');return;}
+  setActing(item.mission_id);setNotice('');
+  const {data,error}=await reviewCrossSourceFieldMission(item.mission_id,decision,notes);
+  setActing(null);
+  if(error){setNotice(error.message||'Independent field review rejected.');return;}
+  setReviewNotes(old=>({...old,[item.mission_id]:''}));
+  setNotice(`Field submission ${data?.status||decision}. This decision does not automatically update road passability, navigation or rewards.`);
   await refresh(cityKey);
  };
  return <section className="rounded-[1.5rem] border border-cyan-300/15 bg-slate-950/70 p-5">
@@ -83,6 +99,22 @@ export function AtlasSourceDisagreementDesk(){
    {review&&!review.discrepancies.length&&<p className="rounded-xl border border-white/10 p-4 text-xs text-white/60"><SearchCheck className="mr-1 inline h-4 w-4"/>No reviewable differences found within this active city's available source records.</p>}
   </div>
   <AtlasFieldMissionReview />
+  <div className="mt-6 rounded-xl border border-violet-300/15 p-4">
+   <h4 className="text-sm font-black">Submitted source-verification missions · independent review</h4>
+   <p className="mt-2 text-[11px] text-white/50">Submitted GPS and field observations are awaiting an authorized independent reviewer; accepting them does not automatically certify a road or award trust points.</p>
+   {submissions.map((item:any)=><article key={item.mission_id} className="mt-3 rounded-xl border border-white/10 p-3">
+    <p className="text-xs font-semibold">{item.title||'Submitted corridor evidence'} · {item.edge_name||'Atlas edge'}</p>
+    <p className="mt-1 break-words text-[11px] text-white/60">Reported observations: {JSON.stringify(item.answer||{})}</p>
+    <p className="mt-1 text-[10px] text-white/40">Submitted: {item.submitted_at?new Date(item.submitted_at).toLocaleString():'unknown'} · GPS uncertainty: {item.evidence?.accuracy_m??'not provided'} m</p>
+    <label className="mt-2 block text-xs text-white/60">Independent review reason
+     <textarea rows={2} value={reviewNotes[item.mission_id]||''} maxLength={2000} onChange={e=>setReviewNotes(old=>({...old,[item.mission_id]:e.target.value}))} placeholder="Compare actual observations and available source evidence before making a decision." className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 p-2 text-xs"/></label>
+    <div className="mt-2 flex gap-2">
+     <button type="button" disabled={Boolean(acting)||(reviewNotes[item.mission_id]||'').trim().length<25} onClick={()=>void decide(item,'accept')} className="min-h-10 rounded-lg bg-emerald-300 px-3 text-xs font-bold text-slate-950 disabled:opacity-30">Accept field submission</button>
+     <button type="button" disabled={Boolean(acting)||(reviewNotes[item.mission_id]||'').trim().length<25} onClick={()=>void decide(item,'reject')} className="min-h-10 rounded-lg border border-rose-300/30 px-3 text-xs text-rose-100 disabled:opacity-30">Reject submission</button>
+    </div>
+   </article>)}
+   {!submissions.length&&<p className="mt-3 text-[11px] text-white/40">No submitted licensed-source field missions awaiting independent review in this city.</p>}
+  </div>
   {notice&&<p role="status" className="mt-4 flex items-start gap-2 rounded-xl border border-amber-300/15 p-3 text-xs text-amber-100"><AlertTriangle className="h-4 w-4 shrink-0"/>{notice}</p>}
   <p className="mt-4 text-[10px] leading-5 text-white/40">35 m source-neighbour comparison, 80 m Atlas edge anchoring. Source classifications are not directly equivalent; counts include potential false discrepancies. Field evidence and independent review remain mandatory.</p>
  </section>;
