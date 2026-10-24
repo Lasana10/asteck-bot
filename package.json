@@ -10,6 +10,7 @@
     "build:dashboard": "cd dashboard && npm install && npm run build",
     "test:atlas-source-understanding": "node --import tsx scripts/verify-atlas-source-understanding.ts",
     "test:reviewed-field-mission-custody": "node --import tsx scripts/verify-reviewed-field-mission-custody.ts",
+    "test:earth-observation-planner": "node --import tsx scripts/verify-earth-observation-planner.ts",
     "test:source-disagreement-missions": "node --import tsx scripts/verify-source-disagreement-field-missions.ts",
     "test:atlas-review-promotion": "node --import tsx scripts/verify-atlas-review-promotion.ts",
     "test:atlas-ai-evidence": "node --import tsx scripts/verify-atlas-ai-evidence.ts",

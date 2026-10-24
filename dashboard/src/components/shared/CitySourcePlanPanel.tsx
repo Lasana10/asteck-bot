@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {DatabaseZap,FileUp,Globe2,RefreshCw,Satellite} from 'lucide-react';
 import {supabase} from '../../supabaseClient';
+import {EarthObservationDiscovery} from './EarthObservationDiscovery';
 
 type SourcePlan={source_key:string;display_name:string;provider_name?:string;data_mode:string;adapter_key?:string;plan_state:string;priority:number;feature_classes?:string[];last_run_at?:string|null;last_success_at?:string|null;last_result?:any;durable_storage_allowed:boolean;usage_constraints?:string|null};
 type Snapshot={city?:any;bounds?:{south:number;west:number;north:number;east:number}|null;summary?:Record<string,number>;sources?:SourcePlan[]};
@@ -54,6 +55,7 @@ export function CitySourcePlanPanel({cityKey='cm-yaounde'}:{cityKey?:string}){
   <div className="mt-4 grid gap-3 sm:grid-cols-4">
    <Metric label="Ready" value={s.ready||0}/><Metric label="Reference only" value={s.reference_only||0}/><Metric label="Needs bulk extract" value={s.needs_bulk_extract||0}/><Metric label="Needs credentials" value={s.needs_credentials||0}/>
   </div>
+  <EarthObservationDiscovery cityKey={cityKey} bounds={data.bounds||null}/>
   {batchSources.length>0&&<div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.04] p-4">
    <div className="flex items-start gap-3"><FileUp className="mt-0.5 h-4 w-4 text-cyan-200"/><div><p className="text-[9px] font-black uppercase tracking-widest text-cyan-200">Open-source extract gateway</p><p className="mt-1 text-xs text-white/45">Upload a normalized Overture/open-dataset extract. AFAT chunks large files, preserves provenance and stores candidate evidence only.</p></div></div>
    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_2fr]">
