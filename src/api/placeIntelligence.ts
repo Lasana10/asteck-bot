@@ -232,10 +232,16 @@ async function loadDiscoveryPlaces(queryText: string, city: string) {
   if (!/^[a-z][a-z -]{1,70}$/.test(normalizedCity)) {
     throw new Error('Unsupported destination city');
   }
+  const cityKey = 'cm-' + normalizedCity.replace(/\s+/g, '-');
+  const { data: cityProfile, error: cityError } = await supabase.from('afat_city_profiles')
+    .select('city_name').eq('city_key', cityKey).eq('status', 'active').maybeSingle();
+  if (cityError || !cityProfile?.city_name) throw new Error('Active AFAT destination city not available');
+  const authoritativeCityName = String(cityProfile.city_name);
+  const cityVariants = [...new Set([authoritativeCityName, normalizedCity])];
   const detailColumns = 'id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,destination_kind,reachability_state,local_directions,afat_meeting_points(*),afat_access_points(*)';
   if (queryText.trim()) {
-    if (queryText.length < 2 || queryText.length > 120) return { places: [] as any[], searchMode: 'invalid_query' as const };
-    const key = 'cm-' + normalizedCity.replace(/\s+/g, '-');
+    if (queryText.length < 2 || queryText.length > 120) return { places: [] as any[], searchMode: 'invalid_query' as const, cityVariants };
+    const key = cityKey;
     const { data, error } = await supabase.rpc('afat_search_places', {
       p_city_key: key, p_query: queryText, p_limit: 50,
     });
@@ -244,19 +250,19 @@ async function loadDiscoveryPlaces(queryText: string, city: string) {
       ? [...new Set<string>(data.places.map((x: any) => String(x?.id || '')).filter((id: string) =>
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))]
       : [];
-    if (!ids.length) return { places: [] as any[], searchMode: 'fuzzy_atlas' as const };
+    if (!ids.length) return { places: [] as any[], searchMode: 'fuzzy_atlas' as const, cityVariants };
     const { data: enriched, error: detailError } = await supabase.from('afat_places')
-      .select(detailColumns).in('id', ids).ilike('city', normalizedCity).neq('status', 'retired');
+      .select(detailColumns).in('id', ids).neq('status', 'retired');
     if (detailError) throw detailError;
     // Retain the database geocoder ranking in addition to the UX evidence scores.
     const rank = new Map(ids.map((id, index) => [id, index]));
     return { places: (enriched || []).map((p: any) => ({ ...p, _search_rank: rank.get(p.id) ?? 999 })),
-      searchMode: 'fuzzy_atlas' as const };
+      searchMode: 'fuzzy_atlas' as const, cityVariants };
   }
   const { data, error } = await supabase.from('afat_places').select(detailColumns)
-    .ilike('city', normalizedCity).neq('status', 'retired').limit(800);
+    .in('city', cityVariants).neq('status', 'retired').limit(800);
   if (error) throw error;
-  return { places: data || [], searchMode: 'nearby' as const };
+  return { places: data || [], searchMode: 'nearby' as const, cityVariants };
 }
 
 router.get('/place/discover', async (req: Request, res: Response) => {
@@ -267,13 +273,10 @@ router.get('/place/discover', async (req: Request, res: Response) => {
     const longitude = finiteCoordinate(req.query.lon, -180, 180);
     const limit = Math.min(Math.max(Number(req.query.limit || 8), 1), 12);
 
-    const [{ places, searchMode }, { data: ledgerPlaces, error: ledgerError }] = await Promise.all([
-      loadDiscoveryPlaces(queryText, city),
-      supabase.from('afat_address_ledger')
-        .select('id,canonical_label,aliases,description,city,zone_label,latitude,longitude,address_type,access_notes,confidence,successful_pickups,failed_pickups,status,source')
-        .ilike('city', city).in('status', ['candidate', 'verified'])
-        .limit(240),
-    ]);
+    const { places, searchMode, cityVariants } = await loadDiscoveryPlaces(queryText, city);
+    const { data: ledgerPlaces, error: ledgerError } = await supabase.from('afat_address_ledger')
+      .select('id,canonical_label,aliases,description,city,zone_label,latitude,longitude,address_type,access_notes,confidence,successful_pickups,failed_pickups,status,source')
+      .in('city', cityVariants).in('status', ['candidate', 'verified']).limit(240);
     if (ledgerError) throw ledgerError;
 
     const scoredCurated = (places || []).map((place: any) => {
@@ -404,10 +407,10 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Describe the destination with at least three characters.' });
     }
 
-    const { places } = await loadDiscoveryPlaces(query, city);
+    const { places, cityVariants } = await loadDiscoveryPlaces(query, city);
     const { data: ledgerPlaces, error: ledgerError } = await supabase
       .from('afat_address_ledger').select('*')
-      .ilike('city', city).in('status', ['candidate', 'verified']).limit(200);
+      .in('city', cityVariants).in('status', ['candidate', 'verified']).limit(200);
     if (ledgerError) throw ledgerError;
 
     const curatedCandidates = (places || [])
