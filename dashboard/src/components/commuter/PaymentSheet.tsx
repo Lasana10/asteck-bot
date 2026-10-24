@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import {paymentPhaseFromBooking,type PaymentPhase} from '../../services/paymentRecovery';
 import { ArrowLeft, CreditCard, Check, Loader2, Shield } from 'lucide-react';
-import { fetchBookingStatus, fetchPaymentProviderReadiness, finalizeBookingPayment, startBookingMobilePayment } from '../../supabaseClient';
+import { fetchBookingStatus, fetchPaymentProviderReadiness, finalizeBookingPayment, startBookingMobilePayment, reconcileBookingPayment } from '../../supabaseClient';
 
 interface Props {
   amount: number;
@@ -20,6 +21,46 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
   const [errorText, setErrorText] = useState('');
   const [providerReadiness, setProviderReadiness] = useState<any>(null);
   const [pendingTransactionId, setPendingTransactionId] = useState('');
+  const [serverPhase,setServerPhase]=useState<PaymentPhase|'checking'>('checking');
+  const completionDelivered=useRef(false);
+
+  const deliverConfirmed=(method:string,transactionId:string)=>{
+    if(completionDelivered.current)return;
+    completionDelivered.current=true;
+    setCompleted(true);
+    setProcessing(false);
+    onPaymentComplete(method,transactionId);
+  };
+  const applyServerBooking=(booking:any)=>{
+    const state=paymentPhaseFromBooking(booking);
+    setServerPhase(state.phase);
+    setPendingTransactionId(state.phase==='pending'?state.transactionId:'');
+    if(state.phase==='paid'){
+      if(!state.transactionId){setErrorText('Payment confirmed but no server transaction reference is available. Contact AFAT support.');return state;}
+      deliverConfirmed(selectedMethod||'mobile_money',state.transactionId);
+    }
+    if(state.phase==='cash_due')deliverConfirmed('cash',state.transactionId);
+    return state;
+  };
+  const refreshBooking=async()=>{
+    if(!bookingId)return;
+    const {data,error}=await fetchBookingStatus(bookingId);
+    if(error||!data?.booking){setServerPhase('unknown');setErrorText('Booking status could not be verified. No additional payment will be started.');return;}
+    applyServerBooking(data.booking);
+  };
+  useEffect(()=>{
+    let active=true;
+    completionDelivered.current=false;
+    setServerPhase('checking');
+    setPendingTransactionId('');
+    if(bookingId)void fetchBookingStatus(bookingId).then(({data,error})=>{
+      if(!active)return;
+      if(error||!data?.booking){setServerPhase('unknown');setErrorText('Booking payment state is unavailable. Check status before any new payment.');return;}
+      applyServerBooking(data.booking);
+    });
+    return()=>{active=false;};
+  },[bookingId]);
+
 
   useEffect(() => {
     fetchPaymentProviderReadiness().then(({ data }) => {
@@ -35,76 +76,75 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
       ? 'Confirmation fournisseur requise'
       : 'Mode local + registre de paiement';
 
-  const handlePay = async () => {
-    if (!selectedMethod || !bookingId) {
-      setErrorText('Reservation introuvable. Veuillez recommencer la procedure.');
-      return;
-    }
-
-    setProcessing(true);
-    setErrorText('');
-
-    try {
-      if (selectedMethod !== 'cash') {
-        const { data: checkout, error: checkoutError } = await startBookingMobilePayment({
-          bookingId,
-          phone,
-          mobileNetwork: selectedMethod,
+  const handlePay=async()=>{
+    if(!selectedMethod||!bookingId||processing||serverPhase!=='ready')return;
+    setProcessing(true);setErrorText('');
+    try{
+      // Confirm server transaction state *before* creating any provider request.
+      const {data:latest,error:lookupError}=await fetchBookingStatus(bookingId);
+      if(lookupError||!latest?.booking)throw new Error('Unable to confirm booking before collecting money.');
+      const guard=paymentPhaseFromBooking(latest.booking);
+      if(guard.phase!=='ready'){
+        applyServerBooking(latest.booking);
+        setErrorText('The booking payment state changed. No new collection request was created.');
+        setProcessing(false);return;
+      }
+      setServerPhase('checking');
+      if(selectedMethod!=='cash'){
+        const {data:checkout,error:checkoutError}=await startBookingMobilePayment({
+          bookingId,phone,mobileNetwork:selectedMethod,
         });
-        if (checkoutError || !checkout?.transactionId) {
-          throw new Error(checkoutError?.message || 'Le paiement mobile money n’a pas pu demarrer.');
-        }
+        if(checkoutError||!checkout?.transactionId)
+          throw new Error(checkoutError?.message||'Payment collection initiation could not be confirmed.');
         setPendingTransactionId(checkout.transactionId);
-        await checkPendingPayment(checkout.transactionId, true);
+        setServerPhase('pending');
+        await checkPendingPayment(checkout.transactionId,true);
         return;
       }
-
-      const { data: finalizeData, error } = await finalizeBookingPayment(bookingId, selectedMethod);
-      if (error || !finalizeData?.success) {
-        throw new Error(error?.message || 'Impossible de selectionner le paiement en especes.');
-      }
-
-      setProcessing(false);
-      setCompleted(true);
-      const serverReference = String(finalizeData.transaction_id || '');
-      setTimeout(() => {
-        onPaymentComplete(selectedMethod, serverReference);
-      }, 1200);
-    } catch (err: any) {
-      console.error('[AFAT] Payment finalization failed:', err);
-      setProcessing(false);
-      setErrorText(err.message || 'Impossible de finaliser le paiement.');
-    }
+      const {data:finalizeData,error}=await finalizeBookingPayment(bookingId,'cash');
+      if(error||!finalizeData?.success)throw new Error(error?.message||'Cash payment selection not confirmed.');
+      await refreshBooking();
+    }catch(err:any){
+      // An upstream timeout may occur AFTER the provider request was reserved.
+      // Never turn an uncertain response into permission to charge again.
+      const {data}=await fetchBookingStatus(bookingId);
+      if(data?.booking){
+        const state=applyServerBooking(data.booking);
+        if(state.phase!=='ready'){setErrorText('Payment status is being reconciled; do not pay twice.');setProcessing(false);return;}
+      }else setServerPhase('unknown');
+      setErrorText(err?.message||'The payment could not be verified.');
+    }finally{setProcessing(false);}
   };
 
-  const checkPendingPayment = async (transactionId: string, keepPolling = false) => {
-    if (!bookingId || !selectedMethod || selectedMethod === 'cash') return;
-    setProcessing(true);
-    setErrorText('');
-
-    const attempts = keepPolling ? 30 : 1;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const { data, error } = await fetchBookingStatus(bookingId);
-      const booking = data?.booking;
-      if (!error && ['paid', 'paid_momo'].includes(String(booking?.payment_status))) {
-        setProcessing(false);
-        setCompleted(true);
-        setTimeout(() => onPaymentComplete(selectedMethod, transactionId), 900);
-        return;
-      }
-      if (!error && booking?.payment_status === 'failed') {
-        setProcessing(false);
-        setPendingTransactionId('');
-        setErrorText('Le fournisseur a refuse le paiement. Aucun billet paye n’a ete emis.');
-        return;
-      }
-      if (attempt < attempts - 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 2000));
-      }
+  const checkPendingPayment=async(transactionId:string,keepPolling=false)=>{
+    if(!bookingId)return;
+    setProcessing(true);setErrorText('');
+    if(!keepPolling){
+      // Explicit provider-side reconciliation can repair a missing webhook.
+      // Only a booking marked paid by the server can issue a ticket.
+      await reconcileBookingPayment(bookingId);
     }
-
+    const attempts=keepPolling?30:1;
+    for(let attempt=0;attempt<attempts;attempt++){
+      const {data,error}=await fetchBookingStatus(bookingId);
+      if(!error&&data?.booking){
+        const result=paymentPhaseFromBooking(data.booking);
+        if(result.phase==='paid'||result.phase==='cash_due'){
+          applyServerBooking(data.booking);setProcessing(false);return;
+        }
+        if(result.phase==='ready'||result.phase==='blocked'){
+          setServerPhase(result.phase);
+          setPendingTransactionId('');
+          setErrorText(result.phase==='ready'?'The provider attempt ended without payment. You may select a new method.':'This booking is no longer payable.');
+          setProcessing(false);return;
+        }
+        setServerPhase('pending');
+        if(result.transactionId)setPendingTransactionId(result.transactionId);
+      }
+      if(attempt<attempts-1)await new Promise(resolve=>window.setTimeout(resolve,2000));
+    }
     setProcessing(false);
-    setErrorText('La demande a ete envoyee, mais AFAT attend encore la confirmation du fournisseur. Ne payez pas une seconde fois; utilisez “Verifier le paiement”.');
+    setErrorText('Payment is still awaiting confirmed provider settlement. Do not initiate a second collection. You can recheck this booking later.');
   };
 
   if (completed) {
@@ -147,14 +187,15 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
         {errorText && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
 
-        {pendingTransactionId && (
+        {serverPhase==='pending' && (
           <div className="mb-4 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-sm text-blue-100">
             <p className="font-black">Confirmation du fournisseur en attente</p>
-            <p className="mt-1 text-xs text-blue-100/70">Référence: {pendingTransactionId}</p>
-            <button type="button" disabled={processing} onClick={() => checkPendingPayment(pendingTransactionId)} className="mt-3 rounded-xl border border-blue-300/20 bg-blue-400/10 px-4 py-2 text-xs font-black uppercase tracking-widest">Vérifier le paiement</button>
+            <p className="mt-1 text-xs text-blue-100/70">{pendingTransactionId?`Référence: ${pendingTransactionId}`:'Server collection pending · reference being resolved'}</p>
+            <button type="button" disabled={processing} onClick={() => void checkPendingPayment(pendingTransactionId)} className="mt-3 rounded-xl border border-blue-300/20 bg-blue-400/10 px-4 py-2 text-xs font-black uppercase tracking-widest">Vérifier le paiement</button>
           </div>
         )}
 
+        {serverPhase==='unknown'&&<button type="button" disabled={processing} onClick={()=>void refreshBooking()} className="mb-4 w-full rounded-xl border border-amber-300/20 p-3 text-xs text-amber-100">Verify booking status before another collection</button>}
         <div className="space-y-3 mb-6">
           <button onClick={() => setSelectedMethod('mtn_momo')} className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${selectedMethod === 'mtn_momo' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/5 bg-slate-900/50 hover:border-white/10'}`}>
             <div className="w-12 h-12 bg-yellow-500 rounded-xl flex items-center justify-center text-black font-black text-sm">MTN</div>
@@ -188,7 +229,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         <div className="flex-1" />
         <div className="flex items-center justify-center gap-2 mb-4 text-slate-500"><Shield className="w-4 h-4" /><span className="text-[10px] font-mono uppercase tracking-widest">{securityBadge}</span></div>
 
-        <button onClick={handlePay} disabled={!selectedMethod || processing || Boolean(pendingTransactionId) || (selectedMethod !== 'cash' && phone.length < 8)} className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${selectedMethod && !processing ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
+        <button onClick={handlePay} disabled={!selectedMethod || processing || serverPhase!=='ready' || (selectedMethod !== 'cash' && phone.length < 8)} className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${selectedMethod && !processing ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
           {processing ? <><Loader2 className="w-6 h-6 animate-spin" />Traitement en cours...</> : <><CreditCard className="w-6 h-6" />{selectedMethod === 'cash' ? `CONFIRMER ESPÈCES · ${amount} FCFA` : `PAYER ${amount} FCFA`}</>}
         </button>
       </main>
