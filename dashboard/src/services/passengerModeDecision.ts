@@ -39,19 +39,20 @@ export function choosePassengerMode(
     .flatMap(([mode,route]) => {
       const observedSupply = online ? observedTransportSupply(preflight,mode) : 0;
       // A motor route without real observed availability is a path, not a live transport offer.
-      if (mode !== 'walk' && observedSupply === 0) return [];
+      if (mode !== 'walk' && mode !== 'bike' && observedSupply === 0) return [];
       const etaMinutes = Number.isFinite(route.eta_seconds) && Number(route.eta_seconds) > 0
         ? Math.ceil(Number(route.eta_seconds) / 60) : null;
-      const baseline = route.route_source === 'osrm' || route.route_source === 'google';
-      const isObserved = mode !== 'walk' && !baseline && etaMinutes !== null;
+      const baseline = route.route_source === 'osrm' || route.route_source === 'google' || route.route_source === 'valhalla';
+      const isObserved = mode !== 'walk' && mode !== 'bike' && !baseline && etaMinutes !== null;
       return [{
         mode, label: LABELS[mode], observedSupply, etaMinutes,
-        bookable: mode !== 'walk',
+        bookable: mode !== 'walk' && mode !== 'bike',
         confidence: isObserved ? 'observed' as const : 'limited' as const,
         reason: [
           etaMinutes === null ? 'ETA not yet supported by evidence' :
             `${etaMinutes} min ${baseline ? 'road baseline, without live traffic' : 'route estimate'}`,
           mode === 'walk' ? 'walking path only — crossing and access safety not verified' :
+          mode === 'bike' ? 'cycling path only — road legality, crossing and safe access not verified' :
             `${observedSupply} nearby transport option${observedSupply===1?'':'s'} observed; booking is not guaranteed`,
         ].join(' · '),
       }];
@@ -71,6 +72,7 @@ export function choosePassengerMode(
 
 export function passengerSupplyNotice(mode: AfatRouteMode, preflight: PassengerPreflight, online: boolean) {
   if (mode === 'walk') return 'Walking needs no vehicle; the route is not a field-verified safe crossing.';
+  if (mode === 'bike') return 'Self-cycling route; AFAT does not offer a booked bicycle or guarantee road safety.';
   if (!online) return 'Offline: transport availability and fares cannot be confirmed.';
   const current = preflight[mode];
   if (!current) return 'Transport availability is not confirmed. A request is not an accepted booking.';

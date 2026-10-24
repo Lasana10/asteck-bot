@@ -90,6 +90,11 @@ function routeMessageFor(route: AfatCanonicalRoute | null) {
   if (route.status === 'ok') {
     const km = Number(route.distance_m || 0) / 1000;
     const distance = km > 0 ? ` · ${km.toFixed(km >= 10 ? 0 : 1)} km` : '';
+    if (route.route_source === 'valhalla') {
+      const mode = route.mode === 'bike' ? 'Bicycle' : 'Motorcycle';
+      const baseline = route.eta_seconds ? ' · approximately '+Math.ceil(route.eta_seconds/60)+' min baseline' : '';
+      return mode+' network route'+distance+baseline+'. Based on mapped roads and paths, not confirmed access, legal use, safe crossings, live conditions or available transport.';
+    }
     if (route.route_source === 'osrm' || route.route_source === 'google') {
       const walking=route.mode==='walk';
       const provider = walking ? 'OpenStreetMap walking' : route.route_source === 'osrm' ? 'OSRM driving' : 'Google driving';
@@ -281,7 +286,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       setRouteLoading(false);
       return;
     }
-    const modes: AfatRouteMode[] = navigationActive ? [vehicleType] : ['walk', 'moto', 'car', 'minibus'];
+    const modes: AfatRouteMode[] = navigationActive ? [vehicleType] : ['walk', 'bike', 'moto', 'car', 'minibus'];
     setRouteLoading(true);
     setRouteMessage('');
     Promise.all(modes.map(async (mode) => {
@@ -965,11 +970,11 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
           </button>
         )}
         <div className="mb-2 flex items-end justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[0.18em] text-white/35">Ways to move</p><p className="mt-1 text-xs text-white/45">Connected routes are not necessarily available rides. Availability and crossing safety remain separate evidence.</p></div>{routeLoading && <span className="text-[9px] font-black uppercase text-cyan-200">Checking routes…</span>}</div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {([['walk', Footprints, 'Walk'], ['moto', Bike, 'Moto'], ['car', Car, 'Taxi / car'], ['minibus', Navigation2, 'Shared']] as const).map(([mode, Icon, label]) => {
-            const option = routeOptions[mode]; const available = option?.status === 'ok'; const selected = vehicleType === mode; const km = Number(option?.distance_m || 0) / 1000; const dispatchable = mode !== 'walk';
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {([['walk', Footprints, 'Walk'], ['bike', Bike, 'Cycle'], ['moto', Bike, 'Moto'], ['car', Car, 'Taxi / car'], ['minibus', Navigation2, 'Shared']] as const).map(([mode, Icon, label]) => {
+            const option = routeOptions[mode]; const available = option?.status === 'ok'; const selected = vehicleType === mode; const km = Number(option?.distance_m || 0) / 1000; const dispatchable = mode !== 'walk' && mode !== 'bike';
             return <button key={mode} type="button" disabled={!available} onClick={() => { setVehicleType(mode); setCanonicalRoute(option || null); setRouteMessage(routeMessageFor(option || null)); }} className={`rounded-2xl border p-3 text-left transition disabled:opacity-35 ${selected ? 'border-cyan-300/45 bg-cyan-400/12' : 'border-white/10 bg-white/[0.025]'}`}>
-              <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} /><p className="mt-3 text-xs font-black text-white">{label}</p><p className="mt-1 text-[9px] leading-4 text-white/40">{!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + (option.route_source==='osrm'||option.route_source==='google'?' min baseline':' min evidence ETA') : option.eta_profile_coverage ? Math.round(Number(option.eta_profile_coverage) * 100) + '% ETA evidence' : 'ETA learning'}` : 'No connected path'}</p>
+              <Icon className={`h-4 w-4 ${selected ? 'text-cyan-200' : 'text-white/45'}`} /><p className="mt-3 text-xs font-black text-white">{label}</p><p className="mt-1 text-[9px] leading-4 text-white/40">{!option ? 'Checking…' : available ? `${km ? km.toFixed(km >= 10 ? 0 : 1) + ' km' : 'Connected'} · ${option.eta_seconds ? Math.ceil(option.eta_seconds / 60) + (option.route_source==='osrm'||option.route_source==='google'||option.route_source==='valhalla'?' min baseline':' min evidence ETA') : option.eta_profile_coverage ? Math.round(Number(option.eta_profile_coverage) * 100) + '% ETA evidence' : 'ETA learning'}` : 'No connected path'}</p>
               {available && dispatchable && preflight[mode] && <div className="mt-2 space-y-1 text-[8px] font-bold uppercase tracking-wide"><p className={observedTransportSupply(preflight,mode) > 0 ? 'text-emerald-200' : 'text-amber-200'}>{preflight[mode]?.supply?.observed > 0 ? `${observedTransportSupply(preflight,mode)} transport option(s) observed` : 'No live supply observed'}</p><p className="text-white/35">{preflight[mode]?.fare?.state === 'historical_range' ? `${preflight[mode].fare.low}–${preflight[mode].fare.high} XAF historical · not final` : 'Fare evidence insufficient'}</p></div>}
             </button>;
           })}
@@ -980,7 +985,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     {selectedPlace && canonicalRoute?.status==='ok' && <ReviewedRouteEnvironment
       cityKey={cityKey} route={canonicalRoute} online={online} hasAccount={Boolean(profile?.id)}/>}
 
-    {selectedPlace && originFix && vehicleType !== 'walk' && <p role="status" className="mt-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3 py-2 text-[10px] leading-5 text-amber-100/80">{passengerSupplyNotice(vehicleType,preflight,online)}</p>}
+    {selectedPlace && originFix && vehicleType !== 'walk' && vehicleType !== 'bike' && <p role="status" className="mt-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3 py-2 text-[10px] leading-5 text-amber-100/80">{passengerSupplyNotice(vehicleType,preflight,online)}</p>}
 
     {statusText && <div className="mt-4 rounded-2xl border border-blue-400/15 bg-blue-500/8 px-4 py-3 text-xs font-semibold leading-relaxed text-blue-100/75">{statusText}</div>}
 
@@ -999,7 +1004,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       })}
       {!(selectedPlace.meeting_points || []).length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This place is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before starting navigation or requesting transport.</div>}
-      {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || vehicleType === 'walk' || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
+      {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || (vehicleType === 'walk' || vehicleType === 'bike') || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
       {profile?.id&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
        {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
