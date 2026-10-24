@@ -21,3 +21,9 @@ AFAT passengers use AFAT's own application/API, not public OSRM/Valhalla clients
 6. Deploy optional Valhalla only when the Cameroon PBF tiles have been built from AFAT's verified source, memory and provider costs are approved, and the engine is reachable solely within the private network. Test road/vehicle legality and device GPS independently.
 
 Do not confuse Cloudflare/Render deployment readiness, source control ownership or OSM licence rights with private service connectivity or field-verified navigation.
+
+## Code-enforced private OSRM cutover gate
+
+The backend now supports the opt-in `AFAT_REQUIRE_PRIVATE_OSRM=true` guard. When enabled, driving and pedestrian OSRM URL validation accepts only local loopback or private single-label Render-network names, rejects arbitrary external HTTPS origins, and disables public OSRM demo and Google Directions fallbacks for routing. It still **does not authenticate** an upstream endpoint or prove firewall isolation, and single-label private DNS must actually resolve only in the authorized network.
+
+**This flag is intentionally NOT enabled on the current Oregon backend.** Its current Cameroon car/foot routing engines are public web services in Frankfurt and cannot be assumed reachable via Render internal DNS from Oregon. First provision/authorize actual private routing endpoints or move the backend and routing engines into a proven same-network environment, verify both with real geometry and access-denial tests, then enable the flag and cut over as a single controlled release. Do not break the existing passenger navigation prematurely.

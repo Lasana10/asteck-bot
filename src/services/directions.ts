@@ -10,6 +10,8 @@ const OSRM_URL = (process.env.AFAT_OSRM_BASE_URL || '').replace(/\/+$/, '');
 const FOOT_OSRM_URL = (process.env.AFAT_OSRM_FOOT_BASE_URL || '').replace(/\/+$/, '');
 const ALLOW_DEMO = process.env.NODE_ENV !== 'production' || process.env.AFAT_ALLOW_PUBLIC_OSRM === 'true';
 const GOOGLE_OPT_IN = process.env.AFAT_GOOGLE_DIRECTIONS_FALLBACK === 'true';
+// Only enable after private car and foot backends are independently live.
+const PRIVATE_OSRM_ONLY = process.env.AFAT_REQUIRE_PRIVATE_OSRM === 'true';
 function validCoordinates(c: Coordinates): boolean {
   return Number.isFinite(c.latitude) && Number.isFinite(c.longitude) &&
     Math.abs(c.latitude) <= 90 && Math.abs(c.longitude) <= 180;
@@ -19,13 +21,17 @@ function validCoordinates(c: Coordinates): boolean {
  * workspace/region. Never allow arbitrary plaintext Internet routing targets.
  * Configuration is service-controlled, never a public API query parameter.
  */
-export function validatedOsrmEndpoint(raw: string, privateHttp = false): string | null {
+export function validatedOsrmEndpoint(raw: string, privateHttp = false, privateOnly = false): string | null {
   if (!raw.trim()) return null;
   try {
     const u = new URL(raw);
     if (u.username || u.password || u.search || u.hash || u.pathname !== '/') return null;
     const local = ['localhost', '127.0.0.1'].includes(u.hostname);
     const renderPrivate = privateHttp && /^[a-z][a-z0-9-]*-[a-z0-9]+$/.test(u.hostname);
+    const internalName = /^[a-z][a-z0-9-]*-[a-z0-9]+$/.test(u.hostname) && !u.hostname.includes('.');
+    // Opt-in private cutover must not exfiltrate route points to arbitrary
+    // public HTTPS domains just because TLS is present.
+    if (privateOnly && !local && !internalName) return null;
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && (local || renderPrivate))) return null;
     return u.origin;
   } catch { return null; }
@@ -34,8 +40,8 @@ function routingEndpoint(mode: 'driving' | 'foot'): string | null {
   // Walking requires a real foot-built graph. Never silently reuse car or public
   // demo routing for pedestrian safety or accessibility estimates.
   const raw = mode === 'foot' ? FOOT_OSRM_URL : OSRM_URL;
-  if (!raw) return mode === 'driving' && ALLOW_DEMO ? 'https://router.project-osrm.org' : null;
-  return validatedOsrmEndpoint(raw, process.env.AFAT_ALLOW_PRIVATE_OSRM_HTTP === 'true');
+  if (!raw) return !PRIVATE_OSRM_ONLY && mode === 'driving' && ALLOW_DEMO ? 'https://router.project-osrm.org' : null;
+  return validatedOsrmEndpoint(raw, process.env.AFAT_ALLOW_PRIVATE_OSRM_HTTP === 'true', PRIVATE_OSRM_ONLY);
 }
 
 export interface RoadManeuver { latitude:number; longitude:number; instruction:string; distanceMeters:number; kind:string; }
@@ -81,7 +87,7 @@ export class DirectionsService {
     if (travelMode === 'foot') return null;
     // Preserve the legacy configured Google route path until AFAT operates OSRM.
     // Once OSRM is configured, metered failover remains explicit opt-in.
-    return options.allowMeteredFallback !== false && GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
+    return !PRIVATE_OSRM_ONLY && options.allowMeteredFallback !== false && GOOGLE_MAPS_KEY && (!OSRM_URL || GOOGLE_OPT_IN)
       ? this.googleDirections(origin, destination) : null;
   }
 

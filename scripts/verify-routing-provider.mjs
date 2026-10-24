@@ -44,6 +44,12 @@ try {
   assert.equal(validatedOsrmEndpoint('http://routing.example.org', true), null, 'Never permit plaintext public Internet');
   assert.equal(validatedOsrmEndpoint('http://afat-osrm-abc123:5000/route', true), null, 'OSRM backend origin must be exact');
   assert.equal(validatedOsrmEndpoint('https://routing.example.org'), 'https://routing.example.org');
+  assert.equal(validatedOsrmEndpoint('https://routing.example.org',true,true),null,'Private cutover must not send coordinates to arbitrary HTTPS domains');
+  assert.equal(validatedOsrmEndpoint('https://8.8.8.8',true,true),null);
+  assert.equal(validatedOsrmEndpoint('http://192.168.1.12:5000',true,true),null);
+  assert.equal(validatedOsrmEndpoint('http://afat-osrm-abc123:5000',true,true),'http://afat-osrm-abc123:5000');
+  assert.equal(validatedOsrmEndpoint('https://afat-osrm-abc123',false,true),'https://afat-osrm-abc123');
+  assert.equal(validatedOsrmEndpoint('http://127.0.0.1:5000',false,true),'http://127.0.0.1:5000');
   const a = { latitude: 3.866, longitude: 11.516 };
   const b = { latitude: 3.875, longitude: 11.526 };
 
