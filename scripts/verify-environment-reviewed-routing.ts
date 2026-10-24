@@ -8,4 +8,10 @@ assert.ok(!register.includes('perform public.afat_refresh_environment_overlays('
 assert.ok(ui.includes("supabase.rpc('afat_environment_review_queue'"));
 assert.ok(ui.includes("supabase.rpc('afat_review_environment_signal'"));
 assert.ok(plan.includes('<EnvironmentalEvidenceReview cityKey={cityKey}/>'));
+const corridor=readFileSync('supabase/migrations/20261024180000_afat_reviewed_environment_passenger_corridor.sql','utf8');
+const passenger=readFileSync('dashboard/src/components/commuter/PassagePlanner.tsx','utf8');
+const client=readFileSync('dashboard/src/services/reviewedEnvironmentRoute.ts','utf8');
+for(const token of ["(select auth.uid()) is null","jsonb_array_length(p_route_points) not between 2 and 500","signal.provenance->>'review_state'='approved'","signal.provenance->'review'->>'reviewer_id' is not null","o.expires_at>now()","public.st_dwithin(edge.geometry::public.geography,v_line::public.geography,75)","road_passability_verified',false","provider_rerouted',false","revoke all on function public.afat_reviewed_environment_route_advisory"])assert.ok(corridor.includes(token),token);
+assert.ok(passenger.includes('<ReviewedRouteEnvironment'));
+assert.ok(client.includes("supabase.rpc('afat_reviewed_environment_route_advisory'"));
 console.log('PASS AFAT environment evidence intake -> independent review -> bounded route overlays only after approval');
