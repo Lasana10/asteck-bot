@@ -53,6 +53,7 @@ jobs:
       - run: npm run test:place-candidate-contract
       - run: npm run test:private-visual-evidence
       - run: npm run test:routing
+      - run: npm run test:valhalla-routing
       - run: bash -n routing/cameroon/prepare.sh
       - run: node --check routing/cameroon/verify.mjs
       - run: docker compose -f routing/cameroon/docker-compose.yml config --quiet

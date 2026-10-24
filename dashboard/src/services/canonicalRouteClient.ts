@@ -18,7 +18,7 @@ export type AfatCanonicalRouteSegment = {
 
 export type AfatCanonicalRoute = {
   status: 'ok' | 'unavailable';
-  route_source?: 'afat_atlas' | 'osrm' | 'google';
+  route_source?: 'afat_atlas' | 'osrm' | 'google' | 'valhalla';
   traffic_aware?: boolean;
   maneuvers?: AfatRoadManeuver[];
   mode: AfatRouteMode;
@@ -77,13 +77,13 @@ export function isUsableCanonicalRoute(value: unknown, mode: AfatRouteMode): val
 // For unreviewed road coverage, use separate real Cameroon OSRM car and foot
 // profiles. Foot graph does not verify safe crossings or accessibility.
 async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRoute | null> {
-  if (input.mode !== 'car' && input.mode !== 'walk') return null;
+  if (!['car','walk','bike','moto'].includes(input.mode)) return null;
   const query = new URLSearchParams({
     origin_lat: String(input.originLatitude),
     origin_lon: String(input.originLongitude),
     destination_lat: String(input.destinationLatitude),
     destination_lon: String(input.destinationLongitude),
-    mode: input.mode === 'walk' ? 'foot' : 'driving',
+    mode: input.mode === 'walk' ? 'foot' : input.mode === 'bike' ? 'bicycle' : input.mode === 'moto' ? 'motorcycle' : 'driving',
   });
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/navigation/route?${query}`, {
@@ -91,9 +91,11 @@ async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRo
     });
     if (!response.ok) return null;
     const data = await response.json();
-    if (data?.source !== 'osrm' && data?.source !== 'google') return null;
-    if(data?.travel_mode !== (input.mode === 'walk' ? 'foot' : 'driving'))return null;
+    if (data?.source !== 'osrm' && data?.source !== 'google' && data?.source !== 'valhalla') return null;
+    if(data?.travel_mode !== (input.mode === 'walk' ? 'foot' : input.mode === 'bike' ? 'bicycle' : input.mode === 'moto' ? 'motorcycle' : 'driving'))return null;
     if(input.mode === 'walk' && data.source !== 'osrm')return null;
+    if((input.mode === 'bike'||input.mode === 'moto')&&data.source !== 'valhalla')return null;
+    if(input.mode === 'car' && data.source === 'valhalla')return null;
     const primary = data?.primary;
     const geometry = primary?.geometry;
     if (!geometry || geometry.type !== 'LineString' || !Array.isArray(geometry.coordinates) ||
@@ -121,10 +123,10 @@ async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRo
     return {
       status: 'ok',
       mode: input.mode,
-      route_source: data.source === 'google' ? 'google' : 'osrm',
+      route_source: data.source === 'google' ? 'google' : data.source === 'valhalla' ? 'valhalla' : 'osrm',
       traffic_aware: false,
       maneuvers,
-      reason: input.mode === 'walk' ? 'unverified_osm_pedestrian_route' : 'unverified_external_road_route',
+      reason: input.mode === 'walk' ? 'unverified_osm_pedestrian_route' : input.mode === 'bike'||input.mode === 'moto' ? 'unverified_valhalla_micromobility_route' : 'unverified_external_road_route',
       distance_m: Number.isFinite(distanceM) && distanceM >= 0 ? distanceM : undefined,
       eta_seconds: Number.isFinite(duration) && duration > 0 ? duration : null,
       eta_reason: 'baseline_no_live_traffic',

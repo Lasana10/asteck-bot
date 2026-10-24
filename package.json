@@ -37,7 +37,8 @@
     "test:smoke:production-auth": "node scripts/smoke-production-auth.mjs",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:routing:smoke": "node routing/cameroon/verify.mjs"
+    "test:routing:smoke": "node routing/cameroon/verify.mjs",
+    "test:valhalla-routing": "node --import tsx scripts/verify-valhalla-routing.ts"
   },
   "keywords": [],
   "author": "",

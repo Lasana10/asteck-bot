@@ -28,7 +28,7 @@ router.get('/navigation/route', async (req: Request, res: Response) => {
     });
   }
   const mode = req.query.mode === undefined ? 'driving' : req.query.mode;
-  if(mode !== 'driving' && mode !== 'foot')return res.status(400).json({code:'INVALID_TRAVEL_MODE',error:'Supported mode must be driving or foot.'});
+  if(mode !== 'driving' && mode !== 'foot' && mode !== 'bicycle' && mode !== 'motorcycle')return res.status(400).json({code:'INVALID_TRAVEL_MODE',error:'Supported mode must be driving, foot, bicycle or motorcycle.'});
   try {
     // A publicly reachable endpoint must not silently spend metered Google quota.
     const directions = await DirectionsService.getDirections(origin, destination, {

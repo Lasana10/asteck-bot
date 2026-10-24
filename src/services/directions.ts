@@ -1,6 +1,7 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { Coordinates } from '../types';
+import { valhallaMicromobilityDirections } from './valhallaRouting';
 
 dotenv.config();
 
@@ -54,7 +55,7 @@ export interface RouteResult { maneuvers?:RoadManeuver[];
 }
 
 export interface DirectionsResult {
-  source: 'osrm' | 'google';
+  source: 'osrm' | 'google' | 'valhalla';
   primary: RouteResult;
   alternatives: RouteResult[];
 }
@@ -67,10 +68,14 @@ export class DirectionsService {
   static async getDirections(
     origin: Coordinates,
     destination: Coordinates,
-    options: { allowMeteredFallback?: boolean; travelMode?: 'driving' | 'foot' } = {}
+    options: { allowMeteredFallback?: boolean; travelMode?: 'driving' | 'foot' | 'bicycle' | 'motorcycle' } = {}
   ): Promise<DirectionsResult | null> {
     if (!validCoordinates(origin) || !validCoordinates(destination)) return null;
     const travelMode=options.travelMode || 'driving';
+    // Preserve existing OSRM for car and foot. Only complementary modes use
+    // optional self-controlled Valhalla; never silently reroute car/foot.
+    if (travelMode === 'bicycle' || travelMode === 'motorcycle')
+      return valhallaMicromobilityDirections(origin,destination,travelMode);
     const local = await this.osrmDirections(origin, destination, travelMode);
     if (local) return local;
     if (travelMode === 'foot') return null;
