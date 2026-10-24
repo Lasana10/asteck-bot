@@ -28,7 +28,7 @@ assert.match(runtime,/cityVariants = \[\.\.\.new Set\(\[authoritativeCityName, n
 assert.match(runtime,/\.in\('city', cityVariants\)/);
 assert.doesNotMatch(runtime,/\.ilike\('city', normalizedCity\)/);
 assert.match(runtime,/const \{ places, searchMode, cityVariants \} = await loadDiscoveryPlaces/);
-assert.match(runtime,/const \{ places \} = await loadDiscoveryPlaces\(query, city\)/);
+assert.match(runtime,/const \{ places, cityVariants \} = await loadDiscoveryPlaces\(query, city\)/);
 assert.match(runtime,/search_rank: place\._search_rank/);
 assert.match(runtime,/matching_engine: searchMode/);
 assert.match(engine,/exact_alias/);
