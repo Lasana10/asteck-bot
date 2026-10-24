@@ -918,6 +918,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         destination={destinationPoint}
         meetingPoint={meetingPoint}
         accessPoint={accessPoint}
+        routeArrivalPoint={arrivalPoint}
         route={canonicalRoute}
         routeLoading={routeLoading}
         routeMessage={routeMessage}
