@@ -25,4 +25,10 @@ assert.equal(real.primary.geometry?.coordinates.length,3);
 assert.equal(parseValhallaResponse({trip:{...response.trip,legs:[{...response.trip.legs[0],shape:{type:'LineString',coordinates:[[11.516,3.866],[400,3.866]]}}]}}),null);
 assert.equal(parseValhallaResponse({trip:{...response.trip,summary:{length:0,time:0}}}),null);
 assert.equal(parseValhallaResponse({trip:{...response.trip,legs:[]}}),null);
+import {readFileSync} from 'node:fs';
+const compose=readFileSync('routing/cameroon/docker-compose.valhalla.yml','utf8');
+assert.match(compose,/ghcr\.io\/valhalla\/valhalla-scripted/);
+assert.match(compose,/\/custom_files/);
+assert.doesNotMatch(compose,/use_tiles_ignore_pbf:\s*["']?True/i,
+ 'A fresh Cameroon graph build MUST NOT ignore the available verified PBF');
 console.log('PASS opt-in Valhalla bicycle/motorcycle mapping, strict host allowlist, real geometry and fail-closed routing');

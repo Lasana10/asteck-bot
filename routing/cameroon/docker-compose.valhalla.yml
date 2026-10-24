@@ -12,7 +12,6 @@ services:
       build_tar: "True"
       server_threads: "2"
       serve_tiles: "True"
-      use_tiles_ignore_pbf: "True"
     ports:
       - "127.0.0.1:8002:8002"
     restart: unless-stopped
