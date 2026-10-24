@@ -110,3 +110,35 @@ revoke all on function public.afat_review_cross_source_field_check(uuid,text,tex
  from public,anon,authenticated;
 grant execute on function public.afat_review_cross_source_field_check(uuid,text,text)
  to authenticated,service_role;
+
+-- Review queue is scoped to the existing reviewed active city. It contains
+-- submitted evidence only and is permission-protected.
+create or replace function public.afat_cross_source_field_review_queue(
+ p_city_key text default 'cm-yaounde',p_limit integer default 30
+) returns jsonb language plpgsql security definer set search_path=''
+as $$
+declare v_city public.afat_city_profiles%rowtype; v_result jsonb;
+begin
+ if (select auth.uid()) is null or not public.afat_has_permission('map.evidence.review') then
+  raise exception 'MAP_REVIEW_PERMISSION_REQUIRED' using errcode='42501';end if;
+ select * into v_city from public.afat_city_profiles
+  where city_key=p_city_key and status='active';
+ if not found then raise exception 'ACTIVE_CITY_NOT_FOUND' using errcode='P0002';end if;
+ select coalesce(jsonb_agg(jsonb_build_object(
+  'mission_id',m.id,'title',m.title,'question',m.question,
+  'answer',m.answer,'evidence',m.evidence,'claimed_by',m.claimed_by,
+  'submitted_at',m.submitted_at,'target_edge_id',m.target_edge_id,
+  'edge_name',e.canonical_name,
+  'source_record_id',m.evidence->>'primary_source_record_id'
+ ) order by m.submitted_at desc),'[]'::jsonb) into v_result
+ from (select * from public.afat_micro_missions
+    where status='submitted' and city=v_city.city_name
+      and evidence->>'source'='licensed_cross_source_spatial_comparison'
+    order by submitted_at desc limit greatest(1,least(coalesce(p_limit,30),75))) m
+ left join public.afat_atlas_edges e on e.id=m.target_edge_id;
+ return v_result;
+end $$;
+revoke all on function public.afat_cross_source_field_review_queue(text,integer)
+ from public,anon,authenticated;
+grant execute on function public.afat_cross_source_field_review_queue(text,integer)
+ to authenticated,service_role;
