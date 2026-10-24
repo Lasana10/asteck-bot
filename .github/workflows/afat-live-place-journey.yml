@@ -1,0 +1,30 @@
+name: AFAT Live Passenger Place Journey Acceptance
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/afat-live-place-journey.yml'
+      - 'scripts/verify-live-place-journey.mjs'
+      - 'src/api/placeIntelligence.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-place-journey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only check deployed backend search and destination resolution
+        env:
+          AFAT_BACKEND_URL: https://asteck-bot.onrender.com
+        run: |
+          for attempt in $(seq 1 18); do
+            if node scripts/verify-live-place-journey.mjs; then exit 0; fi
+            echo "AFAT backend not yet serving passenger geocoder release ($attempt/18)"
+            sleep 20
+          done
+          exit 1
