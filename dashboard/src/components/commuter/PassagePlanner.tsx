@@ -700,7 +700,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       sampleCount: navigationSamples,
     });
     setResumeSnapshot(snapshot);
-    setStatusText(`Arrival detected about ${Math.round(payload.distanceM)} m from the selected arrival point. AFAT recorded this as an arrival event, not automatic map truth.`);
+    setStatusText(`You confirmed arrival about ${Math.round(payload.distanceM)} m from the selected point with recent GPS evidence. Entrance access and any operator journey completion are not independently verified.`);
     if (selectedPlace) {
       void recordAfatIntent({
         intent_type: intentType,
@@ -710,7 +710,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         movement_mode: vehicleType,
         origin_lat: payload.latitude,
         origin_lng: payload.longitude,
-        context: { execution: 'navigation_arrival', distance_to_arrival_m: payload.distanceM, runtime_samples: navigationSamples },
+        context: { execution: 'passenger_confirmed_navigation_arrival', distance_to_arrival_m: payload.distanceM, runtime_samples: navigationSamples, entrance_field_verified: false, operator_trip_complete: false },
       });
     }
   };
@@ -918,6 +918,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         destination={destinationPoint}
         meetingPoint={meetingPoint}
         accessPoint={accessPoint}
+        routeArrivalPoint={arrivalPoint}
         route={canonicalRoute}
         routeLoading={routeLoading}
         routeMessage={routeMessage}
