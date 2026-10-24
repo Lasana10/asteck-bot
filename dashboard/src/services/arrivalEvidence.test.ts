@@ -29,7 +29,7 @@ describe('AFAT real passenger arrival evidence and explicit confirmation',()=>{
   expect(same?.observations).toBe(1);
   const changed=assessArrivalCandidate({fix:position({timestampMs:now-4000}),target:{latitude:3.8661,longitude:11.516},previous:first,routeReady:true,nowMs:now});
   expect(changed?.observations).toBe(1);
-  const delayed=assessArrivalCandidate({fix:position({timestampMs:now-100}),target,previous:first,routeReady:true,nowMs:now});
+  const delayed=assessArrivalCandidate({fix:position({timestampMs:now-100}),target,previous:{...first,firstSeenMs:now-130000},routeReady:true,nowMs:now});
   expect(delayed?.observations).toBe(1);
  });
 });
