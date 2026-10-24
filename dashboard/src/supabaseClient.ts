@@ -1995,9 +1995,11 @@ export type AfatPlaceCandidate = {
   destination_kind?: string;
   reachability_state?: string;
   local_directions?: string | null;
+  place_status?: string | null;
+  evidence_status?: string | null;
+  source_only?: boolean;
+  source_key?: string | null;
 };
-
-
 
 export async function resolveAfatDestinationIntent(placeId: string, payload: {
   intent_type: 'go' | 'meet' | 'pickup' | 'dropoff' | 'send' | 'deliver' | 'board' | 'explore';

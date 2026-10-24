@@ -238,7 +238,7 @@ async function loadDiscoveryPlaces(queryText: string, city: string) {
   if (cityError || !cityProfile?.city_name) throw new Error('Active AFAT destination city not available');
   const authoritativeCityName = String(cityProfile.city_name);
   const cityVariants = [...new Set([authoritativeCityName, normalizedCity])];
-  const detailColumns = 'id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,destination_kind,reachability_state,local_directions,afat_meeting_points(*),afat_access_points(*)';
+  const detailColumns = 'id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,evidence_status,metadata,primary_source_key,destination_kind,reachability_state,local_directions,afat_meeting_points(*),afat_access_points(*)';
   if (queryText.trim()) {
     if (queryText.length < 2 || queryText.length > 120) return { places: [] as any[], searchMode: 'invalid_query' as const, cityVariants };
     const key = cityKey;
@@ -324,10 +324,14 @@ router.get('/place/discover', async (req: Request, res: Response) => {
         distance_m: distanceM == null ? null : Math.round(distanceM),
         source: 'afat_places',
         search_rank: place._search_rank ?? null,
+        place_status: String(place.status || 'unverified'),
+        evidence_status: String(place.evidence_status || 'limited'),
+        source_only: place.metadata?.source_only === true,
+        source_key: typeof place.primary_source_key === 'string' ? place.primary_source_key : null,
         meeting_points: meetingPoints,
         text_score: textScore,
         explanation: [
-          queryText ? (textScore >= 20 ? 'Strong landmark or alias match' : 'Related local place') : 'Nearby verified place',
+          queryText ? (textScore >= 20 ? 'Strong textual landmark match, not field confirmation' : 'Related local place') : 'Nearby mapped place; verification varies',
           distanceM == null ? 'Distance unavailable until a start point is known' : `${Math.round(distanceM)} m from your start point`,
           historyScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup history',
         ],
@@ -443,6 +447,10 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           id: place.id,
           place_ref: place.place_ref,
           search_rank: place._search_rank ?? null,
+          place_status: String(place.status || 'unverified'),
+          evidence_status: String(place.evidence_status || 'limited'),
+          source_only: place.metadata?.source_only === true,
+          source_key: typeof place.primary_source_key === 'string' ? place.primary_source_key : null,
           destination_kind: place.destination_kind || 'place',
           reachability_state: place.reachability_state || 'learning',
           local_directions: place.local_directions || null,
@@ -459,7 +467,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           successful_pickups: place.successful_pickups || 0,
           text_score: textScore,
           explanation: [
-            textScore >= 20 ? 'Strong landmark or alias match' : 'Partial local description match',
+            textScore >= 20 ? 'Strong textual landmark match, not field confirmation' : 'Partial local description match',
             cityScore ? `Matches ${place.city}` : 'Outside the preferred city',
             evidenceScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup evidence',
             accessPenalty ? 'Vehicle access may be difficult' : 'No strong access warning',
