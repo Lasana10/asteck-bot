@@ -29,6 +29,6 @@ import {readFileSync} from 'node:fs';
 const compose=readFileSync('routing/cameroon/docker-compose.valhalla.yml','utf8');
 assert.match(compose,/ghcr\.io\/valhalla\/valhalla-scripted/);
 assert.match(compose,/\/custom_files/);
-assert.doesNotMatch(compose,/use_tiles_ignore_pbf:\s*["']?True/i,
- 'A fresh Cameroon graph build MUST NOT ignore the available verified PBF');
+assert.match(compose,/use_tiles_ignore_pbf:\s*["']?False/i,
+ 'Valhalla defaults to True; PBF rebuilds must explicitly override this');
 console.log('PASS opt-in Valhalla bicycle/motorcycle mapping, strict host allowlist, real geometry and fail-closed routing');
