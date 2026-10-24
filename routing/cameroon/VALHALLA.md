@@ -13,3 +13,9 @@ This local trial may require >4GB RAM, disk space and time to build. Do NOT assu
 After a real route benchmark and authorized service provisioning, configure AFAT backend `AFAT_VALHALLA_ENABLED=true` and `AFAT_VALHALLA_BASE_URL` with the actual authorized HTTPS or same-network private service hostname. For private HTTP only, explicitly set `AFAT_ALLOW_PRIVATE_VALHALLA_HTTP=true`. An app backend on Render cannot reach your local loopback address.
 
 Always preserve existing OSRM car/foot and Atlas routing. Routes are not safety verification, live traffic, licensed transit supply, GTFS service, or confirmed passenger transport. Benchmark geometry, p95 time, memory, legal mode tags, field entrance and GNSS evidence prior to acceptance.
+
+## Backend private-network enforcement
+
+AFAT's server rejects Valhalla URLs pointing to public HTTPS domains, public IPs, LAN IPs or URLs with credentials/extra paths. Only loopback (same-host) and authorized single-label private service hostnames can be configured. A private service must be in the **same actual network/workspace/region** as AFAT's backend. Merely calling a public URL from the backend is not private routing.
+
+Do not set `AFAT_VALHALLA_ENABLED=true` until a legitimate private service is reachable and real Cameroon route probes pass. Never expose `/route` publicly or assume a Render free web service is private.

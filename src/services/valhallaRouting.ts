@@ -14,8 +14,12 @@ export function validatedValhallaBase(raw:string, allowPrivateHttp=false):string
     const u=new URL(raw);
     if(u.username||u.password||u.search||u.hash||u.pathname!=='/')return null;
     const local=['localhost','127.0.0.1'].includes(u.hostname);
-    const renderPrivate=allowPrivateHttp&&/^[a-z][a-z0-9-]*-[a-z0-9]+$/.test(u.hostname);
-    if(u.protocol!=='https:' && !(u.protocol==='http:'&&(local||renderPrivate)))return null;
+    // Never send passenger coordinates to arbitrary public HTTPS routing APIs.
+    // Render's single-label host is reachable only within the authorized private
+    // network; loopback supports a colocated local/sidecar instance.
+    const privateHost=/^[a-z][a-z0-9-]*-[a-z0-9]+$/.test(u.hostname) && !u.hostname.includes('.');
+    if(!local&&!privateHost)return null;
+    if(u.protocol!=='https:' && !(u.protocol==='http:'&&(local||(privateHost&&allowPrivateHttp))))return null;
     return u.origin;
   }catch{return null;}
 }
