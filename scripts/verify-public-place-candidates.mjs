@@ -36,3 +36,14 @@ assert.match(engine,/fuzzy_alias/);
 assert.match(engine,/name_prefix/);
 assert.match(engine,/limit greatest\(1,least\(coalesce\(p_limit,20\),50\)\)/);
 console.log('PASS searched passenger place discovery and resolution use the full ranked AFAT fuzzy geocoder and enriched local access records');
+
+const planner=readFileSync('dashboard/src/components/commuter/PassagePlanner.tsx','utf8');
+const candidate=readFileSync('dashboard/src/supabaseClient.ts','utf8');
+assert.match(runtime,/status,evidence_status,metadata,primary_source_key,destination_kind/);
+assert.match(runtime,/source_only: place\.metadata\?\.source_only === true/);
+assert.match(runtime,/evidence_status: String\(place\.evidence_status \|\| 'limited'\)/);
+assert.match(runtime,/place_status: String\(place\.status \|\| 'unverified'\)/);
+assert.match(planner,/Mapped geographic reference · on-the-ground location, entrance and pickup access not independently confirmed/);
+assert.match(planner,/Strong match/);
+assert.match(candidate,/source_only\?: boolean/);
+console.log('PASS passenger geocoder keeps source-only and independent entrance/access verification semantics');
