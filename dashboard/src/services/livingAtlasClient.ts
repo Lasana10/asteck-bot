@@ -144,3 +144,12 @@ export async function requestCrossSourceFieldCheck(sourceRecordId:string,cityKey
   p_source_record_id:sourceRecordId,p_city_key:cityKey,p_review_reason:reviewReason,
  });
 }
+
+export async function fetchCrossSourceFieldReviewQueue(cityKey:string){
+ return supabase.rpc('afat_cross_source_field_review_queue',{p_city_key:cityKey,p_limit:30});
+}
+export async function reviewCrossSourceFieldMission(missionId:string,decision:'accept'|'reject',notes:string){
+ return supabase.rpc('afat_review_cross_source_field_check',{
+  p_mission_id:missionId,p_decision:decision,p_notes:notes,
+ });
+}
