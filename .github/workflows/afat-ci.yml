@@ -31,6 +31,7 @@ jobs:
       - run: npm run test:atlas-review-promotion
       - run: npm run test:source-disagreement-missions
       - run: npm run test:earth-observation-planner
+      - run: npm run test:environment-reviewed-routing
       - run: npm run test:reviewed-field-mission-custody
       - run: npm run test:atlas-source-understanding
       - run: npm run test:api-contract
