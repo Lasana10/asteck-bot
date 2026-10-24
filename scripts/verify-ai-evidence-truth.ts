@@ -18,6 +18,9 @@ const price=parsed(localRuleResponse('Auto-Negotiator: route=Yaounde Center, dem
 assert.equal(price.price,null);
 assert.equal(price.status,'insufficient_verified_fare_evidence');
 assert.doesNotMatch(localRuleResponse('Summarize').text,/conditions look stable|manageable/i);
+async function checkVision(){
 const noVision=await new AIRouter().route('vision',{image:'example-image',prompt:'Are roads blocked?'});
 assert.doesNotMatch(noVision.text,/possible road hazard detected|hazard detected/i);
 console.log('PASS AI fallback never invents driver safety, negotiated price, clear conditions, known hazards or schema-derived accidents');
+}
+void checkVision().catch(error=>{console.error(error);process.exitCode=1;});
