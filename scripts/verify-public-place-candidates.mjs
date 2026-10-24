@@ -47,3 +47,13 @@ assert.match(planner,/Mapped geographic reference · on-the-ground location, ent
 assert.match(planner,/Strong match/);
 assert.match(candidate,/source_only\?: boolean/);
 console.log('PASS passenger geocoder keeps source-only and independent entrance/access verification semantics');
+
+assert.match(runtime,/function qualifiesReviewedFuzzyMatch\(place:any\)/);
+assert.match(runtime,/\['fuzzy_name','fuzzy_alias','fuzzy_zone'\]\.includes\(reason\)/);
+assert.match(runtime,/similarity>=0\.36/);
+assert.match(runtime,/matches\.set\(id,\{reason,similarity/);
+assert.match(runtime,/match_reason: place\._search_reason/);
+assert.match(runtime,/Approximate spelling match from AFAT Atlas; confirm destination name/);
+assert.match(runtime,/item\.text_score > 0 \|\| qualifiesReviewedFuzzyMatch/);
+assert.match(runtime,/candidate\.text_score>0 \|\| qualifiesReviewedFuzzyMatch/);
+console.log('PASS fuzzy Atlas name/alias/zone matches remain visible for passenger discovery without elevating source evidence');

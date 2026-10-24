@@ -256,13 +256,39 @@ async function loadDiscoveryPlaces(queryText: string, city: string) {
     if (detailError) throw detailError;
     // Retain the database geocoder ranking in addition to the UX evidence scores.
     const rank = new Map(ids.map((id, index) => [id, index]));
-    return { places: (enriched || []).map((p: any) => ({ ...p, _search_rank: rank.get(p.id) ?? 999 })),
+    const matches = new Map<string, {reason:string; similarity:number}>();
+    for(const hit of data.places) {
+      const id=String(hit?.id||'');
+      const reason=String(hit?.match_reason||'');
+      const similarity=Number(hit?.match_similarity);
+      if (rank.has(id) && [
+        'exact_name','exact_alias','name_prefix','name_contains','alias_contains','exact_zone',
+        'zone_contains','fuzzy_name','fuzzy_alias','fuzzy_zone','description_contains'
+      ].includes(reason)) {
+        matches.set(id,{reason,similarity:Number.isFinite(similarity)?similarity:0});
+      }
+    }
+    return { places: (enriched || []).map((p: any) => ({
+      ...p, _search_rank: rank.get(p.id) ?? 999,
+      _search_reason:matches.get(p.id)?.reason||null,
+      _search_similarity:matches.get(p.id)?.similarity||0,
+    })),
       searchMode: 'fuzzy_atlas' as const, cityVariants };
   }
   const { data, error } = await supabase.from('afat_places').select(detailColumns)
     .in('city', cityVariants).neq('status', 'retired').limit(800);
   if (error) throw error;
   return { places: data || [], searchMode: 'nearby' as const, cityVariants };
+}
+
+function qualifiesReviewedFuzzyMatch(place:any):boolean {
+  const reason=String(place?._search_reason||'');
+  const similarity=Number(place?._search_similarity);
+  // Only user-entered misspellings returned by AFAT's city-scoped DB geocoder
+  // may bypass lexical matching. Description-only hits must not get a free pass.
+  return ['fuzzy_name','fuzzy_alias','fuzzy_zone'].includes(reason)
+    && Number.isFinite(similarity) && similarity>=0.36
+    && Number.isInteger(place?._search_rank) && place._search_rank>=0 && place._search_rank<50;
 }
 
 router.get('/place/discover', async (req: Request, res: Response) => {
@@ -324,6 +350,8 @@ router.get('/place/discover', async (req: Request, res: Response) => {
         distance_m: distanceM == null ? null : Math.round(distanceM),
         source: 'afat_places',
         search_rank: place._search_rank ?? null,
+        match_reason: place._search_reason ?? null,
+        match_similarity: place._search_similarity ?? null,
         place_status: String(place.status || 'unverified'),
         evidence_status: String(place.evidence_status || 'limited'),
         source_only: place.metadata?.source_only === true,
@@ -331,12 +359,16 @@ router.get('/place/discover', async (req: Request, res: Response) => {
         meeting_points: meetingPoints,
         text_score: textScore,
         explanation: [
-          queryText ? (textScore >= 20 ? 'Strong textual landmark match, not field confirmation' : 'Related local place') : 'Nearby mapped place; verification varies',
+          queryText ? (qualifiesReviewedFuzzyMatch(place) ? 'Approximate spelling match from AFAT Atlas; confirm destination name' : textScore >= 20 ? 'Strong textual landmark match, not field confirmation' : 'Related local place') : 'Nearby mapped place; verification varies',
           distanceM == null ? 'Distance unavailable until a start point is known' : `${Math.round(distanceM)} m from your start point`,
           historyScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup history',
         ],
       };
-    }).filter((item: any) => queryText ? item.text_score > 0 && item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
+    }).filter((item: any) => queryText
+      ? (item.text_score > 0 || qualifiesReviewedFuzzyMatch({
+          _search_reason:item.match_reason,_search_similarity:item.match_similarity,_search_rank:item.search_rank
+        })) && item.confidence>=34
+      : item.distance_m != null && item.distance_m <= 5000);
 
     const scoredLedger = (ledgerPlaces || []).map((place: any) => {
       const lat = Number(place.latitude);
@@ -447,6 +479,8 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           id: place.id,
           place_ref: place.place_ref,
           search_rank: place._search_rank ?? null,
+          match_reason: place._search_reason ?? null,
+          match_similarity: place._search_similarity ?? null,
           place_status: String(place.status || 'unverified'),
           evidence_status: String(place.evidence_status || 'limited'),
           source_only: place.metadata?.source_only === true,
@@ -467,7 +501,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           successful_pickups: place.successful_pickups || 0,
           text_score: textScore,
           explanation: [
-            textScore >= 20 ? 'Strong textual landmark match, not field confirmation' : 'Partial local description match',
+            qualifiesReviewedFuzzyMatch(place) ? 'Approximate spelling match from AFAT Atlas; confirm destination name' : textScore >= 20 ? 'Strong textual landmark match, not field confirmation' : 'Partial local description match',
             cityScore ? `Matches ${place.city}` : 'Outside the preferred city',
             evidenceScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup evidence',
             accessPenalty ? 'Vehicle access may be difficult' : 'No strong access warning',
@@ -475,7 +509,9 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
           meeting_points: meetingPoints,
         };
       })
-      .filter((candidate: any) => candidate.text_score > 0 && candidate.confidence >= 35);
+      .filter((candidate: any) => (candidate.text_score>0 || qualifiesReviewedFuzzyMatch({
+        _search_reason:candidate.match_reason,_search_similarity:candidate.match_similarity,_search_rank:candidate.search_rank
+      })) && candidate.confidence>=35);
 
     const ledgerCandidates = (ledgerPlaces || []).map((place: any) => {
       const textScore = lexicalScore(query, [place.canonical_label, ...(place.aliases || []), place.description, place.zone_label, place.city]);
