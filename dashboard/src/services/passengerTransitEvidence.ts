@@ -17,6 +17,14 @@ export function preparePassengerTransitObservation(draft:PassengerTransitDraft,f
   return {ok:false,message:'Choose what you actually observed.'};
  if(!['minibus','bus','shared_taxi','moto_taxi','other'].includes(draft.mode))
   return {ok:false,message:'Choose an actual observed transport type.'};
+ // Coarse city-mismatch guard for pilot cities. This is not a verified
+ // administrative boundary; the reviewed server ledger owns final geography.
+ const cityCenters:Record<string,{lat:number;lon:number}>={
+  'cm-yaounde':{lat:3.866,lon:11.514},'cm-douala':{lat:4.051,lon:9.704},
+ };
+ const center=cityCenters[draft.cityKey];
+ if(center&&fix&&(Math.abs(fix.latitude-center.lat)>0.9||Math.abs(fix.longitude-center.lon)>0.9))
+  return {ok:false,message:'Current GPS is far from the selected city. Switch to your real city before submitting.'};
  const name=draft.nodeName.trim();
  if(name.length<2||name.length>100)return {ok:false,message:'Name the actual stop or meeting point (2–100 characters).'};
  if(draft.lineName.trim().length>100||draft.directionLabel.trim().length>100||draft.notes.trim().length>240)
