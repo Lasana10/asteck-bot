@@ -24,6 +24,7 @@ for(const asset of [...new Set(assets)].slice(0,8)){
 const signals=['Understand nearby landmarks and reviewed geographic evidence','Real nearby place records','Provisional local map knowledge','Offline place references found','Saved journey restored with its existing navigation session','Next road maneuver','Trip, entrance and informal transit evidence','The routable road ends around','Capture a landmark, entrance or road-condition photo with GPS','GPS observation not accepted',
   'Offline: no matching saved route for this mode and arrival point',
   'Capture a new location before submitting any place or transport observation',
-  'AFAT detected meaningful off-route movement'];
+  'AFAT detected meaningful off-route movement',
+  'Resume an existing unpaid booking','Verify booking status before another collection'];
 for(const signal of signals)assert.ok(bundles.includes(signal),'Cloudflare is serving a stale dashboard: missing '+signal);
 console.log('PASS actual Cloudflare passenger discovery → route/navigation → offline custody → field evidence release:',site.origin);
