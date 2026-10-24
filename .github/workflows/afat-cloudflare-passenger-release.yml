@@ -11,6 +11,9 @@ on:
       - 'dashboard/src/services/canonicalRouteClient.ts'
       - 'dashboard/src/services/offlineJourneyRoute.ts'
       - 'dashboard/src/components/commuter/PassagePlanner.tsx'
+      - 'dashboard/src/components/commuter/PaymentSheet.tsx'
+      - 'dashboard/src/components/commuter/PassengerScheduledSeatJourney.tsx'
+      - 'dashboard/src/services/paymentRecovery.ts'
       - 'dashboard/src/components/commuter/FieldEvidenceCapture.tsx'
   workflow_dispatch:
 

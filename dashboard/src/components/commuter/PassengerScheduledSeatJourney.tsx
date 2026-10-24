@@ -1,4 +1,5 @@
-import React,{useState} from 'react';
+import React,{useEffect,useState} from 'react';
+import {fetchRecoverablePassengerPayments,type RecoverablePaymentBooking} from '../../services/paymentRecovery';
 import {DepartureBoard} from './DepartureBoard';
 import {SeatSelector} from './SeatSelector';
 import {PaymentSheet} from './PaymentSheet';
@@ -6,7 +7,7 @@ import {TicketView} from './TicketView';
 import {createBookingFromHold,createSeatHold,releaseSeatHold} from '../../supabaseClient';
 
 type Departure=React.ComponentProps<typeof SeatSelector>['departure'] & {operator_id:string};
-type Stage='departures'|'seats'|'fare'|'payment'|'ticket'|'cash_due';
+type Stage='departures'|'seats'|'fare'|'payment'|'recover_payment'|'ticket'|'cash_due';
 type Ticket=React.ComponentProps<typeof TicketView>['booking'];
 
 /** Role-native entry into the SAME verified departure/seat-hold/booking/payment
@@ -25,6 +26,21 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
  const [ticket,setTicket]=useState<Ticket|null>(null);
+ const [recoverable,setRecoverable]=useState<RecoverablePaymentBooking[]>([]);
+ const [recoveryBooking,setRecoveryBooking]=useState<RecoverablePaymentBooking|null>(null);
+ const [recoverLoading,setRecoverLoading]=useState(false);
+ useEffect(()=>{
+  if(stage!=='departures')return;
+  let active=true;
+  setRecoverLoading(true);
+  void fetchRecoverablePassengerPayments(profileId).then(({data,error})=>{
+    if(!active)return;
+    setRecoverLoading(false);
+    if(error){setNotice(error.message);return;}
+    setRecoverable(data);
+  });
+  return()=>{active=false;};
+ },[profileId,stage]);
 
  const releaseUnconverted=async()=>{
   if(!holdId||bookingId)return;
@@ -92,9 +108,32 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
    departureTime:departure.departure_time,transactionId,paymentMethod:method});
   setStage('ticket');
  };
+ if(stage==='recover_payment'&&recoveryBooking)return <PaymentSheet bookingId={recoveryBooking.id}
+  amount={recoveryBooking.amountXaf} routeName={recoveryBooking.routeName}
+  operatorName={recoveryBooking.operatorName} seatLabel={recoveryBooking.seatLabel}
+  onBack={()=>{setRecoveryBooking(null);setStage('departures');}}
+  onPaymentComplete={(method,transactionId)=>{
+   if(method==='cash'){setRecoveryBooking(null);setStage('cash_due');return;}
+   setTicket({id:recoveryBooking.id,routeName:recoveryBooking.routeName,
+    origin:recoveryBooking.origin,destination:recoveryBooking.destination,
+    seatLabel:recoveryBooking.seatLabel,price:recoveryBooking.amountXaf,
+    operatorName:recoveryBooking.operatorName,plateNumber:recoveryBooking.plateNumber,
+    departureTime:recoveryBooking.departureTime,transactionId,paymentMethod:method});
+   setStage('ticket');
+  }}/>;
  if(stage==='departures')return <section className="overflow-hidden rounded-2xl border border-white/10">
   <div className="flex items-center justify-between bg-slate-950 p-3"><strong className="text-sm">Published future departures</strong>
    <button type="button" onClick={()=>void exit()} className="rounded-xl border border-white/15 px-4 py-2 text-xs">Close</button></div>
+  <div className="border-b border-white/10 bg-slate-950 p-4">
+   <h4 className="text-xs font-black text-cyan-200">Resume an existing unpaid booking</h4>
+   <p className="mt-1 text-[11px] text-white/55">Live server records only. Unsettled mobile-money collections cannot be charged again; verify their provider status first.</p>
+   {recoverLoading&&<p className="mt-2 text-xs text-white/45">Checking your booking history…</p>}
+   {recoverable.slice(0,6).map(item=><button key={item.id} type="button" onClick={()=>{setRecoveryBooking(item);setStage('recover_payment');}}
+     className="mt-2 block w-full rounded-xl border border-cyan-300/15 bg-cyan-400/[0.04] p-3 text-left">
+     <span className="block text-xs font-black">{item.routeName} · Seat {item.seatLabel}</span>
+     <span className="mt-1 block text-[10px] text-white/50">{item.amountXaf.toLocaleString()} XAF · {item.paymentStatus==='collection_pending'?'Provider confirmation pending':'Awaiting payment'} · Server booking {item.id.slice(0,8)}</span>
+   </button>)}
+  </div>
   <DepartureBoard onBack={()=>void exit()} onSelectDeparture={chooseDeparture}/></section>;
  if(stage==='seats'&&departure)return <section className="overflow-hidden rounded-2xl border border-white/10">
   <SeatSelector departure={departure} onBack={()=>{void releaseUnconverted();setStage('departures');}}
