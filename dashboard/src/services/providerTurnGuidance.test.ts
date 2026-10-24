@@ -11,6 +11,13 @@ describe('provider turn guidance through connected route',()=>{
   expect(turn?.instruction).toBe('Turn right onto Route');
   expect(turn?.distanceM).toBeGreaterThan(400);
  });
+ it('uses genuine mapped Valhalla bicycle turn instructions with source provenance',()=>{
+  const bike={...route,mode:'bike' as const,route_source:'valhalla' as const};
+  expect(nextRoadInstruction(bike,{latitude:3.86,longitude:11.505,accuracy:12})?.instruction)
+    .toBe('Turn right onto Route');
+  expect(nextRoadInstruction({...bike,maneuvers:[]},{latitude:3.86,longitude:11.505,accuracy:12})).toBeNull();
+  expect(nextRoadInstruction(bike,{latitude:3.87,longitude:11.505,accuracy:10})).toBeNull();
+ });
  it('advances to the next maneuver with GPS progress',()=>{
   expect(nextRoadInstruction(route,{latitude:3.86,longitude:11.513,accuracy:10})?.kind).toBe('arrive');
  });

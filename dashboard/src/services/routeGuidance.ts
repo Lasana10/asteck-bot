@@ -143,7 +143,7 @@ export function formatRouteProgress(progress: AfatRouteProgress | null) {
 /** Provider-supplied maneuvers only. Never invent turns from map geometry.
  * Orders turns by their projected position along the actual routed geometry. */
 export function nextRoadManeuver(route: AfatCanonicalRoute | null | undefined, position: RoutePosition) {
-  if (!route || route.status !== 'ok' || !['osrm','google'].includes(String(route.route_source)) ||
+  if (!route || route.status !== 'ok' || !['osrm','google','valhalla'].includes(String(route.route_source)) ||
     !Array.isArray(route.maneuvers) || !route.maneuvers.length) return null;
   const current=calculateRouteProgress(route,position);
   if (!current || current.offRoute || current.confidence==='low') return null;

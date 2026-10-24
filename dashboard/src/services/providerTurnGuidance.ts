@@ -3,7 +3,7 @@ import {calculateRouteProgress,type RoutePosition} from './routeGuidance';
 
 export type NextRoadInstruction={instruction:string;kind:string;distanceM:number;source:'provider_turn';};
 export function nextRoadInstruction(route:AfatCanonicalRoute|null,position:RoutePosition):NextRoadInstruction|null{
- if(route?.status!=='ok'||!['osrm','google'].includes(String(route.route_source))||!route.maneuvers?.length)return null;
+ if(route?.status!=='ok'||!['osrm','google','valhalla'].includes(String(route.route_source))||!route.maneuvers?.length)return null;
  if(!Number.isFinite(position.latitude)||!Number.isFinite(position.longitude)||position.accuracy==null||position.accuracy>90)return null;
  const current=calculateRouteProgress(route,position);
  if(!current||current.offRoute||current.confidence==='low')return null;
