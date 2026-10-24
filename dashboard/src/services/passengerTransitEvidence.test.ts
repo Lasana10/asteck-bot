@@ -19,6 +19,8 @@ describe('AFAT real passenger transit discovery → review evidence contract',()
     expect(preparePassengerTransitObservation(draft,stale,now).ok).toBe(false);
   }
   expect(preparePassengerTransitObservation({...draft,nodeName:' '},fix,now).ok).toBe(false);
+  expect(preparePassengerTransitObservation(draft,{...fix,longitude:9.704},now).ok).toBe(false);
+  expect(preparePassengerTransitObservation({...draft,cityKey:'cm-douala'},fix,now).ok).toBe(false);
   expect(preparePassengerTransitObservation({...draft,cityKey:'unknown'},fix,now).ok).toBe(false);
  });
 });
