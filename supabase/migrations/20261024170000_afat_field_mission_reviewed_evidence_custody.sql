@@ -21,9 +21,13 @@ begin
  v_cross_source:=v_mission.evidence->>'source'='licensed_cross_source_spatial_comparison';
  if v_mission.expires_at is not null and v_mission.expires_at<now() then
   raise exception 'EXPIRED_FIELD_MISSION' using errcode='22023';end if;
- if jsonb_typeof(p_answer) is distinct from 'object'
-  or char_length(trim(coalesce(p_answer->>'condition','')))<3
+ if jsonb_typeof(p_answer) is distinct from 'object' or p_answer='{}'::jsonb
   then raise exception 'REAL_FIELD_OBSERVATION_REQUIRED' using errcode='22023';end if;
+ -- Existing place/access missions have their own answer fields; require a
+ -- condition only for line/road tasks, not for unrelated mission types.
+ if v_mission.target_edge_id is not null and
+    char_length(trim(coalesce(p_answer->>'condition','')))<3 then
+  raise exception 'ROAD_CONDITION_OBSERVATION_REQUIRED' using errcode='22023';end if;
  if v_mission.target_edge_id is not null then
   if p_latitude is null or p_longitude is null or
      p_latitude not between -90 and 90 or p_longitude not between -180 and 180
