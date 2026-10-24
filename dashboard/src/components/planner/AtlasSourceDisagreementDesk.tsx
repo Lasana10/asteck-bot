@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import {AtlasFieldMissionReview} from './AtlasFieldMissionReview';
 import {AlertTriangle,MapPinned,RefreshCw,SearchCheck} from 'lucide-react';
 import {fetchCrossSourceRoadChecks,requestCrossSourceFieldCheck,type CrossSourceRoadReview,type CrossSourceRoadCheck} from '../../services/livingAtlasClient';
 import {supabase} from '../../supabaseClient';
@@ -81,6 +82,7 @@ export function AtlasSourceDisagreementDesk(){
    </article>)}
    {review&&!review.discrepancies.length&&<p className="rounded-xl border border-white/10 p-4 text-xs text-white/60"><SearchCheck className="mr-1 inline h-4 w-4"/>No reviewable differences found within this active city's available source records.</p>}
   </div>
+  <AtlasFieldMissionReview />
   {notice&&<p role="status" className="mt-4 flex items-start gap-2 rounded-xl border border-amber-300/15 p-3 text-xs text-amber-100"><AlertTriangle className="h-4 w-4 shrink-0"/>{notice}</p>}
   <p className="mt-4 text-[10px] leading-5 text-white/40">35 m source-neighbour comparison, 80 m Atlas edge anchoring. Source classifications are not directly equivalent; counts include potential false discrepancies. Field evidence and independent review remain mandatory.</p>
  </section>;
