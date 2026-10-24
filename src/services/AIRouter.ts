@@ -41,7 +41,9 @@ function buildTacticalContext() {
     'Identity: AFAT Sentinel HQ.',
     'Locale: Cameroon transport grid.',
     'Tone: practical, short, no AI-speak.',
-    'Focus: safety, mobility, operators, commuters, fleet trust.'
+    'Focus: safety, mobility, operators, commuters, fleet trust.',
+    'Never assert live traffic, road safety, verified incidents, operator reliability, driver scores or fare prices without independently reviewed relevant evidence.',
+    'If verified evidence is absent, state it is unknown. An AI response is advisory, not automatic ground truth.'
   ].join(' ');
 }
 
@@ -74,92 +76,42 @@ function extractDemand(prompt: string) {
   return (match?.[1] || 'normal').trim().toLowerCase();
 }
 
-function localRuleResponse(prompt: string): AIResponse {
-  const lower = prompt.toLowerCase();
-  const mode = classifyPrompt(prompt);
-
-  if (mode === 'alert_check') {
-    return { text: 'CLEAR', model: 'AFAT Rules' };
-  }
-
-  if (mode === 'classification') {
-    let type = 'other';
-    let severity = 2;
-
-    if (/\b(accident|crash|collision)\b/i.test(lower)) {
-      type = 'accident';
-      severity = 4;
-    } else if (/\b(jam|traffic|embouteillage|blocked)\b/i.test(lower)) {
-      type = 'traffic_jam';
-      severity = 3;
-    } else if (/\b(pothole|road damage|nid[- ]de[- ]poule)\b/i.test(lower)) {
-      type = 'road_damage';
-      severity = 3;
-    } else if (/\b(sos|danger|help|urgence|emergency)\b/i.test(lower)) {
-      type = 'sos';
-      severity = 5;
-    }
-
-    return {
-      text: JSON.stringify({
-        type,
-        severity,
-        description: 'Rule-based transport classification',
-        confidence: 0.72
-      }),
-      model: 'AFAT Rules'
-    };
-  }
-
-  if (mode === 'safety') {
-    return {
-      text: JSON.stringify({ score: 78, tier: 'Gold', reasoning: 'Stable ratings with neutral violations profile.' }),
-      model: 'AFAT Rules'
-    };
-  }
-
-  if (mode === 'negotiation') {
-    const offer = extractOffer(prompt);
-    const demand = extractDemand(prompt);
-    const multiplier = demand === 'high' ? 1.15 : demand === 'low' ? 0.95 : 1.05;
-    const resolved = Math.round(offer * multiplier);
-
-    if (wantsJson(prompt)) {
-      return {
-        text: JSON.stringify({
-          route: extractRoute(prompt),
-          demand,
-          price: resolved,
-          rationale: 'Rule-based pricing from demand band.'
-        }),
-        model: 'AFAT Rules'
-      };
-    }
-
-    return {
-      text: `Recommended fare: ${resolved} XAF for ${extractRoute(prompt)}. Demand band is ${demand}.`,
-      model: 'AFAT Rules'
-    };
-  }
-
-  if (mode === 'summary') {
-    return {
-      text: 'Grid check: conditions look stable, watch junction slowdowns during peak hours, and prefer verified operators for tighter timing.',
-      model: 'AFAT Rules'
-    };
-  }
-
-  if (/\b(accident|incident|hazard|danger)\b/i.test(lower)) {
-    return {
-      text: 'Heads-up: a safety-related issue is likely involved. Prioritize verified routes, reduce speed near junctions, and confirm live conditions before dispatch.',
-      model: 'AFAT Rules'
-    };
-  }
-
-  return {
-    text: 'Current guidance: conditions look manageable. Stay alert around dense junctions, confirm live route conditions, and keep verified bookings tied to active operators.',
-    model: 'AFAT Rules'
-  };
+export function localRuleResponse(prompt: string): AIResponse {
+ const mode = classifyPrompt(prompt);
+ if (mode === 'alert_check') {
+   // No observations is not a verified CLEAR state.
+   return {text:'UNKNOWN',model:'AFAT Evidence Rules'};
+ }
+ if (mode === 'classification') {
+   // Classify ONLY the quoted user message, never the JSON schema's example
+   // values (accident, traffic_jam, sos) embedded in the instructions.
+   const match=prompt.match(/Classify this user message for a transport safety app:\s*"([^"\n]{1,500})"/i);
+   const content=(match?.[1]||'').toLowerCase();
+   let type='other',severity=1;
+   if(/\b(accident|crash|collision)\b/i.test(content)){type='accident';severity=4;}
+   else if(/\b(sos|danger|help|urgence|emergency)\b/i.test(content)){type='sos';severity=5;}
+   else if(/\b(traffic jam|embouteillage|blocked road)\b/i.test(content)){type='traffic_jam';severity=2;}
+   else if(/\b(pothole|road damage|nid[- ]de[- ]poule)\b/i.test(content)){type='road_damage';severity=2;}
+   return {text:JSON.stringify({type,severity,
+      description:content?'Unverified text classification; requires field evidence.':'No isolated user message available.',
+      confidence:content&&type!=='other'?0.35:0,requiresHumanReview:true,
+      verifiedIncident:false}),model:'AFAT Evidence Rules'};
+ }
+ if (mode === 'safety') {
+   return {text:JSON.stringify({score:null,tier:'Unrated',confidence:'insufficient',
+     reasoning:'No independently verified trips, violations or ratings were supplied to this rules-only path.'}),
+     model:'AFAT Evidence Rules'};
+ }
+ if (mode === 'negotiation') {
+   const route=extractRoute(prompt);
+   const result={route,price:null,status:'insufficient_verified_fare_evidence',
+     rationale:'No verified operator offer or current accepted fare. Do not invent a price.'};
+   return {text:wantsJson(prompt)?JSON.stringify(result):
+     'No verified fare is available. Confirm the operator offer and payment amount before any booking.',
+     model:'AFAT Evidence Rules'};
+ }
+ if (mode === 'summary') return {text:'Current traffic and transit conditions cannot be verified from the supplied evidence. Review trusted recent observations before travelling.',model:'AFAT Evidence Rules'};
+ return {text:'AFAT cannot verify current road conditions, incidents, route safety or transport availability from this request alone. Check reviewed map evidence and actual operator availability.',model:'AFAT Evidence Rules'};
 }
 
 export class AIRouter {
@@ -306,7 +258,7 @@ export class AIRouter {
     }
 
     return {
-      text: 'Rule-based image fallback: possible road hazard or transport scene detected. Manual operator review recommended for exact classification.',
+      text: 'No configured image inference produced a result. AFAT cannot identify a road hazard from this image without independent review.',
       model: 'AFAT Vision Rules'
     };
   }

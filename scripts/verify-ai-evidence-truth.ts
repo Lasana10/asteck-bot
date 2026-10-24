@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {localRuleResponse,AIRouter} from '../src/services/AIRouter';
+const parsed=(text:string)=>JSON.parse(text);
+assert.equal(localRuleResponse('Answer with ALERT or CLEAR').text,'UNKNOWN',
+ 'No incident evidence can never imply CLEAR');
+const hello=parsed(localRuleResponse('Classify this user message for a transport safety app: "Hello". Return ONLY valid JSON (no markdown, no explanation): {"type":"booking|accident|traffic_jam|road_damage|sos|other","severity":1,"confidence":0.8}').text);
+assert.equal(hello.type,'other','Do not classify the JSON schema as a real accident');
+assert.equal(hello.confidence,0);
+assert.equal(hello.verifiedIncident,false);
+const incident=parsed(localRuleResponse('Classify this user message for a transport safety app: "A crash near the market". Return ONLY valid JSON {"type":"accident|other"}').text);
+assert.equal(incident.type,'accident');
+assert.equal(incident.verifiedIncident,false);
+assert.ok(incident.confidence<0.5);
+const driver=parsed(localRuleResponse('Analyze DriverDNA safety score for driver XYZ').text);
+assert.equal(driver.score,null);
+assert.equal(driver.confidence,'insufficient');
+const price=parsed(localRuleResponse('Auto-Negotiator: route=Yaounde Center, demand=high, offer=1000. Resolve best price in JSON.').text);
+assert.equal(price.price,null);
+assert.equal(price.status,'insufficient_verified_fare_evidence');
+assert.doesNotMatch(localRuleResponse('Summarize').text,/conditions look stable|manageable/i);
+const noVision=await new AIRouter().route('vision',{image:'example-image',prompt:'Are roads blocked?'});
+assert.doesNotMatch(noVision.text,/possible road hazard detected|hazard detected/i);
+console.log('PASS AI fallback never invents driver safety, negotiated price, clear conditions, known hazards or schema-derived accidents');

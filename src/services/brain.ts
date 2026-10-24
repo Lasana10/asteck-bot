@@ -68,9 +68,9 @@ Return ONLY valid JSON (no markdown, no explanation):
           type: parsed.type || 'other',
           severity: parsed.severity || 3,
           description: parsed.description || text,
-          confidence: parsed.confidence || 0.8,
+          confidence: typeof parsed.confidence==='number'&&Number.isFinite(parsed.confidence)&&parsed.confidence>=0&&parsed.confidence<=1?parsed.confidence:0,
           locationHint: parsed.locationHint,
-          isEmergency: (parsed.severity || 3) >= 4
+          isEmergency: (parsed.severity || 3) >= 4 && Number(parsed.confidence || 0)>=0.7
         };
       }
     } catch (e: any) {
