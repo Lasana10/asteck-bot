@@ -14,3 +14,20 @@ assert.match(sql,/order by p\.display_priority,public\.st_distance\(p\.location,
 assert.match(sql,/p\.place_type in \('road','transportation_connector'\) then 2/);
 assert.doesNotMatch(sql,/\s<->\s/);
 console.log('Licensed candidate Atlas nearby privacy and bounded-geometry contract passed');
+
+
+const runtime=readFileSync('src/api/placeIntelligence.ts','utf8');
+const engine=readFileSync('supabase/migrations/20261005143500_afat_fuzzy_local_place_search.sql','utf8');
+assert.match(runtime,/async function loadDiscoveryPlaces\(queryText: string, city: string\)/);
+assert.match(runtime,/rpc\('afat_search_places'/);
+assert.match(runtime,/p_limit: 50/);
+assert.match(runtime,/\.in\('id', ids\)\.ilike\('city', normalizedCity\)\.neq\('status', 'retired'\)/);
+assert.match(runtime,/const \[\{ places, searchMode \}/);
+assert.match(runtime,/const \{ places \} = await loadDiscoveryPlaces\(query, city\)/);
+assert.match(runtime,/search_rank: place\._search_rank/);
+assert.match(runtime,/matching_engine: searchMode/);
+assert.match(engine,/exact_alias/);
+assert.match(engine,/fuzzy_alias/);
+assert.match(engine,/name_prefix/);
+assert.match(engine,/limit greatest\(1,least\(coalesce\(p_limit,20\),50\)\)/);
+console.log('PASS searched passenger place discovery and resolution use the full ranked AFAT fuzzy geocoder and enriched local access records');
