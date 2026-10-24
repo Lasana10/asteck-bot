@@ -3,7 +3,7 @@ import {parseValhallaResponse,valhallaPayload} from '../../src/services/valhalla
 const base=process.env.AFAT_VALHALLA_SMOKE_BASE||'http://127.0.0.1:8002';
 const url=new URL(base);
 assert.ok(['localhost','127.0.0.1'].includes(url.hostname)||process.env.AFAT_VALHALLA_AUTHORIZED_SMOKE==='true');
-async function run(city:string,mode:'bicycle'|'motorcycle',a:{latitude:number;longitude:number},b:{latitude:number;longitude:number}){
+async function run(city,mode,a,b){
  const res=await fetch(new URL('/route',url),{method:'POST',headers:{'content-type':'application/json'},
   body:JSON.stringify(valhallaPayload(a,b,mode)),signal:AbortSignal.timeout(45000)});
  const data=await res.json();
