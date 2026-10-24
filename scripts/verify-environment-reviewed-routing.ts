@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+const sql=readFileSync('supabase/migrations/20261024173000_afat_reviewed_environment_route_overlays.sql','utf8');
+const ui=readFileSync('dashboard/src/components/shared/EnvironmentalEvidenceReview.tsx','utf8');
+const plan=readFileSync('dashboard/src/components/shared/CitySourcePlanPanel.tsx','utf8');
+for(const token of ['afat_mark_environment_intake_pending','review_state',"'pending'",'overlays_refreshed', 'false','afat_refresh_environment_overlays',"es.provenance->>'review_state'='approved'",'afat_review_environment_signal','Reporter cannot independently review own signal','afat_environment_review_queue','reviewer_id','evidence ? \'environment_signal_type\''])assert.ok(sql.includes(token),token);
+const register=sql.slice(sql.indexOf('create or replace function public.afat_register_environment_signal'),sql.indexOf('create or replace function public.afat_refresh_environment_overlays'));
+assert.ok(!register.includes('perform public.afat_refresh_environment_overlays('),'pending intake must never create route overlays');
+assert.ok(ui.includes("supabase.rpc('afat_environment_review_queue'"));
+assert.ok(ui.includes("supabase.rpc('afat_review_environment_signal'"));
+assert.ok(plan.includes('<EnvironmentalEvidenceReview cityKey={cityKey}/>'));
+console.log('PASS AFAT environment evidence intake -> independent review -> bounded route overlays only after approval');
