@@ -57,6 +57,9 @@ jobs:
       - run: bash -n routing/cameroon/prepare.sh
       - run: node --check routing/cameroon/verify.mjs
       - run: docker compose -f routing/cameroon/docker-compose.yml config --quiet
+      - run: docker compose -f routing/cameroon/docker-compose.valhalla.yml config --quiet
+      - run: bash -n routing/cameroon/start-valhalla.sh
+      - run: node --check routing/cameroon/verify-valhalla.mjs
 
   dashboard:
     name: Dashboard build and tests
