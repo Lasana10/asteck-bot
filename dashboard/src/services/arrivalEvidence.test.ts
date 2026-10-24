@@ -7,6 +7,13 @@ const position=(overrides:Record<string,unknown>={})=>({
 });
 const target={latitude:3.866,longitude:11.516};
 describe('AFAT real passenger arrival evidence and explicit confirmation',()=>{
+ it('uses the same actual route arrival target in the map as in the passenger planner',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const map=readFileSync(new URL('../components/commuter/PassengerSpatialMap.tsx',import.meta.url),'utf8');
+  const planner=readFileSync(new URL('../components/commuter/PassagePlanner.tsx',import.meta.url),'utf8');
+  expect(planner).toContain('routeArrivalPoint={arrivalPoint}');
+  expect(map).toContain('validPoint(routeArrivalPoint)?routeArrivalPoint');
+ });
  it('requires successive recent accurate distinct GNSS fixes before offering confirmation',()=>{
   const first=assessArrivalCandidate({fix:position(),target,previous:null,routeReady:true,nowMs:now});
   expect(first?.observations).toBe(1);
