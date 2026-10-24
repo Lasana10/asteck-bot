@@ -4,7 +4,7 @@ Reuse the SAME MD5-verified Geofabrik Cameroon OSM extract prepared with `routin
 
 Local/evaluation-only: `bash routing/cameroon/start-valhalla.sh`, then after tiles are compiled run `node --import tsx routing/cameroon/verify-valhalla.mjs`. The latter calls real Yaoundé and Douala bicycle/motorcycle routes, fails if no valid geometry/duration is returned and writes no production records.
 
-The scripted image must **not** use `use_tiles_ignore_pbf=True` when compiling from a PBF: official Valhalla documentation says that option skips rebuilds from PBF files. The Compose recipe leaves it unset to consume and build real Cameroon map tiles. A successful syntax check is not an accepted graph or route.
+The scripted image documents `use_tiles_ignore_pbf=True` as its **default**. To avoid accidentally selecting a pre-existing tile archive instead of the checksum-verified Cameroon PBF, our Compose trial sets `use_tiles_ignore_pbf=False` explicitly. The startup preflight and regression test enforce this selection. A successful syntax check is not an accepted graph or route.
 
 Official [Valhalla scripted Docker image](https://github.com/valhalla/valhalla/blob/master/docker/README.md) reuses the existing PBF through a local volume. The service binds localhost:8002 and does not offer a public unauthenticated routing API. Leave `build_transit=False` until authorized genuine GTFS feeds exist.
 

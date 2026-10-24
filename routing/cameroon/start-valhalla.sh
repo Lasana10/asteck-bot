@@ -11,8 +11,8 @@ if [[ -z "${EXPECTED}" || "${EXPECTED}" != "${ACTUAL}" ]]; then
  echo "Refusing mismatched/modified Cameroon OSM source." >&2; exit 1
 fi
 echo "Verified Cameroon source. Building an optional LOCAL Valhalla routing graph; measure memory and disk."
-if grep -Eq '^[[:space:]]*use_tiles_ignore_pbf:[[:space:]]*"?[Tt]rue"?' "${ROOT}/docker-compose.valhalla.yml"; then
- echo "Valhalla Compose would ignore the OSM PBF. Refusing a false graph build." >&2; exit 1
+if ! grep -Eq '^[[:space:]]*use_tiles_ignore_pbf:[[:space:]]*"?False"?' "${ROOT}/docker-compose.valhalla.yml"; then
+ echo "Valhalla must explicitly disable the default preference for cached tiles. Refusing an unverified graph build." >&2; exit 1
 fi
 docker compose -f "${ROOT}/docker-compose.valhalla.yml" up -d
 echo "Once service tiles build and respond, run: node --import tsx routing/cameroon/verify-valhalla.mjs"
