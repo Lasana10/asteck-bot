@@ -18,6 +18,16 @@ describe('production truth guards', () => {
     expect(filterRelevantPlaceCandidates('Santa Lucia', candidates)).toEqual(candidates);
   });
 
+  it('preserves explicit AFAT geocoder typo matches without admitting unrelated or vague descriptions', () => {
+    const match = { name:'Mendong',city:'Yaoundé',match_reason:'fuzzy_name',match_similarity:0.5,source_only:true };
+    expect(filterRelevantPlaceCandidates('Mendnog',[match])).toEqual([match]);
+    expect(filterRelevantPlaceCandidates('Mendnog',[{...match,match_reason:'description_contains'}])).toEqual([]);
+    expect(filterRelevantPlaceCandidates('Mendnog',[{...match,match_similarity:0.1}])).toEqual([]);
+    expect(filterRelevantPlaceCandidates('Mendnog',[{...match,match_reason:null}])).toEqual([]);
+    expect(filterRelevantPlaceCandidates('Mendnog',[{...match,match_reason:'fuzzy_name',match_similarity:Infinity}])).toEqual([]);
+    expect(filterRelevantPlaceCandidates('Carrefour Bastos',[{name:'Santa Lucia Mvan',city:'Yaoundé'}])).toEqual([]);
+  });
+
   it('does not count stub services as ready', () => {
     expect(calculateOperationalReadiness([true, true, false, false])).toBe(50);
     expect(calculateOperationalReadiness([false, false, false, false])).toBe(0);
