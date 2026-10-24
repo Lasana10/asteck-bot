@@ -10,6 +10,15 @@ describe('AFAT mode choice and booking truth',()=>{
   expect(choosePassengerMode({car:route('car',100),walk:route('walk',900)},{car:{supply:{observed:0}}},true)?.mode).toBe('walk');
   expect(choosePassengerMode({car:route('car',100)},{},true)).toBeNull();
  });
+ it('uses real bicycle route geometry without implying a bookable bicycle',()=>{
+  const cycle={...route('bike',470),route_source:'valhalla' as const};
+  const picked=choosePassengerMode({bike:cycle},{},true);
+  expect(picked?.mode).toBe('bike');
+  expect(picked?.bookable).toBe(false);
+  expect(picked?.confidence).toBe('limited');
+  expect(picked?.reason).toContain('cycling path only');
+  expect(passengerSupplyNotice('bike',{},true)).toContain('Self-cycling');
+ });
  it('does not reuse live availability offline',()=>{
   expect(choosePassengerMode({moto:route('moto',300)},{moto:{supply:{observed:2}}},false)).toBeNull();
  });
