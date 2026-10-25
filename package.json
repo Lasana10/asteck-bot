@@ -39,7 +39,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:routing:smoke": "node routing/cameroon/verify.mjs",
     "test:valhalla-routing": "node --import tsx scripts/verify-valhalla-routing.ts",
-    "test:ai-evidence-truth": "node --import tsx scripts/verify-ai-evidence-truth.ts"
+    "test:ai-evidence-truth": "node --import tsx scripts/verify-ai-evidence-truth.ts",
+    "test:grounded-journey-brief": "node --import tsx scripts/verify-grounded-journey-brief.ts"
   },
   "keywords": [],
   "author": "",
