@@ -70,15 +70,16 @@ export function ReachabilityInsightCard({
 
       {chain ? (
         <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
-          <div className="flex items-center gap-2"><Footprints className="h-4 w-4 text-violet-200"/><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Observed multimodal option</p></div>
+          <div className="flex items-center gap-2"><Footprints className="h-4 w-4 text-violet-200"/><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Recently reviewed transit pattern</p></div>
           <p className="mt-2 text-xs font-black text-white">Walk → {chain.line?.name || chain.line?.mode || 'transit'} → Walk</p>
-          <p className="mt-1 text-[10px] leading-4 text-amber-200/75">Observed transfer possibility only; walking connections and boarding availability have not been independently confirmed.</p>
+          <p className="mt-1 text-[10px] leading-4 text-amber-200/75">Reviewed route pattern only. Live service, boarding, timetable, road safety and current fare are not confirmed.</p>
           <p className="mt-1 text-[10px] leading-4 text-white/45">Board at {chain.boarding?.name || 'observed stop'} · leave at {chain.alighting?.name || 'observed stop'}.</p>
           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-bold text-white/55">
-            {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min observed wait</span>}
-            {chain.observed_transit_seconds != null && <span>{Math.ceil(Number(chain.observed_transit_seconds) / 60)} min observed transit</span>}
-            {chain.observed_fare_xaf != null && <span>{Number(chain.observed_fare_xaf).toLocaleString()} XAF observed fare</span>}
+            {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min historical reviewed wait</span>}
+            {chain.observed_transit_seconds != null && <span>{Math.ceil(Number(chain.observed_transit_seconds) / 60)} min historical reviewed transit</span>}
+            {chain.observed_fare_xaf != null && <span>{Number(chain.observed_fare_xaf).toLocaleString()} XAF historical observed fare</span>}
           </div>
+          <p className="mt-2 text-[9px] text-white/35">Evidence expires {new Date(chain.evidence_expires_at).toLocaleString()} · device observation time was reviewed but not independently clock-verified.</p>
         </div>
       ) : multimodal && (
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-white/8 bg-white/[0.025] p-3">

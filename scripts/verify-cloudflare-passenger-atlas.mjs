@@ -28,6 +28,7 @@ const signals=['Understand nearby landmarks and reviewed geographic evidence','R
   'CityBrain route brief · grounded evidence only','What remains unknown',
   'CityBrain did not change the provider route or predict safe passage from missing evidence',
   'Reviewed route-specific incident evidence is unavailable, offline or expired',
+  'Recently reviewed transit pattern','Live service, boarding, timetable, road safety and current fare are not confirmed',
   'Resume an existing unpaid booking','Verify booking status before another collection'];
 for(const signal of signals)assert.ok(bundles.includes(signal),'Cloudflare is serving a stale dashboard: missing '+signal);
 console.log('PASS actual Cloudflare passenger discovery → grounded route brief → navigation/offline custody → field evidence release:',site.origin);
