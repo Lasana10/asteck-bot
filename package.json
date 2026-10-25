@@ -41,7 +41,8 @@
     "test:valhalla-routing": "node --import tsx scripts/verify-valhalla-routing.ts",
     "test:ai-evidence-truth": "node --import tsx scripts/verify-ai-evidence-truth.ts",
     "test:grounded-journey-brief": "node --import tsx scripts/verify-grounded-journey-brief.ts",
-    "test:reviewed-incident-route": "node --import tsx scripts/verify-reviewed-incident-route.ts"
+    "test:reviewed-incident-route": "node --import tsx scripts/verify-reviewed-incident-route.ts",
+    "test:reviewed-transit-chain": "node --import tsx scripts/verify-reviewed-transit-chain.ts"
   },
   "keywords": [],
   "author": "",

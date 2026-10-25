@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({rpc:vi.fn(),getUser:vi.fn(),getSession:vi.fn()}));
 vi.mock('../supabaseClient',()=>({supabase:{rpc:mocks.rpc,auth:{getUser:mocks.getUser,getSession:mocks.getSession}}}));
-import {submitAccessEvidence,submitTransitObservation,flushMobilityEvidenceQueue,resolveJourneyMobilityIntelligence} from './mobilityEvidenceClient';
+import {submitAccessEvidence,submitTransitObservation,flushMobilityEvidenceQueue,resolveJourneyMobilityIntelligence,validateMultimodalPlan} from './mobilityEvidenceClient';
 function makeStorage():Storage{
  const values=new Map<string,string>();
  return {get length(){return values.size;},clear(){values.clear();},key(i){return [...values.keys()][i]??null;},getItem(k){return values.get(k)??null;},setItem(k,v){values.set(k,String(v));},removeItem(k){values.delete(k)}} as Storage;
@@ -86,9 +86,18 @@ describe('server idempotent mobility evidence replay',()=>{
 describe('connected passenger reachability and informal transit',()=>{
  const args={placeId:'31c823cc-453b-40e2-87f9-bb828d6abe9f',originLatitude:3.866,originLongitude:11.516,mode:'minibus'};
  it('keeps real transit observations when live reachability cannot be assessed',async()=>{
+  const observed=new Date(Date.now()-60_000).toISOString(),expires=new Date(Date.now()+60_000).toISOString();
   mocks.rpc.mockImplementation((name:string)=>{
    if(name==='afat_assess_place_reachability')return Promise.reject(new Error('atlas temporarily unavailable'));
-   if(name==='afat_plan_multimodal_journey')return Promise.resolve({data:{place_id:args.placeId,multimodal_chain_status:'observed',multimodal_chain:{line:{name:'shared taxi'}}},error:null});
+   if(name==='afat_plan_multimodal_journey')return Promise.resolve({data:{place_id:args.placeId,
+    direct_options:[],transit_network:{active_nodes:2,active_lines:1},automatic_truth:false,live_service_available:false,
+    reason:'recent reviewed pattern',multimodal_chain_status:'reviewed_recent_single_line_pattern',
+    multimodal_chain:{type:'walk_transit_walk',line:{name:'shared taxi'},
+     boarding:{latitude:3.866,longitude:11.516,stop_sequence:1,walk_distance_m:10},
+     alighting:{latitude:3.87,longitude:11.52,stop_sequence:2,walk_distance_m:20},
+     evidence_observed_at:observed,latest_reviewed_at:observed,evidence_expires_at:expires,
+     observation_time_verified:false,live_service_available:false,boarding_availability_verified:false,
+     schedule_verified:false,fare_current_verified:false,automatic_truth:false}},error:null});
    throw Error('unexpected RPC '+name);
   });
   const result=await resolveJourneyMobilityIntelligence(args);
@@ -115,10 +124,28 @@ describe('connected passenger reachability and informal transit',()=>{
  it('keeps both successful evidence projections distinct',async()=>{
   mocks.rpc.mockImplementation((name:string)=>Promise.resolve({error:null,data:name==='afat_assess_place_reachability'
    ?{place_id:args.placeId,state:'not_confirmed',reliability_score:0}
-   :{place_id:args.placeId,multimodal_chain_status:'insufficient_transit_evidence',multimodal_chain:null}}));
+   :{place_id:args.placeId,direct_options:[],transit_network:{active_nodes:0,active_lines:0},
+     multimodal_chain_status:'insufficient_transit_evidence',multimodal_chain:null,
+     reason:'not enough evidence',live_service_available:false,automatic_truth:false}}));
   const result=await resolveJourneyMobilityIntelligence(args);
   expect(result.partial).toBe(false);
   expect(result.assessment?.state).toBe('not_confirmed');
   expect(result.plan?.multimodal_chain_status).toBe('insufficient_transit_evidence');
+ });
+ it('rejects expired patterns and any claim of live service or a current fare',()=>{
+  const base:any={place_id:args.placeId,direct_options:[],transit_network:{active_nodes:2,active_lines:1},
+   multimodal_chain_status:'reviewed_recent_single_line_pattern',reason:'reviewed pattern',
+   live_service_available:false,automatic_truth:false,multimodal_chain:{type:'walk_transit_walk',line:{name:'minibus'},
+    boarding:{latitude:3.866,longitude:11.516,stop_sequence:1,walk_distance_m:20},
+    alighting:{latitude:3.87,longitude:11.52,stop_sequence:2,walk_distance_m:30},
+    evidence_observed_at:'2026-10-25T10:00:00Z',latest_reviewed_at:'2026-10-25T10:05:00Z',
+    evidence_expires_at:'2026-10-25T11:00:00Z',observation_time_verified:false,
+    live_service_available:false,boarding_availability_verified:false,schedule_verified:false,
+    fare_current_verified:false,automatic_truth:false}};
+  const now=Date.parse('2026-10-25T10:30:00Z');
+  expect(validateMultimodalPlan(base,now).multimodal_chain_status).toBe('reviewed_recent_single_line_pattern');
+  expect(()=>validateMultimodalPlan({...base,live_service_available:true},now)).toThrow();
+  expect(()=>validateMultimodalPlan({...base,multimodal_chain:{...base.multimodal_chain,fare_current_verified:true}},now)).toThrow();
+  expect(()=>validateMultimodalPlan({...base,multimodal_chain:{...base.multimodal_chain,evidence_expires_at:'2026-10-25T10:29:00Z'}},now)).toThrow();
  });
 });

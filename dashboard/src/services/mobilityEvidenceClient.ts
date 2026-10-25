@@ -25,12 +25,55 @@ export type AfatReachabilityAssessment = {
 export type AfatMultimodalPlan = {
   place_id: string;
   direct_options: Array<{ type: string; mode: string; assessment: AfatReachabilityAssessment }>;
-  transit_network: { active_nodes: number; active_lines: number };
+  transit_network: { active_nodes: number; active_lines: number; recent_reviewed_ordered_nodes?: number };
   multimodal_chain_status: string;
-  multimodal_chain: any;
+  multimodal_chain: null | {
+    type: 'walk_transit_walk';
+    line: { line_ref?: string; name?: string; mode?: string; direction?: string; confidence?: number; evidence_status?: string };
+    boarding: { name?: string; latitude: number; longitude: number; stop_sequence: number; walk_distance_m: number };
+    alighting: { name?: string; latitude: number; longitude: number; stop_sequence: number; walk_distance_m: number };
+    observed_wait_seconds?: number | null;
+    observed_transit_seconds?: number | null;
+    observed_fare_xaf?: number | null;
+    evidence_observed_at: string;
+    latest_reviewed_at: string;
+    evidence_expires_at: string;
+    observation_time_verified: false;
+    live_service_available: false;
+    boarding_availability_verified: false;
+    schedule_verified: false;
+    fare_current_verified: false;
+    automatic_truth: false;
+  };
   reason: string;
+  live_service_available: false;
   automatic_truth: boolean;
 };
+
+export function validateMultimodalPlan(value:unknown,nowMs=Date.now()):AfatMultimodalPlan{
+  const plan=value as any;
+  if(!plan||typeof plan!=='object'||plan.automatic_truth!==false||plan.live_service_available!==false||
+    typeof plan.place_id!=='string'||typeof plan.reason!=='string'||!plan.transit_network||
+    !Number.isInteger(Number(plan.transit_network.active_nodes))||Number(plan.transit_network.active_nodes)<0||
+    !Number.isInteger(Number(plan.transit_network.active_lines))||Number(plan.transit_network.active_lines)<0)
+    throw new Error('AFAT multimodal evidence response is invalid.');
+  if(plan.multimodal_chain==null){
+    if(!['insufficient_transit_evidence','transit_candidate_walk_access_unresolved'].includes(plan.multimodal_chain_status))
+      throw new Error('AFAT multimodal evidence state is invalid.');
+    return plan as AfatMultimodalPlan;
+  }
+  const chain=plan.multimodal_chain;
+  const observed=Date.parse(chain.evidence_observed_at),reviewed=Date.parse(chain.latest_reviewed_at),expires=Date.parse(chain.evidence_expires_at);
+  if(plan.multimodal_chain_status!=='reviewed_recent_single_line_pattern'||chain.type!=='walk_transit_walk'||
+    chain.automatic_truth!==false||chain.observation_time_verified!==false||
+    chain.live_service_available!==false||chain.boarding_availability_verified!==false||
+    chain.schedule_verified!==false||chain.fare_current_verified!==false||
+    !chain.line||!chain.boarding||!chain.alighting||
+    !Number.isFinite(observed)||!Number.isFinite(reviewed)||!Number.isFinite(expires)||
+    observed>nowMs+300000||reviewed>nowMs+300000||expires<=nowMs||expires-observed>30*24*60*60*1000+1000)
+    throw new Error('AFAT reviewed transit pattern is invalid or expired.');
+  return plan as AfatMultimodalPlan;
+}
 
 let flushInFlight: Promise<{synced:number;pending:number}> | null = null;
 let lastSignedInUserId: string | null = null;
@@ -237,7 +280,7 @@ export async function planMultimodalJourney(input: {
     p_place_id: input.placeId,
   });
   if (error) throw new Error(error.message || 'AFAT multimodal planning failed.');
-  return data as AfatMultimodalPlan;
+  return validateMultimodalPlan(data);
 }
 
 export function pendingMobilityEvidenceCount() {
