@@ -11,6 +11,8 @@ on:
       - 'dashboard/src/services/canonicalRouteClient.ts'
       - 'dashboard/src/services/offlineJourneyRoute.ts'
       - 'dashboard/src/components/commuter/PassagePlanner.tsx'
+      - 'dashboard/src/components/commuter/ReviewedRouteEnvironment.tsx'
+      - 'dashboard/src/services/groundedJourneyBrief.ts'
       - 'dashboard/src/components/commuter/PaymentSheet.tsx'
       - 'dashboard/src/components/commuter/PassengerScheduledSeatJourney.tsx'
       - 'dashboard/src/services/paymentRecovery.ts'
@@ -36,7 +38,7 @@ jobs:
         run: |
           for attempt in $(seq 1 15); do
             if node scripts/verify-cloudflare-passenger-atlas.mjs; then exit 0; fi
-            echo "Cloudflare has not yet served the new offline passenger release (attempt $attempt/15)"
+            echo "Cloudflare has not yet served the required passenger evidence release (attempt $attempt/15)"
             sleep 20
           done
           exit 1

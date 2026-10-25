@@ -25,6 +25,8 @@ const signals=['Understand nearby landmarks and reviewed geographic evidence','R
   'Offline: no matching saved route for this mode and arrival point',
   'Capture a new location before submitting any place or transport observation',
   'AFAT detected meaningful off-route movement',
+  'CityBrain route brief · grounded evidence only','What remains unknown',
+  'CityBrain did not change the provider route or predict safe passage from missing evidence',
   'Resume an existing unpaid booking','Verify booking status before another collection'];
 for(const signal of signals)assert.ok(bundles.includes(signal),'Cloudflare is serving a stale dashboard: missing '+signal);
-console.log('PASS actual Cloudflare passenger discovery → route/navigation → offline custody → field evidence release:',site.origin);
+console.log('PASS actual Cloudflare passenger discovery → grounded route brief → navigation/offline custody → field evidence release:',site.origin);
