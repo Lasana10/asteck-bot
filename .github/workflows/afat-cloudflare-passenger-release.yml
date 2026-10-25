@@ -13,6 +13,7 @@ on:
       - 'dashboard/src/components/commuter/PassagePlanner.tsx'
       - 'dashboard/src/components/commuter/ReviewedRouteEnvironment.tsx'
       - 'dashboard/src/services/groundedJourneyBrief.ts'
+      - 'dashboard/src/services/reviewedIncidentRoute.ts'
       - 'dashboard/src/components/commuter/PaymentSheet.tsx'
       - 'dashboard/src/components/commuter/PassengerScheduledSeatJourney.tsx'
       - 'dashboard/src/services/paymentRecovery.ts'

@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import type {AfatCanonicalRoute} from '../../services/canonicalRouteClient';
 import {inspectReviewedEnvironmentRoute,type ReviewedEnvironmentAdvisory} from '../../services/reviewedEnvironmentRoute';
 import {buildGroundedJourneyBrief} from '../../services/groundedJourneyBrief';
+import {inspectReviewedIncidentRoute,type ReviewedIncidentRouteAdvisory,unavailableReviewedIncidentRoute} from '../../services/reviewedIncidentRoute';
 
 type Props={cityKey:string;route:AfatCanonicalRoute|null;online:boolean;hasAccount:boolean};
 const empty:ReviewedEnvironmentAdvisory={checked:false,status:'unavailable',matched_reviewed_edges:0,max_risk_score:null,
@@ -9,22 +10,26 @@ const empty:ReviewedEnvironmentAdvisory={checked:false,status:'unavailable',matc
 
 export function ReviewedRouteEnvironment({cityKey,route,online,hasAccount}:Props){
  const [advisory,setAdvisory]=useState<ReviewedEnvironmentAdvisory>(empty);
+ const [incidents,setIncidents]=useState<ReviewedIncidentRouteAdvisory>(unavailableReviewedIncidentRoute);
  const [checking,setChecking]=useState(false);
  useEffect(()=>{
   let live=true;
   setAdvisory(empty);
+  setIncidents(unavailableReviewedIncidentRoute());
   if(!online||!hasAccount||route?.status!=='ok')return()=>{live=false;};
   const check=async()=>{
    setChecking(true);
-   const result=await inspectReviewedEnvironmentRoute(cityKey,route);
-   if(live){setAdvisory(result);setChecking(false);}
+   const [result,incidentResult]=await Promise.all([
+    inspectReviewedEnvironmentRoute(cityKey,route),inspectReviewedIncidentRoute(cityKey,route),
+   ]);
+   if(live){setAdvisory(result);setIncidents(incidentResult);setChecking(false);}
   };
   void check();
   const interval=window.setInterval(()=>void check(),90_000);
   return()=>{live=false;window.clearInterval(interval);};
  },[cityKey,route,online,hasAccount]);
  if(route?.status!=='ok')return null;
- const brief=buildGroundedJourneyBrief(route,advisory,{online});
+ const brief=buildGroundedJourneyBrief(route,advisory,{online,incidents});
  const exposed=brief.status==='reviewed_context';
  return <section role="status" aria-live="polite" data-evidence-status={brief.status} className={exposed
   ?'mt-3 rounded-xl border border-amber-300/35 bg-amber-500/10 p-3'
