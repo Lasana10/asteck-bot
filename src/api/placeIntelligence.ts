@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { supabase } from '../infra/supabase';
 import crypto from 'crypto';
+import { eligiblePreflightVehicles } from '../services/preflightSupply';
 
 const router = express.Router();
 const localAuthSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET;
@@ -657,17 +658,19 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
       .from('vehicles')
       .select('id,type,is_available,current_lat,current_lng,last_ping_at,clearance_status')
       .eq('is_available', true)
+      .eq('clearance_status', 'verified')
       .limit(200);
     if (vehicleError) throw vehicleError;
 
     const now = Date.now();
-    const candidates = (vehicles || []).filter((vehicle: any) => {
-      const type = normalize(vehicle.type);
-      if (!acceptedTypes.some((value) => type.includes(value))) return false;
-      if (!vehicle.last_ping_at) return false;
-      const ageMs = now - new Date(vehicle.last_ping_at).getTime();
-      return Number.isFinite(ageMs) && ageMs <= 15 * 60 * 1000;
-    });
+    const candidates = await eligiblePreflightVehicles(
+      vehicles || [], acceptedTypes, now,
+      async (vehicleId) => {
+        const result = await supabase.rpc('afat_vehicle_compliance_current', { p_vehicle_id: vehicleId });
+        if (result.error) throw new Error('CURRENT_VEHICLE_CLEARANCE_LOOKUP_UNAVAILABLE');
+        return result.data === true;
+      },
+    );
 
     let nearbySupply = candidates.length;
     if (pickupLat != null && pickupLng != null) {
@@ -719,6 +722,8 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
       supply: {
         observed: nearbySupply,
         state: nearbySupply > 0 ? 'live_supply_observed' : 'none_observed',
+        eligibility: 'current_verified_vehicle_compliance',
+        clearance_checked: true,
         telemetry_window_minutes: 15,
         radius_m: pickupLat != null && pickupLng != null ? 7000 : null,
       },

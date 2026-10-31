@@ -42,7 +42,8 @@
     "test:ai-evidence-truth": "node --import tsx scripts/verify-ai-evidence-truth.ts",
     "test:grounded-journey-brief": "node --import tsx scripts/verify-grounded-journey-brief.ts",
     "test:reviewed-incident-route": "node --import tsx scripts/verify-reviewed-incident-route.ts",
-    "test:reviewed-transit-chain": "node --import tsx scripts/verify-reviewed-transit-chain.ts"
+    "test:reviewed-transit-chain": "node --import tsx scripts/verify-reviewed-transit-chain.ts",
+    "test:passenger-preflight-supply": "node --import tsx scripts/verify-passenger-preflight-supply.ts"
   },
   "keywords": [],
   "author": "",

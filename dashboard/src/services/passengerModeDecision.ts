@@ -12,7 +12,11 @@ export type PassengerModeDecision = {
 };
 
 export type PassengerPreflight = Record<string, {
-  supply?: { observed?: number | null } | null;
+  supply?: {
+    observed?: number | null;
+    eligibility?: string | null;
+    clearance_checked?: boolean | null;
+  } | null;
   fare?: { state?: string; low?: number; high?: number } | null;
 } | null | undefined>;
 
@@ -24,7 +28,9 @@ const TRANSPORT_MODES: AfatRouteMode[] = ['moto', 'car', 'minibus'];
 
 export function observedTransportSupply(preflight: PassengerPreflight, mode: AfatRouteMode): number {
   if (!TRANSPORT_MODES.includes(mode)) return 0;
-  const value = preflight[mode]?.supply?.observed;
+  const supply = preflight[mode]?.supply;
+  if (supply?.clearance_checked !== true || supply.eligibility !== 'current_verified_vehicle_compliance') return 0;
+  const value = supply.observed;
   const number = typeof value === 'number' ? value : NaN;
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
@@ -78,6 +84,6 @@ export function passengerSupplyNotice(mode: AfatRouteMode, preflight: PassengerP
   if (!current) return 'Transport availability is not confirmed. A request is not an accepted booking.';
   const observed = observedTransportSupply(preflight,mode);
   return observed > 0
-    ? `${observed} transport option${observed===1?'':'s'} observed. A request still requires assignment confirmation.`
+    ? `${observed} currently cleared transport option${observed===1?'':'s'} observed. A request still requires assignment confirmation.`
     : 'No live vehicle availability observed. You can request transport, but a ride is not confirmed.';
 }
