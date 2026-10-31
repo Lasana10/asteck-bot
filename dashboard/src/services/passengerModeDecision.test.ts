@@ -5,9 +5,10 @@ const route=(mode:AfatRouteMode,eta:number|null):AfatCanonicalRoute=>({
  status:'ok',mode,route_source:'osrm',distance_m:1200,eta_seconds:eta,
  segments:[{seq:0,edge_id:'road',distance_m:1200,geometry:{type:'LineString',coordinates:[[11.5,3.8],[11.51,3.81]]}}]
 });
+const cleared=(observed:number)=>({supply:{observed,eligibility:'current_verified_vehicle_compliance',clearance_checked:true}});
 describe('AFAT mode choice and booking truth',()=>{
  it('never calls an unavailable motor route a live ride',()=>{
-  expect(choosePassengerMode({car:route('car',100),walk:route('walk',900)},{car:{supply:{observed:0}}},true)?.mode).toBe('walk');
+  expect(choosePassengerMode({car:route('car',100),walk:route('walk',900)},{car:cleared(0)},true)?.mode).toBe('walk');
   expect(choosePassengerMode({car:route('car',100)},{},true)).toBeNull();
  });
  it('uses real bicycle route geometry without implying a bookable bicycle',()=>{
@@ -20,17 +21,20 @@ describe('AFAT mode choice and booking truth',()=>{
   expect(passengerSupplyNotice('bike',{},true)).toContain('Self-cycling');
  });
  it('does not reuse live availability offline',()=>{
-  expect(choosePassengerMode({moto:route('moto',300)},{moto:{supply:{observed:2}}},false)).toBeNull();
+  expect(choosePassengerMode({moto:route('moto',300)},{moto:cleared(2)},false)).toBeNull();
+ });
+ it('rejects legacy supply counts without current clearance proof',()=>{
+  expect(choosePassengerMode({car:route('car',100)},{car:{supply:{observed:2}}},true)).toBeNull();
  });
  it('requires availability and distinguishes baseline estimates',()=>{
-  const x=choosePassengerMode({moto:route('moto',300)},{moto:{supply:{observed:2}}},true);
+  const x=choosePassengerMode({moto:route('moto',300)},{moto:cleared(2)},true);
   expect(x?.bookable).toBe(true);
   expect(x?.reason).toContain('without live traffic');
  });
  it('never presents unknown ETA as instant travel',()=>{
-  expect(choosePassengerMode({walk:route('walk',null),car:route('car',800)},{car:{supply:{observed:1}}},true)?.mode).toBe('car');
+  expect(choosePassengerMode({walk:route('walk',null),car:route('car',800)},{car:cleared(1)},true)?.mode).toBe('car');
  });
  it('requires real assignment confirmation',()=>{
-  expect(passengerSupplyNotice('car',{car:{supply:{observed:1}}},true)).toContain('assignment confirmation');
+  expect(passengerSupplyNotice('car',{car:cleared(1)},true)).toContain('assignment confirmation');
  });
 });
