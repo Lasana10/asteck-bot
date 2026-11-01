@@ -169,9 +169,9 @@ export function OperatorWorkspaceHome({
   const accept = async () => {
     if (!mission?.id || !profile?.id) return;
     setBusy(true);
-    const { error } = await updatePassageIntentStatus(mission.id, { status: 'driver_acknowledged', operator_id: profile.id });
+    const { error } = await updatePassageIntentStatus(mission.id, { status: 'assigned', operator_id: profile.id });
     setBusy(false);
-    setNotice(error ? error.message : 'Mission accepted. Pickup and passenger tracking can now progress.');
+    setNotice(error ? error.message : 'Request claimed. AFAT has assigned your verified vehicle; acknowledge the pickup in the mission view.');
     if (!error) onChanged();
   };
 

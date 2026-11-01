@@ -724,7 +724,7 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
         state: nearbySupply > 0 ? 'live_supply_observed' : 'none_observed',
         eligibility: 'current_verified_vehicle_compliance',
         clearance_checked: true,
-        telemetry_window_minutes: 15,
+        telemetry_window_seconds: 120,
         radius_m: pickupLat != null && pickupLng != null ? 7000 : null,
       },
       fare: historicalPrices.length >= 3 ? {
