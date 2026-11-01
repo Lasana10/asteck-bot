@@ -18,7 +18,7 @@ console.log('Licensed candidate Atlas nearby privacy and bounded-geometry contra
 
 const runtime=readFileSync('src/api/placeIntelligence.ts','utf8');
 const engine=readFileSync('supabase/migrations/20261005143500_afat_fuzzy_local_place_search.sql','utf8');
-assert.match(runtime,/async function loadDiscoveryPlaces\(queryText: string, city: string\)/);
+assert.match(runtime,/async function loadDiscoveryPlaces\(queryText: string, city: string, exactPlaceId\?: string\)/);
 assert.match(runtime,/rpc\('afat_search_places'/);
 assert.match(runtime,/p_limit: 50/);
 assert.match(runtime,/\.in\('id', ids\)\.neq\('status', 'retired'\)/);
@@ -39,6 +39,15 @@ console.log('PASS searched passenger place discovery and resolution use the full
 
 const planner=readFileSync('dashboard/src/components/commuter/PassagePlanner.tsx','utf8');
 const candidate=readFileSync('dashboard/src/supabaseClient.ts','utf8');
+assert.match(runtime,/\.eq\('id', exactPlaceId\)\.in\('city', cityVariants\)\.neq\('status', 'retired'\)/);
+assert.match(runtime,/placeId \? item\.id === placeId/);
+assert.match(runtime,/!placeId && \(queryText \?/);
+assert.match(planner,/placeId: place\.id/);
+assert.match(planner,/candidate\.id === place\.id && candidate\.source === 'afat_places'/);
+assert.doesNotMatch(planner,/candidate\.name\)\.toLowerCase\(\) === String\(place\.name\)/);
+assert.match(planner,/selectedPlace\.source !== 'afat_places'/);
+console.log('PASS map selection keeps exact Atlas identity and source-only pins cannot become transport requests');
+
 assert.match(runtime,/status,evidence_status,metadata,primary_source_key,destination_kind/);
 assert.match(runtime,/source_only: place\.metadata\?\.source_only === true/);
 assert.match(runtime,/evidence_status: String\(place\.evidence_status \|\| 'limited'\)/);
