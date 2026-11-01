@@ -157,6 +157,7 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><Clock3 className="h-4 w-4 text-blue-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Current step</p><p className="mt-1 text-xs font-black">{human(status)}</p></div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-4"><ShieldCheck className="h-4 w-4 text-cyan-200" /><p className="mt-2 text-[9px] uppercase text-white/30">Truth source</p><p className="mt-1 text-xs font-black">Live dispatch record</p></div>
       </div>
+      {assignment.atlas_context?.arrival_access_state === 'mapped_place_reference_unverified_access' && <p role="status" className="mt-3 rounded-xl border border-amber-300/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">The destination pin is a mapped place reference. AFAT has no reviewed entrance or meeting point here; agree the exact drop-off with your assigned operator before arrival.</p>}
 
       {(assignment.operator || assignment.vehicle) && (
         <div className="mt-4 rounded-xl border border-emerald-300/15 bg-emerald-400/[0.055] p-4">
