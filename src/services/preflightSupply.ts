@@ -24,7 +24,7 @@ export async function eligiblePreflightVehicles(
   const freshVerified = vehicles.filter((vehicle) => {
     if (vehicle.is_available !== true || vehicle.clearance_status !== 'verified') return false;
     const type = normalize(vehicle.type);
-    if (!acceptedTypes.some((value) => type.includes(normalize(value)))) return false;
+    if (!acceptedTypes.some((value) => type === normalize(value))) return false;
     if (!vehicle.last_ping_at) return false;
     const ageMs = nowMs - new Date(vehicle.last_ping_at).getTime();
     return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 120 * 1000;
