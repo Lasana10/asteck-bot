@@ -662,6 +662,18 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
       .limit(200);
     if (vehicleError) throw vehicleError;
 
+    const candidateIds = (vehicles || []).map((vehicle: any) => vehicle.id).filter(Boolean);
+    let engagedVehicleIds = new Set<string>();
+    if (candidateIds.length) {
+      const { data: activeDispatches, error: activeError } = await supabase
+        .from('dispatch_assignments')
+        .select('vehicle_id')
+        .in('vehicle_id', candidateIds)
+        .in('status', ['offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','emergency']);
+      if (activeError) throw activeError;
+      engagedVehicleIds = new Set((activeDispatches || []).map((item: any) => String(item.vehicle_id)));
+    }
+
     const now = Date.now();
     const candidates = await eligiblePreflightVehicles(
       vehicles || [], acceptedTypes, now,
@@ -670,6 +682,7 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
         if (result.error) throw new Error('CURRENT_VEHICLE_CLEARANCE_LOOKUP_UNAVAILABLE');
         return result.data === true;
       },
+      engagedVehicleIds,
     );
 
     let nearbySupply = candidates.length;
@@ -725,6 +738,7 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
         eligibility: 'current_verified_vehicle_compliance',
         clearance_checked: true,
         telemetry_window_seconds: 120,
+        excludes_active_assignments: true,
         radius_m: pickupLat != null && pickupLng != null ? 7000 : null,
       },
       fare: historicalPrices.length >= 3 ? {

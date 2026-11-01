@@ -20,8 +20,10 @@ export async function eligiblePreflightVehicles(
   acceptedTypes: string[],
   nowMs: number,
   complianceCurrent: (vehicleId: string) => Promise<boolean>,
+  engagedVehicleIds: ReadonlySet<string> = new Set(),
 ): Promise<PreflightVehicle[]> {
   const freshVerified = vehicles.filter((vehicle) => {
+    if (engagedVehicleIds.has(vehicle.id)) return false;
     if (vehicle.is_available !== true || vehicle.clearance_status !== 'verified') return false;
     const type = normalize(vehicle.type);
     if (!acceptedTypes.some((value) => type === normalize(value))) return false;

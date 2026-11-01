@@ -9,6 +9,7 @@ const vehicles = [
   { ...base, id: 'not-cleared', clearance_status: 'pending' },
   { ...base, id: 'stale', last_ping_at: '2026-10-31T11:57:00.000Z' },
   { ...base, id: 'wrong-mode', type: 'minibus' },
+  { ...base, id: 'already-assigned' },
 ];
 
 async function main() {
@@ -16,7 +17,7 @@ async function main() {
   const eligible = await eligiblePreflightVehicles(vehicles, ['car', 'taxi'], now, async (id) => {
     checked.push(id);
     return id === 'current';
-  });
+  }, new Set(['already-assigned']));
 
   assert.deepEqual(eligible.map(({ id }) => id), ['current']);
   assert.deepEqual(checked.sort(), ['current', 'expired-document']);
