@@ -219,7 +219,7 @@ function finiteCoordinate(value: unknown, min: number, max: number) {
  * source/alias identity while enriching search hits with verified access data.
  * A failed geocoder remains an unavailable search, not a fabricated candidate.
  */
-async function loadDiscoveryPlaces(queryText: string, city: string) {
+async function loadDiscoveryPlaces(queryText: string, city: string, exactPlaceId?: string) {
   const normalizedCity = normalize(city || 'yaounde');
   if (!/^[a-z][a-z -]{1,70}$/.test(normalizedCity)) {
     throw new Error('Unsupported destination city');
@@ -231,6 +231,12 @@ async function loadDiscoveryPlaces(queryText: string, city: string) {
   const authoritativeCityName = String(cityProfile.city_name);
   const cityVariants = [...new Set([authoritativeCityName, normalizedCity])];
   const detailColumns = 'id,place_ref,canonical_name,aliases,description,city,zone_label,latitude,longitude,vehicle_access,base_confidence,successful_pickups,failed_pickups,status,evidence_status,metadata,primary_source_key,destination_kind,reachability_state,local_directions,afat_meeting_points(*),afat_access_points(*)';
+  if (exactPlaceId) {
+    const { data, error } = await supabase.from('afat_places').select(detailColumns)
+      .eq('id', exactPlaceId).in('city', cityVariants).neq('status', 'retired').maybeSingle();
+    if (error) throw error;
+    return { places: data ? [data] : [], searchMode: 'exact_atlas_id' as const, cityVariants };
+  }
   if (queryText.trim()) {
     if (queryText.length < 2 || queryText.length > 120) return { places: [] as any[], searchMode: 'invalid_query' as const, cityVariants };
     const key = cityKey;
@@ -286,12 +292,16 @@ function qualifiesReviewedFuzzyMatch(place:any):boolean {
 router.get('/place/discover', async (req: Request, res: Response) => {
   try {
     const queryText = String(req.query.q || '').trim();
+    const placeId = String(req.query.place_id || '').trim();
+    if (placeId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(placeId)) {
+      return res.status(400).json({ error: 'Invalid Atlas place identity.' });
+    }
     const city = normalize(req.query.city || 'yaounde');
     const latitude = finiteCoordinate(req.query.lat, -90, 90);
     const longitude = finiteCoordinate(req.query.lon, -180, 180);
     const limit = Math.min(Math.max(Number(req.query.limit || 8), 1), 12);
 
-    const { places, searchMode, cityVariants } = await loadDiscoveryPlaces(queryText, city);
+    const { places, searchMode, cityVariants } = await loadDiscoveryPlaces(queryText, city, placeId || undefined);
     const { data: ledgerPlaces, error: ledgerError } = await supabase.from('afat_address_ledger')
       .select('id,canonical_label,aliases,description,city,zone_label,latitude,longitude,address_type,access_notes,confidence,successful_pickups,failed_pickups,status,source')
       .in('city', cityVariants).in('status', ['candidate', 'verified']).limit(240);
@@ -356,7 +366,7 @@ router.get('/place/discover', async (req: Request, res: Response) => {
           historyScore ? `${place.successful_pickups || 0} successful pickup signals` : 'Limited pickup history',
         ],
       };
-    }).filter((item: any) => queryText
+    }).filter((item: any) => placeId ? item.id === placeId : queryText
       ? (item.text_score > 0 || qualifiesReviewedFuzzyMatch({
           _search_reason:item.match_reason,_search_similarity:item.match_similarity,_search_rank:item.search_rank
         })) && item.confidence>=34
@@ -397,7 +407,7 @@ router.get('/place/discover', async (req: Request, res: Response) => {
           place.source ? `Source: ${place.source}` : 'AFAT address ledger',
         ],
       };
-    }).filter((item: any) => queryText ? item.text_score > 0 && item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000);
+    }).filter((item: any) => !placeId && (queryText ? item.text_score > 0 && item.confidence >= 34 : item.distance_m != null && item.distance_m <= 5000));
 
     const results = [...scoredCurated, ...scoredLedger]
       .sort((a: any, b: any) => {
@@ -470,6 +480,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
         return {
           id: place.id,
           place_ref: place.place_ref,
+          source: 'afat_places',
           search_rank: place._search_rank ?? null,
           match_reason: place._search_reason ?? null,
           match_similarity: place._search_similarity ?? null,

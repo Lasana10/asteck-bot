@@ -130,6 +130,7 @@ function offlinePlaceCandidate(place:AfatOfflinePlace,city:string):AfatPlaceCand
     meeting_points:[],access_points:[],destination_kind:place.kind||'place',
     reachability_state:'learning',evidence_status:place.evidence_status||'limited',
     source_only:true,
+    source:'offline_cache',
   } as AfatPlaceCandidate;
 }
 
@@ -548,14 +549,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     }
     const { data } = await discoverAfatPlaces({
       query: place.name,
+      placeId: place.id,
       city: profile?.preferred_city || 'yaounde',
       latitude: place.latitude,
       longitude: place.longitude,
       limit: 12,
     });
     const discovered = (data?.results || []) as AfatPlaceCandidate[];
-    const exact = discovered.find((candidate) => candidate.id === place.id)
-      || discovered.find((candidate) => String(candidate.name).toLowerCase() === String(place.name).toLowerCase());
+    const exact = discovered.find((candidate) => candidate.id === place.id && candidate.source === 'afat_places');
     if (exact) { selectCandidate(exact); return; }
     selectCandidate({
       id: place.id,
@@ -572,6 +573,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       access_points: [],
       destination_kind: place.kind || 'place',
       reachability_state: 'learning',
+      source: 'unresolved_map_pin',
     } as AfatPlaceCandidate);
   };
 
@@ -764,6 +766,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
   const createPassage = async () => {
     if (!profile?.id || !selectedPlace || !arrivalPoint) return;
+    if (selectedPlace.source !== 'afat_places') {
+      setStatusText('This location is a mapped reference without a current Atlas place identity. Search online for a listed destination before requesting transport.');
+      return;
+    }
     if (!originFix) { setStatusText('Use the location button on the map to confirm where the operator should collect you.'); return; }
     if (vehicleType !== 'walk' && Number(preflight[vehicleType]?.supply?.observed || 0) === 0) {
       recordGapOnce(`supply:${selectedPlace.id}:${vehicleType}`, {
@@ -1012,7 +1018,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       {!(selectedPlace.meeting_points || []).length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This place is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
       {!(selectedPlace.meeting_points || []).length && <p className="rounded-xl border border-amber-300/20 bg-amber-400/5 p-3 text-xs text-amber-100" role="status">A transport request can use the mapped place as a provisional drop-off reference. It does not verify an entrance or guarantee the last metres of access; agree the exact drop-off with the assigned operator.</p>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before starting navigation or requesting transport.</div>}
-      {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || (vehicleType === 'walk' || vehicleType === 'bike') || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
+      {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || selectedPlace.source !== 'afat_places' || (vehicleType === 'walk' || vehicleType === 'bike') || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
+      {selectedPlace.source !== 'afat_places' && <p className="text-xs text-amber-200">This mapped point has no current Atlas identity for a transport request. Search online for a listed destination; navigation to the point remains available.</p>}
       {profile?.id&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
        {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}

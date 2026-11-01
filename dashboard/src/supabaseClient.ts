@@ -1999,6 +1999,7 @@ export type AfatPlaceCandidate = {
   evidence_status?: string | null;
   source_only?: boolean;
   source_key?: string | null;
+  source?: string | null;
 };
 
 export async function resolveAfatDestinationIntent(placeId: string, payload: {
@@ -2255,6 +2256,7 @@ export async function fetchPassagePreflight(params: {
 
 export async function discoverAfatPlaces(params: {
   query?: string;
+  placeId?: string;
   city?: string;
   latitude?: number;
   longitude?: number;
@@ -2264,6 +2266,7 @@ export async function discoverAfatPlaces(params: {
     const authHeaders = await authenticatedApiHeaders();
     const query = new URLSearchParams();
     if (params.query) query.set('q', params.query);
+    if (params.placeId) query.set('place_id', params.placeId);
     if (params.city) query.set('city', params.city);
     if (Number.isFinite(params.latitude)) query.set('lat', String(params.latitude));
     if (Number.isFinite(params.longitude)) query.set('lon', String(params.longitude));
