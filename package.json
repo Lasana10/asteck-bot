@@ -43,7 +43,8 @@
     "test:grounded-journey-brief": "node --import tsx scripts/verify-grounded-journey-brief.ts",
     "test:reviewed-incident-route": "node --import tsx scripts/verify-reviewed-incident-route.ts",
     "test:reviewed-transit-chain": "node --import tsx scripts/verify-reviewed-transit-chain.ts",
-    "test:passenger-preflight-supply": "node --import tsx scripts/verify-passenger-preflight-supply.ts"
+    "test:passenger-preflight-supply": "node --import tsx scripts/verify-passenger-preflight-supply.ts",
+    "test:operator-nearby-queue": "node --import tsx scripts/verify-operator-nearby-queue.ts"
   },
   "keywords": [],
   "author": "",

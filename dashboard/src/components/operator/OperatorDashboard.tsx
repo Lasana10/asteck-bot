@@ -241,16 +241,16 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     setPassageIntents(Array.from(new Map(passages.map((passage: any) => [passage.id, passage])).values()));
   };
 
-  const acknowledgePassage = async (passageId: string) => {
+  const acknowledgePassage = async (passageId: string, open: boolean) => {
     const { error } = await updatePassageIntentStatus(passageId, {
-      status: 'driver_acknowledged',
+      status: open ? 'assigned' : 'driver_acknowledged',
       operator_id: profile.id,
     });
     if (error) {
-      setOperatorNotice(`Passage could not be acknowledged: ${error.message}`);
+      setOperatorNotice(`Passage could not be ${open ? 'claimed' : 'acknowledged'}: ${error.message}`);
       return;
     }
-    setOperatorNotice('Passage acknowledged. AFAT now shows both sides the same meeting point and instructions.');
+    setOperatorNotice(open ? 'Request claimed with a nearby verified vehicle. Continue in the assigned mission.' : 'Passage acknowledged. AFAT now shows both sides the same meeting point and instructions.');
     fetchRequests();
   };
 
@@ -544,13 +544,13 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
                   )}
                 </div>
 
-                {['open', 'assigned'].includes(String(passage.status || '')) ? (
+                {['open', 'assigned'].includes(String(passage.status || '')) || (passage.status === 'recovery' && !passage.operator_id) ? (
                   <button
-                    onClick={() => acknowledgePassage(passage.id)}
+                    onClick={() => acknowledgePassage(passage.id, passage.status !== 'assigned')}
                     disabled={!meetingPoint}
                     className="mt-4 w-full rounded-2xl bg-emerald-500 px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-40"
                   >
-                    Acknowledge meeting point
+                    {passage.status === 'assigned' ? 'Acknowledge meeting point' : 'Claim nearby verified request'}
                   </button>
                 ) : passage.status === 'recovery' ? (
                   <div className="mt-4 rounded-2xl border border-orange-300/20 bg-orange-400/10 px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-orange-100">
