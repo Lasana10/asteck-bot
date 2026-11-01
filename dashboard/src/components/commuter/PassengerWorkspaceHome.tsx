@@ -39,12 +39,14 @@ export function PassengerWorkspaceHome({
   profile,
   live,
   currentDispatch,
+  recentDispatch,
   onNavigate,
   onChanged,
 }: {
   profile: any;
   live: RoleWorkspaceLiveFeed;
   currentDispatch: any | null;
+  recentDispatch?: any | null;
   onNavigate: (tab: WorkspaceTab) => void;
   onChanged: () => void;
 }) {
@@ -53,6 +55,8 @@ export function PassengerWorkspaceHome({
   const handoffParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const initialDestination = handoffParams.get('destination') || '';
   const initialIntent = handoffParams.get('intent') || 'go';
+  const dispatchState = String(currentDispatch?.status || '').toLowerCase();
+  const journeyMoving = ['in_journey','emergency'].includes(dispatchState);
 
   const cityPulse = useMemo(() => {
     const movement = live.tracks.length;
@@ -87,11 +91,11 @@ export function PassengerWorkspaceHome({
         <section className="overflow-hidden rounded-[2rem] border border-emerald-300/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] p-5 shadow-2xl sm:p-7">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-emerald-100">
-              <Radio className="h-3 w-3" /> Live journey
+              <Radio className="h-3 w-3" /> {journeyMoving ? 'Live journey' : 'Transport request'}
             </span>
-            <span className="text-[10px] text-white/35">Pickup → movement → payment → closure</span>
+            <span className="text-[10px] text-white/35">Request → assignment → pickup → movement → closure</span>
           </div>
-          <h1 className="mt-4 max-w-4xl text-3xl font-black tracking-tight sm:text-5xl">Your trip is now the interface.</h1>
+          <h1 className="mt-4 max-w-4xl text-3xl font-black tracking-tight sm:text-5xl">{journeyMoving ? 'Your journey is underway.' : 'Follow your transport request.'}</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-white/50 sm:text-base">AFAT keeps the live route, meeting point, operator state and journey controls together until the movement is actually closed.</p>
         </section>
         <ActiveDispatchMap assignment={currentDispatch} role="commuter" incidents={live.incidents} liveTracks={live.tracks} />
@@ -102,6 +106,7 @@ export function PassengerWorkspaceHome({
 
   return (
     <div className="space-y-4">
+      {recentDispatch && <section className="rounded-2xl border border-white/10 bg-slate-950/65 p-4" role="status"><p className="text-sm font-bold">Recent request: {String(recentDispatch.status || 'closed').replace(/_/g, ' ')}</p><p className="mt-1 text-xs text-white/55">This request has ended. You can plan another journey; its receipt and payment status remain in your journeys.</p><button type="button" onClick={() => onNavigate('bookings')} className="mt-3 min-h-11 rounded-xl border border-white/15 px-4 text-xs font-bold">View recent journey</button></section>}
       <section className="relative overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-[radial-gradient(circle_at_12%_0%,rgba(34,211,238,0.19),transparent_34%),radial-gradient(circle_at_92%_16%,rgba(59,130,246,0.12),transparent_26%),linear-gradient(140deg,rgba(15,23,42,0.98),rgba(2,6,23,1))] p-5 shadow-[0_24px_80px_rgba(2,6,23,.42)] sm:p-7">
         <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full border border-cyan-200/10" />
         <div className="pointer-events-none absolute -right-5 top-5 h-28 w-28 rounded-full border border-cyan-200/[0.07]" />

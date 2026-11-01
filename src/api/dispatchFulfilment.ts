@@ -84,11 +84,14 @@ router.get('/dispatch', async (req: Request, res: Response) => {
     if (role === 'operator') {
       query = query.eq('operator_id', profileId);
     } else if (!['admin','planner'].includes(role)) {
-      const { data: bookings, error: bookingsError } = await supabase.from('bookings').select('id').eq('passenger_id', profileId).limit(100);
-      if (bookingsError) throw bookingsError;
-      const bookingIds = (bookings || []).map((booking: any) => booking.id).filter(Boolean);
-      if (!bookingIds.length) return res.json({ dispatches: [], role, active_states: ACTIVE_DISPATCH_STATES });
-      query = query.in('booking_id', bookingIds);
+      // Filter by passenger before limiting. A long booking history must never
+      // hide an active journey from its owner, even if it began long ago.
+      const { data, error } = await supabase.rpc('afat_passenger_dispatch_feed', {
+        p_passenger_id: profileId, p_include_terminal: includeTerminal, p_limit: limit,
+      });
+      if (error) throw error;
+      const dispatches = await enrichDispatchTrust(data || []);
+      return res.json({ dispatches, role, active_states: ACTIVE_DISPATCH_STATES });
     }
     const { data, error } = await query;
     if (error) throw error;
