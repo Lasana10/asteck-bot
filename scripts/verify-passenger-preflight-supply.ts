@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { eligiblePreflightVehicles } from '../src/services/preflightSupply';
 
 const now = Date.parse('2026-10-31T12:00:00.000Z');
-const base = { type: 'taxi', is_available: true, clearance_status: 'verified', last_ping_at: '2026-10-31T11:55:00.000Z' };
+const base = { type: 'taxi', is_available: true, clearance_status: 'verified', last_ping_at: '2026-10-31T11:59:00.000Z' };
 const vehicles = [
   { ...base, id: 'current' },
   { ...base, id: 'expired-document' },
   { ...base, id: 'not-cleared', clearance_status: 'pending' },
-  { ...base, id: 'stale', last_ping_at: '2026-10-31T11:30:00.000Z' },
+  { ...base, id: 'stale', last_ping_at: '2026-10-31T11:57:00.000Z' },
   { ...base, id: 'wrong-mode', type: 'minibus' },
 ];
 

@@ -64,7 +64,7 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
         }
 
         if (role === 'operator') {
-          const requests = await fetchPassageIntents({ status: 'requested' });
+          const requests = await fetchPassageIntents({ open: true });
           if (active) setMissions(requests.data?.passages || []);
           if (requests.error) errors.push(`Mission queue: ${requests.error.message}`);
         }

@@ -27,7 +27,7 @@ export async function eligiblePreflightVehicles(
     if (!acceptedTypes.some((value) => type.includes(normalize(value)))) return false;
     if (!vehicle.last_ping_at) return false;
     const ageMs = nowMs - new Date(vehicle.last_ping_at).getTime();
-    return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 15 * 60 * 1000;
+    return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 120 * 1000;
   });
 
   const checks = await Promise.all(
