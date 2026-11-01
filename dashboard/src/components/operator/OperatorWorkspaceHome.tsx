@@ -71,7 +71,8 @@ export function OperatorWorkspaceHome({
   useEffect(() => { void refreshExecution(); }, [refreshExecution]);
 
   useEffect(() => {
-    if (!vehicle?.is_available || !vehicle?.id || !navigator.geolocation) {
+    const missionActive = currentDispatch && !['completed','cancelled','expired','declined','no_show'].includes(String(currentDispatch.status || '').toLowerCase());
+    if (missionActive || !vehicle?.is_available || !vehicle?.id || !navigator.geolocation) {
       if (watchRef.current != null && navigator.geolocation) navigator.geolocation.clearWatch(watchRef.current);
       watchRef.current = null;
       return;
@@ -102,7 +103,7 @@ export function OperatorWorkspaceHome({
       if (watchRef.current != null && navigator.geolocation) navigator.geolocation.clearWatch(watchRef.current);
       watchRef.current = null;
     };
-  }, [vehicle?.id, vehicle?.is_available]);
+  }, [vehicle?.id, vehicle?.is_available, currentDispatch?.id, currentDispatch?.status]);
 
   const toggleOnline = async () => {
     if (!vehicle?.id) {

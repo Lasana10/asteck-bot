@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { supabase } from '../infra/supabase';
 import crypto from 'crypto';
 import { eligiblePreflightVehicles } from '../services/preflightSupply';
+import { claimableNearbyRequests, haversineMeters, PICKUP_RADIUS_M } from '../services/dispatchPickupEligibility';
 
 const router = express.Router();
 const localAuthSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET;
@@ -205,16 +206,6 @@ function meetingPointExplanation(point: any) {
   else notes.push(`About ${Number(point?.walk_minutes || 0)} min walk`);
   if (accessModes.length) notes.push(`Supports ${accessModes.join(', ')}`);
   return notes;
-}
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const radius = 6371000;
-  const toRad = (value: number) => value * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * radius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function finiteCoordinate(value: unknown, min: number, max: number) {
@@ -691,7 +682,7 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
         const lat = Number(vehicle.current_lat);
         const lng = Number(vehicle.current_lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-        return haversineMeters(pickupLat, pickupLng, lat, lng) <= 7000;
+        return haversineMeters(pickupLat, pickupLng, lat, lng) <= PICKUP_RADIUS_M;
       }).length;
     }
 
@@ -739,7 +730,7 @@ router.get('/passages/preflight', async (req: Request, res: Response) => {
         clearance_checked: true,
         telemetry_window_seconds: 120,
         excludes_active_assignments: true,
-        radius_m: pickupLat != null && pickupLng != null ? 7000 : null,
+        radius_m: pickupLat != null && pickupLng != null ? PICKUP_RADIUS_M : null,
       },
       fare: historicalPrices.length >= 3 ? {
         state: 'historical_range',
@@ -826,6 +817,35 @@ router.get('/passages/intents', async (req: Request, res: Response) => {
     }
     if (open && !['operator', 'planner', 'admin'].includes(identity.role)) {
       return res.status(403).json({ error: 'Operator access required.' });
+    }
+
+    if (open && identity.role === 'operator') {
+      // A global open queue discloses unrelated pickup locations and offers
+      // work that this operator cannot claim. Gate the queue with the same
+      // live compliant fleet authority as preflight, then only return the
+      // minimal dispatch card fields for locally claimable requests.
+      const { data: fleet, error: fleetError } = await supabase.from('vehicles')
+        .select('id,type,is_available,clearance_status,last_ping_at,current_lat,current_lng')
+        .eq('operator_id', identity.id).eq('is_available', true).eq('clearance_status','verified').limit(30);
+      if (fleetError) throw fleetError;
+      if (!fleet?.length) return res.json({ passages: [] });
+      const { data: active, error: activeError } = await supabase.from('dispatch_assignments')
+        .select('vehicle_id').in('vehicle_id', fleet.map((vehicle: any) => vehicle.id))
+        .in('status', ['offered','accepted','assigned','en_route','arrived','pickup_verified','in_journey','emergency']);
+      if (activeError) throw activeError;
+      const eligible = await eligiblePreflightVehicles(fleet, ['car','taxi','moto','motorcycle','bike','minibus','bus','shared'], Date.now(),
+        async (id) => {
+          const result = await supabase.rpc('afat_vehicle_compliance_current',{ p_vehicle_id:id });
+          if (result.error) throw result.error;
+          return result.data === true;
+        }, new Set((active || []).map((row: any) => String(row.vehicle_id))));
+      if (!eligible.length) return res.json({ passages: [] });
+      const { data: nearby, error: nearbyError } = await supabase.from('passage_intents')
+        .select('id,origin_text,origin_lat,origin_lng,destination_text,arrival_target,requested_vehicle_type,place_confidence,status,created_at,afat_places(canonical_name),afat_meeting_points(name,instructions,walk_minutes,confidence)')
+        .in('status',['open','recovery']).is('operator_id',null)
+        .order('created_at',{ascending:false}).limit(100);
+      if (nearbyError) throw nearbyError;
+      return res.json({ passages: claimableNearbyRequests(nearby || [], eligible).slice(0,30) });
     }
 
     let query = supabase.from('passage_intents')
