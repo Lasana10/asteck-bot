@@ -1999,6 +1999,7 @@ export type AfatPlaceCandidate = {
   evidence_status?: string | null;
   source_only?: boolean;
   source_key?: string | null;
+  source?: string | null;
 };
 
 export async function resolveAfatDestinationIntent(placeId: string, payload: {

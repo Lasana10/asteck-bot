@@ -470,6 +470,7 @@ router.post('/place/resolve', async (req: Request, res: Response) => {
         return {
           id: place.id,
           place_ref: place.place_ref,
+          source: 'afat_places',
           search_rank: place._search_rank ?? null,
           match_reason: place._search_reason ?? null,
           match_similarity: place._search_similarity ?? null,
@@ -776,6 +777,15 @@ router.post('/passages/intents', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Verified pickup coordinates are required.' });
     }
     if (requestKey.length < 12 || requestKey.length > 300) return res.status(400).json({ error: 'A stable request_key is required.' });
+    const destinationSource = String(payload.metadata?.destination_source || 'afat_places');
+    const ledgerId = String(payload.metadata?.address_ledger_id || '');
+    if (destinationSource === 'afat_address_ledger') {
+      if (payload.selected_place_id || payload.meeting_point_id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ledgerId)) {
+        return res.status(400).json({ error: 'A current address-ledger destination without a claimed entrance is required.' });
+      }
+    } else if (destinationSource !== 'afat_places' || ledgerId || !payload.selected_place_id) {
+      return res.status(400).json({ error: 'Select an Atlas or address-ledger destination before requesting transport.' });
+    }
 
     const { data, error } = await supabase.rpc('afat_create_passage_dispatch', {
       p_passenger_id: identity.id,
@@ -788,7 +798,7 @@ router.post('/passages/intents', async (req: Request, res: Response) => {
       p_meeting_point_id: payload.meeting_point_id || null,
       p_place_confidence: payload.place_confidence ?? null,
       p_requested_vehicle_type: payload.requested_vehicle_type || null,
-      p_metadata: payload.metadata || {},
+      p_metadata: { ...(payload.metadata || {}), destination_source: destinationSource, address_ledger_id: destinationSource === 'afat_address_ledger' ? ledgerId : null },
       p_request_key: requestKey,
     });
 
