@@ -851,12 +851,13 @@ router.get('/passages/intents', async (req: Request, res: Response) => {
           return result.data === true;
         }, new Set((active || []).map((row: any) => String(row.vehicle_id))));
       if (!eligible.length) return res.json({ passages: [] });
-      const { data: nearby, error: nearbyError } = await supabase.from('passage_intents')
-        .select('id,origin_text,origin_lat,origin_lng,destination_text,arrival_target,requested_vehicle_type,place_confidence,status,created_at,afat_places(canonical_name),afat_meeting_points(name,instructions,walk_minutes,confidence)')
-        .in('status',['open','recovery']).is('operator_id',null)
-        .order('created_at',{ascending:false}).limit(100);
+      const { data: nearby, error: nearbyError } = await supabase.rpc('afat_nearby_claimable_passages', {
+        p_vehicles: eligible.map((vehicle: any) => ({ type: vehicle.type, lat: vehicle.current_lat, lng: vehicle.current_lng })),
+        p_limit: 30,
+      });
       if (nearbyError) throw nearbyError;
-      return res.json({ passages: claimableNearbyRequests(nearby || [], eligible).slice(0,30) });
+      if (!Array.isArray(nearby)) throw new Error('Nearby request authority returned invalid data');
+      return res.json({ passages: claimableNearbyRequests(nearby, eligible).slice(0,30) });
     }
 
     let query = supabase.from('passage_intents')
