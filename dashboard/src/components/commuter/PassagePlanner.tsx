@@ -41,6 +41,7 @@ import {nextRoadInstruction} from '../../services/providerTurnGuidance';
 import {storeOfflineJourneyRoute,loadOfflineJourneyRoute,clearOfflineJourneyRoute} from '../../services/offlineJourneyRoute';
 import {searchCachedPlaces, type AfatOfflinePlace} from '../../services/offlineSpatialCache';
 import {choosePassengerMode, passengerSupplyNotice, observedTransportSupply} from '../../services/passengerModeDecision';
+import { finishPassageRequest, pendingPassageRequestKey } from '../../services/passageRequestKey';
 
 type Props = {
   profile: any;
@@ -778,13 +779,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     }
     setLoading(true);
     setStatusText('Creating the transport request…');
+    const requestKey = pendingPassageRequestKey(String(profile.id), `${selectedPlace.id}:${vehicleType}:${arrivalTarget || 'now'}`);
     await confirmAfatPlace({ profile_id: profile.id, query_text: destination.trim(), city: selectedPlace.city, place_id: selectedPlace.id, meeting_point_id: selectedMeetingPoint?.id, confidence: selectedPlace.confidence, resolution_status: 'selected' });
     const { data, error } = await createPassageIntent({
       passenger_id: profile.id,
       origin_text: originLabel || undefined,
       origin_lat: originFix.latitude,
       origin_lng: originFix.longitude,
-      request_key: `passage:${profile.id}:${originFix.latitude.toFixed(5)}:${originFix.longitude.toFixed(5)}:${selectedPlace.id}:${arrivalTarget || 'now'}`,
+      request_key: requestKey,
       destination_text: destination.trim(),
       arrival_target: arrivalTarget ? new Date(arrivalTarget).toISOString() : undefined,
       selected_place_id: selectedPlace.id,
@@ -808,10 +810,11 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     });
     setLoading(false);
     if (error) { setStatusText(error.message); return; }
+    finishPassageRequest(String(profile.id),requestKey);
     const hasDispatch = Boolean(data?.dispatch?.id || data?.assignment?.id || data?.passage?.dispatch_assignment_id);
     const confirmedAssignmentId = data?.dispatch?.id || data?.assignment?.id || data?.passage?.dispatch_assignment_id;
     if (confirmedAssignmentId) { setSosDispatchId(String(confirmedAssignmentId)); setSosDispatchPlaceId(selectedPlace.id); }
-    setStatusText(hasDispatch ? 'Transport request created and a dispatch assignment exists.' : 'Transport request created. AFAT will only show operator matching after a real dispatch assignment exists.');
+    setStatusText(`${hasDispatch ? 'Transport request submitted; dispatch is queued.' : 'Transport request submitted; dispatch is not yet confirmed.'}${data?.arrival_access_state === 'mapped_place_reference_unverified_access' ? ' Arrival is routed to the mapped place reference; the entrance and final drop-off need confirmation with the operator.' : ' The selected meeting point is recorded, but final access is not automatically verified.'}`);
     void recordAfatIntent({ intent_type:intentType, place_id:selectedPlace.id, access_point_id:selectedAccessPoint?.id, meeting_point_id:selectedMeetingPoint?.id, movement_mode:vehicleType, origin_lat:originFix.latitude, origin_lng:originFix.longitude, context:{ passage_id:data?.passage?.id||null, execution:'booking', dispatch_assignment_present:hasDispatch } });
     onPassageCreated?.(data?.passage);
   };
@@ -1007,6 +1010,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         return <button key={candidateMeetingPoint.id} onClick={() => setSelectedMeetingPoint(candidateMeetingPoint)} className={`w-full rounded-2xl border p-4 text-left ${selectedMeetingPoint?.id === candidateMeetingPoint.id ? 'border-blue-400/40 bg-blue-500/10' : 'border-white/10 bg-white/[0.03]'}`}><div className="flex items-start gap-3"><MapPin className="mt-0.5 h-4 w-4 text-orange-300" /><div className="flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-black text-white">{candidateMeetingPoint.name}</p><span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-[8px] font-black uppercase text-cyan-100">{meetingSupportsMode(candidateMeetingPoint, vehicleType) ? (index === 0 ? 'Best for mode · ' : '') : 'Limited for mode · '}{suitability}/100</span></div><p className="mt-1 text-[11px] leading-relaxed text-white/55">{candidateMeetingPoint.instructions}</p><p className="mt-2 text-[10px] font-bold text-blue-200/70">About {candidateMeetingPoint.walk_minutes} min walk{Number(candidateMeetingPoint.successful_pickups || 0) > 0 ? ` · ${candidateMeetingPoint.successful_pickups} successful pickups` : ''}</p></div></div></button>;
       })}
       {!(selectedPlace.meeting_points || []).length && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/75"><ShieldAlert className="mb-2 h-4 w-4" />This place is known, but AFAT has not yet confirmed a reliable meeting point here.</div>}
+      {!(selectedPlace.meeting_points || []).length && <p className="rounded-xl border border-amber-300/20 bg-amber-400/5 p-3 text-xs text-amber-100" role="status">A transport request can use the mapped place as a provisional drop-off reference. It does not verify an entrance or guarantee the last metres of access; agree the exact drop-off with the assigned operator.</p>}
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before starting navigation or requesting transport.</div>}
       {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || (vehicleType === 'walk' || vehicleType === 'bike') || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button><button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button></div>}
       {profile?.id&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
