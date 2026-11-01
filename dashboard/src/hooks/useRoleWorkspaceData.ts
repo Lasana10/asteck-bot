@@ -122,6 +122,41 @@ export function useRoleWorkspaceData(role: RoleWorkspaceKey, profile: any) {
     };
   }, [role, profile?.id, profile?.preferred_city, profile?.base_city, refreshKey]);
 
+  // Keep the two participants' authoritative request/mission state in sync
+  // without repeatedly fetching maps or consuming bandwidth in background tabs.
+  useEffect(() => {
+    if (!profile?.id || !['commuter','operator'].includes(role)) return;
+    let active = true;
+    let inFlight = false;
+    const poll = async () => {
+      if (!active || inFlight || document.hidden || !navigator.onLine) return;
+      inFlight = true;
+      try {
+        const [dispatches, requests] = await Promise.all([
+          fetchParticipantDispatches({ include_terminal: true, limit: 20 }),
+          role === 'operator' ? fetchPassageIntents({ open: true }) : Promise.resolve(null),
+        ]);
+        if (!active) return;
+        if (!dispatches.error && dispatches.data) setOperations(current => ({ ...current, participantDispatches: dispatches.data?.dispatches || [] }));
+        if (requests && !requests.error && requests.data) setMissions(requests.data.passages || []);
+      } catch {
+        // The next visible/online interval retries; the last known state stays on screen.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => { void poll(); }, 20_000);
+    const resume = () => { void poll(); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('online', resume);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('online', resume);
+    };
+  }, [role, profile?.id]);
+
   return {
     live,
     missions,
