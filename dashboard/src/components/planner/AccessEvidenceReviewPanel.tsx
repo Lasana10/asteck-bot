@@ -61,6 +61,7 @@ export function TransitEvidenceReviewPanel(){
   const [busy,setBusy]=useState(false);
   const [acting,setActing]=useState<string|null>(null);
   const [message,setMessage]=useState('');
+  const [confirmedOrder,setConfirmedOrder]=useState<Record<string,boolean>>({});
   const load=async()=>{
     setBusy(true);
     try{setItems(await listPendingTransitEvidence());setMessage('');}
@@ -69,6 +70,9 @@ export function TransitEvidenceReviewPanel(){
   };
   useEffect(()=>{void load();},[]);
   const review=async(item:PendingTransitEvidence,decision:'accept'|'reject')=>{
+    if(decision==='accept'&&item.evidence?.stop_sequence!=null&&!confirmedOrder[item.id]){
+      setMessage('Inspect the observed GPS, line and direction, then confirm this stop position before accepting.');return;
+    }
     setActing(item.id);
     try {
       const result=await decideTransitEvidence(item.id,decision);
@@ -94,11 +98,12 @@ export function TransitEvidenceReviewPanel(){
           <span className="rounded-full border border-amber-300/20 px-2 py-1 text-[9px] text-amber-200">Pending review</span>
         </div>
         {item.line_name&&<p className="mt-2 text-[10px] text-white/55">Line: {item.line_name}{item.direction_label?' · '+item.direction_label:''}</p>}
+        {item.evidence?.stop_sequence!=null&&<div className="mt-2 rounded-xl border border-amber-300/20 bg-amber-400/5 p-3 text-xs text-amber-100"><p>Contributor reported position {item.evidence.stop_sequence} on this line. Compare the named stop, direction, GPS and other independent field evidence before accepting; order is not live service or a verified timetable.</p><p className="mt-1">Captured: {item.evidence.observed_at?new Date(item.evidence.observed_at).toLocaleString():'time unavailable'}</p><label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={Boolean(confirmedOrder[item.id])} onChange={e=>setConfirmedOrder(previous=>({...previous,[item.id]:e.target.checked}))}/>I inspected the reported stop order and direction</label></div>}
         {item.latitude!=null&&item.longitude!=null&&<p className="mt-2 text-[10px] text-white/55">GPS: {Number(item.latitude).toFixed(6)}, {Number(item.longitude).toFixed(6)} · {accessAccuracyLabel(item.gps_accuracy_m)}</p>}
         {item.fare_xaf!=null&&<p className="mt-2 text-[10px] text-white/55">Observed fare: {item.fare_xaf} XAF (unconfirmed)</p>}
         {item.wait_seconds!=null&&<p className="mt-2 text-[10px] text-white/55">Observed wait: {Math.round(item.wait_seconds/60)} min (not timetable)</p>}
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" onClick={()=>void review(item,'accept')} disabled={Boolean(acting)||busy} className="min-h-10 rounded-xl bg-violet-300 px-4 text-[10px] font-black text-slate-950 disabled:opacity-40">Accept limited evidence</button>
+          <button type="button" onClick={()=>void review(item,'accept')} disabled={Boolean(acting)||busy||(item.evidence?.stop_sequence!=null&&!confirmedOrder[item.id])} className="min-h-10 rounded-xl bg-violet-300 px-4 text-[10px] font-black text-slate-950 disabled:opacity-40">Accept limited evidence</button>
           <button type="button" onClick={()=>void review(item,'reject')} disabled={Boolean(acting)||busy} className="min-h-10 rounded-xl border border-rose-300/20 px-4 text-[10px] font-black text-rose-200 disabled:opacity-40">Reject</button>
         </div>
       </article>)}

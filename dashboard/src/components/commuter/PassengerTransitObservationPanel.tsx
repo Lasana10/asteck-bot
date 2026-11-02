@@ -14,7 +14,7 @@ const modes:{value:PassengerTransitMode;label:string}[]=[
 ];
 export function PassengerTransitObservationPanel({cityKey}:{cityKey:string}){
  const [draft,setDraft]=useState<PassengerTransitDraft>({
-   cityKey,observationType:'stop',nodeName:'',lineName:'',directionLabel:'',mode:'minibus',notes:'',
+   cityKey,observationType:'stop',nodeName:'',lineName:'',directionLabel:'',mode:'minibus',notes:'',stopSequence:'',
  });
  const [fix,setFix]=useState<SpatialFix|null>(null);
  const [locating,setLocating]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
@@ -46,7 +46,7 @@ export function PassengerTransitObservationPanel({cityKey}:{cityKey:string}){
       setNotice('No trusted review receipt was received. AFAT has not accepted this observation.');
       return;
     }
-    setFix(null);setDraft(previous=>({...previous,nodeName:'',lineName:'',directionLabel:'',notes:''}));
+    setFix(null);setDraft(previous=>({...previous,nodeName:'',notes:'',stopSequence:''}));
   }catch(e:any){setNotice(String(e?.message||'Could not submit transit evidence.'));}
   finally{setBusy(false);}
  };
@@ -72,6 +72,9 @@ export function PassengerTransitObservationPanel({cityKey}:{cityKey:string}){
    </label>
    <label className="text-[10px] text-white/70">Direction (optional)
      <input value={draft.directionLabel} maxLength={100} onChange={e=>edit('directionLabel',e.target.value)} placeholder="Observed direction" className="mt-1 w-full min-h-11 rounded-xl border border-white/15 bg-slate-950 px-3 text-sm"/>
+   </label>
+   <label className="text-[10px] text-white/70">Position along this observed line (optional)
+     <input type="number" inputMode="numeric" min="0" max="100" value={draft.stopSequence||''} onChange={e=>edit('stopSequence',e.target.value)} placeholder="0 at the first stop, 1 at the next" className="mt-1 w-full min-h-11 rounded-xl border border-white/15 bg-slate-950 px-3 text-sm"/>
    </label>
    <label className="text-[10px] text-white/70">Field note (optional)
      <input value={draft.notes} maxLength={240} onChange={e=>edit('notes',e.target.value)} placeholder="Real details, not a prediction" className="mt-1 w-full min-h-11 rounded-xl border border-white/15 bg-slate-950 px-3 text-sm"/>

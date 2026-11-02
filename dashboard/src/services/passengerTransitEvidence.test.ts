@@ -23,4 +23,13 @@ describe('AFAT real passenger transit discovery → review evidence contract',()
   expect(preparePassengerTransitObservation({...draft,cityKey:'cm-douala'},fix,now).ok).toBe(false);
   expect(preparePassengerTransitObservation({...draft,cityKey:'unknown'},fix,now).ok).toBe(false);
  });
+ it('carries only a bounded, named, directed observed stop order to independent review',()=>{
+  const result=preparePassengerTransitObservation({...draft,stopSequence:'2'},fix,now);
+  expect(result.ok).toBe(true);
+  if(result.ok) expect(result.input.evidence?.stop_sequence).toBe(2);
+  for(const stopSequence of ['-1','1.5','101','abc'])
+   expect(preparePassengerTransitObservation({...draft,stopSequence},fix,now).ok).toBe(false);
+  expect(preparePassengerTransitObservation({...draft,stopSequence:'0',lineName:''},fix,now).ok).toBe(false);
+  expect(preparePassengerTransitObservation({...draft,stopSequence:'0',directionLabel:''},fix,now).ok).toBe(false);
+ });
 });

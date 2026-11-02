@@ -6,6 +6,7 @@ export type PassengerTransitMode='minibus'|'bus'|'shared_taxi'|'moto_taxi'|'othe
 export type PassengerTransitDraft={
  cityKey:string; observationType:TransitObservationType;nodeName:string;
  lineName:string;directionLabel:string;mode:PassengerTransitMode;notes:string;
+ stopSequence?:string;
 };
 type Input=Parameters<typeof submitTransitObservation>[0];
 type Validation={ok:true;input:Input}|{ok:false;message:string};
@@ -29,6 +30,10 @@ export function preparePassengerTransitObservation(draft:PassengerTransitDraft,f
  if(name.length<2||name.length>100)return {ok:false,message:'Name the actual stop or meeting point (2–100 characters).'};
  if(draft.lineName.trim().length>100||draft.directionLabel.trim().length>100||draft.notes.trim().length>240)
   return {ok:false,message:'Keep route, direction and note descriptions concise.'};
+ const sequenceText=(draft.stopSequence||'').trim();
+ const sequence=sequenceText===''?null:Number(sequenceText);
+ if(sequenceText!==''&&(!Number.isInteger(sequence)||Number(sequence)<0||Number(sequence)>100||!draft.lineName.trim()||!draft.directionLabel.trim()))
+  return {ok:false,message:'Ordered stops need an observed line, direction and whole-number position from 0 to 100.'};
  if(!fix||fix.source!=='field_observation'||!Number.isFinite(fix.latitude)||!Number.isFinite(fix.longitude)||
    Math.abs(fix.latitude)>90||Math.abs(fix.longitude)>180||
    fix.accuracyM==null||!Number.isFinite(fix.accuracyM)||fix.accuracyM<0||fix.accuracyM>50||
@@ -40,6 +45,7 @@ export function preparePassengerTransitObservation(draft:PassengerTransitDraft,f
   mode:draft.mode,latitude:fix.latitude,longitude:fix.longitude,gpsAccuracyM:fix.accuracyM,
   observedAt:new Date(fix.timestampMs).toISOString(),
   evidence:{source:'passenger_opt_in_field_observation',notes:draft.notes.trim()||null,
+    ...(sequence===null?{}:{stop_sequence:sequence}),
     automatic_truth:false,passenger_confirmed_observation:true,
     field_verified:false,active_service:false},
  }};

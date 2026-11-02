@@ -63,12 +63,13 @@ export type PendingTransitEvidence = {
   gps_accuracy_m: number | null;
   wait_seconds: number | null;
   fare_xaf: number | null;
+  evidence: { stop_sequence?: number; observed_at?: string; notes?: string } | null;
   created_at: string;
   status: string;
 };
 export async function listPendingTransitEvidence(limit=30): Promise<PendingTransitEvidence[]> {
   const {data,error}=await supabase.from('afat_transit_observations')
-    .select('id,profile_id,city_key,observation_type,node_name,line_name,direction_label,mode,latitude,longitude,gps_accuracy_m,wait_seconds,fare_xaf,created_at,status')
+    .select('id,profile_id,city_key,observation_type,node_name,line_name,direction_label,mode,latitude,longitude,gps_accuracy_m,wait_seconds,fare_xaf,evidence,created_at,status')
     .eq('status','pending').order('created_at',{ascending:true})
     .limit(Math.max(1,Math.min(80,Math.round(limit))));
   if(error) throw new Error(error.message || 'Pending transit evidence is unavailable for this reviewer.');

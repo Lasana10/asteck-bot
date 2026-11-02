@@ -26,6 +26,8 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
   const [observationType,setObservationType]=useState<'stop'|'line'|'fare'|'wait'|'boarding'|'transfer'|'terminus'>('stop');
   const [nodeName,setNodeName]=useState('');
   const [lineName,setLineName]=useState('');
+  const [direction,setDirection]=useState('');
+  const [stopSequence,setStopSequence]=useState('');
   const [transitMode,setTransitMode]=useState<'bus'|'minibus'|'shared_taxi'|'moto_taxi'|'other'>('minibus');
   const [fare,setFare]=useState('');
   const [waitMinutes,setWaitMinutes]=useState('');
@@ -113,18 +115,22 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
     if(observationType==='fare'&&(!Number.isFinite(fareXaf)||Number(fareXaf)<0)){setNotice('Enter the observed fare in XAF.');return;}
     if(observationType==='wait'&&(!Number.isFinite(wait)||Number(wait)<0)){setNotice('Enter the observed wait in minutes.');return;}
     if(['stop','boarding','terminus','transfer'].includes(observationType)&&!nodeName.trim()){setNotice('Add the stop or boarding-point name/description.');return;}
+    const sequence=stopSequence.trim()===''?null:Number(stopSequence);
+    if(sequence!==null&&(!['stop','boarding','terminus','transfer'].includes(observationType)||!Number.isInteger(sequence)||sequence<0||sequence>100||!lineName.trim()||!direction.trim()||!observed)){
+      setNotice('Ordered stops require a fresh GPS fix, line name, direction and whole-number position from 0 to 100.');return;
+    }
     setBusy(true);
     const {data,error}=await submitTransitObservation({
-      cityKey:cityKey(profile),observationType,nodeName:nodeName.trim()||null,lineName:lineName.trim()||null,mode:transitMode,
+      cityKey:cityKey(profile),observationType,nodeName:nodeName.trim()||null,lineName:lineName.trim()||null,directionLabel:direction.trim()||null,mode:transitMode,
       latitude:observed?.latitude??null,longitude:observed?.longitude??null,gpsAccuracyM:observed?.accuracy??null,
       observedAt:observed?new Date(observed.timestampMs).toISOString():null,
       waitSeconds:Number.isFinite(wait)?wait:null,fareXaf:Number.isFinite(fareXaf)?fareXaf:null,
-      evidence:{source_surface:'community_evidence_panel'},
+      evidence:{source_surface:'community_evidence_panel',...(sequence===null?{}:{stop_sequence:sequence})},
     });
     setBusy(false);
     if(error&&!data?.queued){setNotice(error.message);return;}
     setNotice(data?.queued?'Transit observation saved offline and queued for sync.':'Transit observation submitted for review. It will not become a route or fare automatically.');
-    setNodeName('');setLineName('');setFare('');setWaitMinutes('');setFix(null);
+    setNodeName('');setFare('');setWaitMinutes('');setStopSequence('');setFix(null);
   };
 
   if(mode==='closed') return <section className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.045] p-4">
@@ -144,6 +150,7 @@ export function CommunityEvidencePanel({profile}:{profile:any}) {
     </div>:<div className="mt-4 space-y-3">
       <div className="grid gap-2 sm:grid-cols-3"><select value={observationType} onChange={e=>setObservationType(e.target.value as any)} className="min-h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-xs"><option value="stop">Stop / pickup point</option><option value="line">Line / route</option><option value="fare">Fare</option><option value="wait">Wait time</option><option value="boarding">Boarding point</option><option value="transfer">Transfer</option><option value="terminus">Terminus</option></select><select value={transitMode} onChange={e=>setTransitMode(e.target.value as any)} className="min-h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-xs"><option value="minibus">Minibus</option><option value="shared_taxi">Shared taxi</option><option value="bus">Bus</option><option value="moto_taxi">Moto taxi</option><option value="other">Other</option></select><button onClick={locate} disabled={busy} className="min-h-11 rounded-xl border border-white/10 px-3 text-[9px] font-black"><LocateFixed className="mr-2 inline h-4 w-4"/>{fix?`±${Math.round(fix.accuracy)}m`:'Add GPS'}</button></div>
       <div className="grid gap-2 sm:grid-cols-2"><input value={nodeName} onChange={e=>setNodeName(e.target.value)} placeholder="Stop / landmark name" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/><input value={lineName} onChange={e=>setLineName(e.target.value)} placeholder="Line / direction people call it" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/></div>
+      <div className="grid gap-2 sm:grid-cols-2"><input value={direction} onChange={e=>setDirection(e.target.value)} placeholder="Observed travel direction" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/><input type="number" inputMode="numeric" min="0" max="100" value={stopSequence} onChange={e=>setStopSequence(e.target.value)} placeholder="Optional observed stop order (0, 1, 2…)" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/></div>
       <div className="grid gap-2 sm:grid-cols-2"><input value={fare} onChange={e=>setFare(e.target.value)} inputMode="numeric" placeholder="Observed fare XAF (optional)" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/><input value={waitMinutes} onChange={e=>setWaitMinutes(e.target.value)} inputMode="decimal" placeholder="Observed wait minutes (optional)" className="min-h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/></div>
       <button onClick={submitTransit} disabled={busy} className="min-h-12 w-full rounded-xl bg-emerald-300 text-xs font-black text-slate-950 disabled:opacity-35">Submit transit observation</button>
     </div>}
