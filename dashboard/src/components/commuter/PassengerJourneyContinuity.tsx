@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BadgeCheck, CarFront, CheckCircle2, Clock3, KeyRound, Receipt, RefreshCw, Share2, ShieldAlert, ShieldCheck, Star, UserRoundCheck, XCircle } from 'lucide-react';
 import { createGuardianToken, createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
@@ -28,11 +28,15 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
   const [sosOpen, setSosOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  // Async receipts and guardian links must never cross passenger assignments.
+  const currentAssignmentId = useRef<string | null>(null);
+  currentAssignmentId.current = assignment?.id ?? null;
 
   const loadClosure = async (assignmentId: string) => {
     setClosureLoading(true);
     setClosureError('');
     const { data, error } = await fetchJourneyClosure(assignmentId);
+    if (currentAssignmentId.current !== assignmentId) return;
     setClosureLoading(false);
     if (error) {
       setClosure(null);
@@ -49,6 +53,8 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
     setPickupExpiry('');
     setClosure(null);
     setClosureError('');
+    setClosureLoading(false);
+    setShareUrl('');
     if (!assignment?.id || !['completed','disputed'].includes(String(assignment.status))) return;
     void loadClosure(assignment.id);
   }, [assignment?.id, assignment?.status]);
@@ -111,9 +117,12 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       return;
     }
 
+    const assignmentId = assignment.id;
     setShareBusy(true);
+    setShareUrl('');
     setNotice('');
     const { data, error } = await createGuardianToken(bookingId, 180);
+    if (currentAssignmentId.current !== assignmentId) return;
     setShareBusy(false);
     if (error) {
       setNotice(error.message);
@@ -153,6 +162,7 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       expected_version: Number(closure.state_version || 0),
       rating,
     });
+    if (currentAssignmentId.current !== assignment.id) return;
     setBusy(false);
     if (error) return setNotice(error.message);
     setClosure(data?.closure || closure);

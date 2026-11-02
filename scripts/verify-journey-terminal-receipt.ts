@@ -30,4 +30,12 @@ for(const token of [
   'linked verified-trip record',
 ]) assert.ok(passenger.includes(token),token);
 
+for (const token of [
+  'currentAssignmentId.current = assignment?.id ?? null',
+  'if (currentAssignmentId.current !== assignmentId) return',
+  "setShareUrl('')",
+  "setClosureLoading(false)",
+  'if (currentAssignmentId.current !== assignment.id) return',
+]) assert.ok(passenger.includes(token), 'cross-assignment isolation: ' + token);
+
 console.log('PASS terminal dispatch -> payment-neutral durable receipt -> passenger rating projection; disputed completion keeps GPS evidence gate');
