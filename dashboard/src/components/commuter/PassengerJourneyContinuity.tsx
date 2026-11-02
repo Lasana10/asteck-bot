@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, BadgeCheck, CarFront, CheckCircle2, Clock3, KeyRound, Receipt, Share2, ShieldAlert, ShieldCheck, Star, UserRoundCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, CarFront, CheckCircle2, Clock3, KeyRound, Receipt, RefreshCw, Share2, ShieldAlert, ShieldCheck, Star, UserRoundCheck, XCircle } from 'lucide-react';
 import { createGuardianToken, createPickupCode, fetchJourneyClosure, transitionDispatch, updateJourneyClosure } from '../../supabaseClient';
 import { JourneyFieldReportPanel } from '../shared/JourneyFieldReportPanel';
 import { FarePaymentPanel } from '../shared/FarePaymentPanel';
@@ -23,17 +23,34 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
   const [pickupCode, setPickupCode] = useState('');
   const [pickupExpiry, setPickupExpiry] = useState('');
   const [closure, setClosure] = useState<any>(null);
+  const [closureLoading, setClosureLoading] = useState(false);
+  const [closureError, setClosureError] = useState('');
   const [sosOpen, setSosOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+
+  const loadClosure = async (assignmentId: string) => {
+    setClosureLoading(true);
+    setClosureError('');
+    const { data, error } = await fetchJourneyClosure(assignmentId);
+    setClosureLoading(false);
+    if (error) {
+      setClosure(null);
+      setClosureError(error.message || 'Journey receipt unavailable.');
+      return;
+    }
+    setClosure(data?.closure || null);
+    if (!data?.closure) setClosureError('The terminal journey is recorded, but its receipt is not ready. Retry shortly.');
+  };
 
   useEffect(() => {
     setNotice('');
     setPickupCode('');
     setPickupExpiry('');
     setClosure(null);
+    setClosureError('');
     if (!assignment?.id || !['completed','disputed'].includes(String(assignment.status))) return;
-    fetchJourneyClosure(assignment.id).then(({ data }) => setClosure(data?.closure || null));
+    void loadClosure(assignment.id);
   }, [assignment?.id, assignment?.status]);
 
   if (!assignment) {
@@ -258,8 +275,17 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       {['completed','disputed'].includes(status) && (
         <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center gap-2"><Receipt className="h-4 w-4 text-cyan-200" /><p className="text-xs font-black">Journey receipt</p></div>
-          <p className="mt-3 text-xs text-white/45">Receipt: {closure?.receipt_number || 'Loading…'}</p>
-          <p className="mt-1 text-xs text-white/45">Payment: {human(closure?.payment_state || 'pending')} · verification {human(closure?.payment_verification || 'unverified')}</p>
+          {closureLoading && <p role="status" className="mt-3 text-xs text-white/45">Loading the durable journey receipt…</p>}
+          {!closureLoading && closureError && (
+            <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-400/10 p-3">
+              <p role="alert" className="text-xs leading-5 text-amber-100">{closureError}</p>
+              <button type="button" onClick={() => void loadClosure(assignment.id)} className="mt-2 min-h-10 rounded-lg border border-amber-200/25 bg-amber-200/10 px-3 text-[10px] font-black uppercase text-amber-100">
+                <RefreshCw className="mr-2 inline h-3.5 w-3.5" />Retry receipt
+              </button>
+            </div>
+          )}
+          {closure && <p className="mt-3 text-xs text-white/45">Receipt: {closure.receipt_number}</p>}
+          {closure && <p className="mt-1 text-xs text-white/45">Payment: {human(closure.payment_state || 'pending')} · verification {human(closure.payment_verification || 'unverified')}</p>}
           {closure && <div className="mt-4"><p className="text-[9px] font-black uppercase tracking-widest text-white/30">Rate this journey</p><div className="mt-2 flex gap-2">{[1,2,3,4,5].map((value) => <button key={value} disabled={busy} onClick={() => rate(value)} aria-label={`Rate ${value} stars`} className={`flex h-10 w-10 items-center justify-center rounded-xl border ${Number(closure.rating) === value ? 'border-amber-300/40 bg-amber-300/15 text-amber-200' : 'border-white/10 bg-white/5 text-white/35'}`}><Star className="h-4 w-4" /></button>)}</div></div>}
         </div>
       )}

@@ -46,7 +46,8 @@
     "test:passenger-preflight-supply": "node --import tsx scripts/verify-passenger-preflight-supply.ts",
     "test:operator-nearby-queue": "node --import tsx scripts/verify-operator-nearby-queue.ts",
     "test:passenger-dispatch-continuity": "node --import tsx scripts/verify-passenger-dispatch-continuity.ts",
-    "test:journey-completion-tracking": "node --import tsx scripts/verify-journey-completion-tracking.ts"
+    "test:journey-completion-tracking": "node --import tsx scripts/verify-journey-completion-tracking.ts",
+    "test:journey-terminal-receipt": "node --import tsx scripts/verify-journey-terminal-receipt.ts"
   },
   "keywords": [],
   "author": "",
