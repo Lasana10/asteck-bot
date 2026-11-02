@@ -12,9 +12,14 @@ for(const token of [
   's.accuracy_m<=100',
   "last_sample_at-first_sample_at>=interval '30 seconds'",
   'grant execute on function public.afat_journey_completion_readiness(uuid) to service_role',
+  'create or replace function public.afat_project_terminal_journey_rating()',
+  'set rating=new.rating,updated_at=now()',
+  'select round(avg(c.rating)::numeric,2)',
+  'after update of rating on public.afat_journey_closures',
 ]) assert.ok(migration.includes(token),token);
 
 assert.ok(migration.includes('revoke all on function public.afat_seed_terminal_journey_closure() from public,anon,authenticated'));
+assert.ok(migration.includes('revoke all on function public.afat_project_terminal_journey_rating() from public,anon,authenticated'));
 assert.ok(!migration.includes("payment_state='paid'"),'terminal receipt creation must not infer payment');
 
 for(const token of [
@@ -22,6 +27,7 @@ for(const token of [
   'The terminal journey is recorded, but its receipt is not ready',
   'Retry receipt',
   'Rate this journey',
+  'linked verified-trip record',
 ]) assert.ok(passenger.includes(token),token);
 
-console.log('PASS terminal dispatch -> payment-neutral durable receipt -> passenger retry/rating; disputed completion keeps GPS evidence gate');
+console.log('PASS terminal dispatch -> payment-neutral durable receipt -> passenger rating projection; disputed completion keeps GPS evidence gate');

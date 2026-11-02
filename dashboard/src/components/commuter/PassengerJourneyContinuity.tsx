@@ -156,7 +156,7 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
     setBusy(false);
     if (error) return setNotice(error.message);
     setClosure(data?.closure || closure);
-    setNotice('Journey rating saved.');
+    setNotice('Journey rating saved to this receipt and linked verified-trip record.');
   };
 
   return (

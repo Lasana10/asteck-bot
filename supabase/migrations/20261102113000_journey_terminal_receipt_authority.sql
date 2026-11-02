@@ -28,6 +28,53 @@ create trigger trg_afat_seed_terminal_journey_closure
 after update of status on public.dispatch_assignments
 for each row execute function public.afat_seed_terminal_journey_closure();
 
+-- Reuse the existing booking and vehicle rating fields so authorized passenger
+-- feedback reaches Driver DNA and passenger supply. Only the passenger-owned
+-- closure RPC can set rating; this projection grants no new write authority.
+create or replace function public.afat_project_terminal_journey_rating()
+returns trigger
+language plpgsql
+security invoker
+set search_path=''
+as $$
+declare
+  v_vehicle_id uuid;
+begin
+  if new.rating is null or new.rating is not distinct from old.rating then
+    return new;
+  end if;
+
+  update public.bookings
+     set rating=new.rating,updated_at=now()
+   where id=new.booking_id;
+
+  select vehicle_id into v_vehicle_id
+    from public.dispatch_assignments
+   where id=new.dispatch_assignment_id;
+
+  if v_vehicle_id is not null then
+    update public.vehicles v
+       set rating=(
+         select round(avg(c.rating)::numeric,2)
+           from public.afat_journey_closures c
+           join public.dispatch_assignments d
+             on d.id=c.dispatch_assignment_id
+          where d.vehicle_id=v_vehicle_id
+            and c.rating is not null
+       ),
+       updated_at=now()
+     where v.id=v_vehicle_id;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.afat_project_terminal_journey_rating() from public,anon,authenticated;
+
+drop trigger if exists trg_afat_project_terminal_journey_rating on public.afat_journey_closures;
+create trigger trg_afat_project_terminal_journey_rating
+after update of rating on public.afat_journey_closures
+for each row execute function public.afat_project_terminal_journey_rating();
+
 -- A disputed journey was previously active and retains its captured samples.
 -- Permit resolution to completed without weakening the same sample/accuracy/span
 -- requirements. This function is still service-role-only.
