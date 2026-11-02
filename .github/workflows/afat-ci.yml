@@ -61,6 +61,7 @@ jobs:
       - run: npm run test:operator-nearby-queue
       - run: npm run test:passenger-dispatch-continuity
       - run: npm run test:journey-completion-tracking
+      - run: npm run test:journey-terminal-receipt
       - run: bash -n routing/cameroon/prepare.sh
       - run: node --check routing/cameroon/verify.mjs
       - run: docker compose -f routing/cameroon/docker-compose.yml config --quiet
