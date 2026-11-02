@@ -1716,6 +1716,18 @@ export async function transitionDispatch(
   }
 }
 
+export async function fetchJourneyCompletionReadiness(assignmentId: string) {
+  try {
+    const authHeaders = await authenticatedApiHeaders();
+    const res = await fetch(`${getApiBaseUrl()}/api/dispatch/${encodeURIComponent(assignmentId)}/completion-readiness`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) return { data: null, error: { message: data.error || 'Journey tracking readiness unavailable.' } };
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message || 'Network error.' } };
+  }
+}
+
 export async function fetchFareQuote(assignmentId: string) {
   try {
     const authHeaders = await authenticatedApiHeaders();
