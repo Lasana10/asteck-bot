@@ -19,7 +19,7 @@ function publicDispatchError(error: any) {
   const message = String(error?.message || 'Dispatch operation failed');
   if (/not found/i.test(message)) return { status: 404, error: message };
   if (error?.code === '40001' || /stale dispatch state/i.test(message)) return { status: 409, error: message };
-  if (/invalid dispatch state transition|not eligible|not available|risk-blocked|fatigue limit/i.test(message)) return { status: 409, error: message };
+  if (/invalid dispatch state transition|not eligible|not available|risk-blocked|fatigue limit|tracking evidence incomplete/i.test(message)) return { status: 409, error: message };
   if (/idempotency|required|must be between|must advance/i.test(message)) return { status: 400, error: message };
   return { status: 500, error: message };
 }
@@ -233,6 +233,27 @@ router.post('/dispatch/:assignmentId/journey/sample', async (req: Request, res: 
   } catch (error: any) {
     const mapped = publicDispatchError(error);
     return res.status(mapped.status).json({ error: mapped.error });
+  }
+});
+
+router.get('/dispatch/:assignmentId/completion-readiness', async (req: Request, res: Response) => {
+  const access = await requireAuthRole(req, res);
+  if (!access) return;
+  try {
+    const assignmentId = String(req.params.assignmentId || '').trim();
+    const { data: assignment, error } = await supabase.from('dispatch_assignments')
+      .select('id,booking_id,operator_id,status').eq('id', assignmentId).maybeSingle();
+    if (error) throw error;
+    if (!assignment) return res.status(404).json({ error: 'Dispatch assignment not found.' });
+    const role = String(access.workspaceRole || access.profile.role || '').toLowerCase();
+    const participant = ['admin','planner'].includes(role) || assignment.operator_id === access.profile.id ||
+      await passengerOwnsBooking(access.profile.id, assignment.booking_id);
+    if (!participant) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error: readinessError } = await supabase.rpc('afat_journey_completion_readiness', { p_assignment_id: assignmentId });
+    if (readinessError) throw readinessError;
+    return res.json({ readiness: data, dispatch_status: assignment.status });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Journey completion readiness unavailable.' });
   }
 });
 
