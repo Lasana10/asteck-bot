@@ -132,4 +132,23 @@ for(const token of [
   "role:'transfer_in' as const",
   'reviewedTransitStops={reviewedTransitStops}',
 ])assert.ok(planner.includes(token),'passenger map integration: '+token);
+for(const token of [
+  "if (!assessment && !multimodal && !transfer && !loading && !limited) return null;",
+  "destinationPoint?: {latitude:number;longitude:number;name?:string|null} | null;",
+  'purpose="boarding"',
+  'purpose="transfer"',
+  'purpose="arrival"',
+  'latitude={transfer.transfer.transfer_in.latitude}',
+  'latitude={destinationPoint.latitude}',
+])assert.ok(card.includes(token),'multimodal walking stages: '+token);
+assert.ok(planner.includes('destinationPoint={arrivalPoint}'),'destination-bound transfer guidance');
+for(const token of [
+  "purpose?:'boarding'|'transfer'|'arrival'",
+  "purpose==='transfer'?'transfer boarding stop'",
+  "purpose==='arrival'?'final destination'",
+  "const fix=evaluateSpatialFix",
+  "fetchCanonicalAfatRoute({",
+  "mode:'walk'",
+  "['afat_atlas','osrm']",
+])assert.ok(boardingDirections.includes(token),'pedestrian stage: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
