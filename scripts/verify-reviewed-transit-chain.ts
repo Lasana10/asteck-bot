@@ -17,4 +17,19 @@ assert.ok(client.includes("chain.fare_current_verified!==false"));
 assert.ok(card.includes('Recently reviewed transit pattern'));
 assert.ok(card.includes('Live service, boarding, timetable, road safety and current fare are not confirmed.'));
 assert.ok(!card.includes('Observed multimodal option'));
+for (const token of [
+  'chain.boarding.stop_sequence >= chain.alighting.stop_sequence',
+  'Math.abs(stop.latitude) <= 90',
+  'Math.abs(stop.longitude) <= 180',
+  'stop.walk_distance_m <= 50000',
+  "['observed_wait_seconds','observed_transit_seconds','observed_fare_xaf']",
+]) assert.ok(client.includes(token),'multimodal validation: '+token);
+for (const token of [
+  'Reviewed multimodal journey legs',
+  'Walk to boarding',
+  'Walk from alighting',
+  'stop_sequence',
+  'straight-line estimates',
+  'No live vehicle, departure or arrival time is guaranteed',
+]) assert.ok(card.includes(token),'multimodal leg UX: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
