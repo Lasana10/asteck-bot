@@ -20,4 +20,17 @@ for(const token of [
 ])assert.ok(integrity.includes(token),'independent transit review: '+token);
 assert.ok(ui.includes('usableOrdered'));
 assert.ok(ui.includes('Reject or obtain new field evidence'));
+const conflict=readFileSync('supabase/migrations/20261103162500_afat_transit_order_conflict_guard.sql','utf8');
+const reviewContext=readFileSync('dashboard/src/services/transitCorridorReview.ts','utf8');
+for(const token of [
+  'pg_catalog.pg_advisory_xact_lock',
+  "prior.status='accepted'",
+  "prior.evidence->>'stop_sequence'=v_obs.evidence->>'stop_sequence'",
+  'not public.st_dwithin(',
+  'Conflicting reviewed stop location for this corridor order',
+  'v_obs.profile_id=v_uid',
+  'public.afat_has_permission',
+])assert.ok(conflict.includes(token),'transit conflict authority: '+token);
+assert.ok(reviewContext.includes('pendingTransitOrderWarning'));
+assert.ok(ui.includes('orderedPendingTransitReview(await listPendingTransitEvidence())'));
 console.log('Transit review grant boundary verified');
