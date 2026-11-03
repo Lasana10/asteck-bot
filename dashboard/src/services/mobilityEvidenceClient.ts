@@ -72,6 +72,25 @@ export function validateMultimodalPlan(value:unknown,nowMs=Date.now()):AfatMulti
     !Number.isFinite(observed)||!Number.isFinite(reviewed)||!Number.isFinite(expires)||
     observed>nowMs+300000||reviewed>nowMs+300000||expires<=nowMs||expires-observed>30*24*60*60*1000+1000)
     throw new Error('AFAT reviewed transit pattern is invalid or expired.');
+  // An accepted route pattern must describe two distinct ordered, geographically
+  // valid stops. Historical observations are never live boarding promises.
+  const validStop = (stop: any) =>
+    stop && Number.isFinite(stop.latitude) && Math.abs(stop.latitude) <= 90 &&
+    Number.isFinite(stop.longitude) && Math.abs(stop.longitude) <= 180 &&
+    Number.isInteger(stop.stop_sequence) && stop.stop_sequence >= 0 &&
+    Number.isFinite(stop.walk_distance_m) && stop.walk_distance_m >= 0 &&
+    stop.walk_distance_m <= 50000;
+  if (!validStop(chain.boarding) || !validStop(chain.alighting) ||
+      chain.boarding.stop_sequence >= chain.alighting.stop_sequence ||
+      (chain.boarding.latitude === chain.alighting.latitude &&
+       chain.boarding.longitude === chain.alighting.longitude) ||
+      !chain.line || typeof chain.line.name !== 'string' && typeof chain.line.line_ref !== 'string')
+    throw new Error('AFAT reviewed transit pattern has invalid stop geometry or order.');
+  for (const field of ['observed_wait_seconds','observed_transit_seconds','observed_fare_xaf'] as const) {
+    const v=chain[field];
+    if (v != null && (!Number.isFinite(v) || v < 0))
+      throw new Error('AFAT reviewed transit observation contains an invalid historical value.');
+  }
   return plan as AfatMultimodalPlan;
 }
 
