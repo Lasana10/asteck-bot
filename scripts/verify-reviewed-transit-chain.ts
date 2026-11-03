@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 const sql=readFileSync('supabase/migrations/20261025191015_afat_reviewed_transit_chain_integrity.sql','utf8');
 const client=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
 const card=readFileSync('dashboard/src/components/commuter/ReachabilityInsightCard.tsx','utf8');
+const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
 for(const token of [
  "add column if not exists observed_wait_seconds","add column if not exists source_observed_at",
  "new.reviewer_id=new.profile_id","new.gps_accuracy_m between 0 and 60",
@@ -36,4 +37,14 @@ for (const token of [
   'straight-line estimates',
   'No live vehicle, departure or arrival time is guaranteed',
 ]) assert.ok(card.includes(token),'multimodal leg UX: '+token);
+for (const token of [
+  'const [stopSequence,setStopSequence]',
+  'const [lineDirection,setLineDirection]',
+  'const [transitMode,setTransitMode]',
+  'Ordered stops require a fresh GPS fix, route name and direction',
+  'directionLabel:lineDirection.trim()||null',
+  'mode:transitMode',
+  'stop_sequence:position',
+  'stop order requires',
+]) assert.ok(capture.toLowerCase().includes(token.toLowerCase()),'ordered field capture: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
