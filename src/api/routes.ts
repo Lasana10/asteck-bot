@@ -1839,7 +1839,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       phone,
       parsedAmount,
       `Booking ${booking_id || 'direct'}`,
-      normalizedProvider,
+      process.env.NODE_ENV==='production' ? 'pawapay' : normalizedProvider,
       mobile_network,
       transactionId,
     );
