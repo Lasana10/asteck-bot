@@ -38,6 +38,10 @@ export function ReachabilityInsightCard({
   const strong = assessment?.state === 'reachable_high_confidence';
   const connected = String(assessment?.state || '').startsWith('reachable');
   const chain = multimodal?.multimodal_chain;
+  const directOptions = (multimodal?.direct_options || []).filter((option) =>
+    option.type === 'direct' && ['walk','moto','car','minibus'].includes(option.mode) &&
+    option.assessment && String(option.assessment.state || '').startsWith('reachable')
+  );
   const evidencePlaceId = assessment?.place_id || multimodal?.place_id;
   const canContribute = Boolean(evidencePlaceId && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
 
@@ -68,12 +72,47 @@ export function ReachabilityInsightCard({
 
       {assessment && assessment.active_disruptions ? <p className="mt-3 text-[10px] font-bold text-rose-200">{assessment.active_disruptions} active route disruption{assessment.active_disruptions === 1 ? '' : 's'} affect this assessment.</p> : null}
 
+      {directOptions.length > 0 && (
+        <section className="mt-4" aria-label="Assessed direct travel modes">
+          <p className="text-[9px] font-black uppercase tracking-wider text-cyan-200">Direct route assessments</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {directOptions.map((option) => {
+              const confidence = Math.max(0, Math.min(100, Number(option.assessment.reliability_score || 0)));
+              const distance = Number(option.assessment.route_distance_m);
+              return <div key={option.mode} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                <p className="text-xs font-black text-white">{option.mode === 'walk' ? 'Walk' : option.mode === 'moto' ? 'Motorbike' : option.mode === 'minibus' ? 'Minibus' : 'Car'}</p>
+                <p className="mt-1 text-[10px] text-white/55">{labelForState(option.assessment.state)} · Reliability {Math.round(confidence)}/100</p>
+                {option.assessment.route_distance_m != null && Number.isFinite(distance) && distance >= 0 && <p className="mt-1 text-[10px] text-cyan-100/75">{(distance / 1000).toFixed(1)} km assessed route</p>}
+              </div>;
+            })}
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-white/45">These are route reachability assessments, not confirmations of available vehicles, safe access or current fares.</p>
+        </section>
+      )}
+
       {chain ? (
         <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
           <div className="flex items-center gap-2"><Footprints className="h-4 w-4 text-violet-200"/><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Recently reviewed transit pattern</p></div>
           <p className="mt-2 text-xs font-black text-white">Walk → {chain.line?.name || chain.line?.mode || 'transit'} → Walk</p>
           <p className="mt-1 text-[10px] leading-4 text-amber-200/75">Reviewed route pattern only. Live service, boarding, timetable, road safety and current fare are not confirmed.</p>
-          <p className="mt-1 text-[10px] leading-4 text-white/45">Board at {chain.boarding?.name || 'observed stop'} · leave at {chain.alighting?.name || 'observed stop'}.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3" aria-label="Reviewed multimodal journey legs">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[9px] font-black uppercase text-violet-200">1 · Walk to boarding</p>
+              <p className="mt-1 text-xs font-bold text-white">{Math.round(chain.boarding.walk_distance_m).toLocaleString()} m straight-line</p>
+              <p className="mt-1 text-[10px] text-white/45">{chain.boarding.name || 'Reviewed boarding stop'}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[9px] font-black uppercase text-violet-200">2 · Reviewed transit line</p>
+              <p className="mt-1 text-xs font-bold text-white">{chain.line.name || chain.line.mode || 'Transit'}</p>
+              <p className="mt-1 text-[10px] text-white/45">Stops {chain.boarding.stop_sequence} → {chain.alighting.stop_sequence}{chain.line.direction ? ` · ${chain.line.direction}` : ''}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[9px] font-black uppercase text-violet-200">3 · Walk from alighting</p>
+              <p className="mt-1 text-xs font-bold text-white">{Math.round(chain.alighting.walk_distance_m).toLocaleString()} m straight-line</p>
+              <p className="mt-1 text-[10px] text-white/45">{chain.alighting.name || 'Reviewed alighting stop'}</p>
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Stop distances are straight-line estimates, not pedestrian path lengths; verify safe entrances and crossings locally. No live vehicle, departure or arrival time is guaranteed.</p>
           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-bold text-white/55">
             {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min historical reviewed wait</span>}
             {chain.observed_transit_seconds != null && <span>{Math.ceil(Number(chain.observed_transit_seconds) / 60)} min historical reviewed transit</span>}
