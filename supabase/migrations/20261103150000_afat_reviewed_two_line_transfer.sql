@@ -103,9 +103,9 @@ begin
     'status','reviewed_two_line_transfer_pattern',
     'transfer',jsonb_build_object(
        'type','walk_transit_walk_transit_walk',
-       'first_line',jsonb_build_object('name',v_candidate.line_name,'line_ref',v_candidate.line_ref,'mode',v_candidate.mode,
+       'first_line',jsonb_build_object('id',v_candidate.line_id,'name',v_candidate.line_name,'line_ref',v_candidate.line_ref,'mode',v_candidate.mode,
          'direction',v_candidate.direction_label),
-       'second_line',jsonb_build_object('name',v_candidate.second_line_name,'line_ref',v_candidate.second_line_ref,
+       'second_line',jsonb_build_object('id',v_candidate.second_line_id,'name',v_candidate.second_line_name,'line_ref',v_candidate.second_line_ref,
          'mode',v_candidate.second_mode,'direction',v_candidate.second_direction),
        'boarding',jsonb_build_object('name',v_candidate.name,'latitude',v_candidate.latitude,
          'longitude',v_candidate.longitude,'stop_sequence',v_candidate.stop_sequence),
