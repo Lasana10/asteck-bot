@@ -127,7 +127,10 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde',
     if(result.error && !(result.data as any)?.queued){setNotice(result.error.message||'Transit evidence could not be saved.');return;}
     const queued=Boolean((result.data as any)?.queued);
     setNotice(queued?'Saved offline. AFAT will sync this transit observation when connectivity returns.':'Transit observation submitted for review. It will not become a stop, line or fare until reviewed.');
-    setLineName('');setLineDirection('');setStopSequence('');setNodeName('');setFare('');setWaitMinutes('');setFix(null);
+    // Keep the selected line, direction and mode for the next real stop.
+    // Every successive location still requires an entirely new GPS capture.
+    setStopSequence(position === null ? '' : String(position + 1));
+    setNodeName('');setFare('');setWaitMinutes('');setFix(null);
   };
 
   const submitRouteConcern=async()=>{
