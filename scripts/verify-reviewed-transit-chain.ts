@@ -25,6 +25,10 @@ for (const token of [
   "['observed_wait_seconds','observed_transit_seconds','observed_fare_xaf']",
 ]) assert.ok(client.includes(token),'multimodal validation: '+token);
 for (const token of [
+  'Direct route assessments',
+  'Assessed direct travel modes',
+  'route_distance_m',
+  'not confirmations of available vehicles',
   'Reviewed multimodal journey legs',
   'Walk to boarding',
   'Walk from alighting',
