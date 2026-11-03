@@ -70,6 +70,17 @@ export function TransitEvidenceReviewPanel(){
   };
   useEffect(()=>{void load();},[]);
   const review=async(item:PendingTransitEvidence,decision:'accept'|'reject')=>{
+    const ordered=item.evidence?.stop_sequence!=null;
+    const captured=item.evidence?.observed_at ? Date.parse(item.evidence.observed_at) : NaN;
+    const usableOrdered=Number.isInteger(item.evidence?.stop_sequence) &&
+      Number(item.evidence?.stop_sequence)>=0 && Number(item.evidence?.stop_sequence)<=10000 &&
+      item.gps_accuracy_m!=null && Number.isFinite(item.gps_accuracy_m) &&
+      item.gps_accuracy_m>=0 && item.gps_accuracy_m<=60 &&
+      Boolean(item.line_name?.trim()&&item.direction_label?.trim()&&item.node_name?.trim()&&item.mode) &&
+      Number.isFinite(captured)&&captured>=Date.now()-30*86400000&&captured<=Date.now()+300000;
+    if(decision==='accept'&&ordered&&!usableOrdered){
+      setMessage('This ordered stop lacks recent accurate GPS, line, direction or valid sequence. Reject or obtain new field evidence.');return;
+    }
     if(decision==='accept'&&item.evidence?.stop_sequence!=null&&!confirmedOrder[item.id]){
       setMessage('Inspect the observed GPS, line and direction, then confirm this stop position before accepting.');return;
     }
@@ -103,7 +114,7 @@ export function TransitEvidenceReviewPanel(){
         {item.fare_xaf!=null&&<p className="mt-2 text-[10px] text-white/55">Observed fare: {item.fare_xaf} XAF (unconfirmed)</p>}
         {item.wait_seconds!=null&&<p className="mt-2 text-[10px] text-white/55">Observed wait: {Math.round(item.wait_seconds/60)} min (not timetable)</p>}
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" onClick={()=>void review(item,'accept')} disabled={Boolean(acting)||busy||(item.evidence?.stop_sequence!=null&&!confirmedOrder[item.id])} className="min-h-10 rounded-xl bg-violet-300 px-4 text-[10px] font-black text-slate-950 disabled:opacity-40">Accept limited evidence</button>
+          <button type="button" onClick={()=>void review(item,'accept')} disabled={Boolean(acting)||busy||(item.evidence?.stop_sequence!=null&&(!confirmedOrder[item.id]||!Number.isInteger(item.evidence.stop_sequence)||item.gps_accuracy_m==null||item.gps_accuracy_m>60||!item.direction_label||!item.line_name||!item.node_name))} className="min-h-10 rounded-xl bg-violet-300 px-4 text-[10px] font-black text-slate-950 disabled:opacity-40">Accept limited evidence</button>
           <button type="button" onClick={()=>void review(item,'reject')} disabled={Boolean(acting)||busy} className="min-h-10 rounded-xl border border-rose-300/20 px-4 text-[10px] font-black text-rose-200 disabled:opacity-40">Reject</button>
         </div>
       </article>)}

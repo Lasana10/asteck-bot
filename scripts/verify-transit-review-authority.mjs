@@ -7,4 +7,17 @@ assert.match(sql,/public\.afat_has_permission\('system\.configure'\)/);
 assert.doesNotMatch(sql,/planning\.aggregate\.view/);
 assert.match(sql,/select \* into v_obs from public\.afat_transit_observations where id=p_observation_id for update/);
 assert.match(sql,/v_obs\.status<>'pending'/);
+const integrity=readFileSync('supabase/migrations/20261103155000_afat_independent_transit_review_integrity.sql','utf8');
+const ui=readFileSync('dashboard/src/components/planner/AccessEvidenceReviewPanel.tsx','utf8');
+for(const token of [
+  'v_obs.profile_id=v_uid',
+  'Contributor cannot independently review own transit evidence',
+  "v_obs.evidence ? 'stop_sequence'",
+  'v_obs.gps_accuracy_m>60',
+  "v_obs.evidence->>'observed_at'",
+  'Ordered transit observation is expired or future-dated',
+  'revoke execute on function public.afat_review_transit_observation(uuid,text) from public,anon',
+])assert.ok(integrity.includes(token),'independent transit review: '+token);
+assert.ok(ui.includes('usableOrdered'));
+assert.ok(ui.includes('Reject or obtain new field evidence'));
 console.log('Transit review grant boundary verified');
