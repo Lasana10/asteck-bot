@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({rpc:vi.fn(),getUser:vi.fn(),getSession:vi.fn()}));
 vi.mock('../supabaseClient',()=>({supabase:{rpc:mocks.rpc,auth:{getUser:mocks.getUser,getSession:mocks.getSession}}}));
-import {submitAccessEvidence,submitTransitObservation,flushMobilityEvidenceQueue,resolveJourneyMobilityIntelligence,validateMultimodalPlan} from './mobilityEvidenceClient';
+import {submitAccessEvidence,submitTransitObservation,flushMobilityEvidenceQueue,resolveJourneyMobilityIntelligence,validateMultimodalPlan,validateReviewedTransfer,planReviewedTransitTransfer} from './mobilityEvidenceClient';
 function makeStorage():Storage{
  const values=new Map<string,string>();
  return {get length(){return values.size;},clear(){values.clear();},key(i){return [...values.keys()][i]??null;},getItem(k){return values.get(k)??null;},setItem(k,v){values.set(k,String(v));},removeItem(k){values.delete(k)}} as Storage;
@@ -147,5 +147,44 @@ describe('connected passenger reachability and informal transit',()=>{
   expect(()=>validateMultimodalPlan({...base,live_service_available:true},now)).toThrow();
   expect(()=>validateMultimodalPlan({...base,multimodal_chain:{...base.multimodal_chain,fare_current_verified:true}},now)).toThrow();
   expect(()=>validateMultimodalPlan({...base,multimodal_chain:{...base.multimodal_chain,evidence_expires_at:'2026-10-25T10:29:00Z'}},now)).toThrow();
+ });
+});
+
+describe('reviewed two-line transfer truth boundary',()=>{
+ const date=Date.parse('2026-11-03T12:00:00Z');
+ const stop=(name:string,stop_sequence:number,latitude:number,longitude:number)=>({name,stop_sequence,latitude,longitude});
+ const candidate:any={
+  status:'reviewed_two_line_transfer_pattern',reason:'independently reviewed',
+  automatic_truth:false,live_service_available:false,
+  transfer:{type:'walk_transit_walk_transit_walk',
+   first_line:{id:'line-A',name:'Corridor A'},
+   second_line:{id:'line-B',name:'Corridor B'},
+   boarding:stop('A1',0,3.85,11.5),transfer_out:stop('A2',2,3.86,11.51),
+   transfer_in:stop('B3',0,3.861,11.511),alighting:stop('B4',2,3.87,11.52),
+   transfer_straight_m:160,oldest_observation_at:'2026-10-30T10:00:00Z',
+   evidence_expires_at:'2026-11-29T10:00:00Z',
+   live_service_available:false,boarding_availability_verified:false,
+   schedule_verified:false,fare_current_verified:false,automatic_truth:false,
+  },
+ };
+ it('accepts only bounded independently reviewed transfer patterns',()=>{
+  expect(validateReviewedTransfer(candidate,date).transfer?.first_line.name).toBe('Corridor A');
+  expect(()=>validateReviewedTransfer({...candidate,live_service_available:true},date)).toThrow();
+  expect(()=>validateReviewedTransfer({...candidate,transfer:{...candidate.transfer,second_line:{id:'line-A',name:'Same line'}}},date)).toThrow();
+  expect(()=>validateReviewedTransfer({...candidate,transfer:{...candidate.transfer,boarding:stop('Reverse',4,3.85,11.5)}},date)).toThrow();
+  expect(()=>validateReviewedTransfer({...candidate,transfer:{...candidate.transfer,transfer_straight_m:1000}},date)).toThrow();
+  expect(()=>validateReviewedTransfer({...candidate,transfer:{...candidate.transfer,fare_current_verified:true}},date)).toThrow();
+  expect(()=>validateReviewedTransfer(candidate,Date.parse('2026-12-01T12:00:00Z'))).toThrow();
+ });
+ it('never presents missing evidence as a valid line connection',async()=>{
+  mocks.rpc.mockResolvedValue({data:{
+   status:'insufficient_reviewed_transfer_evidence',transfer:null,reason:'No reviewed network',
+   automatic_truth:false,live_service_available:false},error:null});
+  const value=await planReviewedTransitTransfer({
+   placeId:'31c823cc-453b-40e2-87f9-bb828d6abe9f',
+   originLatitude:3.866,originLongitude:11.516,
+  });
+  expect(value.transfer).toBeNull();
+  expect(mocks.rpc).toHaveBeenCalledWith('afat_plan_reviewed_transfer',expect.objectContaining({p_origin_lat:3.866}));
  });
 });

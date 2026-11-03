@@ -94,6 +94,74 @@ export function validateMultimodalPlan(value:unknown,nowMs=Date.now()):AfatMulti
   return plan as AfatMultimodalPlan;
 }
 
+
+export type AfatReviewedTransfer = {
+  status:'reviewed_two_line_transfer_pattern'|'insufficient_reviewed_transfer_evidence'|'transfer_walk_access_unresolved';
+  reason:string;
+  live_service_available:false;
+  automatic_truth:false;
+  transfer:null|{
+    type:'walk_transit_walk_transit_walk';
+    first_line:{id:string;name:string;line_ref?:string;mode?:string;direction?:string};
+    second_line:{id:string;name:string;line_ref?:string;mode?:string;direction?:string};
+    boarding:{name:string;latitude:number;longitude:number;stop_sequence:number};
+    transfer_out:{name:string;latitude:number;longitude:number;stop_sequence:number};
+    transfer_in:{name:string;latitude:number;longitude:number;stop_sequence:number};
+    alighting:{name:string;latitude:number;longitude:number;stop_sequence:number};
+    transfer_straight_m:number;
+    oldest_observation_at:string;
+    evidence_expires_at:string;
+    live_service_available:false;
+    boarding_availability_verified:false;
+    schedule_verified:false;
+    fare_current_verified:false;
+    automatic_truth:false;
+  };
+};
+
+export function validateReviewedTransfer(value:unknown,nowMs=Date.now()):AfatReviewedTransfer {
+  const x=value as any;
+  if(!x||typeof x!=='object'||x.automatic_truth!==false||x.live_service_available!==false||
+      typeof x.reason!=='string') throw new Error('Invalid AFAT transfer response');
+  if(x.transfer==null) {
+    if(!['insufficient_reviewed_transfer_evidence','transfer_walk_access_unresolved'].includes(x.status))
+      throw new Error('Invalid AFAT transfer state');
+    return x as AfatReviewedTransfer;
+  }
+  const t=x.transfer;
+  if(x.status!=='reviewed_two_line_transfer_pattern'||t.type!=='walk_transit_walk_transit_walk'||
+    t.live_service_available!==false||t.boarding_availability_verified!==false||
+    t.schedule_verified!==false||t.fare_current_verified!==false||t.automatic_truth!==false)
+    throw new Error('Unverified live AFAT transfer claims');
+  const validStop=(stop:any)=>stop&&typeof stop.name==='string'&&
+    typeof stop.latitude==='number'&&Number.isFinite(stop.latitude)&&Math.abs(stop.latitude)<=90&&
+    typeof stop.longitude==='number'&&Number.isFinite(stop.longitude)&&Math.abs(stop.longitude)<=180&&
+    Number.isInteger(stop.stop_sequence)&&stop.stop_sequence>=0;
+  if(![t.boarding,t.transfer_out,t.transfer_in,t.alighting].every(validStop) ||
+    !t.first_line||!t.second_line||typeof t.first_line.name!=='string'||
+    typeof t.second_line.name!=='string'||!t.first_line.id||!t.second_line.id||
+    t.first_line.id===t.second_line.id||
+    t.boarding.stop_sequence>=t.transfer_out.stop_sequence ||
+    t.transfer_in.stop_sequence>=t.alighting.stop_sequence ||
+    !Number.isFinite(t.transfer_straight_m)||t.transfer_straight_m<0||t.transfer_straight_m>250)
+    throw new Error('AFAT transfer lines, stops or geometry are invalid');
+  const observed=Date.parse(t.oldest_observation_at), expires=Date.parse(t.evidence_expires_at);
+  if(!Number.isFinite(observed)||!Number.isFinite(expires)||observed>nowMs+300000||
+    expires<=nowMs||expires-observed>30*86400000+1000)
+    throw new Error('AFAT transfer evidence expired');
+  return x as AfatReviewedTransfer;
+}
+
+export async function planReviewedTransitTransfer(input:{
+  placeId:string;originLatitude:number;originLongitude:number;
+}):Promise<AfatReviewedTransfer> {
+  const {data,error}=await supabase.rpc('afat_plan_reviewed_transfer',{
+    p_origin_lat:input.originLatitude,p_origin_lon:input.originLongitude,p_place_id:input.placeId,
+  });
+  if(error)throw new Error(error.message||'AFAT reviewed transfer unavailable');
+  return validateReviewedTransfer(data);
+}
+
 let flushInFlight: Promise<{synced:number;pending:number}> | null = null;
 let lastSignedInUserId: string | null = null;
 const sessionUser = async () => {

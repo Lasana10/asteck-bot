@@ -32,8 +32,10 @@ import {
 } from '../../services/journeyRuntime';
 import {
   resolveJourneyMobilityIntelligence,
+  planReviewedTransitTransfer,
   recordMobilityGap,
   type AfatMultimodalPlan,
+  type AfatReviewedTransfer,
   type AfatReachabilityAssessment,
 } from '../../services/mobilityEvidenceClient';
 import { decideReroute, formatRouteProgress, type AfatRouteProgress } from '../../services/routeGuidance';
@@ -178,6 +180,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const [routeProgress, setRouteProgress] = useState<AfatRouteProgress | null>(null);
   const [reachability, setReachability] = useState<AfatReachabilityAssessment | null>(null);
   const [multimodal, setMultimodal] = useState<AfatMultimodalPlan | null>(null);
+  const [transferPlan, setTransferPlan] = useState<AfatReviewedTransfer|null>(null);
   const [intelligenceLimited,setIntelligenceLimited]=useState(false);
   const [intelligenceLoading, setIntelligenceLoading] = useState(false);
   const [resumeSnapshot, setResumeSnapshot] = useState<AfatJourneyRuntimeSnapshot | null>(() => loadJourneyRuntime());
@@ -419,6 +422,15 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     }).finally(()=>{if(active)setIntelligenceLoading(false);});
     return ()=>{active=false;};
   },[selectedPlace?.id,originFix?.latitude,originFix?.longitude,vehicleType,intentType,cityKey,online]);
+
+  useEffect(() => {
+    let active=true;
+    setTransferPlan(null);
+    if(!selectedPlace?.id||selectedPlace.source!=='afat_places'||!originFix||!online)return ()=>{active=false;};
+    void planReviewedTransitTransfer({placeId:selectedPlace.id,originLatitude:originFix.latitude,originLongitude:originFix.longitude})
+      .then(value=>{if(active)setTransferPlan(value);}).catch(()=>{if(active)setTransferPlan(null);});
+    return ()=>{active=false;};
+  },[selectedPlace?.id,selectedPlace?.source,originFix?.latitude,originFix?.longitude,online]);
 
   useEffect(() => {
     let active = true;
@@ -955,7 +967,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     {selectedPlace && originFix && (
       <div className="mt-4">
-        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} loading={intelligenceLoading} limited={intelligenceLimited} cityKey={cityKey} />
+        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} transfer={transferPlan} loading={intelligenceLoading} limited={intelligenceLimited} cityKey={cityKey} />
       </div>
     )}
 
