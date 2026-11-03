@@ -19,6 +19,9 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde',
   const [instructions,setInstructions]=useState('');
   const [transitType,setTransitType]=useState<'stop'|'line'|'fare'|'wait'|'boarding'|'transfer'|'terminus'>('stop');
   const [lineName,setLineName]=useState('');
+  const [lineDirection,setLineDirection]=useState('');
+  const [stopSequence,setStopSequence]=useState('');
+  const [transitMode,setTransitMode]=useState<'bus'|'minibus'|'shared_taxi'|'moto_taxi'|'ferry'|'rail'|'other'>('minibus');
   const [nodeName,setNodeName]=useState('');
   const [fare,setFare]=useState('');
   const [waitMinutes,setWaitMinutes]=useState('');
@@ -94,26 +97,37 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde',
     const waitValue=waitMinutes.trim()?Math.round(Number(waitMinutes)*60):null;
     if(fareValue!=null && (!Number.isFinite(fareValue)||fareValue<0)){setNotice('Enter a valid observed fare.');return;}
     if(waitValue!=null && (!Number.isFinite(waitValue)||waitValue<0)){setNotice('Enter a valid observed wait.');return;}
+    const ordered=stopSequence.trim() !== '';
+    const position=ordered?Number(stopSequence):null;
+    if (ordered && (!Number.isSafeInteger(position) || position! < 0 || position! > 10000)) {
+      setNotice('Use a whole-number stop position between 0 and 10000.');return;
+    }
+    if (ordered && (!observed || !lineName.trim() || !lineDirection.trim())) {
+      setNotice('Ordered stops require a fresh GPS fix, route name and direction.');return;
+    }
     setBusy(true);
     const result=await submitTransitObservation({
       cityKey,
       observationType:transitType,
       nodeName:nodeName.trim()||placeName||null,
       lineName:lineName.trim()||null,
-      mode:'minibus',
+      directionLabel:lineDirection.trim()||null,
+      mode:transitMode,
       latitude:observed?.latitude??null,
       longitude:observed?.longitude??null,
       gpsAccuracyM:observed?.accuracy??null,
       observedAt:observed?new Date(observed.timestampMs).toISOString():null,
       fareXaf:fareValue,
       waitSeconds:waitValue,
-      evidence:{ place_id:placeId, place_name:placeName||null, source_surface:'reachability_evidence_capture' },
+      evidence:{ place_id:placeId, place_name:placeName||null,
+        ...(position !== null ? {stop_sequence:position} : {}),
+        source_surface:'reachability_evidence_capture' },
     });
     setBusy(false);
     if(result.error && !(result.data as any)?.queued){setNotice(result.error.message||'Transit evidence could not be saved.');return;}
     const queued=Boolean((result.data as any)?.queued);
     setNotice(queued?'Saved offline. AFAT will sync this transit observation when connectivity returns.':'Transit observation submitted for review. It will not become a stop, line or fare until reviewed.');
-    setLineName('');setNodeName('');setFare('');setWaitMinutes('');setFix(null);
+    setLineName('');setLineDirection('');setStopSequence('');setNodeName('');setFare('');setWaitMinutes('');setFix(null);
   };
 
   const submitRouteConcern=async()=>{
@@ -168,7 +182,13 @@ export function FieldEvidenceCapture({ placeId, placeName, cityKey='cm-yaounde',
     </div>:mode==='transit'?<div className="mt-3 grid gap-2 sm:grid-cols-2">
       <select value={transitType} onChange={e=>setTransitType(e.target.value as any)} className="min-h-10 rounded-xl border border-white/10 bg-slate-950 px-3 text-xs"><option value="stop">Observed stop</option><option value="boarding">Boarding point</option><option value="terminus">Terminus</option><option value="transfer">Transfer point</option><option value="line">Line / route</option><option value="fare">Observed fare</option><option value="wait">Observed wait</option></select>
       <input value={nodeName} onChange={e=>setNodeName(e.target.value)} placeholder="Stop / place name" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
-      <input value={lineName} onChange={e=>setLineName(e.target.value)} placeholder="Line / destination board" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
+      <input value={lineName} onChange={e=>setLineName(e.target.value)} placeholder="Line / route name" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
+      <select aria-label="Observed transport mode" value={transitMode} onChange={e=>setTransitMode(e.target.value as typeof transitMode)} className="min-h-10 rounded-xl border border-white/10 bg-slate-950 px-3 text-xs">
+        <option value="minibus">Minibus</option><option value="bus">Bus</option><option value="shared_taxi">Shared taxi</option><option value="moto_taxi">Motorcycle taxi</option><option value="ferry">Ferry</option><option value="rail">Rail</option><option value="other">Other</option>
+      </select>
+      <input value={lineDirection} onChange={e=>setLineDirection(e.target.value)} placeholder="Direction / destination terminus" maxLength={120} className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
+      <input value={stopSequence} onChange={e=>setStopSequence(e.target.value)} inputMode="numeric" placeholder="Observed stop order (0, 1, 2…)" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
+      <p className="text-[10px] leading-4 text-violet-100/70 sm:col-span-2">Capture successive actual stops in travel order on the same line and direction. Stop order requires fresh device GPS and independent review; numbering alone never creates a verified route.</p>
       <input value={fare} onChange={e=>setFare(e.target.value)} inputMode="numeric" placeholder="Observed fare XAF" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
       <input value={waitMinutes} onChange={e=>setWaitMinutes(e.target.value)} inputMode="decimal" placeholder="Observed wait minutes" className="min-h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-xs outline-none"/>
       <button type="button" onClick={submitTransit} disabled={busy} className="min-h-10 rounded-xl bg-violet-300 px-3 text-[9px] font-black uppercase text-slate-950 disabled:opacity-35 sm:col-span-2"><span className="inline-flex items-center gap-2"><Send className="h-3.5 w-3.5"/>Submit pending observation</span></button>
