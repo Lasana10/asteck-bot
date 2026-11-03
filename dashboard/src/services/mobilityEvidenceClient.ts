@@ -102,8 +102,8 @@ export type AfatReviewedTransfer = {
   automatic_truth:false;
   transfer:null|{
     type:'walk_transit_walk_transit_walk';
-    first_line:{name:string;line_ref?:string;mode?:string;direction?:string};
-    second_line:{name:string;line_ref?:string;mode?:string;direction?:string};
+    first_line:{id:string;name:string;line_ref?:string;mode?:string;direction?:string};
+    second_line:{id:string;name:string;line_ref?:string;mode?:string;direction?:string};
     boarding:{name:string;latitude:number;longitude:number;stop_sequence:number};
     transfer_out:{name:string;latitude:number;longitude:number;stop_sequence:number};
     transfer_in:{name:string;latitude:number;longitude:number;stop_sequence:number};
@@ -139,8 +139,8 @@ export function validateReviewedTransfer(value:unknown,nowMs=Date.now()):AfatRev
     Number.isInteger(stop.stop_sequence)&&stop.stop_sequence>=0;
   if(![t.boarding,t.transfer_out,t.transfer_in,t.alighting].every(validStop) ||
     !t.first_line||!t.second_line||typeof t.first_line.name!=='string'||
-    typeof t.second_line.name!=='string'||!t.first_line.line_ref||!t.second_line.line_ref||
-    t.first_line.line_ref===t.second_line.line_ref||
+    typeof t.second_line.name!=='string'||!t.first_line.id||!t.second_line.id||
+    t.first_line.id===t.second_line.id||
     t.boarding.stop_sequence>=t.transfer_out.stop_sequence ||
     t.transfer_in.stop_sequence>=t.alighting.stop_sequence ||
     !Number.isFinite(t.transfer_straight_m)||t.transfer_straight_m<0||t.transfer_straight_m>250)
