@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bus, LocateFixed, Send, ShieldCheck } from 'lucide-react';
 import { submitTransitObservation } from '../../services/mobilityEvidenceClient';
 import { captureCurrentFieldGps, evaluateSpatialFix, type SpatialFix } from '../../services/spatialPositioning';
@@ -17,9 +17,9 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState('');
   const [submitted,setSubmitted]=useState(0);
-  const ready=useRef(false);
+  const [restoredCity,setRestoredCity]=useState<string|null>(null);
   useEffect(()=>{
-    ready.current=false;
+    setRestoredCity(null);
     const storage=typeof window==='undefined'?null:window.sessionStorage;
     const draft=readCorridorSurveyDraft(cityKey,storage);
     setLineName(draft?.lineName||'');
@@ -27,17 +27,16 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
     setMode(draft?.mode||'minibus');
     setPosition(draft?.position||'0');
     setNodeName('');setFix(null);setSubmitted(0);
-    ready.current=true;
-    return ()=>{ready.current=false;};
+    setRestoredCity(cityKey);
   },[cityKey]);
   useEffect(()=>{
-    if(!ready.current)return;
+    if(restoredCity!==cityKey)return;
     const storage=typeof window==='undefined'?null:window.sessionStorage;
     if(!lineName.trim()&&!direction.trim()&&position==='0'){
       clearCorridorSurveyDraft(cityKey,storage);return;
     }
     writeCorridorSurveyDraft({cityKey,lineName,direction,mode,position},storage);
-  },[cityKey,lineName,direction,mode,position]);
+  },[restoredCity,cityKey,lineName,direction,mode,position]);
 
   const capture=async()=>{
     setBusy(true);setNotice('');setFix(null);
