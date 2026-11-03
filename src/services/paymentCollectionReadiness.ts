@@ -24,7 +24,7 @@ export function evaluateCameroonCollectionReadiness(input: {
   if(input.environment!=='production')reasons.push('PawaPay is not in production mode.');
   if(!input.signedWebhookConfigured||input.unsignedCallbacksAllowed)
     reasons.push('A protected callback signature is required.');
-  if(input.availability?.configured!==true||input.availability?.cameroonAvailable!==true)
+  if(input.availability?.configured!==true||input.availability?.environment!=='production'||input.availability?.cameroonAvailable!==true)
     reasons.push('The provider has not confirmed Cameroon collection availability.');
   return {collection_ready:reasons.length===0,reasons};
 }
