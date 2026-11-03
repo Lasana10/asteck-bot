@@ -277,8 +277,8 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     ];
     const chain=multimodal?.multimodal_chain;
     return chain?[
-      {...chain.boarding,role:'board' as const},
-      {...chain.alighting,role:'alight' as const},
+      {...chain.boarding,name:chain.boarding.name||'Reviewed boarding stop',role:'board' as const},
+      {...chain.alighting,name:chain.alighting.name||'Reviewed alighting stop',role:'alight' as const},
     ]:[];
   },[transferPlan,multimodal]);
   const cityKey = preferredCityKey(profile);
