@@ -265,6 +265,22 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   const upcomingTurn=useMemo(()=>navigationActive&&originFix&&canonicalRoute
     ?nextRoadInstruction(canonicalRoute,{latitude:originFix.latitude,longitude:originFix.longitude,accuracy:originFix.accuracy})
     :null,[navigationActive,originFix?.latitude,originFix?.longitude,originFix?.accuracy,canonicalRoute]);
+  // Only reviewed passenger itineraries supply these pins. This does not
+  // draw straight-line transit segments or infer a live operating vehicle.
+  const reviewedTransitStops=useMemo(()=>{
+    const t=transferPlan?.transfer;
+    if(t)return [
+      {...t.boarding,role:'board' as const},
+      {...t.transfer_out,role:'transfer_out' as const},
+      {...t.transfer_in,role:'transfer_in' as const},
+      {...t.alighting,role:'alight' as const},
+    ];
+    const chain=multimodal?.multimodal_chain;
+    return chain?[
+      {...chain.boarding,role:'board' as const},
+      {...chain.alighting,role:'alight' as const},
+    ]:[];
+  },[transferPlan,multimodal]);
   const cityKey = preferredCityKey(profile);
 
   useEffect(() => {
@@ -945,6 +961,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
         routeLoading={routeLoading}
         routeMessage={routeMessage}
         navigationActive={navigationActive}
+        reviewedTransitStops={reviewedTransitStops}
         onOriginResolved={updateOrigin}
         onNavigationPosition={handleNavigationPosition}
         onArrived={handleArrival}
