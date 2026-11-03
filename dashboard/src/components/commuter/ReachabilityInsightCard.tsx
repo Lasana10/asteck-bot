@@ -38,6 +38,10 @@ export function ReachabilityInsightCard({
   const strong = assessment?.state === 'reachable_high_confidence';
   const connected = String(assessment?.state || '').startsWith('reachable');
   const chain = multimodal?.multimodal_chain;
+  const directOptions = (multimodal?.direct_options || []).filter((option) =>
+    option.type === 'direct' && ['walk','moto','car','minibus'].includes(option.mode) &&
+    option.assessment && String(option.assessment.state || '').startsWith('reachable')
+  );
   const evidencePlaceId = assessment?.place_id || multimodal?.place_id;
   const canContribute = Boolean(evidencePlaceId && (assessment?.missing_evidence?.length || multimodal?.multimodal_chain_status === 'insufficient_transit_evidence'));
 
@@ -67,6 +71,24 @@ export function ReachabilityInsightCard({
       )}
 
       {assessment && assessment.active_disruptions ? <p className="mt-3 text-[10px] font-bold text-rose-200">{assessment.active_disruptions} active route disruption{assessment.active_disruptions === 1 ? '' : 's'} affect this assessment.</p> : null}
+
+      {directOptions.length > 0 && (
+        <section className="mt-4" aria-label="Assessed direct travel modes">
+          <p className="text-[9px] font-black uppercase tracking-wider text-cyan-200">Direct route assessments</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {directOptions.map((option) => {
+              const confidence = Math.max(0, Math.min(100, Number(option.assessment.reliability_score || 0)));
+              const distance = Number(option.assessment.route_distance_m);
+              return <div key={option.mode} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                <p className="text-xs font-black text-white">{option.mode === 'walk' ? 'Walk' : option.mode === 'moto' ? 'Motorbike' : option.mode === 'minibus' ? 'Minibus' : 'Car'}</p>
+                <p className="mt-1 text-[10px] text-white/55">{labelForState(option.assessment.state)} · Reliability {Math.round(confidence)}/100</p>
+                {option.assessment.route_distance_m != null && Number.isFinite(distance) && distance >= 0 && <p className="mt-1 text-[10px] text-cyan-100/75">{(distance / 1000).toFixed(1)} km assessed route</p>}
+              </div>;
+            })}
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-white/45">These are route reachability assessments, not confirmations of available vehicles, safe access or current fares.</p>
+        </section>
+      )}
 
       {chain ? (
         <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
