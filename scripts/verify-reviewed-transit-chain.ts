@@ -4,6 +4,7 @@ const sql=readFileSync('supabase/migrations/20261025191015_afat_reviewed_transit
 const client=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
 const card=readFileSync('dashboard/src/components/commuter/ReachabilityInsightCard.tsx','utf8');
 const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
+const boardingDirections=readFileSync('dashboard/src/components/commuter/TransitBoardingDirections.tsx','utf8');
 for(const token of [
  "add column if not exists observed_wait_seconds","add column if not exists source_observed_at",
  "new.reviewer_id=new.profile_id","new.gps_accuracy_m between 0 and 60",
@@ -49,4 +50,16 @@ for (const token of [
   'setFix(null)',
   'stop order requires',
 ]) assert.ok(capture.toLowerCase().includes(token.toLowerCase()),'ordered field capture: '+token);
+assert.ok(card.includes('<TransitBoardingDirections latitude={chain.boarding.latitude}'), 'reviewed boarding navigation integration');
+for (const token of [
+  "mode:'foot'",
+  '/api/navigation/route?',
+  "result?.travel_mode!=='foot'",
+  "result?.source!=='osrm'",
+  'accuracy>120',
+  'maximumAge:0',
+  'Date.now()-position.timestamp>30000',
+  'not straight-line distance',
+  'No walking path was invented',
+]) assert.ok(boardingDirections.includes(token), 'boarding route: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
