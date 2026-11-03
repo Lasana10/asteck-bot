@@ -15,7 +15,8 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk',placeId,pla
  const {t}=useAfatLocale();
  const [type,setType]=useState<string>('entrance'); const [label,setLabel]=useState(''); const [description,setDescription]=useState('');
  const [mode,setMode]=useState(defaultMode); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState('');
- const [photo,setPhoto]=useState<File|null>(null); const [photoConsent,setPhotoConsent]=useState(false); const [userId,setUserId]=useState<string|null>(null); const [pending,setPending]=useState(0);
+ const [photo,setPhoto]=useState<File|null>(null); const [photoConsent,setPhotoConsent]=useState(false);
+ const [cameraFacing,setCameraFacing]=useState('unknown'); const [userId,setUserId]=useState<string|null>(null); const [pending,setPending]=useState(0);
  useEffect(()=>{let mounted=true;
   void (async()=>{
     const user=navigator.onLine?(await supabase.auth.getUser()).data.user:(await supabase.auth.getSession()).data.session?.user;
@@ -38,6 +39,7 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk',placeId,pla
       accuracyM:pos.coords.accuracy,movementMode:mode||null,label:label||placeName||null,description:description||null,
       placeId:placeId||null,placeName:placeName||null,
       observedAt:new Date(pos.timestamp).toISOString(),photo,
+      cameraFacing:photo?cameraFacing:null,
     };
     try{
       await queueFieldObservation(item);
@@ -48,7 +50,7 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk',placeId,pla
         const items=await pendingFieldObservations(user.id);setPending(items.length);
         setNotice('Field evidence and its photo are saved on this device and will synchronize after reconnection.');
       }
-      setLabel('');setDescription('');setPhoto(null);setPhotoConsent(false);
+      setLabel('');setDescription('');setPhoto(null);setPhotoConsent(false);setCameraFacing('unknown');
     }catch(error:any){setNotice(error?.message||'Could not save field evidence.');}
     setBusy(false);
   },err=>{setBusy(false);setNotice(err.message);},{enableHighAccuracy:true,timeout:20000,maximumAge:3000});
@@ -63,6 +65,15 @@ export function FieldMapper({cityKey='cm-yaounde',defaultMode='walk',placeId,pla
     <label className="text-[9px] font-black uppercase tracking-wider text-white/35">What did you observe?<input value={description} onChange={e=>setDescription(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm normal-case text-white" placeholder="Short field note"/></label>
    </div>
    <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 text-[9px] font-black uppercase text-white/55"><Camera className="h-4 w-4"/>{photo?photo.name:t('atlas.fieldPhoto')} · {pending} queued<input type="file" accept="image/jpeg,image/png,image/webp,image/heic" capture="environment" className="hidden" onChange={e=>{setPhoto(e.target.files?.[0]||null);setPhotoConsent(false);}}/></label>
+   {photo&&<label className="mt-3 block text-[10px] text-white/65">Camera view direction (optional, manually reported)
+     <select aria-label="Photo camera facing direction" value={cameraFacing} onChange={e=>setCameraFacing(e.target.value)}
+       className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs text-white">
+       <option value="unknown">Unknown / not observed</option><option value="n">North</option><option value="ne">Northeast</option>
+       <option value="e">East</option><option value="se">Southeast</option><option value="s">South</option>
+       <option value="sw">Southwest</option><option value="w">West</option><option value="nw">Northwest</option>
+     </select>
+     <span className="mt-1 block text-[9px] text-amber-100/70">An observer-reported direction only. It is not sensor-verified visual positioning or a trusted landmark match.</span>
+   </label>}
    {photo&&<label className="mt-3 flex items-start gap-2 text-[10px] leading-5 text-white/65"><input type="checkbox" checked={photoConsent} onChange={e=>setPhotoConsent(e.target.checked)} className="mt-1"/> I am permitted to share this image, and it does not disclose identifiable people, number plates or private interiors. Field photos are stored privately for authorized reviewers.</label>}
    <button onClick={submit} disabled={busy} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35"><Crosshair className="h-4 w-4"/>{busy?'Reading location…':t('atlas.recordPlace')}</button>
    {notice&&<p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-white/55"><Navigation className="mr-2 inline h-4 w-4 text-emerald-200"/>{notice}</p>}

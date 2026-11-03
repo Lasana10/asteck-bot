@@ -25,6 +25,10 @@ export function validateFieldObservation(item:OfflineFieldObservation):void{
   if((item.label?.length??0)>240||(item.description?.length??0)>2000)throw new Error('Field observation text is too long');
   if(item.placeId && !/^[0-9a-f-]{36}$/i.test(item.placeId))throw new Error('Invalid suggested destination link');
   if((item.placeName?.length??0)>180)throw new Error('Place reference label is too long');
+  if(item.cameraFacing!=null && !['unknown','n','ne','e','se','s','sw','w','nw'].includes(item.cameraFacing))
+    throw new Error('Invalid observer-reported camera orientation');
+  if(item.cameraFacing && item.cameraFacing!=='unknown' && !item.photo)
+    throw new Error('Camera orientation requires a consented photo');
   fieldEvidencePath(item);
 }
 
@@ -32,7 +36,7 @@ export function validateFieldObservation(item:OfflineFieldObservation):void{
 export type OfflineFieldObservation={
   id:string; userId:string; cityKey:string; type:string; latitude:number; longitude:number; accuracyM:number;
   movementMode?:string|null; label?:string|null; description?:string|null; observedAt:string; photo?:File|null;
-  placeId?:string|null; placeName?:string|null;
+  placeId?:string|null; placeName?:string|null; cameraFacing?:string|null;
 };
 
 function db():Promise<IDBDatabase>{
@@ -96,7 +100,11 @@ async function flushFieldObservationsOnce(userId:string){
       p_accuracy_m:item.accuracyM,p_movement_mode:item.movementMode||null,p_label:item.label||null,p_description:item.description||null,
       p_attributes:{offline_replay:true,client_observation_id:item.id,
         suggested_place_id:item.placeId||null,suggested_place_name:item.placeName?.slice(0,180)||null,
-        source_surface:item.placeId?'passenger_move_learn':'field_mapper'},p_media_paths:mediaPaths,p_observed_at:item.observedAt,
+        source_surface:item.placeId?'passenger_move_learn':'field_mapper',
+        photo_camera_facing_reported:item.photo?(item.cameraFacing||'unknown'):null,
+        camera_direction_source:item.photo?'observer_reported':null,
+        camera_orientation_verified:false,
+        automatic_visual_position_verified:false},p_media_paths:mediaPaths,p_observed_at:item.observedAt,
     });
     if(error)continue;
     const d=await db();
