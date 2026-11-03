@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, CheckCircle2, Footprints, Route, ShieldCheck } from 'lucide-react';
 import type { AfatMultimodalPlan, AfatReachabilityAssessment } from '../../services/mobilityEvidenceClient';
 import { FieldEvidenceCapture } from './FieldEvidenceCapture';
+import { TransitBoardingDirections } from './TransitBoardingDirections';
 
 function labelForState(state?: string | null) {
   if (state === 'reachable_high_confidence') return 'Strong reachability';
@@ -113,6 +114,7 @@ export function ReachabilityInsightCard({
             </div>
           </div>
           <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Stop distances are straight-line estimates, not pedestrian path lengths; verify safe entrances and crossings locally. No live vehicle, departure or arrival time is guaranteed.</p>
+          <TransitBoardingDirections latitude={chain.boarding.latitude} longitude={chain.boarding.longitude} stopName={chain.boarding.name}/>
           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-bold text-white/55">
             {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min historical reviewed wait</span>}
             {chain.observed_transit_seconds != null && <span>{Math.ceil(Number(chain.observed_transit_seconds) / 60)} min historical reviewed transit</span>}
