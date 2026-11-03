@@ -1,0 +1,149 @@
+-- Independently reviewed transit evidence, with fail-closed ordered-stop promotion.
+-- Restrict trust promotion to reviewers; aggregate viewers cannot create
+-- verified-looking transit stops or lines. Existing RLS read access is unchanged.
+CREATE OR REPLACE FUNCTION public.afat_review_transit_observation(p_observation_id uuid, p_decision text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+declare
+  v_uid uuid:=auth.uid();
+  v_obs public.afat_transit_observations%rowtype;
+  v_city public.afat_city_profiles%rowtype;
+  v_node_id uuid;
+  v_line_id uuid;
+  v_node_type text;
+  v_line_ref text;
+  v_conf numeric;
+begin
+  if v_uid is null then raise exception 'Authentication required'; end if;
+  if not (public.afat_has_permission('map.evidence.review') or public.afat_has_permission('system.configure')) then
+    raise exception 'Transit evidence review permission required';
+  end if;
+  if p_decision not in ('accept','reject') then raise exception 'Decision must be accept or reject'; end if;
+
+  select * into v_obs from public.afat_transit_observations where id=p_observation_id for update;
+  if not found then raise exception 'Transit observation not found'; end if;
+  if v_obs.status<>'pending' then
+    return jsonb_build_object('id',v_obs.id,'status',v_obs.status,'automatic_truth',false);
+  end if;
+  -- Every review must be performed by someone other than the original contributor.
+  if v_obs.profile_id=v_uid then
+    raise exception 'Contributor cannot independently review own transit evidence' using errcode='42501';
+  end if;
+  if p_decision='accept' and v_obs.evidence ? 'stop_sequence' then
+    if v_obs.gps_accuracy_m is null or v_obs.gps_accuracy_m>60 or v_obs.gps_accuracy_m<0
+       or nullif(btrim(coalesce(v_obs.line_name,'')),'') is null
+       or nullif(btrim(coalesce(v_obs.direction_label,'')),'') is null
+       or nullif(btrim(coalesce(v_obs.node_name,'')),'') is null
+       or v_obs.mode is null
+       or coalesce(v_obs.evidence->>'stop_sequence','') !~ '^[0-9]{1,5}$'
+       or (v_obs.evidence->>'stop_sequence')::integer>10000
+       or coalesce(v_obs.evidence->>'observed_at','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' then
+      raise exception 'Ordered stop requires valid GNSS, line, direction and observation time' using errcode='22023';
+    end if;
+    if (v_obs.evidence->>'observed_at')::timestamptz
+      not between now()-interval '30 days' and now()+interval '5 minutes' then
+      raise exception 'Ordered transit observation is expired or future-dated' using errcode='22023';
+    end if;
+  end if;
+
+  -- Serialize review of a corridor's ordered stop slot. Two reviewers must
+  -- not race to publish geographically conflicting stops at the same position.
+  if p_decision='accept' and v_obs.evidence ? 'stop_sequence' then
+    if v_obs.latitude is null or v_obs.longitude is null or
+       v_obs.latitude not between -90 and 90 or v_obs.longitude not between -180 and 180 then
+      raise exception 'Ordered transit stop needs valid coordinates' using errcode='22023';
+    end if;
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(
+        pg_catalog.concat_ws('|',v_obs.city_key,lower(btrim(v_obs.line_name)),
+          v_obs.mode,lower(btrim(v_obs.direction_label)),
+          v_obs.evidence->>'stop_sequence'),0)
+    );
+    if exists (
+      select 1 from public.afat_transit_observations prior
+       where prior.id<>v_obs.id and prior.status='accepted'
+         and prior.city_key=v_obs.city_key
+         and lower(btrim(prior.line_name))=lower(btrim(v_obs.line_name))
+         and prior.mode=v_obs.mode
+         and lower(btrim(prior.direction_label))=lower(btrim(v_obs.direction_label))
+         and prior.evidence->>'stop_sequence'=v_obs.evidence->>'stop_sequence'
+         and prior.location is not null
+         and not public.st_dwithin(
+           prior.location,
+           public.st_setsrid(public.st_makepoint(v_obs.longitude,v_obs.latitude),4326)::public.geography,
+           120
+         )
+    ) then
+      raise exception 'Conflicting reviewed stop location for this corridor order; obtain independent field reconciliation'
+        using errcode='23514';
+    end if;
+  end if;
+
+  if p_decision='reject' then
+    update public.afat_transit_observations
+      set status='rejected',reviewer_id=v_uid,reviewed_at=now(),updated_at=now()
+      where id=v_obs.id;
+    return jsonb_build_object('id',v_obs.id,'status','rejected','automatic_truth',false);
+  end if;
+
+  select * into v_city from public.afat_city_profiles where city_key=v_obs.city_key and status='active';
+  if not found then raise exception 'Active city profile not found'; end if;
+  v_conf:=case when v_obs.gps_accuracy_m is null then 30 when v_obs.gps_accuracy_m<=20 then 50 when v_obs.gps_accuracy_m<=60 then 42 else 28 end;
+
+  if v_obs.observation_type in ('stop','boarding','transfer','terminus') then
+    if v_obs.latitude is null or v_obs.longitude is null or nullif(btrim(coalesce(v_obs.node_name,'')),'') is null then
+      raise exception 'Accepted transit node evidence needs a name and coordinates';
+    end if;
+    v_node_type:=case v_obs.observation_type when 'transfer' then 'transfer' when 'terminus' then 'terminus' when 'boarding' then 'boarding' else 'informal_stop' end;
+
+    select id into v_node_id
+    from public.afat_transit_nodes n
+    where n.city_profile_id=v_city.id and n.active=true
+      and lower(n.name)=lower(v_obs.node_name)
+      and st_dwithin(n.location,st_setsrid(st_makepoint(v_obs.longitude,v_obs.latitude),4326)::geography,40)
+    order by n.confidence desc limit 1;
+
+    if v_node_id is null then
+      insert into public.afat_transit_nodes(city_profile_id,node_type,name,latitude,longitude,location,access_modes,confidence,evidence_status,active,evidence)
+      values(v_city.id,v_node_type,v_obs.node_name,v_obs.latitude,v_obs.longitude,
+        st_setsrid(st_makepoint(v_obs.longitude,v_obs.latitude),4326)::geography,
+        case when v_obs.mode='moto_taxi' then array['walk','moto']::text[] else array['walk',coalesce(v_obs.mode,'minibus')]::text[] end,
+        v_conf,'limited',true,
+        jsonb_build_object('automatic_truth',false,'source','community_transit_observation','observation_ids',jsonb_build_array(v_obs.id),'reviewed_by',v_uid,'reviewed_at',now()))
+      returning id into v_node_id;
+    else
+      update public.afat_transit_nodes
+        set evidence=coalesce(evidence,'{}'::jsonb)||jsonb_build_object('last_observation_id',v_obs.id,'last_reviewed_at',now()),updated_at=now()
+        where id=v_node_id;
+    end if;
+  end if;
+
+  if v_obs.observation_type in ('line','service_pattern') or nullif(btrim(coalesce(v_obs.line_name,'')),'') is not null then
+    if nullif(btrim(coalesce(v_obs.line_name,'')),'') is not null and v_obs.mode is not null then
+      v_line_ref:='AFAT-COMMUNITY-'||upper(substr(md5(v_obs.city_key||':'||lower(v_obs.line_name)||':'||v_obs.mode||':'||lower(coalesce(v_obs.direction_label,''))),1,16));
+      insert into public.afat_transit_lines(city_profile_id,line_ref,name,mode,direction_label,service_pattern,confidence,evidence_status,active,evidence)
+      values(v_city.id,v_line_ref,v_obs.line_name,v_obs.mode,v_obs.direction_label,
+        case when v_obs.observation_type='service_pattern' then jsonb_build_object('observed',true) else '{}'::jsonb end,
+        30,'limited',true,
+        jsonb_build_object('automatic_truth',false,'source','community_transit_observation','observation_ids',jsonb_build_array(v_obs.id),'reviewed_by',v_uid,'reviewed_at',now()))
+      on conflict(line_ref) do update set
+        updated_at=now(),
+        evidence=public.afat_transit_lines.evidence||jsonb_build_object('last_observation_id',excluded.evidence->'observation_ids'->0,'last_reviewed_at',now())
+      returning id into v_line_id;
+    end if;
+  end if;
+
+  update public.afat_transit_observations
+    set status='accepted',reviewer_id=v_uid,reviewed_at=now(),updated_at=now(),
+        evidence=coalesce(evidence,'{}'::jsonb)||jsonb_build_object('automatic_truth',false,'promoted_node_id',v_node_id,'promoted_line_id',v_line_id)
+    where id=v_obs.id;
+
+  return jsonb_build_object('id',v_obs.id,'status','accepted','transit_node_id',v_node_id,'transit_line_id',v_line_id,'evidence_status','limited','automatic_truth',false);
+end;
+$function$;
+
+revoke execute on function public.afat_review_transit_observation(uuid,text) from public,anon;
+grant execute on function public.afat_review_transit_observation(uuid,text) to authenticated,service_role;
