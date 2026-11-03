@@ -1805,7 +1805,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
     // Never reserve a booking or initiate provider collection on the basis of
     // credentials alone. The availability probe and signed callback readiness
     // must confirm an operational Cameroon collection path first.
-    if(process.env.NODE_ENV==='production' && normalizedProvider!=='africastalking'){
+    if(process.env.NODE_ENV==='production'){
       const availability=await cameroonPaymentAvailability();
       if(!availability.verdict.collection_ready){
         return res.status(503).json({
