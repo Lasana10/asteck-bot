@@ -76,7 +76,7 @@ export function ReachabilityInsightCard({
           <div className="mt-3 grid gap-2 sm:grid-cols-3" aria-label="Reviewed multimodal journey legs">
             <div className="rounded-lg border border-white/10 bg-black/20 p-3">
               <p className="text-[9px] font-black uppercase text-violet-200">1 · Walk to boarding</p>
-              <p className="mt-1 text-xs font-bold text-white">{Math.round(chain.boarding.walk_distance_m).toLocaleString()} m</p>
+              <p className="mt-1 text-xs font-bold text-white">{Math.round(chain.boarding.walk_distance_m).toLocaleString()} m straight-line</p>
               <p className="mt-1 text-[10px] text-white/45">{chain.boarding.name || 'Reviewed boarding stop'}</p>
             </div>
             <div className="rounded-lg border border-white/10 bg-black/20 p-3">
@@ -86,11 +86,11 @@ export function ReachabilityInsightCard({
             </div>
             <div className="rounded-lg border border-white/10 bg-black/20 p-3">
               <p className="text-[9px] font-black uppercase text-violet-200">3 · Walk from alighting</p>
-              <p className="mt-1 text-xs font-bold text-white">{Math.round(chain.alighting.walk_distance_m).toLocaleString()} m</p>
+              <p className="mt-1 text-xs font-bold text-white">{Math.round(chain.alighting.walk_distance_m).toLocaleString()} m straight-line</p>
               <p className="mt-1 text-[10px] text-white/45">{chain.alighting.name || 'Reviewed alighting stop'}</p>
             </div>
           </div>
-          <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Walking distances are map estimates; verify safe entrances and crossings locally. No live vehicle, departure or arrival time is guaranteed.</p>
+          <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Stop distances are straight-line estimates, not pedestrian path lengths; verify safe entrances and crossings locally. No live vehicle, departure or arrival time is guaranteed.</p>
           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-bold text-white/55">
             {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min historical reviewed wait</span>}
             {chain.observed_transit_seconds != null && <span>{Math.ceil(Number(chain.observed_transit_seconds) / 60)} min historical reviewed transit</span>}
