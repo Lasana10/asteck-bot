@@ -70,6 +70,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
   const readinessMode = providerReadiness?.mode || 'unknown';
   const livePawaPay = Boolean(providerReadiness?.ready?.pawapay);
+  const mobileCollectionReady = providerReadiness?.collection_ready === true;
   const securityBadge = livePawaPay
     ? 'Confirmation fournisseur PawaPay requise'
     : readinessMode === 'live_or_hybrid'
@@ -78,6 +79,10 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
   const handlePay=async()=>{
     if(!selectedMethod||!bookingId||processing||serverPhase!=='ready')return;
+    if(selectedMethod!=='cash'&&!mobileCollectionReady){
+      setErrorText('Live Cameroon mobile-money collection is not verified. No collection was started. You can choose cash due, or try again after provider activation.');
+      return;
+    }
     setProcessing(true);setErrorText('');
     try{
       // Confirm server transaction state *before* creating any provider request.
@@ -184,6 +189,9 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         </div>
 
         <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-[2px] mb-4">Méthode de paiement</h3>
+        {!mobileCollectionReady && <p role="status" className="mb-4 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+          Mobile Money Cameroon is not confirmed available by AFAT's provider readiness service. These collection methods are disabled. Cash is a pay-later obligation, not proof of collection.
+        </p>}
 
         {errorText && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{errorText}</div>}
 
@@ -197,13 +205,13 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
         {serverPhase==='unknown'&&<button type="button" disabled={processing} onClick={()=>void refreshBooking()} className="mb-4 w-full rounded-xl border border-amber-300/20 p-3 text-xs text-amber-100">Verify booking status before another collection</button>}
         <div className="space-y-3 mb-6">
-          <button onClick={() => setSelectedMethod('mtn_momo')} className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${selectedMethod === 'mtn_momo' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/5 bg-slate-900/50 hover:border-white/10'}`}>
+          <button disabled={!mobileCollectionReady} onClick={() => setSelectedMethod('mtn_momo')} className={`disabled:cursor-not-allowed disabled:opacity-35 w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${selectedMethod === 'mtn_momo' ? 'border-yellow-500 bg-yellow-500/10' : 'border-white/5 bg-slate-900/50 hover:border-white/10'}`}>
             <div className="w-12 h-12 bg-yellow-500 rounded-xl flex items-center justify-center text-black font-black text-sm">MTN</div>
             <div className="flex-1 text-left"><p className="font-bold">MTN Mobile Money</p><p className="text-xs text-slate-400">Demande envoyée au fournisseur configuré; AFAT attend sa confirmation.</p></div>
             {selectedMethod === 'mtn_momo' && <Check className="w-5 h-5 text-yellow-500" />}
           </button>
 
-          <button onClick={() => setSelectedMethod('orange_money')} className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${selectedMethod === 'orange_money' ? 'border-orange-500 bg-orange-500/10' : 'border-white/5 bg-slate-900/50 hover:border-white/10'}`}>
+          <button disabled={!mobileCollectionReady} onClick={() => setSelectedMethod('orange_money')} className={`disabled:cursor-not-allowed disabled:opacity-35 w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${selectedMethod === 'orange_money' ? 'border-orange-500 bg-orange-500/10' : 'border-white/5 bg-slate-900/50 hover:border-white/10'}`}>
             <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-sm">OM</div>
             <div className="flex-1 text-left"><p className="font-bold">Orange Money</p><p className="text-xs text-slate-400">Demande envoyée au fournisseur configuré; AFAT attend sa confirmation.</p></div>
             {selectedMethod === 'orange_money' && <Check className="w-5 h-5 text-orange-500" />}
