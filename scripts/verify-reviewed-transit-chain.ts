@@ -10,6 +10,7 @@ const spatialMap=readFileSync('dashboard/src/components/commuter/PassengerSpatia
 const planner=readFileSync('dashboard/src/components/commuter/PassagePlanner.tsx','utf8');
 const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
 const corridor=readFileSync('dashboard/src/components/admin/TransitCorridorSurvey.tsx','utf8');
+const surveyDraft=readFileSync('dashboard/src/services/transitCorridorSurveyDraft.ts','utf8');
 const activation=readFileSync('dashboard/src/components/admin/OperationalActivationLadder.tsx','utf8');
 const boardingDirections=readFileSync('dashboard/src/components/commuter/TransitBoardingDirections.tsx','utf8');
 for(const token of [
@@ -151,4 +152,18 @@ for(const token of [
   "mode:'walk'",
   "['afat_atlas','osrm']",
 ])assert.ok(boardingDirections.includes(token),'pedestrian stage: '+token);
+for(const token of [
+ 'readCorridorSurveyDraft(cityKey,storage)',
+ 'writeCorridorSurveyDraft({cityKey,lineName,direction,mode,position},storage)',
+ 'setRestoredCity(cityKey)',
+ 'setFix(null)',
+ 'clearCorridorSurveyDraft(cityKey,',
+ 'Start another line',
+])assert.ok(corridor.includes(token),'resumable survey: '+token);
+for(const token of ['sessionStorage','LIMIT_MS','lineName','position','cityKey']) {
+  if(token==='sessionStorage')continue;
+  assert.ok(surveyDraft.includes(token),'safe draft field: '+token);
+}
+assert.ok(!surveyDraft.includes('latitude:'));
+assert.ok(!surveyDraft.includes('longitude:'));
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');

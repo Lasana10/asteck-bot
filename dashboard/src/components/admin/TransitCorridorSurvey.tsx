@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bus, LocateFixed, Send, ShieldCheck } from 'lucide-react';
 import { submitTransitObservation } from '../../services/mobilityEvidenceClient';
 import { captureCurrentFieldGps, evaluateSpatialFix, type SpatialFix } from '../../services/spatialPositioning';
+import {readCorridorSurveyDraft,writeCorridorSurveyDraft,clearCorridorSurveyDraft} from '../../services/transitCorridorSurveyDraft';
 
 type TransitMode='bus'|'minibus'|'shared_taxi'|'moto_taxi'|'ferry'|'rail'|'other';
 
@@ -16,6 +17,26 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState('');
   const [submitted,setSubmitted]=useState(0);
+  const [restoredCity,setRestoredCity]=useState<string|null>(null);
+  useEffect(()=>{
+    setRestoredCity(null);
+    const storage=typeof window==='undefined'?null:window.sessionStorage;
+    const draft=readCorridorSurveyDraft(cityKey,storage);
+    setLineName(draft?.lineName||'');
+    setDirection(draft?.direction||'');
+    setMode(draft?.mode||'minibus');
+    setPosition(draft?.position||'0');
+    setNodeName('');setFix(null);setSubmitted(0);
+    setRestoredCity(cityKey);
+  },[cityKey]);
+  useEffect(()=>{
+    if(restoredCity!==cityKey)return;
+    const storage=typeof window==='undefined'?null:window.sessionStorage;
+    if(!lineName.trim()&&!direction.trim()&&position==='0'){
+      clearCorridorSurveyDraft(cityKey,storage);return;
+    }
+    writeCorridorSurveyDraft({cityKey,lineName,direction,mode,position},storage);
+  },[restoredCity,cityKey,lineName,direction,mode,position]);
 
   const capture=async()=>{
     setBusy(true);setNotice('');setFix(null);
@@ -94,6 +115,16 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
       <button type="button" onClick={()=>void save()} disabled={busy||!fix}
         className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-300 px-4 text-xs font-black text-slate-950 disabled:opacity-40">
         <Send className="h-4 w-4"/>Save pending stop
+      </button>
+    </div>
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <p className="text-[10px] text-white/40">Line, direction, mode and next stop order are kept in this tab for reload recovery. GPS, stop name and personal data are never saved in the draft.</p>
+      <button type="button" onClick={()=>{
+        clearCorridorSurveyDraft(cityKey,typeof window==='undefined'?null:window.sessionStorage);
+        setLineName('');setDirection('');setMode('minibus');setPosition('0');setNodeName('');setFix(null);
+        setNotice('Survey draft cleared. Previously submitted evidence remains in its review queue.');
+      }} disabled={busy} className="min-h-10 rounded-lg border border-white/15 px-3 text-[10px] font-bold text-white/60 disabled:opacity-40">
+        Start another line
       </button>
     </div>
     {notice&&<p role="status" className="mt-2 text-[11px] leading-5 text-white/65">{notice}</p>}
