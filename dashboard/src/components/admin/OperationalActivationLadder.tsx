@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, CircleDot, RefreshCw, Route, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
+import { TransitCorridorSurvey } from './TransitCorridorSurvey';
 
 type Mission={
   id:string;
@@ -52,6 +53,10 @@ export function OperationalActivationLadder({cityKey}:{cityKey:string}){
     <div className="mt-4 grid gap-2 lg:grid-cols-2">{(data?.missions||[]).map((mission,index)=><article key={mission.id} className={`rounded-xl border p-4 ${mission.status==='completed'?'border-emerald-300/15 bg-emerald-400/[0.05]':'border-white/10 bg-black/15'}`}>
       <div className="flex items-start gap-3"><div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ${mission.status==='completed'?'bg-emerald-400/15 text-emerald-200':'bg-white/5 text-white/35'}`}>{mission.status==='completed'?<CheckCircle2 className="h-4 w-4"/>:<CircleDot className="h-4 w-4"/>}</div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[8px] font-black uppercase tracking-widest text-white/30">{String(index+1).padStart(2,'0')} · {mission.proof_key}</p><span className={`text-[8px] font-black uppercase ${mission.status==='completed'?'text-emerald-200':'text-amber-200/60'}`}>{mission.status}</span></div><h3 className="mt-1 text-sm font-black text-white">{mission.title}</h3><p className="mt-1 text-[11px] leading-5 text-white/45">{mission.instruction}</p><p className="mt-2 text-[9px] text-white/30">{mission.actor_hint} · evidence {mission.observed_count}/{mission.target_count}</p></div></div>
     </article>)}</div>
+    <details className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.035] p-3">
+      <summary className="cursor-pointer text-xs font-black text-violet-100">Open real transit corridor field survey</summary>
+      <TransitCorridorSurvey cityKey={cityKey}/>
+    </details>
     {data?.generated_at&&<p className="mt-3 text-[9px] text-white/25">Activation state refreshed from production · {new Date(data.generated_at).toLocaleString()}</p>}
     {notice&&<p role="status" className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/60">{notice}</p>}
   </section>;
