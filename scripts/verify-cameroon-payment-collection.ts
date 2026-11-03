@@ -13,6 +13,7 @@ for(const changes of [
   {signedWebhookConfigured:false},{unsignedCallbacksAllowed:true},
   {availability:null},{availability:{configured:true,environment:'production',cameroonAvailable:false}},
   {availability:{configured:false,environment:'production',cameroonAvailable:true}},
+  {availability:{configured:true,environment:'sandbox',cameroonAvailable:true}},
 ]) {
   const value=evaluateCameroonCollectionReadiness({...ready,...changes});
   assert.equal(value.collection_ready,false,JSON.stringify(changes));
