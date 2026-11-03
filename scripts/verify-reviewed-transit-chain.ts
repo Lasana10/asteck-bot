@@ -4,6 +4,8 @@ const sql=readFileSync('supabase/migrations/20261025191015_afat_reviewed_transit
 const client=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
 const card=readFileSync('dashboard/src/components/commuter/ReachabilityInsightCard.tsx','utf8');
 const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
+const corridor=readFileSync('dashboard/src/components/admin/TransitCorridorSurvey.tsx','utf8');
+const activation=readFileSync('dashboard/src/components/admin/OperationalActivationLadder.tsx','utf8');
 const boardingDirections=readFileSync('dashboard/src/components/commuter/TransitBoardingDirections.tsx','utf8');
 for(const token of [
  "add column if not exists observed_wait_seconds","add column if not exists source_observed_at",
@@ -65,4 +67,16 @@ for (const token of [
   'not straight-line distance',
   'No walking path was invented',
 ]) assert.ok(boardingDirections.includes(token), 'boarding route: '+token);
+for(const token of [
+  'captureCurrentFieldGps',
+  'evaluateSpatialFix',
+  'accuracyM>60',
+  'Date.now()-fix.timestampMs>30000',
+  'directionLabel:direction.trim()',
+  'stop_sequence:sequence',
+  'source_surface:\'city_transit_corridor_survey\'',
+  'setPosition(String(sequence+1))',
+  'independent review queue',
+]) assert.ok(corridor.includes(token),'city transit survey: '+token);
+assert.ok(activation.includes('<TransitCorridorSurvey cityKey={cityKey}/>'));
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
