@@ -38,4 +38,12 @@ for (const token of [
   'if (currentAssignmentId.current !== assignment.id) return',
 ]) assert.ok(passenger.includes(token), 'cross-assignment isolation: ' + token);
 
+for (const token of [
+  'setShareBusy(false);',
+  'setSosOpen(false);',
+  'const assignmentId = assignment.id;',
+  'if (currentAssignmentId.current !== assignmentId) return;',
+  "if (currentAssignmentId.current === assignmentId) setNotice('Guardian watch link shared.')",
+]) assert.ok(passenger.includes(token), 'passenger async lifecycle: ' + token);
+
 console.log('PASS terminal dispatch -> payment-neutral durable receipt -> passenger rating projection; disputed completion keeps GPS evidence gate');

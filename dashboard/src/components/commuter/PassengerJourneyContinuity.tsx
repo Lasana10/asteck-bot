@@ -55,6 +55,9 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
     setClosureError('');
     setClosureLoading(false);
     setShareUrl('');
+    setShareBusy(false);
+    setBusy(false);
+    setSosOpen(false);
     if (!assignment?.id || !['completed','disputed'].includes(String(assignment.status))) return;
     void loadClosure(assignment.id);
   }, [assignment?.id, assignment?.status]);
@@ -75,6 +78,7 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
   const canDispute = ['in_journey','emergency'].includes(status);
 
   const cancel = async () => {
+    const assignmentId = assignment.id;
     setBusy(true); setNotice('');
     const { error } = await transitionDispatch(assignment.id, {
       expected_status: status,
@@ -82,12 +86,14 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       reason: 'Passenger cancelled before journey completion',
       evidence: { source: 'passenger_workspace' },
     });
+    if (currentAssignmentId.current !== assignmentId) return;
     setBusy(false);
     setNotice(error ? error.message : 'Journey request cancelled.');
     if (!error) onChanged();
   };
 
   const dispute = async () => {
+    const assignmentId = assignment.id;
     setBusy(true); setNotice('');
     const { error } = await transitionDispatch(assignment.id, {
       expected_status: status,
@@ -95,14 +101,17 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
       reason: 'Passenger reported an active journey issue',
       evidence: { source: 'passenger_workspace' },
     });
+    if (currentAssignmentId.current !== assignmentId) return;
     setBusy(false);
     setNotice(error ? error.message : 'Journey issue recorded for review.');
     if (!error) onChanged();
   };
 
   const generatePickupCode = async () => {
+    const assignmentId = assignment.id;
     setBusy(true); setNotice('');
-    const { data, error } = await createPickupCode(assignment.id);
+    const { data, error } = await createPickupCode(assignmentId);
+    if (currentAssignmentId.current !== assignmentId) return;
     setBusy(false);
     if (error) return setNotice(error.message);
     setPickupCode(data.pickup_code);
@@ -143,15 +152,15 @@ export function PassengerJourneyContinuity({ assignment, onChanged }: Props) {
           text: 'Follow my AFAT journey status.',
           url,
         });
-        setNotice('Guardian watch link shared.');
+        if (currentAssignmentId.current === assignmentId) setNotice('Guardian watch link shared.');
       } else if (navigator.clipboard) {
         await navigator.clipboard.writeText(url);
-        setNotice('Guardian watch link copied. Send it to someone you trust.');
+        if (currentAssignmentId.current === assignmentId) setNotice('Guardian watch link copied. Send it to someone you trust.');
       } else {
-        setNotice('Guardian watch link ready below.');
+        if (currentAssignmentId.current === assignmentId) setNotice('Guardian watch link ready below.');
       }
     } catch {
-      setNotice('Guardian watch link ready below.');
+      if (currentAssignmentId.current === assignmentId) setNotice('Guardian watch link ready below.');
     }
   };
 
