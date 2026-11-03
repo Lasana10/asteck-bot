@@ -11,6 +11,7 @@ import { dnaQueue } from '../services/QueueService';
 import { aiRouter } from '../services/AIRouter';
 import { brainService } from '../services/brain';
 import { PaymentService } from '../services/payment';
+import { evaluateCameroonCollectionReadiness } from '../services/paymentCollectionReadiness';
 import { ArkeselClient } from '../infra/arkesel';
 import { TermiiClient } from '../infra/termii';
 import { NotificationChannel, NotificationService } from '../services/NotificationService';
@@ -19,6 +20,19 @@ const router = express.Router();
 const ticketSecret = process.env.TICKET_SIGNING_SECRET;
 const authSecret = process.env.AFAT_AUTH_SECRET || process.env.TICKET_SIGNING_SECRET;
 const paymentService = new PaymentService();
+
+async function cameroonPaymentAvailability() {
+  const provider=process.env.PAYMENT_PROVIDER || 'pawapay';
+  const credentialsConfigured=Boolean(process.env.PAWAPAY_API_TOKEN || process.env.PAWAPAY_API_KEY || process.env.PAYMENT_API_KEY);
+  const environment=(process.env.PAWAPAY_ENV || (process.env.NODE_ENV==='production'?'production':'sandbox')).toLowerCase();
+  const signedWebhookConfigured=Boolean(process.env.PAWAPAY_WEBHOOK_SECRET || process.env.AFAT_WEBHOOK_SECRET);
+  const unsignedCallbacksAllowed=process.env.AFAT_ALLOW_UNSIGNED_PAWAPAY_CALLBACKS==='true';
+  const availability=credentialsConfigured ? await paymentService.checkPawaPayAvailability() : null;
+  const verdict=evaluateCameroonCollectionReadiness({
+    provider,credentialsConfigured,environment,signedWebhookConfigured,unsignedCallbacksAllowed,availability,
+  });
+  return {provider,credentialsConfigured,environment,signedWebhookConfigured,unsignedCallbacksAllowed,availability,verdict};
+}
 
 function requireConfiguredSecret(value: string | undefined, name: string) {
   if (!value) throw new Error(`${name} is not configured on AFAT backend.`);
@@ -1788,6 +1802,19 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       ? (provider === 'africastalking' ? 'africastalking' : 'pawapay')
       : undefined;
 
+    // Never reserve a booking or initiate provider collection on the basis of
+    // credentials alone. The availability probe and signed callback readiness
+    // must confirm an operational Cameroon collection path first.
+    if(process.env.NODE_ENV==='production'){
+      const availability=await cameroonPaymentAvailability();
+      if(!availability.verdict.collection_ready){
+        return res.status(503).json({
+          code:'AFAT_CAMEROON_MOBILE_COLLECTION_UNAVAILABLE',
+          error:'Mobile-money collection is not available or verified for Cameroon. No payment was initiated.',
+          collection_ready:false,
+        });
+      }
+    }
     const transactionId = crypto.randomUUID();
     const { data: reservedBooking, error: reservationError } = await supabase
       .from('bookings')
@@ -1812,7 +1839,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       phone,
       parsedAmount,
       `Booking ${booking_id || 'direct'}`,
-      normalizedProvider,
+      process.env.NODE_ENV==='production' ? 'pawapay' : normalizedProvider,
       mobile_network,
       transactionId,
     );
@@ -1864,7 +1891,8 @@ router.get('/payment/provider-readiness', async (_req: Request, res: Response) =
   const hasPawaPay = Boolean(process.env.PAWAPAY_API_TOKEN || process.env.PAWAPAY_API_KEY || process.env.PAYMENT_API_KEY);
   const hasAT = Boolean(process.env.AT_API_KEY && process.env.AT_USERNAME);
   const pawaPayEnv = process.env.PAWAPAY_ENV || (process.env.NODE_ENV === 'production' ? 'production' : 'sandbox');
-  const providerProbe = hasPawaPay ? await paymentService.checkPawaPayAvailability() : null;
+  const paymentReadiness=await cameroonPaymentAvailability();
+  const providerProbe=paymentReadiness.availability;
 
   res.status(200).json({
     success: true,
@@ -1876,6 +1904,8 @@ router.get('/payment/provider-readiness', async (_req: Request, res: Response) =
       africastalking: hasAT
     },
     provider_probe: providerProbe,
+    collection_ready: paymentReadiness.verdict.collection_ready,
+    collection_blockers: paymentReadiness.verdict.reasons,
     callback_security: {
       secret_configured: Boolean(process.env.PAWAPAY_WEBHOOK_SECRET || process.env.AFAT_WEBHOOK_SECRET),
       unsigned_callbacks_explicitly_allowed: process.env.AFAT_ALLOW_UNSIGNED_PAWAPAY_CALLBACKS === 'true',
