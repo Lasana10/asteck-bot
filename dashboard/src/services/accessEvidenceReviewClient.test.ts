@@ -2,6 +2,7 @@ import { beforeEach,describe,expect,it,vi } from 'vitest';
 const mock=vi.hoisted(()=>({from:vi.fn(),rpc:vi.fn()}));
 vi.mock('../supabaseClient',()=>({supabase:mock}));
 import {decideAccessEvidence,listPendingAccessEvidence,decideTransitEvidence,listPendingTransitEvidence,accessAccuracyLabel} from './accessEvidenceReviewClient';
+import {orderedPendingTransitReview,pendingTransitOrderWarning} from './transitCorridorReview';
 
 beforeEach(()=>{mock.from.mockReset();mock.rpc.mockReset();});
 describe('reviewed entrance evidence lifecycle',()=>{
@@ -48,5 +49,27 @@ describe('planner transit evidence review',()=>{
   mock.rpc.mockResolvedValue({data:{id,status:'accepted',evidence_status:'limited'},error:null});
   expect((await decideTransitEvidence(id,'accept')).evidence_status).toBe('limited');
   expect(mock.rpc).toHaveBeenCalledWith('afat_review_transit_observation',{p_observation_id:id,p_decision:'accept'});
+ });
+});
+
+describe('ordered transit review conflict presentation',()=>{
+ const observation=(id:string,stop_sequence:number,latitude:number,longitude:number)=>({
+  id,profile_id:'contributor',city_key:'cm-yaounde',line_name:'Example observed line',
+  direction_label:'toward destination',mode:'minibus',observation_type:'stop',
+  node_name:'Reported stop',latitude,longitude,gps_accuracy_m:20,
+  wait_seconds:null,fare_xaf:null,created_at:'2026-11-03T10:00:00Z',
+  evidence:{stop_sequence,observed_at:'2026-11-03T10:00:00Z'},status:'pending',
+ });
+ it('groups and sorts real reported stop sequence without approving it',()=>{
+  const b=observation('b',2,3.862,11.518),a=observation('a',0,3.86,11.516);
+  const result=orderedPendingTransitReview([b,a] as any);
+  expect(result.map(x=>x.id)).toEqual(['a','b']);
+  expect(result.every(x=>x.status==='pending')).toBe(true);
+ });
+ it('warns when two pending reports assign far apart locations to the same stop slot',()=>{
+  const a=observation('a',1,3.86,11.51),b=observation('b',1,3.90,11.55);
+  expect(pendingTransitOrderWarning(a as any,[a,b] as any)).toContain('different location');
+  expect(pendingTransitOrderWarning(a as any,[a] as any)).toBeNull();
+  expect(pendingTransitOrderWarning(a as any,[a,{...b,evidence:{stop_sequence:2}}] as any)).toBeNull();
  });
 });
