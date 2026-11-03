@@ -45,6 +45,8 @@ for (const token of [
   'directionLabel:lineDirection.trim()||null',
   'mode:transitMode',
   'stop_sequence:position',
+  'setStopSequence(position === null ? \'\' : String(position + 1))',
+  'setFix(null)',
   'stop order requires',
 ]) assert.ok(capture.toLowerCase().includes(token.toLowerCase()),'ordered field capture: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
