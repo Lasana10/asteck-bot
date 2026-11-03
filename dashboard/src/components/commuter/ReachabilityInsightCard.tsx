@@ -25,6 +25,7 @@ export function ReachabilityInsightCard({
   assessment,
   multimodal,
   transfer,
+  destinationPoint,
   loading = false,
   limited = false,
   cityKey = 'cm-yaounde',
@@ -32,11 +33,12 @@ export function ReachabilityInsightCard({
   assessment?: AfatReachabilityAssessment | null;
   multimodal?: AfatMultimodalPlan | null;
   transfer?: AfatReviewedTransfer | null;
+  destinationPoint?: {latitude:number;longitude:number;name?:string|null} | null;
   loading?: boolean;
   limited?: boolean;
   cityKey?: string;
 }) {
-  if (!assessment && !multimodal && !loading && !limited) return null;
+  if (!assessment && !multimodal && !transfer && !loading && !limited) return null;
   const reliability = Math.max(0, Math.min(100, Number(assessment?.reliability_score || 0)));
   const strong = assessment?.state === 'reachable_high_confidence';
   const connected = String(assessment?.state || '').startsWith('reachable');
@@ -116,7 +118,8 @@ export function ReachabilityInsightCard({
             </div>
           </div>
           <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Stop distances are straight-line estimates, not pedestrian path lengths; verify safe entrances and crossings locally. No live vehicle, departure or arrival time is guaranteed.</p>
-          <TransitBoardingDirections latitude={chain.boarding.latitude} longitude={chain.boarding.longitude} stopName={chain.boarding.name}/>
+          <TransitBoardingDirections latitude={chain.boarding.latitude} longitude={chain.boarding.longitude} stopName={chain.boarding.name} purpose="boarding"/>
+          {destinationPoint && <TransitBoardingDirections latitude={destinationPoint.latitude} longitude={destinationPoint.longitude} stopName={destinationPoint.name||'selected arrival point'} purpose="arrival"/>}
           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-bold text-white/55">
             {chain.observed_wait_seconds != null && <span>{Math.ceil(Number(chain.observed_wait_seconds) / 60)} min historical reviewed wait</span>}
             {chain.observed_transit_seconds != null && <span>{Math.ceil(Number(chain.observed_transit_seconds) / 60)} min historical reviewed transit</span>}
@@ -149,7 +152,9 @@ export function ReachabilityInsightCard({
           </div>
           <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Transfer stops are approximately {Math.round(transfer.transfer.transfer_straight_m)} m apart in straight-line proximity. AFAT requires a mapped walking connection, but safe crossings, operating vehicles, departure times and fares are not confirmed.</p>
           <p className="mt-2 text-[9px] text-white/40">Oldest evidence expires {new Date(transfer.transfer.evidence_expires_at).toLocaleString()} · field observations independently reviewed</p>
-          <TransitBoardingDirections latitude={transfer.transfer.boarding.latitude} longitude={transfer.transfer.boarding.longitude} stopName={transfer.transfer.boarding.name}/>
+          <TransitBoardingDirections latitude={transfer.transfer.boarding.latitude} longitude={transfer.transfer.boarding.longitude} stopName={transfer.transfer.boarding.name} purpose="boarding"/>
+          <TransitBoardingDirections latitude={transfer.transfer.transfer_in.latitude} longitude={transfer.transfer.transfer_in.longitude} stopName={transfer.transfer.transfer_in.name} purpose="transfer"/>
+          {destinationPoint && <TransitBoardingDirections latitude={destinationPoint.latitude} longitude={destinationPoint.longitude} stopName={destinationPoint.name||'selected arrival point'} purpose="arrival"/>}
         </section>
       )}
 

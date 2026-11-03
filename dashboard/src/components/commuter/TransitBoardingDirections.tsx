@@ -4,9 +4,12 @@ import { fetchCanonicalAfatRoute, isUsableCanonicalRoute, type AfatCanonicalRout
 import { calculateRouteProgress, nextRoadManeuver, type AfatRouteProgress } from '../../services/routeGuidance';
 import { evaluateSpatialFix } from '../../services/spatialPositioning';
 
-export function TransitBoardingDirections({latitude,longitude,stopName}: {
+export function TransitBoardingDirections({latitude,longitude,stopName,purpose='boarding'}: {
   latitude:number; longitude:number; stopName?:string;
+  purpose?:'boarding'|'transfer'|'arrival';
 }) {
+  const stageLabel=purpose==='transfer'?'transfer boarding stop':purpose==='arrival'?'final destination':'boarding stop';
+  const targetLabel=stopName||('reviewed '+stageLabel);
   const requestId=useRef(0);
   const watchId=useRef<number|null>(null);
   const [loading,setLoading]=useState(false);
@@ -114,8 +117,8 @@ export function TransitBoardingDirections({latitude,longitude,stopName}: {
   };
 
   const meters=route?.distance_m;
-  return <section className="mt-3 rounded-xl border border-violet-300/20 bg-black/20 p-3" aria-label="Walking directions to reviewed transit stop">
-    <p className="text-[10px] font-bold text-white">Pedestrian directions to {stopName||'this reviewed boarding stop'}</p>
+  return <section className="mt-3 rounded-xl border border-violet-300/20 bg-black/20 p-3" aria-label={`Walking directions to ${stageLabel}`}>
+    <p className="text-[10px] font-bold text-white">Pedestrian directions to {targetLabel}</p>
     <p className="mt-1 text-[10px] leading-4 text-white/55">
       Route calculation uses your location on request. Live walking progress is optional;
       no route proves a safe crossing, verified boarding or live vehicle.
@@ -124,7 +127,7 @@ export function TransitBoardingDirections({latitude,longitude,stopName}: {
       <button type="button" onClick={findFootRoute} disabled={loading}
         className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-violet-300/25 bg-violet-400/10 px-3 text-[10px] font-black text-violet-100 disabled:opacity-40">
         {loading?<RefreshCw className="h-4 w-4 animate-spin"/>:<LocateFixed className="h-4 w-4"/>}
-        {loading?'Checking pedestrian network…':route?'Refresh pedestrian route':'Find walking route to boarding'}
+        {loading?'Checking pedestrian network…':route?'Refresh pedestrian route':`Find walking route to ${purpose==='boarding'?'boarding':purpose==='transfer'?'interchange':'destination'}`}
       </button>
       {route&&<button type="button" onClick={tracking?stopTracking:beginTracking}
         className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 text-[10px] font-bold text-white">
