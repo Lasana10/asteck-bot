@@ -984,7 +984,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
 
     {selectedPlace && originFix && (
       <div className="mt-4">
-        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} transfer={transferPlan} loading={intelligenceLoading} limited={intelligenceLimited} cityKey={cityKey} />
+        <ReachabilityInsightCard assessment={reachability} multimodal={multimodal} transfer={transferPlan} destinationPoint={arrivalPoint} loading={intelligenceLoading} limited={intelligenceLimited} cityKey={cityKey} />
       </div>
     )}
 
