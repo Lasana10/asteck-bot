@@ -52,11 +52,14 @@ for (const token of [
 ]) assert.ok(capture.toLowerCase().includes(token.toLowerCase()),'ordered field capture: '+token);
 assert.ok(card.includes('<TransitBoardingDirections latitude={chain.boarding.latitude}'), 'reviewed boarding navigation integration');
 for (const token of [
-  "mode:'foot'",
-  '/api/navigation/route?',
-  "result?.travel_mode!=='foot'",
-  "result?.source!=='osrm'",
-  'accuracy>120',
+  'fetchCanonicalAfatRoute',
+  "mode:'walk'",
+  "isUsableCanonicalRoute(result,'walk')",
+  "['afat_atlas','osrm']",
+  'calculateRouteProgress',
+  'nextRoadManeuver',
+  'watchPosition',
+  'clearWatch',
   'maximumAge:0',
   'Date.now()-position.timestamp>30000',
   'not straight-line distance',
