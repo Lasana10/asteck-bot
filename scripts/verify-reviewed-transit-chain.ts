@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const sql=readFileSync('supabase/migrations/20261025191015_afat_reviewed_transit_chain_integrity.sql','utf8');
+const transferSql=readFileSync('supabase/migrations/20261103150000_afat_reviewed_two_line_transfer.sql','utf8');
 const client=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
 const card=readFileSync('dashboard/src/components/commuter/ReachabilityInsightCard.tsx','utf8');
 const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
@@ -79,4 +80,20 @@ for(const token of [
   'independent review queue',
 ]) assert.ok(corridor.includes(token),'city transit survey: '+token);
 assert.ok(activation.includes('<TransitCorridorSurvey cityKey={cityKey}/>'));
+for(const token of [
+  'afat_plan_reviewed_transfer',
+  "l.city_profile_id=v_city",
+  'ln.source_reviewed_at is not null',
+  "ln.source_observed_at between p_at-interval '30 days'",
+  'b.line_id=a.line_id',
+  'c.line_id<>a.line_id',
+  'd.line_id=c.line_id',
+  'public.st_dwithin(b.location,c.location,250)',
+  "v_transfer->>'status'<>'ok'",
+  "'automatic_truth',false",
+  "'live_service_available',false",
+  'revoke all on function public.afat_plan_reviewed_transfer',
+])assert.ok(transferSql.includes(token),'transit transfer SQL: '+token);
+assert.ok(client.includes("validateReviewedTransfer(data)"));
+assert.ok(card.includes('Reviewed connection · two transit lines'));
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
