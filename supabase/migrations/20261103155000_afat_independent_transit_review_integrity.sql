@@ -110,8 +110,7 @@ begin
 
   return jsonb_build_object('id',v_obs.id,'status','accepted','transit_node_id',v_node_id,'transit_line_id',v_line_id,'evidence_status','limited','automatic_truth',false);
 end;
-$function$
-
+$function$;
 
 revoke execute on function public.afat_review_transit_observation(uuid,text) from public,anon;
 grant execute on function public.afat_review_transit_observation(uuid,text) to authenticated,service_role;
