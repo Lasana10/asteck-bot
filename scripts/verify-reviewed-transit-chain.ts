@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const sql=readFileSync('supabase/migrations/20261025191015_afat_reviewed_transit_chain_integrity.sql','utf8');
 const transferSql=readFileSync('supabase/migrations/20261103150000_afat_reviewed_two_line_transfer.sql','utf8');
+const readinessSql=readFileSync('supabase/migrations/20261103161000_afat_city_transit_readiness.sql','utf8');
+const readinessUI=readFileSync('dashboard/src/components/admin/TransitNetworkReadiness.tsx','utf8');
 const client=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
 const card=readFileSync('dashboard/src/components/commuter/ReachabilityInsightCard.tsx','utf8');
 const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
@@ -96,4 +98,22 @@ for(const token of [
 ])assert.ok(transferSql.includes(token),'transit transfer SQL: '+token);
 assert.ok(client.includes("validateReviewedTransfer(data)"));
 assert.ok(card.includes('Reviewed connection · two transit lines'));
+for (const token of [
+  "public.afat_has_permission('map.evidence.review')",
+  "public.afat_has_permission('planning.aggregate.view')",
+  "ln.source_reviewed_at is not null",
+  "ln.source_observed_at between now()-interval '30 days'",
+  "count(distinct stop_sequence)=max(stop_sequence)-min(stop_sequence)+1",
+  "potential_transfer_stop_pairs",
+  "revoke all on function public.afat_city_transit_readiness",
+  "'automatic_truth',false",
+]) assert.ok(readinessSql.includes(token),'city readiness SQL: '+token);
+for (const token of [
+  "afat_city_transit_readiness",
+  "result.automatic_truth!==false",
+  "result.transfer_service_verified!==false",
+  "Contiguous reviewed patterns",
+  "Next evidence-driven action",
+]) assert.ok(readinessUI.includes(token),'city readiness UI: '+token);
+assert.ok(activation.includes('<TransitNetworkReadiness cityKey={cityKey}/>'));
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
