@@ -26,7 +26,7 @@ export function TransitBoardingDirections({latitude,longitude,stopName}: {
 
   useEffect(()=>{
     requestId.current++;
-    setRoute(null);setProgress(null);setNextTurn(null);setNotice('');setLoading(false);
+    setRoute(null);setProgress(null);setNextTurn(null);setNotice('');setLoading(false);setTracking(false);
     return ()=>{
       requestId.current++;
       if(watchId.current!==null && navigator.geolocation){
