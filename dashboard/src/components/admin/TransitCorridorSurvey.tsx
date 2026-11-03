@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bus, LocateFixed, Send, ShieldCheck } from 'lucide-react';
-import { submitTransitObservation } from '../../services/mobilityEvidenceClient';
+import { submitTransitObservation,flushMobilityEvidenceQueue,pendingMobilityEvidenceCount } from '../../services/mobilityEvidenceClient';
 import { captureCurrentFieldGps, evaluateSpatialFix, type SpatialFix } from '../../services/spatialPositioning';
 import {readCorridorSurveyDraft,writeCorridorSurveyDraft,clearCorridorSurveyDraft} from '../../services/transitCorridorSurveyDraft';
 
@@ -17,6 +17,29 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState('');
   const [submitted,setSubmitted]=useState(0);
+  const [queued,setQueued]=useState(()=>pendingMobilityEvidenceCount());
+  const [syncing,setSyncing]=useState(false);
+  useEffect(()=>{
+    const update=()=>setQueued(pendingMobilityEvidenceCount());
+    window.addEventListener('afat:evidence-queue',update);
+    return ()=>window.removeEventListener('afat:evidence-queue',update);
+  },[]);
+  const syncEvidence=async()=>{
+    if(syncing)return;
+    setSyncing(true);
+    setNotice('');
+    try {
+      const result=await flushMobilityEvidenceQueue();
+      setQueued(result.pending);
+      setNotice(result.synced>0
+        ?`${result.synced} observation(s) acknowledged by AFAT's independent review queue; ${result.pending} still pending on this device. None is automatically accepted.`
+        :result.pending>0
+          ?'Evidence is still queued. Reconnect and check your signed-in account to retry; no field observation is claimed reviewed.'
+          :'No unsent field evidence remains under the signed-in account. Previously submitted observations still require independent review.');
+    } catch(error:any){
+      setNotice(error?.message||'Evidence replay could not be confirmed. Local unsent entries are preserved.');
+    } finally {setSyncing(false);}
+  };
   const [restoredCity,setRestoredCity]=useState<string|null>(null);
   useEffect(()=>{
     setRestoredCity(null);
@@ -80,6 +103,7 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
       if(result.error){setNotice(result.error.message||'Transit stop evidence could not be saved.');return;}
       const offline=Boolean((result.data as {queued?:boolean}|null)?.queued);
       setSubmitted(n=>n+1);
+      setQueued(pendingMobilityEvidenceCount());
       setPosition(String(sequence+1));setNodeName('');setFix(null);
       setNotice(offline
         ?'Stop saved locally for later authenticated submission. It is not approved map data.'
@@ -125,6 +149,12 @@ export function TransitCorridorSurvey({cityKey}: {cityKey:string}) {
         setNotice('Survey draft cleared. Previously submitted evidence remains in its review queue.');
       }} disabled={busy} className="min-h-10 rounded-lg border border-white/15 px-3 text-[10px] font-bold text-white/60 disabled:opacity-40">
         Start another line
+      </button>
+    </div>
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-300/10 bg-cyan-400/[0.04] p-3">
+      <p className="text-[10px] text-white/55">Unsent field evidence on this device, for the current authenticated account: <strong>{queued}</strong>. Server acknowledgment means pending human review, not map acceptance.</p>
+      <button type="button" disabled={syncing||busy} onClick={()=>void syncEvidence()} className="min-h-10 rounded-lg border border-cyan-300/20 bg-cyan-400/10 px-3 text-[10px] font-black text-cyan-100 disabled:opacity-40">
+        {syncing?'Checking server receipts…':'Sync pending evidence'}
       </button>
     </div>
     {notice&&<p role="status" className="mt-2 text-[11px] leading-5 text-white/65">{notice}</p>}
