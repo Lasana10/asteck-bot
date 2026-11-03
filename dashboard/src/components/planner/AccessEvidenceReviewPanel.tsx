@@ -1,6 +1,7 @@
 import React, {useEffect,useState} from 'react';
 import {DoorOpen, MapPin, RefreshCw, ShieldCheck, XCircle} from 'lucide-react';
 import {accessAccuracyLabel,decideAccessEvidence,listPendingAccessEvidence,decideTransitEvidence,listPendingTransitEvidence,type PendingAccessEvidence,type PendingTransitEvidence} from '../../services/accessEvidenceReviewClient';
+import {orderedPendingTransitReview,pendingTransitOrderWarning} from '../../services/transitCorridorReview';
 
 export function AccessEvidenceReviewPanel() {
   const [items,setItems]=useState<PendingAccessEvidence[]>([]);
@@ -64,7 +65,7 @@ export function TransitEvidenceReviewPanel(){
   const [confirmedOrder,setConfirmedOrder]=useState<Record<string,boolean>>({});
   const load=async()=>{
     setBusy(true);
-    try{setItems(await listPendingTransitEvidence());setMessage('');}
+    try{setItems(orderedPendingTransitReview(await listPendingTransitEvidence()));setMessage('');}
     catch(err:any){setMessage(err?.message||'Unable to load transit observations.');setItems([]);}
     finally{setBusy(false);}
   };
@@ -109,6 +110,9 @@ export function TransitEvidenceReviewPanel(){
           <span className="rounded-full border border-amber-300/20 px-2 py-1 text-[9px] text-amber-200">Pending review</span>
         </div>
         {item.line_name&&<p className="mt-2 text-[10px] text-white/55">Line: {item.line_name}{item.direction_label?' · '+item.direction_label:''}</p>}
+        {pendingTransitOrderWarning(item,items)&&<p role="status" className="mt-2 rounded-xl border border-amber-300/25 bg-amber-400/[0.06] p-3 text-[10px] text-amber-100">
+          {pendingTransitOrderWarning(item,items)}
+        </p>}
         {item.evidence?.stop_sequence!=null&&<div className="mt-2 rounded-xl border border-amber-300/20 bg-amber-400/5 p-3 text-xs text-amber-100"><p>Contributor reported position {item.evidence.stop_sequence} on this line. Compare the named stop, direction, GPS and other independent field evidence before accepting; order is not live service or a verified timetable.</p><p className="mt-1">Captured: {item.evidence.observed_at?new Date(item.evidence.observed_at).toLocaleString():'time unavailable'}</p><label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={Boolean(confirmedOrder[item.id])} onChange={e=>setConfirmedOrder(previous=>({...previous,[item.id]:e.target.checked}))}/>I inspected the reported stop order and direction</label></div>}
         {item.latitude!=null&&item.longitude!=null&&<p className="mt-2 text-[10px] text-white/55">GPS: {Number(item.latitude).toFixed(6)}, {Number(item.longitude).toFixed(6)} · {accessAccuracyLabel(item.gps_accuracy_m)}</p>}
         {item.fare_xaf!=null&&<p className="mt-2 text-[10px] text-white/55">Observed fare: {item.fare_xaf} XAF (unconfirmed)</p>}
