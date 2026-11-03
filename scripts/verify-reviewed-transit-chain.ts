@@ -6,6 +6,8 @@ const readinessSql=readFileSync('supabase/migrations/20261103161000_afat_city_tr
 const readinessUI=readFileSync('dashboard/src/components/admin/TransitNetworkReadiness.tsx','utf8');
 const client=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
 const card=readFileSync('dashboard/src/components/commuter/ReachabilityInsightCard.tsx','utf8');
+const spatialMap=readFileSync('dashboard/src/components/commuter/PassengerSpatialMap.tsx','utf8');
+const planner=readFileSync('dashboard/src/components/commuter/PassagePlanner.tsx','utf8');
 const capture=readFileSync('dashboard/src/components/commuter/FieldEvidenceCapture.tsx','utf8');
 const corridor=readFileSync('dashboard/src/components/admin/TransitCorridorSurvey.tsx','utf8');
 const activation=readFileSync('dashboard/src/components/admin/OperationalActivationLadder.tsx','utf8');
@@ -116,4 +118,18 @@ for (const token of [
   "Next evidence-driven action",
 ]) assert.ok(readinessUI.includes(token),'city readiness UI: '+token);
 assert.ok(activation.includes('<TransitNetworkReadiness cityKey={cityKey}/>'));
+for (const token of [
+  "REVIEWED_TRANSIT_SOURCE_ID='afat-reviewed-transit-stops'",
+  'reviewedTransitStops.filter',
+  'stop.role',
+  'reviewed_pattern:true,live_service:false',
+  'afat-reviewed-transit-stops-core',
+  'afat-reviewed-transit-stops-label',
+])assert.ok(spatialMap.includes(token),'reviewed stop map: '+token);
+for(const token of [
+  'const reviewedTransitStops=useMemo(',
+  "role:'transfer_out' as const",
+  "role:'transfer_in' as const",
+  'reviewedTransitStops={reviewedTransitStops}',
+])assert.ok(planner.includes(token),'passenger map integration: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
