@@ -166,4 +166,22 @@ for(const token of ['sessionStorage','LIMIT_MS','lineName','position','cityKey']
 }
 assert.ok(!surveyDraft.includes('latitude:'));
 assert.ok(!surveyDraft.includes('longitude:'));
+for(const token of [
+  'flushMobilityEvidenceQueue',
+  'pendingMobilityEvidenceCount',
+  "window.addEventListener('afat:evidence-queue'",
+  'setQueued(result.pending)',
+  'result.synced>0',
+  'None is automatically accepted',
+  'Sync pending evidence',
+])assert.ok(corridor.includes(token),'offline field queue review receipt: '+token);
+const replay=client.slice(client.indexOf('export async function flushMobilityEvidenceQueue()'),client.indexOf('export function installMobilityEvidenceSync()'));
+for(const token of [
+  'const userId = await sessionUser()',
+  'const owner = await sessionUser()',
+  'if (owner !== userId) break',
+  "data.status !== 'pending'",
+  'data.automatic_truth !== false',
+  'acknowledgeMobilityEvidence(storage,item)',
+])assert.ok(replay.includes(token),'authenticated field replay contract: '+token);
 console.log('PASS genuine transit observation -> independent review -> recent ordered pattern without live-service, schedule or current-fare claims');
