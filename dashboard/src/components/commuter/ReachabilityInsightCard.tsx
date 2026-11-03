@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Footprints, Route, ShieldCheck } from 'lucide-react';
-import type { AfatMultimodalPlan, AfatReachabilityAssessment } from '../../services/mobilityEvidenceClient';
+import type { AfatMultimodalPlan, AfatReviewedTransfer, AfatReachabilityAssessment } from '../../services/mobilityEvidenceClient';
 import { FieldEvidenceCapture } from './FieldEvidenceCapture';
 import { TransitBoardingDirections } from './TransitBoardingDirections';
 
@@ -24,12 +24,14 @@ function missingLabel(value: string) {
 export function ReachabilityInsightCard({
   assessment,
   multimodal,
+  transfer,
   loading = false,
   limited = false,
   cityKey = 'cm-yaounde',
 }: {
   assessment?: AfatReachabilityAssessment | null;
   multimodal?: AfatMultimodalPlan | null;
+  transfer?: AfatReviewedTransfer | null;
   loading?: boolean;
   limited?: boolean;
   cityKey?: string;
@@ -127,6 +129,28 @@ export function ReachabilityInsightCard({
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-white/35" />
           <p className="text-[10px] leading-4 text-white/45">{multimodal.reason}</p>
         </div>
+      )}
+
+      {transfer?.transfer && (
+        <section className="mt-4 rounded-xl border border-violet-300/20 bg-violet-400/[0.06] p-3" aria-label="Reviewed two-line transit transfer">
+          <p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Reviewed connection · two transit lines</p>
+          <p className="mt-2 text-xs font-bold text-white">
+            Walk → {transfer.transfer.first_line.name} → transfer on foot → {transfer.transfer.second_line.name} → Walk
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[9px] font-bold uppercase text-violet-200">First line</p>
+              <p className="mt-1 text-xs text-white">{transfer.transfer.boarding.name} (stop {transfer.transfer.boarding.stop_sequence}) → {transfer.transfer.transfer_out.name} (stop {transfer.transfer.transfer_out.stop_sequence})</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+              <p className="text-[9px] font-bold uppercase text-violet-200">Second line</p>
+              <p className="mt-1 text-xs text-white">{transfer.transfer.transfer_in.name} (stop {transfer.transfer.transfer_in.stop_sequence}) → {transfer.transfer.alighting.name} (stop {transfer.transfer.alighting.stop_sequence})</p>
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-amber-200/75">Transfer stops are approximately {Math.round(transfer.transfer.transfer_straight_m)} m apart in straight-line proximity. AFAT requires a mapped walking connection, but safe crossings, operating vehicles, departure times and fares are not confirmed.</p>
+          <p className="mt-2 text-[9px] text-white/40">Oldest evidence expires {new Date(transfer.transfer.evidence_expires_at).toLocaleString()} · field observations independently reviewed</p>
+          <TransitBoardingDirections latitude={transfer.transfer.boarding.latitude} longitude={transfer.transfer.boarding.longitude} stopName={transfer.transfer.boarding.name}/>
+        </section>
       )}
 
       {canContribute && evidencePlaceId && <FieldEvidenceCapture placeId={evidencePlaceId} placeName={assessment?.name} cityKey={cityKey} />}
