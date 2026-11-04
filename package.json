@@ -56,7 +56,8 @@
     "test:guardian-sharing": "node --import tsx scripts/verify-guardian-sharing.ts",
     "test:operator-boarding-manifest": "node --import tsx scripts/verify-operator-boarding-manifest.ts",
     "test:operator-ticket-scanner": "node --import tsx scripts/verify-operator-ticket-scanner.ts",
-    "test:canonical-seat-capacity": "node --import tsx scripts/verify-canonical-seat-capacity.ts"
+    "test:canonical-seat-capacity": "node --import tsx scripts/verify-canonical-seat-capacity.ts",
+    "test:confirmed-ticket-recovery": "node --import tsx scripts/verify-confirmed-ticket-recovery.ts"
   },
   "keywords": [],
   "author": "",
