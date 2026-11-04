@@ -1,6 +1,5 @@
--- Align server seat reservations with the verified 1..200 passenger capacity grid.
--- Require one unambiguous numeric seat label; disallow 01 and A1 aliases.
--- Retain existing route locking, proof, payment and audit authority.
+-- Canonical 1..200 server-side seat labels, matched to verified vehicle capacity.
+-- No ambiguous A1, 01 aliases; preserve route locking and verified compliance guards.
 CREATE OR REPLACE FUNCTION public.afat_hold_seat(p_passenger_id uuid, p_route_id uuid, p_seat_label text, p_hold_minutes integer DEFAULT 8)
  RETURNS seat_holds
  LANGUAGE plpgsql
@@ -39,94 +38,8 @@ begin
     raise exception 'VEHICLE_COMPLIANCE_EXPIRED_OR_REVOKED' using errcode = 'P0001';
   end if;
 
-  if v_seat !~ '^[1-9][0-9]{0,2}
-    raise exception 'INVALID_SEAT_LABEL' using errcode = 'P0001';
-  end if;
-
-  update public.seat_holds
-  set status = 'expired', updated_at = now()
-  where route_id = p_route_id and seat_label = v_seat
-    and status = 'active' and expires_at <= now();
-
-  if exists (
-    select 1 from public.bookings
-    where route_id = p_route_id and seat_label = v_seat
-      and status in ('pending', 'accepted', 'confirmed', 'boarded', 'in_progress')
-  ) then
-    raise exception 'SEAT_ALREADY_BOOKED' using errcode = 'P0001';
-  end if;
-
-  select * into v_hold
-  from public.seat_holds
-  where route_id = p_route_id and seat_label = v_seat and status = 'active';
-
-  if v_hold.id is not null and v_hold.passenger_id <> p_passenger_id then
-    raise exception 'SEAT_TEMPORARILY_HELD' using errcode = 'P0001';
-  end if;
-
-  if v_hold.id is not null then
-    update public.seat_holds
-    set expires_at = now() + make_interval(mins => v_minutes), updated_at = now()
-    where id = v_hold.id
-    returning * into v_hold;
-    return v_hold;
-  end if;
-
-  insert into public.seat_holds (
-    passenger_id, operator_id, route_id, seat_label, status, expires_at
-  ) values (
-    p_passenger_id, v_route.operator_id, p_route_id, v_seat,
-    'active', now() + make_interval(mins => v_minutes)
-  ) returning * into v_hold;
-
-  return v_hold;
-end;
-$function$
-
-     or case when v_seat ~ '^[1-9][0-9]{0,2}
-    raise exception 'INVALID_SEAT_LABEL' using errcode = 'P0001';
-  end if;
-
-  update public.seat_holds
-  set status = 'expired', updated_at = now()
-  where route_id = p_route_id and seat_label = v_seat
-    and status = 'active' and expires_at <= now();
-
-  if exists (
-    select 1 from public.bookings
-    where route_id = p_route_id and seat_label = v_seat
-      and status in ('pending', 'accepted', 'confirmed', 'boarded', 'in_progress')
-  ) then
-    raise exception 'SEAT_ALREADY_BOOKED' using errcode = 'P0001';
-  end if;
-
-  select * into v_hold
-  from public.seat_holds
-  where route_id = p_route_id and seat_label = v_seat and status = 'active';
-
-  if v_hold.id is not null and v_hold.passenger_id <> p_passenger_id then
-    raise exception 'SEAT_TEMPORARILY_HELD' using errcode = 'P0001';
-  end if;
-
-  if v_hold.id is not null then
-    update public.seat_holds
-    set expires_at = now() + make_interval(mins => v_minutes), updated_at = now()
-    where id = v_hold.id
-    returning * into v_hold;
-    return v_hold;
-  end if;
-
-  insert into public.seat_holds (
-    passenger_id, operator_id, route_id, seat_label, status, expires_at
-  ) values (
-    p_passenger_id, v_route.operator_id, p_route_id, v_seat,
-    'active', now() + make_interval(mins => v_minutes)
-  ) returning * into v_hold;
-
-  return v_hold;
-end;
-$function$
-
+  if v_seat !~ '^[1-9][0-9]{0,2}$'
+     or case when v_seat ~ '^[1-9][0-9]{0,2}$'
           then v_seat::integer else 0 end > least(v_verified_capacity,200) then
     raise exception 'INVALID_SEAT_LABEL' using errcode = 'P0001';
   end if;
@@ -211,56 +124,8 @@ begin
   if not public.afat_vehicle_compliance_current(v_route.vehicle_id) then
     raise exception 'VEHICLE_COMPLIANCE_EXPIRED_OR_REVOKED' using errcode = 'P0001';
   end if;
-  if v_hold.seat_label !~ '^[1-9][0-9]{0,2}
-    raise exception 'SEAT_CAPACITY_CHANGED' using errcode = 'P0001';
-  end if;
-
-
-  insert into public.bookings (
-    passenger_id, operator_id, vehicle_id, route_id,
-    pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
-    status, price_xaf, price_paid, payment_status, seat_label
-  ) values (
-    p_passenger_id, v_route.operator_id, v_route.vehicle_id, v_route.id,
-    v_route.origin_lat, v_route.origin_lng, v_route.dest_lat, v_route.dest_lng,
-    'pending', v_route.price_per_seat, v_route.price_per_seat, 'unpaid', v_hold.seat_label
-  ) returning * into v_booking;
-
-  update public.seat_holds
-  set status = 'converted', booking_id = v_booking.id, updated_at = now()
-  where id = v_hold.id;
-
-  insert into public.trip_events(booking_id, actor_id, event_type, metadata)
-  values (v_booking.id, p_passenger_id, 'booking_created', jsonb_build_object('seat', v_hold.seat_label));
-  return v_booking;
-end;
-$function$
-
-     or case when v_hold.seat_label ~ '^[1-9][0-9]{0,2}
-    raise exception 'SEAT_CAPACITY_CHANGED' using errcode = 'P0001';
-  end if;
-
-
-  insert into public.bookings (
-    passenger_id, operator_id, vehicle_id, route_id,
-    pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
-    status, price_xaf, price_paid, payment_status, seat_label
-  ) values (
-    p_passenger_id, v_route.operator_id, v_route.vehicle_id, v_route.id,
-    v_route.origin_lat, v_route.origin_lng, v_route.dest_lat, v_route.dest_lng,
-    'pending', v_route.price_per_seat, v_route.price_per_seat, 'unpaid', v_hold.seat_label
-  ) returning * into v_booking;
-
-  update public.seat_holds
-  set status = 'converted', booking_id = v_booking.id, updated_at = now()
-  where id = v_hold.id;
-
-  insert into public.trip_events(booking_id, actor_id, event_type, metadata)
-  values (v_booking.id, p_passenger_id, 'booking_created', jsonb_build_object('seat', v_hold.seat_label));
-  return v_booking;
-end;
-$function$
-
+  if v_hold.seat_label !~ '^[1-9][0-9]{0,2}$'
+     or case when v_hold.seat_label ~ '^[1-9][0-9]{0,2}$'
           then v_hold.seat_label::integer else 0 end > least(v_verified_capacity,200) then
     raise exception 'SEAT_CAPACITY_CHANGED' using errcode = 'P0001';
   end if;
