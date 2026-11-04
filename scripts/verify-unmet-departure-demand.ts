@@ -25,7 +25,8 @@ for(const token of [
  "if(!canSubmit)return",
  "setConsent(false)",
 ])assert.ok(ui.includes(token),'voluntary unmet trip report: '+token);
-assert.ok(board.includes("feedHealthy&&originQuery.trim()&&destinationQuery.trim()"));
+assert.ok(board.includes("feedHealthy&&!hasMore&&originQuery.trim()&&destinationQuery.trim()"));
+assert.ok(board.includes("More future departures remain"));
 assert.ok(board.includes("key={[originQuery,destinationQuery,travelDate,seatsNeeded,maxFare].join('|')}"));
 assert.ok(planner.includes("minimum_report_count_to_display===3"));
 assert.ok(planner.includes('opt-in request event(s)'));
