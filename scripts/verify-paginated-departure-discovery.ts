@@ -27,5 +27,9 @@ for(const token of [
  "fetchPublishedDepartures({", "setPage(value=>value+1)",
  "More future departures remain", "feedHealthy&&!hasMore&&originQuery.trim()",
  "data.availability_is_provisional!==true", "data.page!==page",
+ "data.success!==true", "!Array.isArray(data.departures)",
+ "data.search_exhausted!==!data.has_more", "role=\"alert\"",
+ "Retry search", "Search page limit reached",
+ "const filtered=feedHealthy?selectRealDepartures(departures,{",
 ])assert.ok(board.includes(token),'loaded discovery page and honest empty state: '+token);
 console.log('PASS AFAT server-filtered page discovery and no false negative demand across unvisited pages');
