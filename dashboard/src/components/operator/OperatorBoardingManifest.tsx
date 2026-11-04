@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {fetchOperatorBoardingManifest,type OperatorBoardingManifest as Manifest} from '../../services/operatorDeparturePublisher';
+import {OperatorTicketScanner} from './OperatorTicketScanner';
 
 /** Server-viewed seat positions only. Actual boarding requires signed QR verification. */
 export function OperatorBoardingManifest({departureId}:{departureId:string}){
@@ -7,6 +8,7 @@ export function OperatorBoardingManifest({departureId}:{departureId:string}){
  const [loading,setLoading]=useState(false);
  const [notice,setNotice]=useState('');
  const [refreshKey,setRefreshKey]=useState(0);
+ const [scannerOpen,setScannerOpen]=useState(false);
  useEffect(()=>{
   let alive=true;setData(null);setLoading(true);setNotice('');
   void fetchOperatorBoardingManifest(departureId).then(({data,error})=>{
@@ -25,6 +27,12 @@ export function OperatorBoardingManifest({departureId}:{departureId:string}){
     {loading?'Checking…':'Refresh'}
    </button>
   </div>
+  <button type="button" aria-expanded={scannerOpen}
+    onClick={()=>setScannerOpen(open=>!open)}
+    className="mt-3 min-h-10 rounded-lg border border-emerald-300/25 px-3 text-[10px] font-bold text-emerald-100">
+    {scannerOpen?'Close ticket scanner':'Scan passenger QR ticket'}
+  </button>
+  {scannerOpen&&<OperatorTicketScanner onVerified={()=>setRefreshKey(key=>key+1)}/>}
   {notice&&<p role="alert" className="mt-3 text-[10px] text-amber-100">{notice}</p>}
   {data&&<div className="mt-3">
    <p className="text-xs text-white/75">{data.booked_seats} reserved · {data.boarded_seats} recorded boarded · {data.capacity} verified-capacity seats</p>
