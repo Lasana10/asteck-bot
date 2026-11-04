@@ -41,6 +41,7 @@ jobs:
       - run: npm run test:transit-review-authority
       - run: npm run test:published-departures
       - run: npm run test:paginated-departure-discovery
+      - run: npm run test:osm-ingestion-truth
       - run: npm run test:exact-departure-availability
       - run: npm run test:unmet-departure-demand
       - run: npm run test:map-signal-fleet
