@@ -593,7 +593,7 @@ async function applyRideCredit(booking: any, reference: string) {
 }
 
 function isBoardablePaymentStatus(paymentStatus: string) {
-  return ['paid', 'cash_due'].includes(paymentStatus || '');
+  return ['paid', 'paid_momo'].includes(paymentStatus || '');
 }
 
 async function expireSeatHolds(routeId?: string, seatLabel?: string) {
