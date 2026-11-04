@@ -2244,16 +2244,36 @@ router.get('/mobility/departures/:departureId/availability',async(req:Request,re
  }
 });
 
-router.get('/mobility/departures', async (_req: Request, res: Response) => {
+router.get('/mobility/departures', async (req: Request, res: Response) => {
   try {
-    const { data: routes, error } = await supabase
-      .from('routes')
+    const pageText=String(req.query.page??'0');
+    const origin=String(req.query.origin??'').trim().slice(0,90);
+    const destination=String(req.query.destination??'').trim().slice(0,90);
+    const day=String(req.query.date??'').trim();
+    const maxFare=String(req.query.max_fare_xaf??'').trim();
+    const page=/^(0|[1-9][0-9]{0,2})$/.test(pageText)?Number(pageText):NaN;
+    if(!Number.isSafeInteger(page)||page>100||
+       (day!==''&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(day))||
+       (maxFare!==''&&(!/^[1-9][0-9]{0,7}$/.test(maxFare)||Number(maxFare)>2_000_000))||
+       [origin,destination].some(v=>/[\\%_]/.test(v)))
+      return res.status(400).json({error:'INVALID_DEPARTURE_SEARCH_PARAMETERS'});
+    const localStart=day?Date.parse(day+'T00:00:00+01:00'):NaN;
+    if(day&&!Number.isFinite(localStart))
+      return res.status(400).json({error:'INVALID_CAMEROON_TRAVEL_DAY'});
+    let query=supabase.from('routes')
       .select('id, operator_id, vehicle_id, name, origin, destination, departure_time, price_per_seat, capacity, vehicle_type, is_active')
-      .eq('is_active', true)
-      .gt('departure_time',new Date().toISOString())
-      .order('departure_time', { ascending: true, nullsFirst: false })
-      .limit(50);
-    if (error) throw error;
+      .eq('is_active',true).gt('departure_time',new Date().toISOString());
+    if(origin.length>0)query=query.ilike('origin','%'+origin+'%');
+    if(destination.length>0)query=query.ilike('destination','%'+destination+'%');
+    if(day)query=query.gte('departure_time',new Date(localStart).toISOString())
+      .lt('departure_time',new Date(localStart+86_400_000).toISOString());
+    if(maxFare)query=query.lte('price_per_seat',Number(maxFare));
+    const {data:rows,error}=await query
+      .order('departure_time',{ascending:true,nullsFirst:false})
+      .range(page*50,page*50+50);
+    if(error)throw error;
+    const hasMore=(rows||[]).length>50;
+    const routes=(rows||[]).slice(0,50);
 
     const routeIds = (routes || []).map((route: any) => route.id);
     const operatorIds = Array.from(new Set((routes || []).map((route: any) => route.operator_id).filter(Boolean)));
@@ -2285,7 +2305,8 @@ router.get('/mobility/departures', async (_req: Request, res: Response) => {
     const safeIds=new Set(compliant.filter(x=>x.result.data===true).map(x=>x.id));
     const eligibleVehicles=(vehiclesResult.data||[]).filter((v:any)=>safeIds.has(v.id));
     const departures = projectPublishedDepartures({routes:routes||[],bookings:bookingsResult.data||[],operators:operatorsResult.data||[],vehicles:eligibleVehicles,nowMs:Date.now()});
-    res.status(200).json({ success: true, departures });
+    res.setHeader('Cache-Control','no-store');
+    res.status(200).json({success:true,departures,page,has_more:hasMore,search_exhausted:!hasMore,availability_is_provisional:true});
   } catch (error: any) {
     console.error('Departure feed error:', error);
     res.status(500).json({ error: error.message || 'Departure feed failed' });
