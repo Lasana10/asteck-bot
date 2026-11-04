@@ -181,7 +181,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     const interval = setInterval(async () => {
       const language = profile?.language || 'fr';
       const prediction = await IntelligenceEngine.predict(
-        profile?.preferred_city||'your area',language,
+        language==='fr'?'la dernière position GPS du véhicule':'the vehicle’s last reported GPS position',language,
         vehicle?{latitude:Number(vehicle.current_lat),longitude:Number(vehicle.current_lng),
           observedAt:vehicle.last_ping_at}:undefined,
       );
