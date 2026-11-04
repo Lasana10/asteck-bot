@@ -87,10 +87,10 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
 
   const vehicleEmoji: Record<string, string> = { moto: '🏍️', taxi: '🚕', minibus: '🚐', bus: '🚌' };
 
-  const filtered=selectRealDepartures(departures,{
+  const filtered=feedHealthy?selectRealDepartures(departures,{
     origin:originQuery,destination:destinationQuery,date:travelDate,
     maximumFareXaf:maxFare,minimumSeats:seatsNeeded,vehicleType:filterType,query:searchQuery,
-  });
+  }):[];
   const filterActive=Boolean(originQuery||destinationQuery||travelDate||maxFare||
     seatsNeeded>1||filterType!=='all'||searchQuery);
 
