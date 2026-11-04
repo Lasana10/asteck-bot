@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, MapPin, Users, ChevronRight, Search, Filter, ArrowLeft, RefreshCw } from 'lucide-react';
 import { fetchPublishedDepartures, supabase } from '../../supabaseClient';
+import {selectRealDepartures} from '../../services/departureSearch';
 
 interface Departure {
   id: string;
@@ -31,6 +32,11 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
   const [departures, setDepartures] = useState<Departure[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
+  const [originQuery,setOriginQuery]=useState('');
+  const [destinationQuery,setDestinationQuery]=useState('');
+  const [travelDate,setTravelDate]=useState('');
+  const [maxFare,setMaxFare]=useState('');
+  const [seatsNeeded,setSeatsNeeded]=useState(1);
   const [loading, setLoading] = useState(true);
   const [feedHealthy, setFeedHealthy] = useState(true);
 
@@ -72,13 +78,12 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
 
   const vehicleEmoji: Record<string, string> = { moto: '🏍️', taxi: '🚕', minibus: '🚐', bus: '🚌' };
 
-  const filtered = departures.filter(d => {
-    const matchSearch = !searchQuery || 
-      d.origin.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      d.destination.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchType = filterType === 'all' || d.vehicle_type === filterType;
-    return matchSearch && matchType && Number.isFinite(Date.parse(d.departure_time)) && Date.parse(d.departure_time)>Date.now() && (d.available_seats ?? (d.total_seats-d.booked_seats))>0;
+  const filtered=selectRealDepartures(departures,{
+    origin:originQuery,destination:destinationQuery,date:travelDate,
+    maximumFareXaf:maxFare,minimumSeats:seatsNeeded,vehicleType:filterType,query:searchQuery,
   });
+  const filterActive=Boolean(originQuery||destinationQuery||travelDate||maxFare||
+    seatsNeeded>1||filterType!=='all'||searchQuery);
 
   const getTimeUntil = (isoTime: string) => {
     const mins = Math.round((new Date(isoTime).getTime() - Date.now()) / 60000);
@@ -125,6 +130,37 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
           </div>
         </div>
 
+        <div className="mt-3 grid grid-cols-2 gap-2" aria-label="Verified departure search constraints">
+          <label className="text-[10px] text-slate-400">Departure city
+            <input value={originQuery} onChange={e=>setOriginQuery(e.target.value)} maxLength={90}
+              placeholder="e.g. Yaoundé" className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs text-white"/>
+          </label>
+          <label className="text-[10px] text-slate-400">Destination city
+            <input value={destinationQuery} onChange={e=>setDestinationQuery(e.target.value)} maxLength={90}
+              placeholder="e.g. Douala" className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs text-white"/>
+          </label>
+          <label className="text-[10px] text-slate-400">Travel date · Cameroon
+            <input type="date" value={travelDate} onChange={e=>setTravelDate(e.target.value)}
+              className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs text-white"/>
+          </label>
+          <label className="text-[10px] text-slate-400">Maximum fare · XAF
+            <input type="number" min="1" step="1" inputMode="numeric" value={maxFare}
+              onChange={e=>setMaxFare(e.target.value)} placeholder="Any fare"
+              className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs text-white"/>
+          </label>
+          <label className="text-[10px] text-slate-400">Seats required
+            <input type="number" min="1" max="50" step="1" value={seatsNeeded}
+              onChange={e=>setSeatsNeeded(Math.max(1,Math.min(50,Math.floor(Number(e.target.value)||1))))}
+              className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-xs text-white"/>
+          </label>
+          <div className="flex items-end">
+            <button type="button" onClick={()=>{setOriginQuery('');setDestinationQuery('');setTravelDate('');setMaxFare('');setSeatsNeeded(1);setFilterType('all');setSearchQuery('');}}
+              disabled={!filterActive} className="min-h-11 w-full rounded-xl border border-white/15 px-3 text-xs text-white/75 disabled:opacity-35">
+              Clear search filters
+            </button>
+          </div>
+        </div>
+
         {/* Vehicle Type Filters */}
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
           {[
@@ -160,7 +196,9 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-30" />
             <p className="font-bold">{feedHealthy ? 'Aucun départ vérifié pour le moment' : 'Flux de départ indisponible'}</p>
             <p className="text-sm mt-1">
-              {feedHealthy
+              {feedHealthy && filterActive
+                ? 'No verified future departure matches the requested cities, local date, fare and seat count. Clear filters or try another date.'
+                : feedHealthy
                 ? 'AFAT affichera ici les trajets dès que des opérateurs publient des départs actifs.'
                 : 'Le tableau ne fabrique pas de départs. Revenez après synchronisation du backend.'}
             </p>
@@ -173,10 +211,10 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
             return (
               <button
                 key={departure.id}
-                onClick={() => availableSeats > 0 && onSelectDeparture(departure)}
-                disabled={availableSeats <= 0}
+                onClick={() => availableSeats >= seatsNeeded && onSelectDeparture(departure)}
+                disabled={availableSeats < seatsNeeded}
                 className={`w-full bg-slate-900/50 border border-white/5 rounded-2xl p-5 text-left transition-all ${
-                  availableSeats > 0 ? 'hover:bg-slate-800/50 hover:border-white/10 active:scale-[0.99]' : 'opacity-50'
+                  availableSeats >= seatsNeeded ? 'hover:bg-slate-800/50 hover:border-white/10 active:scale-[0.99]' : 'opacity-50'
                 }`}
               >
                 <div className="flex items-start justify-between mb-4">
@@ -209,7 +247,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
                       <span className="font-bold text-xs">{availability.text}</span>
                     </div>
                   </div>
-                  {availableSeats > 0 && (
+                  {availableSeats >= seatsNeeded && (
                     <div className="flex items-center gap-1 text-blue-400 text-xs font-bold">
                       Réserver <ChevronRight className="w-4 h-4" />
                     </div>
