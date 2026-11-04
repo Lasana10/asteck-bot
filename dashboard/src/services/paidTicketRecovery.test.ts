@@ -35,6 +35,6 @@ describe('paid QR ticket server recovery',()=>{
   expect(result.data[0]).toMatchObject({id:'booking-1',seatLabel:'27',price:4800,transactionId:'gateway-123'});
   expect(chain.eq).toHaveBeenCalledWith('passenger_id','passenger');
   expect(chain.eq).toHaveBeenCalledWith('status','confirmed');
-  expect(chain.in).toHaveBeenCalledWith('payment_status',['paid','paid_momo']);
+  expect(chain.in).toHaveBeenCalledWith('payment_status',['paid','paid_momo','paid_cash']);
  });
 });
