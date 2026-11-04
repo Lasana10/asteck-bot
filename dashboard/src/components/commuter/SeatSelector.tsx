@@ -73,7 +73,7 @@ export function generateBlueprint(type: string, bookedLabels: string[], maxPasse
   // The server issues canonical numeric labels 1..200 only.
   const cap=Number.isSafeInteger(maxPassengers)&&maxPassengers>=1&&maxPassengers<=200?maxPassengers:0;
   const baseMax=bp.visualStructure.flatMap(row=>row.split(' ')).reduce((highest,item)=>
-    /^\\d+$/.test(item)?Math.max(highest,Number(item)):highest,0);
+    /^\d+$/.test(item)?Math.max(highest,Number(item)):highest,0);
   const structure=[...bp.visualStructure];
   const columns=type==='bus'?5:type==='moto'?1:type==='taxi'?3:4;
   for(let next=baseMax+1;next<=cap;){
