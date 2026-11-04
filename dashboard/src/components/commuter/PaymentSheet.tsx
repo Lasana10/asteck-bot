@@ -37,7 +37,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
     setPendingTransactionId(state.phase==='pending'?state.transactionId:'');
     if(state.phase==='paid'){
       if(!state.transactionId){setErrorText('Payment confirmed but no server transaction reference is available. Contact AFAT support.');return state;}
-      deliverConfirmed(selectedMethod||'mobile_money',state.transactionId);
+      deliverConfirmed(booking?.payment_status==='paid_cash'?'cash_confirmed':selectedMethod||'mobile_money',state.transactionId);
     }
     if(state.phase==='cash_due')deliverConfirmed('cash',state.transactionId);
     return state;

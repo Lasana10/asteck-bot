@@ -16,7 +16,8 @@ assert.ok(!sql.includes('insert into public.wallet_ledger'));
 assert.ok(!sql.includes('update public.operator_wallets'));
 assert.ok(!sql.includes("'cash_due' then 'paid_cash'"));
 const guard=api.slice(api.indexOf('function isBoardablePaymentStatus('),api.indexOf('async function expireSeatHolds('));
-assert.ok(guard.includes("['paid', 'paid_momo']"));
+assert.ok(guard.includes("['paid', 'paid_momo', 'paid_cash']"));
+assert.ok(guard.includes("Cash-due is NOT a payment receipt"));
 assert.ok(!guard.includes("'cash_due'"));
 const boarding=api.slice(api.indexOf("router.post('/ticket/verify-boarding'"),api.indexOf('// ── TRIP COMPLETION',api.indexOf("router.post('/ticket/verify-boarding'")));
 for(const token of [

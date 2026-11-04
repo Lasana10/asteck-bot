@@ -2,6 +2,7 @@ import React,{useCallback,useEffect,useState} from 'react';
 import {fetchMyScheduledDepartures,withdrawScheduledDeparture,type ManagedDeparture} from '../../services/operatorDeparturePublisher';
 import {OperatorRouteOpportunities} from './OperatorRouteOpportunities';
 import {OperatorBoardingManifest} from './OperatorBoardingManifest';
+import {CashHandoverPanel} from '../shared/CashHandoverPanel';
 
 /** Existing published routes remain operator-owned until capacity/booking rules permit withdrawal.
  * Financial or committed passenger journeys are deliberately not cancelled by this control.
@@ -15,6 +16,7 @@ export function OperatorDepartureOperations({reloadKey=0,onChanged,onPlanRoute}:
  const [reason,setReason]=useState('');
  const [busy,setBusy]=useState(false);
  const [manifestFor,setManifestFor]=useState<string|null>(null);
+ const [cashBookingId,setCashBookingId]=useState('');
  const refresh=useCallback(async()=>{
   setLoading(true);
   const {data,error}=await fetchMyScheduledDepartures();
@@ -39,6 +41,17 @@ export function OperatorDepartureOperations({reloadKey=0,onChanged,onPlanRoute}:
     <h2 className="mt-2 text-lg font-black">Your scheduled transport</h2>
     <p className="mt-1 text-xs leading-5 text-white/50">Only your published inventory. Existing bookings and seat holds remain protected; changing a committed departure requires staff resolution.</p></div>
    <button type="button" onClick={()=>void refresh()} disabled={busy||loading} className="min-h-10 rounded-xl border border-white/15 px-4 text-xs text-white/75 disabled:opacity-40">{loading?'Refreshing…':'Refresh'}</button>
+  </div>
+  <div className="mt-4 rounded-xl border border-amber-300/15 p-3">
+    <h3 className="text-xs font-black text-amber-100">Cash collection · two independent acknowledgements</h3>
+    <p className="mt-1 text-[10px] text-white/55">Ask the passenger for their AFAT booking reference. You can record cash actually received only for your own booking, at its exact server fare. Neither cash selection nor this control posts wallet earnings.</p>
+    <label className="mt-3 block text-xs text-white/60">Passenger booking reference
+      <input value={cashBookingId} onChange={event=>setCashBookingId(event.target.value.trim())} maxLength={36}
+        placeholder="Booking UUID from passenger" autoComplete="off"
+        className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 text-xs text-white"/>
+    </label>
+    {/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cashBookingId)&&
+      <CashHandoverPanel key={cashBookingId} bookingId={cashBookingId} side="operator" onDualAttested={()=>void refresh()}/>}
   </div>
   {!healthy&&<p role="alert" className="mt-3 rounded-lg border border-amber-300/20 bg-amber-400/10 p-3 text-xs text-amber-100">Schedule feed unavailable. AFAT cannot confirm the current inventory.</p>}
   {healthy&&!loading&&items.length===0&&<p className="mt-4 text-xs text-white/50">No future or recent departures found for this operator. Publish a real departure above after vehicle clearance.</p>}

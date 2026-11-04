@@ -14,7 +14,7 @@ export function paymentPhaseFromBooking(value:unknown):BookingPaymentState{
    ? booking.transaction_id : '';
  if(['cancelled','expired','no_show','refunded','disputed'].includes(status))
    return {phase:'blocked',transactionId};
- if(payment==='paid'||payment==='paid_momo')return {phase:'paid',transactionId};
+ if(payment==='paid'||payment==='paid_momo'||payment==='paid_cash')return {phase:'paid',transactionId};
  if(payment==='collection_pending')return {phase:'pending',transactionId};
  if(payment==='cash_due')return {phase:'cash_due',transactionId};
  if((payment==='unpaid'||payment==='failed')&&['pending','accepted','confirmed','boarded','in_progress','completed'].includes(status))
@@ -42,12 +42,12 @@ export async function fetchRecoverablePassengerPayments(profileId:string){
  const {data,error}=await supabase.from('bookings')
   .select('id,passenger_id,status,payment_status,price_paid,price_xaf,seat_label,transaction_id,created_at,routes(name,origin,destination,departure_time),vehicles(plate_number),profiles!operator_id(full_name)')
   .eq('passenger_id',profileId)
-  .in('payment_status',['unpaid','failed','collection_pending'])
+  .in('payment_status',['unpaid','failed','collection_pending','cash_due'])
   .order('created_at',{ascending:false}).limit(15);
  if(error)return {data:[] as RecoverablePaymentBooking[],error:{message:error.message}};
  const rows=(data||[]).flatMap((raw:any)=>{
   const decision=paymentPhaseFromBooking(raw);
-  if(!['ready','pending'].includes(decision.phase))return [];
+  if(!['ready','pending','cash_due'].includes(decision.phase))return [];
   const amount=Number(raw.price_paid??raw.price_xaf);
   if(!Number.isSafeInteger(amount)||amount<=0||!raw?.id||!raw?.seat_label)return [];
   const route=Array.isArray(raw.routes)?raw.routes[0]:raw.routes;

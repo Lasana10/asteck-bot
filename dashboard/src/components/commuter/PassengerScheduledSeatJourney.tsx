@@ -5,7 +5,8 @@ import {DepartureBoard} from './DepartureBoard';
 import {SeatSelector} from './SeatSelector';
 import {PaymentSheet} from './PaymentSheet';
 import {TicketView} from './TicketView';
-import {createBookingFromHold,createSeatHold,releaseSeatHold,cancelUnpaidPassengerBooking} from '../../supabaseClient';
+import {CashHandoverPanel} from '../shared/CashHandoverPanel';
+import {createBookingFromHold,createSeatHold,releaseSeatHold,cancelUnpaidPassengerBooking,fetchBookingStatus} from '../../supabaseClient';
 
 type Departure=React.ComponentProps<typeof SeatSelector>['departure'] & {operator_id:string};
 type Stage='departures'|'seats'|'fare'|'payment'|'recover_payment'|'ticket'|'cash_due';
@@ -130,12 +131,38 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
    departureTime:departure.departure_time,transactionId,paymentMethod:method});
   setStage('ticket');
  };
+ const openCashDue=(item:RecoverablePaymentBooking)=>{
+  setRecoveryBooking(item);setBookingId(item.id);setStage('cash_due');
+ };
+ const openCashTicket=async()=>{
+  const id=bookingId||recoveryBooking?.id;
+  if(!id)return;
+  const {data,error}=await fetchBookingStatus(id);
+  if(error||!data?.booking){setNotice('AFAT cannot verify the actual booking payment state.');return;}
+  if(data.booking.status!=='confirmed'||data.booking.payment_status!=='paid_cash'||
+      !String(data.booking.transaction_id||'').startsWith('CASH-')){
+   setNotice('Two-party cash handover has not been confirmed on this booking.');return;
+  }
+  const item=recoveryBooking;
+  const src=departure;
+  if(!src&&!item){setNotice('Trip context is unavailable. Reopen the booking to recover its signed ticket.');return;}
+  setTicket({
+   id,routeName:src?.route_name||item?.routeName||'Published departure',
+   origin:src?.origin||item?.origin||'',destination:src?.destination||item?.destination||'',
+   seatLabel:seat||item?.seatLabel||'',price:Number(data.booking.price_paid||serverFare||item?.amountXaf||0),
+   operatorName:src?.operator_name||item?.operatorName||'',
+   plateNumber:src?.plate_number||item?.plateNumber||'',
+   departureTime:src?.departure_time||item?.departureTime||'',
+   transactionId:data.booking.transaction_id,paymentMethod:'cash',
+  });
+  setNotice('');setStage('ticket');
+ };
  if(stage==='recover_payment'&&recoveryBooking)return <PaymentSheet bookingId={recoveryBooking.id}
   amount={recoveryBooking.amountXaf} routeName={recoveryBooking.routeName}
   operatorName={recoveryBooking.operatorName} seatLabel={recoveryBooking.seatLabel}
   onBack={()=>{setRecoveryBooking(null);setStage('departures');}}
   onPaymentComplete={(method,transactionId)=>{
-   if(method==='cash'){setRecoveryBooking(null);setStage('cash_due');return;}
+   if(method==='cash'){setBookingId(recoveryBooking.id);setStage('cash_due');return;}
    setTicket({id:recoveryBooking.id,routeName:recoveryBooking.routeName,
     origin:recoveryBooking.origin,destination:recoveryBooking.destination,
     seatLabel:recoveryBooking.seatLabel,price:recoveryBooking.amountXaf,
@@ -165,11 +192,11 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
    {recoverLoading&&<p className="mt-2 text-xs text-white/45">Checking your booking history…</p>}
    {recoverable.slice(0,6).map(item=><article key={item.id} className="mt-2 rounded-xl border border-cyan-300/15 bg-cyan-400/[0.04] p-3">
      <p className="text-xs font-black">{item.routeName} · Seat {item.seatLabel}</p>
-     <p className="mt-1 text-[10px] text-white/50">{item.amountXaf.toLocaleString()} XAF · {item.paymentStatus==='collection_pending'?'Provider confirmation pending':'Awaiting payment'} · Server booking {item.id.slice(0,8)}</p>
+     <p className="mt-1 text-[10px] text-white/50">{item.amountXaf.toLocaleString()} XAF · {item.paymentStatus==='collection_pending'?'Provider confirmation pending':item.paymentStatus==='cash_due'?'Cash due · unpaid':'Awaiting payment'} · Server booking {item.id.slice(0,8)}</p>
      <div className="mt-2 flex flex-wrap gap-2">
-       <button type="button" disabled={cancelBusy} onClick={()=>{setRecoveryBooking(item);setStage('recover_payment');}}
+       <button type="button" disabled={cancelBusy} onClick={()=>{if(item.paymentStatus==='cash_due')openCashDue(item);else{setRecoveryBooking(item);setStage('recover_payment');}}}
          className="min-h-10 rounded-lg border border-cyan-300/20 px-3 text-[10px] font-bold text-cyan-100 disabled:opacity-40">
-         Check booking / resume payment
+         {item.paymentStatus==='cash_due'?'Confirm actual cash handover':'Check booking / resume payment'}
        </button>
        {item.canSelfCancel&&(cancelSelection===item.id?
          <div className="flex flex-wrap items-center gap-2">
@@ -210,9 +237,14 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
    onBack={()=>{setNotice('Booking exists, but payment remains unconfirmed. Resume from your journeys before attempting another payment.');onClose();}}/>;
  if(stage==='ticket'&&ticket)return <TicketView booking={ticket} onBack={()=>{onChanged();onClose();}}/>;
  if(stage==='cash_due')return <section className="rounded-2xl border border-emerald-300/20 bg-slate-950 p-6">
-  <h3 className="text-lg font-black">Booking recorded · cash still due</h3>
-  <p className="mt-3 text-sm text-white/70">Your booking exists, but no cash payment has been verified. AFAT will not issue a paid ticket until the proper collection workflow confirms it.</p>
-  <button type="button" onClick={()=>{onChanged();onClose();}} className="mt-5 min-h-11 rounded-xl bg-emerald-300 px-4 text-xs font-black text-slate-950">View my journeys</button>
+  <h3 className="text-lg font-black">Cash chosen · collection still due</h3>
+  <p className="mt-3 text-xs leading-5 text-white/70">Neither choosing cash nor scanning a code proves collection. Tell the operator your booking reference. After physically handing over the stated amount, independently confirm the handover below. Both parties must agree before AFAT issues a signed ticket; this does not establish bank settlement.</p>
+  <p className="mt-3 break-all text-xs text-cyan-100">Your booking reference: {bookingId||recoveryBooking?.id||'Unavailable'}</p>
+  {(bookingId||recoveryBooking?.id)&&<CashHandoverPanel
+    bookingId={(bookingId||recoveryBooking?.id)!} side="passenger" onDualAttested={()=>void openCashTicket()}/>}
+  {notice&&<p role="status" className="mt-3 text-xs text-amber-100">{notice}</p>}
+  <button type="button" onClick={()=>{onChanged();onClose();}}
+    className="mt-5 min-h-11 rounded-xl bg-emerald-300 px-4 text-xs font-black text-slate-950">Return to my journeys</button>
  </section>;
  return <section className="rounded-2xl border border-amber-300/20 p-5">
   <p className="text-sm text-amber-100">{notice||'Booking state needs server reconciliation.'}</p>
