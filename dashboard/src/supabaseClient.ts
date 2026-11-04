@@ -1227,9 +1227,17 @@ export async function fetchSelectedDepartureAvailability(departureId:string){
  }
 }
 
-export async function fetchPublishedDepartures() {
+export async function fetchPublishedDepartures(options?:{
+ page?:number;origin?:string;destination?:string;date?:string;maxFareXaf?:string;
+}) {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/mobility/departures`, { cache: 'no-store' });
+    const params=new URLSearchParams();
+    params.set('page',String(options?.page??0));
+    if(options?.origin)params.set('origin',options.origin);
+    if(options?.destination)params.set('destination',options.destination);
+    if(options?.date)params.set('date',options.date);
+    if(options?.maxFareXaf)params.set('max_fare_xaf',options.maxFareXaf);
+    const res=await fetch(`${getApiBaseUrl()}/api/mobility/departures?${params.toString()}`,{cache:'no-store'});
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Departure feed failed.' } };
     return { data, error: null };
