@@ -132,13 +132,14 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   useEffect(() => {
     const fetchSentiment = async () => {
       const language = profile?.language || 'fr';
-      const sentiment = await IntelligenceEngine.predict('Yaoundé Sector 4', language);
+      // Without a consented, fresh navigation fix there is no basis to assert nearby incidents.
+      const sentiment = await IntelligenceEngine.predict(profile?.preferred_city||'your area',language);
       setAiSentiment(sentiment);
     };
     fetchSentiment();
     const interval = setInterval(fetchSentiment, 120000); 
     return () => clearInterval(interval);
-  }, [profile?.language]);
+  }, [profile?.language,profile?.preferred_city]);
 
   useEffect(() => {
     refreshLiveOps();
