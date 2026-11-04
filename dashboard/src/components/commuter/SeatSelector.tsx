@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Check, Clock, Lock, Zap, Loader2 } from 'lucide-react';
-import { fetchPublishedDepartures, supabase } from '../../supabaseClient';
+import { fetchSelectedDepartureAvailability, supabase } from '../../supabaseClient';
 
 interface SeatData {
   id: string;
@@ -140,8 +140,7 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
 
   const fetchOccupancy = async () => {
     setLoading(true);
-    const { data,error } = await fetchPublishedDepartures();
-    const current = data?.departures?.find((item: any) => item.id === departure.id);
+    const { data:current,error } = await fetchSelectedDepartureAvailability(departure.id);
     const available = !error && current && Date.parse(current.departure_time)>Date.now() &&
       Number.isSafeInteger(Number(current.total_seats))&&Number(current.total_seats)>=1&&Number(current.total_seats)<=200&&
       Number(current.available_seats ?? current.total_seats-current.booked_seats)>0;
