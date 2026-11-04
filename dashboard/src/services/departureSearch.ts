@@ -21,7 +21,9 @@ export function selectRealDepartures<T extends SearchableDeparture>(
  return items.filter(item=>{
    const time=Date.parse(item.departure_time);
    const available=item.available_seats??item.total_seats-item.booked_seats;
-   const localDate=Number.isFinite(time)?new Date(time).toLocaleDateString('en-CA',{timeZone:'Africa/Douala'}):'';
+   const dateParts=Number.isFinite(time)?new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Douala',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(time)):[];
+   const part=(type:string)=>dateParts.find(p=>p.type===type)?.value||'';
+   const localDate=dateParts.length?`${part('year')}-${part('month')}-${part('day')}`:'';
    return Number.isFinite(time)&&time>nowMs&&
      Number.isSafeInteger(available)&&available>=seats&&
      Number.isSafeInteger(item.price_xaf)&&item.price_xaf>0&&
