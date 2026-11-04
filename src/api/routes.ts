@@ -4328,6 +4328,30 @@ router.post('/payment/finalize', async (req: Request, res: Response) => {
   }
 });
 
+// Passenger-only cancellation is restricted at both the API and database.
+router.post('/booking/:bookingId/cancel-unpaid',async(req:Request,res:Response)=>{
+  const session=await requireAuthRole(req,res,['commuter']);
+  if(!session)return;
+  const bookingId=String(req.params.bookingId||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId))
+    return res.status(400).json({error:'Valid booking ID required'});
+  try{
+    const {data,error}=await supabase.rpc('afat_cancel_unpaid_passenger_booking',{p_passenger_id:session.profile.id,p_booking_id:bookingId});
+    if(error) {
+      const denied=String(error.code||'')==='42501';
+      const unavailable=String(error.code||'')==='P0002';
+      return res.status(denied?403:unavailable?404:409).json({
+        error:error.message||'Cancellation requires staff resolution. No booking change confirmed.',
+      });
+    }
+    if(!data||data.booking_id!==bookingId||data.status!=='cancelled')
+      return res.status(503).json({error:'Server cancellation receipt could not be verified'});
+    return res.status(200).json({success:true,cancellation:data});
+  }catch(error:any){
+    return res.status(503).json({error:error?.message||'Cancellation confirmation unavailable'});
+  }
+});
+
 router.get('/booking/:bookingId', async (req: Request, res: Response) => {
   try {
     const session = await requireAuthRole(req, res);

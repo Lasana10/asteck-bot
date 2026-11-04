@@ -4,7 +4,7 @@ import {DepartureBoard} from './DepartureBoard';
 import {SeatSelector} from './SeatSelector';
 import {PaymentSheet} from './PaymentSheet';
 import {TicketView} from './TicketView';
-import {createBookingFromHold,createSeatHold,releaseSeatHold} from '../../supabaseClient';
+import {createBookingFromHold,createSeatHold,releaseSeatHold,cancelUnpaidPassengerBooking} from '../../supabaseClient';
 
 type Departure=React.ComponentProps<typeof SeatSelector>['departure'] & {operator_id:string};
 type Stage='departures'|'seats'|'fare'|'payment'|'recover_payment'|'ticket'|'cash_due';
@@ -29,6 +29,22 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  const [recoverable,setRecoverable]=useState<RecoverablePaymentBooking[]>([]);
  const [recoveryBooking,setRecoveryBooking]=useState<RecoverablePaymentBooking|null>(null);
  const [recoverLoading,setRecoverLoading]=useState(false);
+ const [cancelSelection,setCancelSelection]=useState<string|null>(null);
+ const [cancelBusy,setCancelBusy]=useState(false);
+ const cancelBooking=async(item:RecoverablePaymentBooking)=>{
+  if(cancelBusy||!item.canSelfCancel||cancelSelection!==item.id)return;
+  if(!navigator.onLine){setNotice('Reconnect to confirm cancellation with AFAT. Your booking remains active.');return;}
+  setCancelBusy(true);setNotice('');
+  const {data,error}=await cancelUnpaidPassengerBooking(item.id);
+  setCancelBusy(false);setCancelSelection(null);
+  if(error||!data?.cancellation?.booking_id){
+   setNotice(error?.message||'Booking cancellation could not be confirmed. Check your live booking.');
+   return;
+  }
+  setRecoverable(previous=>previous.filter(row=>row.id!==item.id));
+  setNotice('Your unpaid unstarted booking was cancelled by the server. No payment was collected or refunded; the reserved seat is no longer booked.');
+  onChanged();
+ };
  useEffect(()=>{
   if(stage!=='departures')return;
   let active=true;
@@ -128,11 +144,31 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
    <h4 className="text-xs font-black text-cyan-200">Resume an existing unpaid booking</h4>
    <p className="mt-1 text-[11px] text-white/55">Live server records only. Unsettled mobile-money collections cannot be charged again; verify their provider status first.</p>
    {recoverLoading&&<p className="mt-2 text-xs text-white/45">Checking your booking history…</p>}
-   {recoverable.slice(0,6).map(item=><button key={item.id} type="button" onClick={()=>{setRecoveryBooking(item);setStage('recover_payment');}}
-     className="mt-2 block w-full rounded-xl border border-cyan-300/15 bg-cyan-400/[0.04] p-3 text-left">
-     <span className="block text-xs font-black">{item.routeName} · Seat {item.seatLabel}</span>
-     <span className="mt-1 block text-[10px] text-white/50">{item.amountXaf.toLocaleString()} XAF · {item.paymentStatus==='collection_pending'?'Provider confirmation pending':'Awaiting payment'} · Server booking {item.id.slice(0,8)}</span>
-   </button>)}
+   {recoverable.slice(0,6).map(item=><article key={item.id} className="mt-2 rounded-xl border border-cyan-300/15 bg-cyan-400/[0.04] p-3">
+     <p className="text-xs font-black">{item.routeName} · Seat {item.seatLabel}</p>
+     <p className="mt-1 text-[10px] text-white/50">{item.amountXaf.toLocaleString()} XAF · {item.paymentStatus==='collection_pending'?'Provider confirmation pending':'Awaiting payment'} · Server booking {item.id.slice(0,8)}</p>
+     <div className="mt-2 flex flex-wrap gap-2">
+       <button type="button" disabled={cancelBusy} onClick={()=>{setRecoveryBooking(item);setStage('recover_payment');}}
+         className="min-h-10 rounded-lg border border-cyan-300/20 px-3 text-[10px] font-bold text-cyan-100 disabled:opacity-40">
+         Check booking / resume payment
+       </button>
+       {item.canSelfCancel&&(cancelSelection===item.id?
+         <div className="flex flex-wrap items-center gap-2">
+           <p className="w-full text-[10px] text-amber-100">Confirm withdrawal of this unpaid booking? AFAT must verify that no operator has accepted a dispatch or payment has started.</p>
+           <button type="button" disabled={cancelBusy} onClick={()=>void cancelBooking(item)}
+             className="min-h-10 rounded-lg bg-amber-300 px-3 text-[10px] font-bold text-slate-950 disabled:opacity-40">
+             {cancelBusy?'Checking…':'Confirm cancellation'}
+           </button>
+           <button type="button" disabled={cancelBusy} onClick={()=>setCancelSelection(null)}
+             className="min-h-10 rounded-lg border border-white/15 px-3 text-[10px] text-white/70">Keep booking</button>
+         </div>:
+         <button type="button" disabled={cancelBusy} onClick={()=>setCancelSelection(item.id)}
+           className="min-h-10 rounded-lg border border-amber-300/20 px-3 text-[10px] text-amber-100 disabled:opacity-40">
+           Cancel unpaid booking
+         </button>)}
+     </div>
+   </article>)}
+   {notice&&<p role="status" className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">{notice}</p>}
   </div>
   <DepartureBoard onBack={()=>void exit()} onSelectDeparture={chooseDeparture}/></section>;
  if(stage==='seats'&&departure)return <section className="overflow-hidden rounded-2xl border border-white/10">

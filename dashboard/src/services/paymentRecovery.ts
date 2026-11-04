@@ -33,6 +33,7 @@ export type RecoverablePaymentBooking={
  operatorName:string;
  plateNumber:string;
  paymentStatus:string;
+ canSelfCancel:boolean;
 };
 export async function fetchRecoverablePassengerPayments(profileId:string){
  const {data:identity,error:identityError}=await supabase.auth.getUser();
@@ -59,7 +60,11 @@ export async function fetchRecoverablePassengerPayments(profileId:string){
    departureTime:String(route?.departure_time||''),
    operatorName:String(operator?.full_name||'Verified operator (details unavailable)'),
    plateNumber:String(vehicle?.plate_number||'Not displayed'),
-   paymentStatus:String(raw.payment_status)}];
+   paymentStatus:String(raw.payment_status),
+   canSelfCancel:String(raw.status)==='pending'&&
+    ['unpaid','failed'].includes(String(raw.payment_status))&&
+    !raw.transaction_id&&Number.isFinite(Date.parse(String(route?.departure_time||'')))&&
+    Date.parse(String(route?.departure_time))>Date.now()}];
  });
  return {data:rows as RecoverablePaymentBooking[],error:null};
 }
