@@ -1212,6 +1212,21 @@ export async function getOperatorRoutes(operatorId: string) {
   return { data, error };
 }
 
+export async function fetchSelectedDepartureAvailability(departureId:string){
+ try{
+  const response=await fetch(`${getApiBaseUrl()}/api/mobility/departures/${encodeURIComponent(departureId)}/availability`,{
+   cache:'no-store',signal:AbortSignal.timeout(20000),
+  });
+  const result=await response.json().catch(()=>null);
+  if(!response.ok||result?.success!==true||result?.seat_hold_required!==true||
+     result?.availability_is_provisional!==true||result?.departure?.id!==departureId)
+   return {data:null,error:{message:result?.error||'Selected departure inventory is unavailable.'}};
+  return {data:result.departure,error:null};
+ }catch(error:any){
+  return {data:null,error:{message:error?.message||'Departure inventory could not be checked.'}};
+ }
+}
+
 export async function fetchPublishedDepartures() {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/mobility/departures`, { cache: 'no-store' });
