@@ -1391,6 +1391,21 @@ export async function createGuardianToken(bookingId: string, expiresInMinutes: n
   }
 }
 
+export async function revokeGuardianToken(token:string){
+  try {
+    const authHeaders=await authenticatedApiHeaders();
+    const response=await fetch(`${getApiBaseUrl()}/api/guardian/token/revoke`,{
+      method:'POST',headers:{'Content-Type':'application/json',...authHeaders},
+      body:JSON.stringify({token}),
+    });
+    const data=await response.json();
+    if(!response.ok||data?.revoked!==true)return {data:null,error:{message:data?.error||'Guardian revocation not verified.'}};
+    return {data,error:null};
+  }catch(error:any){
+    return {data:null,error:{message:error?.message||'Guardian revocation unavailable.'}};
+  }
+}
+
 export async function fetchGuardianWatch(token: string) {
   try {
     const res = await fetch(`${getApiBaseUrl()}/api/guardian/watch/${token}`);

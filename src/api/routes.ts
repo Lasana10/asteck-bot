@@ -11,6 +11,7 @@ import { dnaQueue } from '../services/QueueService';
 import { aiRouter } from '../services/AIRouter';
 import { brainService } from '../services/brain';
 import { PaymentService } from '../services/payment';
+import {guardianMinutes,guardianShareAllowed,guardianWatchAvailable,validGuardianToken} from '../services/guardianWatchPolicy';
 import { evaluateCameroonCollectionReadiness } from '../services/paymentCollectionReadiness';
 import { ArkeselClient } from '../infra/arkesel';
 import { TermiiClient } from '../infra/termii';
@@ -2310,48 +2311,56 @@ router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
 });
 
 // ── GUARDIAN MODE (Token-based Live Watch) ────────────────────────────────
-router.post('/guardian/token', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res);
-    if (!session) return;
-    const { booking_id, expires_in_minutes } = req.body;
+router.post('/guardian/token',async(req:Request,res:Response)=>{
+  const session=await requireAuthRole(req,res,['commuter']);
+  if(!session)return;
+  const bookingId=String(req.body?.booking_id||'');
+  const minutes=guardianMinutes(req.body?.expires_in_minutes);
+  if(!/^[0-9a-f-]{36}$/i.test(bookingId)||minutes===null)
+    return res.status(400).json({error:'Valid booking and sharing duration (5–240 minutes) required'});
+  try{
+    const {data:booking,error:bookingError}=await supabase.from('bookings')
+      .select('id,passenger_id,status,payment_status').eq('id',bookingId).maybeSingle();
+    if(bookingError)throw bookingError;
+    if(!booking||!guardianShareAllowed(booking,session.profile.id))
+      return res.status(403).json({error:'Only the passenger with a verified, active paid booking can share Guardian Watch'});
+    const frontendBaseUrl=process.env.FRONTEND_URL||'https://asteck-bot.pages.dev';
+    const token=require('crypto').randomBytes(32).toString('hex');
+    const expiresAt=new Date(Date.now()+minutes*60000);
+    const {error}=await supabase.from('guardian_tokens')
+      .insert({token,booking_id:bookingId,expires_at:expiresAt});
+    if(error)throw error;
+    res.setHeader('Cache-Control','no-store');
+    return res.json({token,watch_url:`${frontendBaseUrl.replace(/\/$/,'')}/watch/${token}`,expires_at:expiresAt.toISOString()});
+  }catch(error:any){
+    return res.status(503).json({error:error?.message||'Guardian share cannot be confirmed'});
+  }
+});
 
-    if (!booking_id) return res.status(400).json({ error: 'booking_id required' });
-
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select('id, passenger_id, operator_id')
-      .eq('id', booking_id)
-      .maybeSingle();
-    if (bookingError) throw bookingError;
-    if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    const isStaff = ['planner', 'admin'].includes(String(session.profile.role));
-    if (!isStaff && booking.passenger_id !== session.profile.id && booking.operator_id !== session.profile.id) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const frontendBaseUrl = process.env.FRONTEND_URL || 'https://asteck-bot.pages.dev';
-
-    const token = require('crypto').randomBytes(16).toString('hex');
-    const expiresAt = new Date(Date.now() + (expires_in_minutes || 60) * 60 * 1000);
-
-    const { error } = await supabase
-      .from('guardian_tokens')
-      .insert({
-        token,
-        booking_id,
-        expires_at: expiresAt
-      });
-
-    if (error) throw error;
-
-    res.status(200).json({
-      token,
-      watch_url: `${frontendBaseUrl.replace(/\/$/, '')}/watch/${token}`,
-      expires_at: expiresAt
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+// Only the passenger who issued the trip sharing may revoke a bearer link.
+router.post('/guardian/token/revoke',async(req:Request,res:Response)=>{
+  const session=await requireAuthRole(req,res,['commuter']);
+  if(!session)return;
+  const token=req.body?.token;
+  if(!validGuardianToken(token))return res.status(400).json({error:'Valid guardian token required'});
+  try{
+    const {data:share,error:shareError}=await supabase.from('guardian_tokens')
+      .select('id,booking_id').eq('token',token).maybeSingle();
+    if(shareError)throw shareError;
+    if(!share)return res.status(404).json({error:'Guardian link not found or already revoked'});
+    const {data:booking,error:bookingError}=await supabase.from('bookings')
+      .select('passenger_id').eq('id',share.booking_id).maybeSingle();
+    if(bookingError)throw bookingError;
+    if(!booking||booking.passenger_id!==session.profile.id)
+      return res.status(403).json({error:'Only the passenger can revoke this guardian link'});
+    const {data:deleted,error}=await supabase.from('guardian_tokens')
+      .delete().eq('id',share.id).eq('token',token).select('id').maybeSingle();
+    if(error)throw error;
+    if(!deleted)return res.status(409).json({error:'Guardian revocation could not be confirmed'});
+    res.setHeader('Cache-Control','no-store');
+    return res.json({revoked:true,watch_access_active:false});
+  }catch(error:any){
+    return res.status(503).json({error:error?.message||'Guardian revocation unavailable'});
   }
 });
 
@@ -4241,57 +4250,40 @@ router.post('/service/request', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/guardian/watch/:token', async (req: Request, res: Response) => {
-  try {
-    const { token } = req.params;
-
-    const { data: guardianToken, error: tokenError } = await supabase
-      .from('guardian_tokens')
-      .select('token, booking_id, expires_at, created_at')
-      .eq('token', token)
-      .maybeSingle();
-
-    if (tokenError) throw tokenError;
-    if (!guardianToken) {
-      return res.status(404).json({ error: 'Guardian watch link not found' });
-    }
-
-    if (new Date(guardianToken.expires_at).getTime() <= Date.now()) {
-      return res.status(410).json({ error: 'Guardian watch link expired' });
-    }
-
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select('id, passenger_id, operator_id, route_id, status, payment_status, seat_label, price_paid, created_at, updated_at, completed_at')
-      .eq('id', guardianToken.booking_id)
-      .single();
-
-    if (bookingError || !booking) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-
-    const [passengerRes, operatorRes, routeRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, phone').eq('id', booking.passenger_id).maybeSingle(),
-      supabase.from('profiles').select('id, full_name, phone').eq('id', booking.operator_id).maybeSingle(),
-      supabase.from('routes').select('id, name, origin, destination, departure_time').eq('id', booking.route_id).maybeSingle(),
+router.get('/guardian/watch/:token',async(req:Request,res:Response)=>{
+  res.setHeader('Cache-Control','no-store');
+  res.setHeader('Referrer-Policy','no-referrer');
+  const token=req.params.token;
+  if(!validGuardianToken(token))return res.status(404).json({error:'Guardian link unavailable'});
+  try{
+    const {data:share,error:shareError}=await supabase.from('guardian_tokens')
+      .select('booking_id,expires_at').eq('token',token).maybeSingle();
+    if(shareError)throw shareError;
+    if(!share)return res.status(404).json({error:'Guardian link unavailable'});
+    if(Date.parse(share.expires_at)<=Date.now())
+      return res.status(410).json({error:'Guardian link expired'});
+    const {data:booking,error:bookingError}=await supabase.from('bookings')
+      .select('id,operator_id,route_id,status,payment_status,seat_label,created_at,completed_at')
+      .eq('id',share.booking_id).maybeSingle();
+    if(bookingError)throw bookingError;
+    if(!booking||!guardianWatchAvailable(booking,share.expires_at))
+      return res.status(410).json({error:'Trip watch is no longer available'});
+    const [operatorRes,routeRes]=await Promise.all([
+      supabase.from('profiles').select('full_name').eq('id',booking.operator_id).maybeSingle(),
+      supabase.from('routes').select('name,origin,destination,departure_time').eq('id',booking.route_id).maybeSingle(),
     ]);
-
-    res.status(200).json({
-      success: true,
-      watch: {
-        token: guardianToken.token,
-        expires_at: guardianToken.expires_at,
-        booking: {
-          ...booking,
-          passenger: passengerRes.data || null,
-          operator: operatorRes.data || null,
-          route: routeRes.data || null,
-        }
-      }
-    });
-  } catch (error: any) {
-    console.error('Guardian watch fetch error:', error);
-    res.status(500).json({ error: error.message || 'Guardian watch lookup failed' });
+    if(operatorRes.error||routeRes.error)throw operatorRes.error||routeRes.error;
+    return res.json({success:true,watch:{
+      expires_at:share.expires_at,live_gps_shared:false,
+      booking:{status:booking.status,payment_status:booking.payment_status,
+        seat_label:booking.seat_label,created_at:booking.created_at,
+        completed_at:booking.completed_at,
+        operator:operatorRes.data?{full_name:operatorRes.data.full_name}:null,
+        route:routeRes.data||null,
+      },
+    }});
+  }catch(error:any){
+    return res.status(503).json({error:error?.message||'Guardian watch unavailable'});
   }
 });
 

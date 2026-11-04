@@ -23,12 +23,14 @@ export function GuardianWatchPage({ token }: Props) {
     let active = true;
 
     const load = async () => {
+      if(!active)return;
       setLoading(true);
       const { data, error } = await fetchGuardianWatch(token);
       if (!active) return;
       setLoading(false);
 
       if (error) {
+        setWatchData(null);
         setErrorText(error.message);
         return;
       }
@@ -86,7 +88,7 @@ export function GuardianWatchPage({ token }: Props) {
           </div>
           <div>
             <h1 className="text-2xl font-black uppercase tracking-tight">AFAT Guardian Watch</h1>
-            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-300">Live trip status for family and trusted contacts</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-blue-300">Time-limited booking status · no live GPS sharing</p>
           </div>
         </header>
 
@@ -108,8 +110,8 @@ export function GuardianWatchPage({ token }: Props) {
                   <User className="h-4 w-4" />
                   <p className="text-[10px] font-bold uppercase tracking-[0.3em]">Passenger</p>
                 </div>
-                <p className="text-lg font-bold">{booking.passenger?.full_name || 'AFAT passenger'}</p>
-                <p className="mt-1 text-sm text-white/60">{booking.passenger?.phone || 'Phone hidden'}</p>
+                <p className="text-lg font-bold">AFAT passenger</p>
+                <p className="mt-1 text-sm text-white/60">Contact details are private</p>
               </div>
 
               <div className="rounded-3xl border border-white/5 bg-white/5 p-5">
@@ -118,7 +120,7 @@ export function GuardianWatchPage({ token }: Props) {
                   <p className="text-[10px] font-bold uppercase tracking-[0.3em]">Operator</p>
                 </div>
                 <p className="text-lg font-bold">{booking.operator?.full_name || 'Assigned operator'}</p>
-                <p className="mt-1 text-sm text-white/60">{booking.operator?.phone || 'Phone hidden'}</p>
+                <p className="mt-1 text-sm text-white/60">Contact details are private</p>
               </div>
 
               <div className="rounded-3xl border border-white/5 bg-white/5 p-5">
@@ -167,7 +169,7 @@ export function GuardianWatchPage({ token }: Props) {
             <div className="rounded-[2rem] border border-blue-500/20 bg-blue-500/10 p-6">
               <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-blue-200">AFAT Note</p>
               <p className="mt-3 text-sm text-blue-50/90">
-                This watch page updates from the live booking state. It is designed for family follow-up, trust, and safer shared mobility.
+                This watch page updates from AFAT's booking records. It does not provide live GPS, personal phone numbers or independent proof that a journey is safe. Your access expires or may be revoked by the passenger.
               </p>
             </div>
           </aside>
