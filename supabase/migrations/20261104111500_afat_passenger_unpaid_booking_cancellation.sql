@@ -1,17 +1,23 @@
 -- Passenger self-cancellation is limited to an unpaid unstarted booking.
 -- A queued/automatic operator assignment must be closed atomically. Any
 -- accepted/pickup/financially uncertain dispatch requires supervised review.
-create or replace function public.afat_cancel_unpaid_passenger_booking(p_booking_id uuid)
+create or replace function public.afat_cancel_unpaid_passenger_booking(p_passenger_id uuid,p_booking_id uuid)
 returns jsonb language plpgsql security definer set search_path=''
 as $afat$
 declare
- v_uid uuid := (select auth.uid());
+ v_uid uuid := p_passenger_id;
  v_booking public.bookings%rowtype;
  v_dispatch public.dispatch_assignments%rowtype;
  v_route public.routes%rowtype;
  v_count integer;
 begin
- if v_uid is null then raise exception 'Authentication required' using errcode='42501'; end if;
+ if v_uid is null then raise exception 'Passenger ID required' using errcode='42501'; end if;
+ -- Authenticated direct RPCs must own this passenger identity; the API uses
+ -- service-role credentials only AFTER separately verifying its user JWT.
+ if (select auth.uid()) is distinct from v_uid and
+    coalesce((select auth.jwt()->>'role'),'')<>'service_role' then
+   raise exception 'Passenger identity mismatch' using errcode='42501';
+ end if;
  if p_booking_id is null then raise exception 'Booking ID required' using errcode='22023'; end if;
  select * into v_booking from public.bookings where id=p_booking_id for update;
  if not found then raise exception 'Booking unavailable' using errcode='P0002'; end if;
@@ -73,5 +79,5 @@ begin
     'dispatch_cancelled',v_dispatch.id is not null);
 end;
 $afat$;
-revoke all on function public.afat_cancel_unpaid_passenger_booking(uuid) from public,anon,authenticated;
-grant execute on function public.afat_cancel_unpaid_passenger_booking(uuid) to authenticated,service_role;
+revoke all on function public.afat_cancel_unpaid_passenger_booking(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.afat_cancel_unpaid_passenger_booking(uuid,uuid) to authenticated,service_role;
