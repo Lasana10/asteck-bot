@@ -1,12 +1,13 @@
-import React,{useState} from 'react';
+import React,{useEffect,useState} from 'react';
 import {discoverAfatPlaces,type AfatPlaceCandidate} from '../../supabaseClient';
 import {publishScheduledDeparture} from '../../services/operatorDeparturePublisher';
 type Point=Pick<AfatPlaceCandidate,'id'|'name'|'latitude'|'longitude'>;
 type Kind='origin'|'destination';
 
-export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished}:{
+export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished,suggestedRoute}:{
  vehicle:{id:string;type?:string|null;capacity?:number|null;clearance_status?:string|null}|null;
  city?:string;onPublished:()=>void;
+ suggestedRoute?:{origin:string;destination:string;version:number}|null;
 }){
  const [expanded,setExpanded]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -22,6 +23,16 @@ export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished}
  const [departAt,setDepartAt]=useState('');
  const [fare,setFare]=useState('');
  const [lookupKind,setLookupKind]=useState<Kind>('origin');
+ useEffect(()=>{
+  if(!suggestedRoute)return;
+  // A voluntary demand signal only pre-fills text. The operator must still
+  // independently discover real mapped boarding/destination points.
+  setOrigin(null);setDestination(null);setOptions([]);
+  setOriginQuery(suggestedRoute.origin.slice(0,120));
+  setDestinationQuery(suggestedRoute.destination.slice(0,120));
+  setDepartAt('');setFare('');setExpanded(true);
+  setNotice('Route interest was suggested by passenger demand. Confirm real mapped places, vehicle clearance, departure time and your own fare before publishing.');
+ },[suggestedRoute?.version]);
 
  const search=async(kind:Kind)=>{
   const query=(kind==='origin'?originQuery:destinationQuery).trim();
