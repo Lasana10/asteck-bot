@@ -15,6 +15,7 @@ export function CashHandoverPanel({bookingId,side,onDualAttested}:{
   setBusy(false);
   if(result.error){setData(null);setNotice(result.error.message);return;}
   setData(result.data);
+  if(result.data?.dual_attested)onDualAttested?.();
  },[bookingId]);
  useEffect(()=>{void refresh();},[refresh]);
  const ownAttested=side==='operator'?data?.operator_attested:data?.passenger_attested;
