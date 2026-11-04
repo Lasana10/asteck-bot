@@ -1,5 +1,6 @@
 import React,{useCallback,useEffect,useState} from 'react';
 import {fetchMyScheduledDepartures,withdrawScheduledDeparture,type ManagedDeparture} from '../../services/operatorDeparturePublisher';
+import {OperatorRouteOpportunities} from './OperatorRouteOpportunities';
 
 /** Existing published routes remain operator-owned until capacity/booking rules permit withdrawal.
  * Financial or committed passenger journeys are deliberately not cancelled by this control.
@@ -61,6 +62,7 @@ export function OperatorDepartureOperations({reloadKey=0,onChanged}:{reloadKey?:
     </article>;
    })}
   </div>
+  <OperatorRouteOpportunities/>
   {notice&&<p role="status" className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-white/70">{notice}</p>}
  </section>;
 }
