@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, MapPin, Users, ChevronRight, Search, Filter, ArrowLeft, RefreshCw } from 'lucide-react';
 import { fetchPublishedDepartures, supabase } from '../../supabaseClient';
 import {selectRealDepartures} from '../../services/departureSearch';
+import {UnmetDepartureDemand} from './UnmetDepartureDemand';
 
 interface Departure {
   id: string;
@@ -202,6 +203,10 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
                 ? 'AFAT affichera ici les trajets dès que des opérateurs publient des départs actifs.'
                 : 'Le tableau ne fabrique pas de départs. Revenez après synchronisation du backend.'}
             </p>
+            {feedHealthy&&originQuery.trim()&&destinationQuery.trim()&&(
+              <UnmetDepartureDemand origin={originQuery} destination={destinationQuery}
+                travelDate={travelDate} minimumSeats={seatsNeeded} maximumFareXaf={maxFare}/>
+            )}
           </div>
         ) : (
           filtered.map(departure => {
