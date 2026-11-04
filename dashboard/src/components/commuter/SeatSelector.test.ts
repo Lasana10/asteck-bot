@@ -1,6 +1,6 @@
 import {describe,it,expect,vi} from 'vitest';
 vi.mock('../../supabaseClient',()=>({
- fetchPublishedDepartures:vi.fn(),
+ fetchSelectedDepartureAvailability:vi.fn(),
  supabase:{channel:vi.fn()},
 }));
 import {generateBlueprint,realSeatLabelForSelection} from './SeatSelector';
