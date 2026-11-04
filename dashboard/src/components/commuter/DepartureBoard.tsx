@@ -62,7 +62,8 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
       });
       if(!alive)return;
       setLoading(false);
-      if(error||!data||typeof data.has_more!=='boolean'||
+      if(error||!data||data.success!==true||!Array.isArray(data.departures)||
+         typeof data.has_more!=='boolean'||data.search_exhausted!==!data.has_more||
          data.availability_is_provisional!==true||data.page!==page){
         setFeedHealthy(false);setHasMore(false);
         if(page===0)setDepartures([]);
@@ -195,6 +196,14 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
 
       {/* Departure List */}
       <div className="flex-1 p-4 space-y-3">
+        {!feedHealthy&&!loading&&<div role="alert" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+          Departure search could not be verified. Previously loaded results may be outdated; no unmet-demand conclusion can be made.
+          <button type="button" onClick={()=>setRefreshKey(value=>value+1)}
+            className="ml-3 rounded-lg border border-amber-300/40 px-3 py-2 font-bold">Retry search</button>
+        </div>}
+        {feedHealthy&&hasMore&&page>=100&&<p role="status" className="rounded-xl border border-amber-400/30 p-3 text-xs text-amber-100">
+          Search page limit reached. Additional departures may exist; refine your filters. Do not treat these results as exhaustive.
+        </p>}
         {hasMore&&<p role="status" className="text-[10px] text-cyan-100/60">Showing verified departures from loaded pages only. More future departures remain; this is not an exhaustive demand search.</p>}
         {loading ? (
           <div className="flex items-center justify-center py-20">
