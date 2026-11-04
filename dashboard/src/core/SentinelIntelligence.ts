@@ -76,9 +76,9 @@ export class IntelligenceEngine {
         return 12742*Math.asin(Math.sqrt(Math.min(1,h)));
       };
       const active=(incidents||[]).filter((incident:any)=>{
-        const lat=Number(incident.latitude),lon=Number(incident.longitude);
+        const lat=incident.latitude,lon=incident.longitude;
         const age=Date.now()-Date.parse(incident.created_at);
-        return Number.isFinite(lat)&&Number.isFinite(lon)&&distanceKm(lat,lon)<=radiusKm&&
+        return typeof lat==='number'&&typeof lon==='number'&&Number.isFinite(lat)&&Number.isFinite(lon)&&distanceKm(lat,lon)<=radiusKm&&
           Number.isFinite(age)&&age>=0&&age<=3*60*60*1000&&
           ['verified','corroborated','confirmed'].includes(String(incident.verification_status||'').toLowerCase())&&
           !['resolved','closed','dismissed'].includes(String(incident.status||'').toLowerCase());
