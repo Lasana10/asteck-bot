@@ -15,12 +15,16 @@ describe('AFAT paid ticket reissue eligibility',()=>{
   });
  });
  it('refuses cash due, pending provider collection, cancelled and unconfirmed bookings',()=>{
-  for(const status of ['cash_due','unpaid','failed','collection_pending','refunded','paid_momo']){
+  for(const status of ['cash_due','unpaid','failed','collection_pending','refunded']){
    expect(projectConfirmedPassengerTicket({...booking,payment_status:status},now)).toBeNull();
   }
   for(const status of ['pending','boarded','in_progress','completed','cancelled']){
    expect(projectConfirmedPassengerTicket({...booking,status},now)).toBeNull();
   }
+ });
+ it('accepts provider-confirmed momo while rejecting unknown cash settlement',()=>{
+  expect(projectConfirmedPassengerTicket({...booking,payment_status:'paid_momo'},now)).not.toBeNull();
+  expect(projectConfirmedPassengerTicket({...booking,payment_status:'paid_cash'},now)).toBeNull();
  });
  it('fails closed when a provider reference or real future departure is absent',()=>{
   expect(projectConfirmedPassengerTicket({...booking,transaction_id:null},now)).toBeNull();
