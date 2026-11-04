@@ -1463,6 +1463,24 @@ export async function reconcileBookingPayment(bookingId: string) {
   }
 }
 
+/** Server-authoritative cancellation, never a local ticket/seat mutation. */
+export async function cancelUnpaidPassengerBooking(bookingId:string) {
+  try {
+    const authHeaders=await authenticatedApiHeaders();
+    const res=await fetch(`${getApiBaseUrl()}/api/booking/${encodeURIComponent(bookingId)}/cancel-unpaid`,{
+      method:'POST',headers:{'Content-Type':'application/json',...authHeaders},
+    });
+    const data=await res.json();
+    if(!res.ok)return {data:null,error:{message:data.error||'Booking cancellation was not confirmed.'}};
+    if(!data?.success||data?.cancellation?.booking_id!==bookingId||
+       data?.cancellation?.status!=='cancelled')
+      return {data:null,error:{message:'AFAT server did not provide a valid cancellation receipt.'}};
+    return {data,error:null};
+  }catch(error:any){
+    return {data:null,error:{message:error?.message||'Cancellation confirmation unavailable.'}};
+  }
+}
+
 export async function fetchBookingStatus(bookingId: string) {
   try {
     const authHeaders = await authenticatedApiHeaders();
