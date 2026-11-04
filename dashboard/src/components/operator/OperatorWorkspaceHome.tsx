@@ -47,6 +47,7 @@ export function OperatorWorkspaceHome({
 }) {
   const [execution, setExecution] = useState<OperatorExecutionSnapshot | null>(null);
   const [departureRefreshKey,setDepartureRefreshKey]=useState(0);
+  const [suggestedRoute,setSuggestedRoute]=useState<{origin:string;destination:string;version:number}|null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [payoutAmount, setPayoutAmount] = useState('');
@@ -237,8 +238,8 @@ export function OperatorWorkspaceHome({
 
       {!vehicle && <OperatorVehicleRegistration onRegistered={()=>{onChanged();void refreshExecution();}} />}
       {profile?.id&&vehicle?.id&&<OperatorComplianceEvidence profileId={String(profile.id)} vehicle={{id:vehicle.id,plate_number:vehicle.plate_number,type:vehicle.type}} onChanged={()=>{onChanged();void refreshExecution();}} />}
-      <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} onPublished={()=>{setDepartureRefreshKey(k=>k+1);onChanged();void refreshExecution();}} />
-      <OperatorDepartureOperations reloadKey={departureRefreshKey} onChanged={()=>{onChanged();void refreshExecution();}} />
+      <ScheduledDeparturePublisher vehicle={vehicle} city={profile?.preferred_city||'yaounde'} suggestedRoute={suggestedRoute} onPublished={()=>{setDepartureRefreshKey(k=>k+1);onChanged();void refreshExecution();}} />
+      <OperatorDepartureOperations reloadKey={departureRefreshKey} onChanged={()=>{onChanged();void refreshExecution();}} onPlanRoute={(origin,destination)=>setSuggestedRoute({origin,destination,version:Date.now()})} />
 
       <Surface className="p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
