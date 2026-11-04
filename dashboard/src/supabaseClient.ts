@@ -2888,36 +2888,11 @@ export function subscribeToNotifications(userId: string, callback: (payload: any
 
 
 
-export async function verifyBoarding(bookingId: string, operatorId: string) {
-  const { data: booking, error: fetchError } = await supabase
-    .from('bookings')
-    .select('id, operator_id, status, payment_status')
-    .eq('id', bookingId)
-    .eq('operator_id', operatorId)
-    .single();
-
-  if (fetchError || !booking) {
-    return false;
-  }
-
-  const status = booking.status || '';
-  const paymentStatus = booking.payment_status || '';
-  const validStatus = ['confirmed', 'accepted'].includes(status);
-  const validPayment = paymentStatus === 'paid' || paymentStatus === 'cash_due';
-
-  if (!validStatus || !validPayment) {
-    return false;
-  }
-
-  const { data, error } = await supabase
-    .from('bookings')
-    .update({ status: 'boarded', updated_at: new Date().toISOString() })
-    .eq('id', bookingId)
-    .eq('operator_id', operatorId)
-    .select()
-    .single();
-
-  return !error && data;
+/** Legacy unsafe direct boarding path is intentionally disabled.
+ * The caller must present the complete signed QR payload using verifyBoardingToken.
+ */
+export async function verifyBoarding(_bookingId: string, _operatorId: string) {
+  return false;
 }
 
 export async function verifyBoardingToken(ticket: any, operatorId: string) {

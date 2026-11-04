@@ -593,7 +593,8 @@ async function applyRideCredit(booking: any, reference: string) {
 }
 
 function isBoardablePaymentStatus(paymentStatus: string) {
-  return ['paid', 'cash_due'].includes(paymentStatus || '');
+  // Cash-due is NOT a payment receipt; QR scanning cannot attest collection.
+  return ['paid', 'paid_momo'].includes(paymentStatus || '');
 }
 
 async function expireSeatHolds(routeId?: string, seatLabel?: string) {
@@ -4598,14 +4599,19 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'ticket is required' });
     }
 
-    const expectedSignature = signTicketPayload(ticket.t);
-    if (expectedSignature !== ticket.s) {
+    if(typeof ticket.t!=='string'||!(/^[a-zA-Z0-9_-]{16,3000}$/).test(ticket.t)||
+       typeof ticket.s!=='string'||!(/^[a-fA-F0-9]{64}$/).test(ticket.s))
+      return res.status(400).json({error:'Malformed signed ticket'});
+    const expectedSignature = Buffer.from(signTicketPayload(ticket.t), 'hex');
+    const incomingSignature = Buffer.from(ticket.s, 'hex');
+    if (!crypto.timingSafeEqual(expectedSignature,incomingSignature))
       return res.status(403).json({ error: 'Invalid ticket signature' });
-    }
 
     const decoded = JSON.parse(Buffer.from(ticket.t, 'base64url').toString('utf8'));
-    if (!decoded?.bid || !decoded?.oid) {
-      return res.status(400).json({ error: 'Malformed ticket payload' });
+    if (!decoded?.bid || !decoded?.oid || !decoded?.rid || !decoded?.seat ||
+        !Number.isFinite(decoded.iat) || decoded.iat > Date.now()+60_000 ||
+        decoded.iat < Date.now()-48*60*60*1000) {
+      return res.status(400).json({ error: 'Ticket expired or payload incomplete' });
     }
 
     if (decoded.oid !== operator_id) {
@@ -4614,7 +4620,7 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
 
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('id, operator_id, status, payment_status')
+      .select('id, operator_id, route_id, seat_label, status, payment_status')
       .eq('id', decoded.bid)
       .eq('operator_id', operator_id)
       .single();
@@ -4623,8 +4629,12 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Booking not found for this operator' });
     }
 
+    if(String(booking.route_id)!==String(decoded.rid) ||
+       String(booking.seat_label)!==String(decoded.seat))
+      return res.status(403).json({ error: 'Signed ticket no longer matches booking seat or route' });
+
     if (!isBoardablePaymentStatus(booking.payment_status)) {
-      return res.status(400).json({ error: 'Booking is unpaid' });
+      return res.status(409).json({ error: 'Payment not independently confirmed; cash-due cannot be boarded' });
     }
 
     if (!['confirmed', 'accepted'].includes(booking.status)) {
