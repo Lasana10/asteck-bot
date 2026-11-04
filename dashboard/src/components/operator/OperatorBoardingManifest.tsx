@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {fetchOperatorBoardingManifest,type OperatorBoardingManifest as Manifest} from '../../services/operatorDeparturePublisher';
 import {OperatorTicketScanner} from './OperatorTicketScanner';
+import {CashHandoverPanel} from '../shared/CashHandoverPanel';
 
 /** Server-viewed seat positions only. Actual boarding requires signed QR verification. */
 export function OperatorBoardingManifest({departureId}:{departureId:string}){
@@ -33,6 +34,7 @@ export function OperatorBoardingManifest({departureId}:{departureId:string}){
     {scannerOpen?'Close ticket scanner':'Scan passenger QR ticket'}
   </button>
   {scannerOpen&&<OperatorTicketScanner onVerified={()=>setRefreshKey(key=>key+1)}/>}
+  <CashHandoverPanel role="operator" departureId={departureId} onConfirmed={()=>setRefreshKey(key=>key+1)}/>
   {notice&&<p role="alert" className="mt-3 text-[10px] text-amber-100">{notice}</p>}
   {data&&<div className="mt-3">
    <p className="text-xs text-white/75">{data.booked_seats} reserved · {data.boarded_seats} recorded boarded · {data.capacity} verified-capacity seats</p>
