@@ -594,7 +594,7 @@ async function applyRideCredit(booking: any, reference: string) {
 
 function isBoardablePaymentStatus(paymentStatus: string) {
   // Cash-due is NOT a payment receipt; QR scanning cannot attest collection.
-  return ['paid', 'paid_momo'].includes(paymentStatus || '');
+  return ['paid', 'paid_momo', 'paid_cash'].includes(paymentStatus || '');
 }
 
 async function expireSeatHolds(routeId?: string, seatLabel?: string) {
@@ -4371,6 +4371,47 @@ router.post('/booking/:bookingId/cancel-unpaid',async(req:Request,res:Response)=
   }
 });
 
+// Dual, separate human cash handover statements. Never a payment provider receipt.
+router.get('/booking/:bookingId/cash-handover',async(req:Request,res:Response)=>{
+ const session=await requireAuthRole(req,res,['commuter','operator']);
+ if(!session)return;
+ const id=String(req.params.bookingId||'');
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+   return res.status(400).json({error:'VALID_BOOKING_REQUIRED'});
+ try{
+  const {data,error}=await supabase.rpc('afat_read_cash_handover',{
+    p_actor_id:session.profile.id,p_booking_id:id,
+  });
+  if(error)return res.status(String(error.code)==='42501'?403:409).json({error:error.message});
+  res.setHeader('Cache-Control','no-store');
+  return res.json({success:true,handover:data});
+ }catch(error:any){return res.status(503).json({error:error?.message||'Cash handover status unavailable'});}
+});
+router.post('/booking/:bookingId/cash-handover',async(req:Request,res:Response)=>{
+ const session=await requireAuthRole(req,res,['commuter','operator']);
+ if(!session)return;
+ const id=String(req.params.bookingId||'');
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+   return res.status(400).json({error:'VALID_BOOKING_REQUIRED'});
+ const side=session.profile.role==='operator'?'operator':session.profile.role==='commuter'?'passenger':'';
+ if(!side)return res.status(403).json({error:'CASH_HANDOVER_PARTICIPANT_ROLE_REQUIRED'});
+ if(req.body?.received_or_handed_over!==true)
+   return res.status(400).json({error:'Explicit physical cash handover declaration required'});
+ try{
+  const {data,error}=await supabase.rpc('afat_attest_cash_handover',{
+    p_actor_id:session.profile.id,p_booking_id:id,p_side:side,
+  });
+  if(error){
+   return res.status(String(error.code)==='42501'?403:409).json({error:error.message});
+  }
+  if(!data||data.booking_id!==id||data.bank_or_provider_settlement_verified!==false||
+      data.operator_wallet_credited!==false)
+    return res.status(503).json({error:'Invalid server cash handover receipt'});
+  res.setHeader('Cache-Control','no-store');
+  return res.json({success:true,handover:data});
+ }catch(error:any){return res.status(503).json({error:error?.message||'Cash handover was not confirmed'});}
+});
+
 router.get('/booking/:bookingId', async (req: Request, res: Response) => {
   try {
     const session = await requireAuthRole(req, res);
@@ -4558,8 +4599,14 @@ router.post('/ticket/issue', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    if (!isBoardablePaymentStatus(booking.payment_status) || booking.status !== 'confirmed') {
-      return res.status(400).json({ error: 'Booking is not ready for ticket issuance' });
+    if (!isBoardablePaymentStatus(booking.payment_status) || booking.status !== 'confirmed')
+      return res.status(400).json({error:'Booking is not ready for ticket issuance'});
+    if(booking.payment_status==='paid_cash'){
+      const {data:cash,error:cashError}=await supabase.from('afat_cash_handover_evidence')
+        .select('booking_id,passenger_attested_at,operator_attested_at,dual_attested_at')
+        .eq('booking_id',booking.id).maybeSingle();
+      if(cashError||!cash?.passenger_attested_at||!cash?.operator_attested_at||!cash?.dual_attested_at)
+        return res.status(409).json({error:'Dual physical cash handover not confirmed'});
     }
 
     const payload = Buffer.from(JSON.stringify({
@@ -4633,8 +4680,14 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
        String(booking.seat_label)!==String(decoded.seat))
       return res.status(403).json({ error: 'Signed ticket no longer matches booking seat or route' });
 
-    if (!isBoardablePaymentStatus(booking.payment_status)) {
-      return res.status(409).json({ error: 'Payment not independently confirmed; cash-due cannot be boarded' });
+    if (!isBoardablePaymentStatus(booking.payment_status))
+      return res.status(409).json({error:'Payment not confirmed; cash-due cannot be boarded'});
+    if(booking.payment_status==='paid_cash'){
+      const {data:cash,error:cashError}=await supabase.from('afat_cash_handover_evidence')
+        .select('booking_id,passenger_attested_at,operator_attested_at,dual_attested_at')
+        .eq('booking_id',booking.id).maybeSingle();
+      if(cashError||!cash?.passenger_attested_at||!cash?.operator_attested_at||!cash?.dual_attested_at)
+        return res.status(409).json({error:'Dual cash handover evidence required'});
     }
 
     if (!['confirmed', 'accepted'].includes(booking.status)) {
