@@ -60,7 +60,8 @@
     "test:boarding-financial-truth": "node --import tsx scripts/verify-boarding-financial-truth.ts",
     "test:paid-ticket-recovery": "node --import tsx scripts/verify-paid-ticket-recovery.ts",
     "test:dual-cash-handover": "node --import tsx scripts/verify-dual-cash-handover.ts",
-    "test:exact-departure-availability": "node --import tsx scripts/verify-exact-departure-availability.ts"
+    "test:exact-departure-availability": "node --import tsx scripts/verify-exact-departure-availability.ts",
+    "test:paginated-departure-discovery": "node --import tsx scripts/verify-paginated-departure-discovery.ts"
   },
   "keywords": [],
   "author": "",
