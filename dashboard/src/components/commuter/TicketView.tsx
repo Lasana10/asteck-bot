@@ -137,7 +137,7 @@ export function TicketView({ booking, onBack }: Props) {
             Revoke this Guardian Watch link
           </button>
         </>}
-        {guardianNotice&&<p role="status" className="mt-3 text-xs text-amber-100">{guardianNotice}</p>
+        {guardianNotice&&<p role="status" className="mt-3 text-xs text-amber-100">{guardianNotice}</p>}
       </div>
 
       {/* Ticket Card */}
