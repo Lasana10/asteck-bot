@@ -2253,7 +2253,7 @@ router.get('/mobility/departures', async (req: Request, res: Response) => {
     const maxFare=String(req.query.max_fare_xaf??'').trim();
     const page=/^(0|[1-9][0-9]{0,2})$/.test(pageText)?Number(pageText):NaN;
     if(!Number.isSafeInteger(page)||page>100||
-       (day!==''&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(day))||
+       (day!==''&&!/^\d{4}-\d{2}-\d{2}$/.test(day))||
        (maxFare!==''&&(!/^[1-9][0-9]{0,7}$/.test(maxFare)||Number(maxFare)>2_000_000))||
        [origin,destination].some(v=>/[\\%_]/.test(v)))
       return res.status(400).json({error:'INVALID_DEPARTURE_SEARCH_PARAMETERS'});
