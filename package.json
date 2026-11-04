@@ -53,7 +53,8 @@
     "test:operator-route-opportunities": "node --import tsx scripts/verify-operator-route-opportunities.ts",
     "test:demand-to-supply": "node --import tsx scripts/verify-demand-to-supply.ts",
     "test:passenger-booking-cancellation": "node --import tsx scripts/verify-passenger-booking-cancellation.ts",
-    "test:guardian-sharing": "node --import tsx scripts/verify-guardian-sharing.ts"
+    "test:guardian-sharing": "node --import tsx scripts/verify-guardian-sharing.ts",
+    "test:operator-boarding-manifest": "node --import tsx scripts/verify-operator-boarding-manifest.ts"
   },
   "keywords": [],
   "author": "",
