@@ -9,7 +9,7 @@ for(const token of [
  'auth.user?.id!==profileId',
  ".eq('passenger_id',profileId)",
  ".eq('status','confirmed')",
- ".in('payment_status',['paid','paid_momo'])",
+ ".in('payment_status',['paid','paid_momo','paid_cash'])",
  'Date.parse(depart)<=now',
  'transaction_id',
  'return {data:results.slice(0,10),error:null}',
