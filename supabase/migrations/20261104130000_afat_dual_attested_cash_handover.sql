@@ -36,7 +36,7 @@ begin
   end if;
   if v_booking.status<>'confirmed' or
      v_booking.payment_status not in ('cash_due','paid_cash') or
-     v_booking.transaction_id not like 'CASH-%' then
+     coalesce(v_booking.transaction_id,'') not like 'CASH-%' then
     raise exception 'CASH_HANDOVER_BOOKING_NOT_ELIGIBLE' using errcode='P0001';
   end if;
   select * into v_route from public.routes where id=v_booking.route_id;
