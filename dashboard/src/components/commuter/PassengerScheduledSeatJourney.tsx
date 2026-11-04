@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {fetchRecoverablePassengerPayments,type RecoverablePaymentBooking} from '../../services/paymentRecovery';
-import {fetchRecoverablePaidTickets,type RecoverablePaidTicket} from '../../services/paidTicketRecovery';
+import {fetchConfirmedPassengerTickets,type ConfirmedPassengerTicket} from '../../services/confirmedTicketRecovery';
 import {DepartureBoard} from './DepartureBoard';
 import {SeatSelector} from './SeatSelector';
 import {PaymentSheet} from './PaymentSheet';
@@ -28,9 +28,11 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  const [notice,setNotice]=useState('');
  const [ticket,setTicket]=useState<Ticket|null>(null);
  const [recoverable,setRecoverable]=useState<RecoverablePaymentBooking[]>([]);
- const [paidTickets,setPaidTickets]=useState<RecoverablePaidTicket[]>([]);
  const [recoveryBooking,setRecoveryBooking]=useState<RecoverablePaymentBooking|null>(null);
  const [recoverLoading,setRecoverLoading]=useState(false);
+ const [confirmedTickets,setConfirmedTickets]=useState<ConfirmedPassengerTicket[]>([]);
+ const [ticketLoading,setTicketLoading]=useState(false);
+ const [ticketNotice,setTicketNotice]=useState('');
  const [cancelSelection,setCancelSelection]=useState<string|null>(null);
  const [cancelBusy,setCancelBusy]=useState(false);
  const cancelBooking=async(item:RecoverablePaymentBooking)=>{
@@ -50,17 +52,25 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  useEffect(()=>{
   if(stage!=='departures')return;
   let active=true;
+  setTicketLoading(true);setTicketNotice('');
+  void fetchConfirmedPassengerTickets(profileId).then(({data,error})=>{
+   if(!active)return;
+   setTicketLoading(false);
+   if(error){setConfirmedTickets([]);setTicketNotice(error.message);return;}
+   setConfirmedTickets(data);
+  });
+  return()=>{active=false;};
+ },[profileId,stage]);
+ useEffect(()=>{
+  if(stage!=='departures')return;
+  let active=true;
   setRecoverLoading(true);
-  void Promise.all([
-    fetchRecoverablePassengerPayments(profileId),
-    fetchRecoverablePaidTickets(profileId),
-  ]).then(([pending,paid])=>{
+  void fetchRecoverablePassengerPayments(profileId).then(({data,error})=>{
     if(!active)return;
     setRecoverLoading(false);
-    setRecoverable(pending.data);
-    setPaidTickets(paid.data);
-    if(pending.error||paid.error)setNotice(pending.error?.message||paid.error?.message||'Booking recovery unavailable.');
-  }).catch(()=>{if(active){setRecoverLoading(false);setNotice('Unable to verify your server bookings.');}});
+    if(error){setNotice(error.message);return;}
+    setRecoverable(data);
+  });
   return()=>{active=false;};
  },[profileId,stage]);
 
@@ -147,17 +157,19 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
   <div className="flex items-center justify-between bg-slate-950 p-3"><strong className="text-sm">Published future departures</strong>
    <button type="button" onClick={()=>void exit()} className="rounded-xl border border-white/15 px-4 py-2 text-xs">Close</button></div>
   <div className="border-b border-white/10 bg-slate-950 p-4">
-   <h4 className="text-xs font-black text-emerald-200">Recover my verified paid tickets</h4>
-   <p className="mt-1 text-[11px] text-white/55">Only your server-confirmed, paid, future bookings. The signed boarding QR is reissued securely by AFAT; no further payment is initiated.</p>
-   {recoverLoading&&<p className="mt-2 text-xs text-white/45">Checking confirmed paid bookings…</p>}
-   {paidTickets.map(item=><button key={item.id} type="button"
-     onClick={()=>{setTicket(item);setNotice('');setStage('ticket');}}
-     className="mt-2 block w-full rounded-xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-left">
-     <span className="block text-xs font-black">{item.origin} → {item.destination} · Seat {item.seatLabel}</span>
-     <span className="mt-1 block text-[10px] text-white/55">
-       Paid {item.price.toLocaleString()} XAF · {new Date(item.departureTime).toLocaleString()} · Reissue signed QR
-     </span>
-   </button>)}
+   <h4 className="text-xs font-black text-emerald-200">Recover my confirmed tickets</h4>
+   <p className="mt-1 text-[11px] text-white/55">Only your server-confirmed paid bookings. AFAT signs the ticket again when you open it; this device cannot create a boarding ticket.</p>
+   {ticketLoading&&<p className="mt-2 text-xs text-white/45">Checking confirmed paid tickets…</p>}
+   {confirmedTickets.slice(0,8).map(item=><article key={item.id}
+     className="mt-2 rounded-xl border border-emerald-300/15 bg-emerald-400/[0.035] p-3">
+     <p className="text-xs font-bold text-white">{item.origin} → {item.destination} · Seat {item.seatLabel}</p>
+     <p className="mt-1 text-[10px] text-white/55">{new Date(item.departureTime).toLocaleString()} · {item.price.toLocaleString()} XAF · Server payment confirmed</p>
+     <button type="button" onClick={()=>{setTicket(item);setStage('ticket');}}
+       className="mt-2 min-h-10 rounded-lg border border-emerald-300/25 px-3 text-[10px] font-bold text-emerald-100">
+       Retrieve signed boarding ticket
+     </button>
+   </article>)}
+   {ticketNotice&&<p role="status" className="mt-2 text-xs text-amber-100">{ticketNotice}</p>}
   </div>
   <div className="border-b border-white/10 bg-slate-950 p-4">
    <h4 className="text-xs font-black text-cyan-200">Resume an existing unpaid booking</h4>
