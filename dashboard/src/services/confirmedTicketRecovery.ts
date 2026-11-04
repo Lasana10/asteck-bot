@@ -5,7 +5,7 @@ export type ConfirmedPassengerTicket={
  departureTime:string;transactionId:string;paymentMethod:string;
 };
 export function projectConfirmedPassengerTicket(raw:any,now=Date.now()):ConfirmedPassengerTicket|null{
- if(!raw||raw.status!=='confirmed'||raw.payment_status!=='paid'||!raw.transaction_id||
+ if(!raw||raw.status!=='confirmed'||!['paid','paid_momo'].includes(raw.payment_status)||!raw.transaction_id||
     typeof raw.transaction_id!=='string'||raw.transaction_id.length>120||
     !raw.seat_label||typeof raw.seat_label!=='string'||!raw.id)return null;
  const route=Array.isArray(raw.routes)?raw.routes[0]:raw.routes;
@@ -31,7 +31,7 @@ export async function fetchConfirmedPassengerTickets(profileId:string){
   return {data:empty,error:{message:'Authenticate as the passenger who owns the ticket.'}};
  const {data,error}=await supabase.from('bookings')
   .select('id,passenger_id,status,payment_status,price_paid,price_xaf,seat_label,transaction_id,created_at,routes(name,origin,destination,departure_time),vehicles(plate_number),profiles!operator_id(full_name)')
-  .eq('passenger_id',profileId).eq('status','confirmed').eq('payment_status','paid')
+  .eq('passenger_id',profileId).eq('status','confirmed').in('payment_status',['paid','paid_momo'])
   .order('created_at',{ascending:false}).limit(20);
  if(error)return {data:empty,error:{message:error.message}};
  return {data:(data||[]).flatMap(raw=>{
