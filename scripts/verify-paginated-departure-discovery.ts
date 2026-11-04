@@ -19,6 +19,17 @@ for(const token of [
  "availability_is_provisional:true",
 ])assert.ok(route.includes(token),'paginated verified search: '+token);
 assert.ok(!route.includes(".limit(50)"),'server must page before projection, not silently truncate');
+assert.ok(route.includes("new Date(localStart+3_600_000).toISOString().slice(0,10)!==day"),
+  'server must reject normalized/nonexistent Cameroon calendar dates');
+const validCameroonDay=(day:string)=>{
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return false;
+  const start=Date.parse(day+'T00:00:00+01:00');
+  return Number.isFinite(start)&&new Date(start+3_600_000).toISOString().slice(0,10)===day;
+};
+for(const day of ['2026-02-28','2028-02-29','2026-11-04'])
+  assert.equal(validCameroonDay(day),true,'valid calendar day '+day);
+for(const day of ['2026-02-29','2026-02-31','2026-04-31','2026-13-01','2026-00-01','2026-11-31'])
+  assert.equal(validCameroonDay(day),false,'reject nonexistent day '+day);
 for(const token of [
  "params.set('page'", "params.set('origin'", "params.set('destination'",
  "params.set('date'", "params.set('max_fare_xaf'",
