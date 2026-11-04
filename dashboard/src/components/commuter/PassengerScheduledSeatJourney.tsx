@@ -5,6 +5,7 @@ import {DepartureBoard} from './DepartureBoard';
 import {SeatSelector} from './SeatSelector';
 import {PaymentSheet} from './PaymentSheet';
 import {TicketView} from './TicketView';
+import {CashHandoverPanel} from '../shared/CashHandoverPanel';
 import {createBookingFromHold,createSeatHold,releaseSeatHold,cancelUnpaidPassengerBooking} from '../../supabaseClient';
 
 type Departure=React.ComponentProps<typeof SeatSelector>['departure'] & {operator_id:string};
@@ -189,6 +190,7 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
    </article>)}
    {notice&&<p role="status" className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">{notice}</p>}
   </div>
+  <div className="border-b border-white/10 bg-slate-950 p-4"><CashHandoverPanel role="passenger" onConfirmed={()=>onChanged()}/></div>
   <DepartureBoard onBack={()=>void exit()} onSelectDeparture={chooseDeparture}/></section>;
  if(stage==='seats'&&departure)return <section className="overflow-hidden rounded-2xl border border-white/10">
   <SeatSelector departure={departure} onBack={()=>{void releaseUnconverted();setStage('departures');}}
@@ -212,6 +214,7 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  if(stage==='cash_due')return <section className="rounded-2xl border border-emerald-300/20 bg-slate-950 p-6">
   <h3 className="text-lg font-black">Booking recorded · cash still due</h3>
   <p className="mt-3 text-sm text-white/70">Your booking exists, but no cash payment has been verified. AFAT will not issue a paid ticket until the proper collection workflow confirms it.</p>
+  <button type="button" onClick={()=>setStage('departures')} className="mt-5 min-h-11 rounded-xl border border-amber-300/25 px-4 text-xs font-bold text-amber-100">Review physical cash handover</button>
   <button type="button" onClick={()=>{onChanged();onClose();}} className="mt-5 min-h-11 rounded-xl bg-emerald-300 px-4 text-xs font-black text-slate-950">View my journeys</button>
  </section>;
  return <section className="rounded-2xl border border-amber-300/20 p-5">
