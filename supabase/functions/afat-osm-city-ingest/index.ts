@@ -74,6 +74,14 @@ Deno.serve(async (req: Request) => {
   let osm:any; try{osm=JSON.parse(rawText);}catch{return json({error:"Invalid Overpass JSON"},502);}
   const elements=Array.isArray(osm?.elements)?osm.elements:[];
   const ways=elements.filter((item:any)=>item?.type==="way"&&Array.isArray(item.geometry)&&item.geometry.length>=2);
+  // Refuse incomplete import rather than silently recording only a first-page slice
+  // as fully completed. Operators can retry using smaller controlled cells.
+  if(ways.length>5000) return json({
+    error:"OSM_CELL_EXCEEDS_FEATURE_LIMIT",
+    actual_way_count:ways.length,
+    maximum_way_count:5000,
+    note:"Subdivide the cell; no import batch was created and no source features were written.",
+  },413);
   const osmBase=String(osm?.osm3s?.timestamp_osm_base||new Date().toISOString());
   const datasetVersion=`overpass:${osmBase}`;
 
@@ -90,7 +98,7 @@ Deno.serve(async (req: Request) => {
   if(batchError||!batch) return json({error:"Could not create Atlas import batch",detail:batchError?.message},500);
 
   let accepted=0,rejected=0; const errors:string[]=[];
-  for(const way of ways.slice(0,5000)){
+  for(const way of ways){
     try{
       const tags=way.tags&&typeof way.tags==="object"?way.tags:{};
       const coordinates=way.geometry.map((point:any)=>[Number(point.lon),Number(point.lat)]).filter((point:number[])=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
@@ -118,14 +126,20 @@ Deno.serve(async (req: Request) => {
     topology=topo.data||null; topologyError=topo.error?.message||null;
   }
   const finalStatus=rejected>0&&accepted===0?"failed":rejected>0||topologyError?"completed_with_errors":"completed";
-  await service.from("afat_geo_import_batches").update({
+  const { error: finalizationError } = await service.from("afat_geo_import_batches").update({
     status:finalStatus,inserted_count:accepted,rejected_count:rejected,
     error_summary:errors.length?errors.join(" | "):topologyError,finished_at:new Date().toISOString(),updated_at:new Date().toISOString(),
   }).eq("id",batch.id);
+  if(finalizationError) return json({
+    error:"OSM_IMPORT_FINALIZATION_FAILED",batch_id:batch.id,
+    accepted_count:accepted,rejected_count:rejected,
+    detail:finalizationError.message,
+    note:"The batch cannot be called complete until its evidence status is persisted.",
+  },503);
 
   return json({
     batch_id:batch.id,source:"openstreetmap",city_key:cityKey,city_name:city.city_name,scope_label:scopeLabel,
-    bbox:{south,west,north,east},dataset_version:datasetVersion,input_way_count:ways.length,processed_way_count:Math.min(ways.length,5000),
+    bbox:{south,west,north,east},dataset_version:datasetVersion,input_way_count:ways.length,processed_way_count:ways.length,
     accepted_count:accepted,rejected_count:rejected,status:finalStatus,topology,topology_error:topologyError,
     note:"Candidate-only ingestion. OSM provenance and ODbL attribution are retained; canonical AFAT promotion still requires evidence review.",
   });
