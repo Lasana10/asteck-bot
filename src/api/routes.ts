@@ -2258,7 +2258,10 @@ router.get('/mobility/departures', async (req: Request, res: Response) => {
        [origin,destination].some(v=>/[\\%_]/.test(v)))
       return res.status(400).json({error:'INVALID_DEPARTURE_SEARCH_PARAMETERS'});
     const localStart=day?Date.parse(day+'T00:00:00+01:00'):NaN;
-    if(day&&!Number.isFinite(localStart))
+    // Date.parse silently normalizes invalid calendar dates (e.g. Feb 31).
+    // Cameroon is UTC+01:00 year-round; round-trip the requested local day.
+    if(day&&(!Number.isFinite(localStart)||
+      new Date(localStart+3_600_000).toISOString().slice(0,10)!==day))
       return res.status(400).json({error:'INVALID_CAMEROON_TRAVEL_DAY'});
     let query=supabase.from('routes')
       .select('id, operator_id, vehicle_id, name, origin, destination, departure_time, price_per_seat, capacity, vehicle_type, is_active')
