@@ -42,6 +42,7 @@ export function UnmetDepartureDemand({origin,destination,travelDate,minimumSeats
       });
       if(error)throw new Error(error.message);
       setLastSubmitted(queryKey);
+      setConsent(false);
       const queued=Boolean((data as {queued?:boolean}|null)?.queued);
       setNotice(queued?'Request stored on your device for authenticated submission. It is not a booking.'
         :'Your unmet travel request was sent for planning review. No seat, vehicle, price or departure is confirmed.');
