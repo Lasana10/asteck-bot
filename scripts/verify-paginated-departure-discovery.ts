@@ -22,7 +22,7 @@ assert.ok(!route.includes(".limit(50)"),'server must page before projection, not
 assert.ok(route.includes("new Date(localStart+3_600_000).toISOString().slice(0,10)!==day"),
   'server must reject normalized/nonexistent Cameroon calendar dates');
 const validCameroonDay=(day:string)=>{
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(day))return false;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return false;
   const start=Date.parse(day+'T00:00:00+01:00');
   return Number.isFinite(start)&&new Date(start+3_600_000).toISOString().slice(0,10)===day;
 };
