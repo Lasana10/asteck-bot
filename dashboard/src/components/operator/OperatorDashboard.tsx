@@ -180,7 +180,11 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
 
     const interval = setInterval(async () => {
       const language = profile?.language || 'fr';
-      const prediction = await IntelligenceEngine.predict('Yaoundé Centre', language);
+      const prediction = await IntelligenceEngine.predict(
+        profile?.preferred_city||'your area',language,
+        vehicle?{latitude:Number(vehicle.current_lat),longitude:Number(vehicle.current_lng),
+          observedAt:vehicle.last_ping_at}:undefined,
+      );
       
       setCoPilotFeed(prev => [
         { 
@@ -193,7 +197,7 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
     }, 60000); // Update every minute
 
     return () => clearInterval(interval);
-  }, [isDriveModeActive, profile?.language]);
+  }, [isDriveModeActive, profile?.language, profile?.preferred_city, vehicle?.current_lat, vehicle?.current_lng, vehicle?.last_ping_at]);
 
   useEffect(() => {
     if (isOnline && profile?.id) {
