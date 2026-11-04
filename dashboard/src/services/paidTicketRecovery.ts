@@ -16,13 +16,13 @@ export async function fetchRecoverablePaidTickets(profileId:string,now=Date.now(
  const {data,error}=await supabase.from('bookings')
   .select('id,passenger_id,operator_id,status,payment_status,price_paid,price_xaf,seat_label,transaction_id,created_at,routes(name,origin,destination,departure_time),vehicles(plate_number),profiles!operator_id(full_name)')
   .eq('passenger_id',profileId).eq('status','confirmed')
-  .in('payment_status',['paid','paid_momo'])
+  .in('payment_status',['paid','paid_momo','paid_cash'])
   .order('created_at',{ascending:false}).limit(30);
  if(error)return {data:[],error:{message:error.message}};
  const results:RecoverablePaidTicket[]=[];
  for(const item of data||[]){
   if(item.passenger_id!==profileId||item.status!=='confirmed'||
-   !['paid','paid_momo'].includes(String(item.payment_status)))continue;
+   !['paid','paid_momo','paid_cash'].includes(String(item.payment_status)))continue;
   const route=Array.isArray(item.routes)?item.routes[0]:item.routes;
   const operator=Array.isArray(item.profiles)?item.profiles[0]:item.profiles;
   const vehicle=Array.isArray(item.vehicles)?item.vehicles[0]:item.vehicles;
@@ -38,7 +38,7 @@ export async function fetchRecoverablePaidTickets(profileId:string,now=Date.now(
    seatLabel:String(item.seat_label),price:amount,operatorName:String(operator.full_name),
    plateNumber:String(vehicle?.plate_number||'Not provided'),
    departureTime:depart,transactionId:String(item.transaction_id),
-   paymentMethod:'mobile_money',
+   paymentMethod:item.payment_status==='paid_cash'?'cash':'mobile_money',
   });
  }
  return {data:results.slice(0,10),error:null};
