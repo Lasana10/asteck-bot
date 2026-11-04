@@ -40,42 +40,49 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
   const [seatsNeeded,setSeatsNeeded]=useState(1);
   const [loading, setLoading] = useState(true);
   const [feedHealthy, setFeedHealthy] = useState(true);
+  const [page,setPage]=useState(0);
+  const [hasMore,setHasMore]=useState(false);
+  const [refreshKey,setRefreshKey]=useState(0);
 
-  useEffect(() => {
-    fetchDepartures();
-    
-    // Real-time updates on bookings table changes
-    const channel = supabase
-      .channel('departures-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
-        fetchDepartures();
-      })
-      .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  const fetchDepartures = async () => {
-    setLoading(true);
-    setFeedHealthy(true);
-    
-    const { data, error: routesError } = await fetchPublishedDepartures();
-
-    if (routesError) {
-      console.error('[AFAT] Failed to load departures', routesError);
-      setFeedHealthy(false);
-      setDepartures([]);
+  // Search constraints are applied before the server page limit, never just
+  // to the first 50 results. Additional pages never imply verified seats.
+  useEffect(()=>{
+    setPage(0);
+    setDepartures([]);
+    setHasMore(false);
+  },[originQuery,destinationQuery,travelDate,maxFare]);
+  useEffect(()=>{
+    let alive=true;
+    setLoading(true);setFeedHealthy(true);
+    const refresh=async()=>{
+      const {data,error}=await fetchPublishedDepartures({
+        page,origin:originQuery,destination:destinationQuery,
+        date:travelDate,maxFareXaf:maxFare,
+      });
+      if(!alive)return;
       setLoading(false);
-      return;
-    }
-
-    if (data?.departures?.length) {
-      setDepartures(data.departures);
-    } else {
-      setDepartures([]);
-    }
-    setLoading(false);
-  };
+      if(error||!data||typeof data.has_more!=='boolean'||
+         data.availability_is_provisional!==true||data.page!==page){
+        setFeedHealthy(false);setHasMore(false);
+        if(page===0)setDepartures([]);
+        return;
+      }
+      setHasMore(data.has_more);
+      const rows=(Array.isArray(data.departures)?data.departures:[]) as Departure[];
+      setDepartures(current=>{
+        if(page===0)return rows;
+        const known=new Set(current.map(row=>row.id));
+        return [...current,...rows.filter(row=>!known.has(row.id))];
+      });
+    };
+    void refresh();
+    const channel=supabase.channel('departures-live-'+page)
+      .on('postgres_changes',{event:'*',schema:'public',table:'bookings'},()=>{
+        if(alive)void refresh();
+      }).subscribe();
+    return()=>{alive=false;supabase.removeChannel(channel);};
+  },[page,originQuery,destinationQuery,travelDate,maxFare,refreshKey]);
 
   const vehicleEmoji: Record<string, string> = { moto: '🏍️', taxi: '🚕', minibus: '🚐', bus: '🚌' };
 
@@ -112,7 +119,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
             <h1 className="font-extrabold text-lg tracking-tight">Départs publiés</h1>
             <p className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Offres réelles · Cameroun</p>
           </div>
-          <button onClick={fetchDepartures} className="ml-auto p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+          <button onClick={()=>{setPage(0);setRefreshKey(value=>value+1);}} className="ml-auto p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
             <RefreshCw className={`w-5 h-5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
@@ -188,6 +195,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
 
       {/* Departure List */}
       <div className="flex-1 p-4 space-y-3">
+        {hasMore&&<p role="status" className="text-[10px] text-cyan-100/60">Showing verified departures from loaded pages only. More future departures remain; this is not an exhaustive demand search.</p>}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-10 h-10 border-4 border-slate-800 border-t-blue-500 rounded-full animate-spin"></div>
@@ -197,13 +205,15 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-30" />
             <p className="font-bold">{feedHealthy ? 'Aucun départ vérifié pour le moment' : 'Flux de départ indisponible'}</p>
             <p className="text-sm mt-1">
-              {feedHealthy && filterActive
+              {feedHealthy && hasMore
+                ? 'No matching verified departure in loaded pages yet. Load more results before reporting unmet demand.'
+                : feedHealthy && filterActive
                 ? 'No verified future departure matches the requested cities, local date, fare and seat count. Clear filters or try another date.'
                 : feedHealthy
                 ? 'AFAT affichera ici les trajets dès que des opérateurs publient des départs actifs.'
                 : 'Le tableau ne fabrique pas de départs. Revenez après synchronisation du backend.'}
             </p>
-            {feedHealthy&&originQuery.trim()&&destinationQuery.trim()&&(
+            {feedHealthy&&!hasMore&&originQuery.trim()&&destinationQuery.trim()&&(
               <UnmetDepartureDemand key={[originQuery,destinationQuery,travelDate,seatsNeeded,maxFare].join('|')} origin={originQuery} destination={destinationQuery}
                 travelDate={travelDate} minimumSeats={seatsNeeded} maximumFareXaf={maxFare}/>
             )}
@@ -263,6 +273,11 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
             );
           })
         )}
+        {feedHealthy&&hasMore&&<button type="button" disabled={loading||page>=100}
+          onClick={()=>setPage(value=>value+1)}
+          className="min-h-12 w-full rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 text-xs font-black text-cyan-100 disabled:opacity-40">
+          {loading?'Loading verified departures…':'Load more real departures'}
+        </button>}
       </div>
     </div>
   );
