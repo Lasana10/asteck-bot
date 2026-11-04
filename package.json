@@ -49,7 +49,8 @@
     "test:journey-completion-tracking": "node --import tsx scripts/verify-journey-completion-tracking.ts",
     "test:journey-terminal-receipt": "node --import tsx scripts/verify-journey-terminal-receipt.ts",
     "test:cameroon-payment-readiness": "node --import tsx scripts/verify-cameroon-payment-collection.ts",
-    "test:unmet-departure-demand": "node --import tsx scripts/verify-unmet-departure-demand.ts"
+    "test:unmet-departure-demand": "node --import tsx scripts/verify-unmet-departure-demand.ts",
+    "test:operator-route-opportunities": "node --import tsx scripts/verify-operator-route-opportunities.ts"
   },
   "keywords": [],
   "author": "",
