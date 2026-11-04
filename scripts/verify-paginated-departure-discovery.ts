@@ -30,6 +30,6 @@ for(const token of [
  "data.success!==true", "!Array.isArray(data.departures)",
  "data.search_exhausted!==!data.has_more", "role=\"alert\"",
  "Retry search", "Search page limit reached",
- "feedHealthy&&!hasMore&&originQuery.trim()",
+ "const filtered=feedHealthy?selectRealDepartures(departures,{",
 ])assert.ok(board.includes(token),'loaded discovery page and honest empty state: '+token);
 console.log('PASS AFAT server-filtered page discovery and no false negative demand across unvisited pages');
