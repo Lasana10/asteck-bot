@@ -204,7 +204,7 @@ export function DepartureBoard({ onBack, onSelectDeparture }: Props) {
                 : 'Le tableau ne fabrique pas de départs. Revenez après synchronisation du backend.'}
             </p>
             {feedHealthy&&originQuery.trim()&&destinationQuery.trim()&&(
-              <UnmetDepartureDemand origin={originQuery} destination={destinationQuery}
+              <UnmetDepartureDemand key={[originQuery,destinationQuery,travelDate,seatsNeeded,maxFare].join('|')} origin={originQuery} destination={destinationQuery}
                 travelDate={travelDate} minimumSeats={seatsNeeded} maximumFareXaf={maxFare}/>
             )}
           </div>
