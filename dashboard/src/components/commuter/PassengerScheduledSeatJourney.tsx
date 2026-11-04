@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {fetchRecoverablePassengerPayments,type RecoverablePaymentBooking} from '../../services/paymentRecovery';
+import {fetchRecoverablePaidTickets,type RecoverablePaidTicket} from '../../services/paidTicketRecovery';
 import {DepartureBoard} from './DepartureBoard';
 import {SeatSelector} from './SeatSelector';
 import {PaymentSheet} from './PaymentSheet';
@@ -27,6 +28,7 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  const [notice,setNotice]=useState('');
  const [ticket,setTicket]=useState<Ticket|null>(null);
  const [recoverable,setRecoverable]=useState<RecoverablePaymentBooking[]>([]);
+ const [paidTickets,setPaidTickets]=useState<RecoverablePaidTicket[]>([]);
  const [recoveryBooking,setRecoveryBooking]=useState<RecoverablePaymentBooking|null>(null);
  const [recoverLoading,setRecoverLoading]=useState(false);
  const [cancelSelection,setCancelSelection]=useState<string|null>(null);
@@ -49,12 +51,16 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
   if(stage!=='departures')return;
   let active=true;
   setRecoverLoading(true);
-  void fetchRecoverablePassengerPayments(profileId).then(({data,error})=>{
+  void Promise.all([
+    fetchRecoverablePassengerPayments(profileId),
+    fetchRecoverablePaidTickets(profileId),
+  ]).then(([pending,paid])=>{
     if(!active)return;
     setRecoverLoading(false);
-    if(error){setNotice(error.message);return;}
-    setRecoverable(data);
-  });
+    setRecoverable(pending.data);
+    setPaidTickets(paid.data);
+    if(pending.error||paid.error)setNotice(pending.error?.message||paid.error?.message||'Booking recovery unavailable.');
+  }).catch(()=>{if(active){setRecoverLoading(false);setNotice('Unable to verify your server bookings.');}});
   return()=>{active=false;};
  },[profileId,stage]);
 
@@ -140,6 +146,19 @@ export function PassengerScheduledSeatJourney({profileId,onClose,onChanged}:{
  if(stage==='departures')return <section className="overflow-hidden rounded-2xl border border-white/10">
   <div className="flex items-center justify-between bg-slate-950 p-3"><strong className="text-sm">Published future departures</strong>
    <button type="button" onClick={()=>void exit()} className="rounded-xl border border-white/15 px-4 py-2 text-xs">Close</button></div>
+  <div className="border-b border-white/10 bg-slate-950 p-4">
+   <h4 className="text-xs font-black text-emerald-200">Recover my verified paid tickets</h4>
+   <p className="mt-1 text-[11px] text-white/55">Only your server-confirmed, paid, future bookings. The signed boarding QR is reissued securely by AFAT; no further payment is initiated.</p>
+   {recoverLoading&&<p className="mt-2 text-xs text-white/45">Checking confirmed paid bookings…</p>}
+   {paidTickets.map(item=><button key={item.id} type="button"
+     onClick={()=>{setTicket(item);setNotice('');setStage('ticket');}}
+     className="mt-2 block w-full rounded-xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-left">
+     <span className="block text-xs font-black">{item.origin} → {item.destination} · Seat {item.seatLabel}</span>
+     <span className="mt-1 block text-[10px] text-white/55">
+       Paid {item.price.toLocaleString()} XAF · {new Date(item.departureTime).toLocaleString()} · Reissue signed QR
+     </span>
+   </button>)}
+  </div>
   <div className="border-b border-white/10 bg-slate-950 p-4">
    <h4 className="text-xs font-black text-cyan-200">Resume an existing unpaid booking</h4>
    <p className="mt-1 text-[11px] text-white/55">Live server records only. Unsettled mobile-money collections cannot be charged again; verify their provider status first.</p>
