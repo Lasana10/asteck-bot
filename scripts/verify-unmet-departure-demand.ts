@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const sql=readFileSync('supabase/migrations/20261104094500_afat_departure_demand_aggregate.sql','utf8');
+const receiptSql=readFileSync('supabase/migrations/20261104094600_afat_gap_review_receipt_contract.sql','utf8');
 const ui=readFileSync('dashboard/src/components/commuter/UnmetDepartureDemand.tsx','utf8');
 const board=readFileSync('dashboard/src/components/commuter/DepartureBoard.tsx','utf8');
 const planner=readFileSync('dashboard/src/components/admin/DepartureDemandInsights.tsx','utf8');
@@ -29,4 +30,16 @@ assert.ok(board.includes("key={[originQuery,destinationQuery,travelDate,seatsNee
 assert.ok(planner.includes("minimum_report_count_to_display===3"));
 assert.ok(planner.includes('opt-in request event(s)'));
 assert.ok(activation.includes('<DepartureDemandInsights cityKey={cityKey}/>'));
+for(const token of [
+  'public.afat_record_mobility_gap(',
+  "'status','pending'",
+  "'automatic_truth',false",
+  "'human_reviewed',false",
+  "'published_transport_service',false",
+  "on conflict(city_key,fingerprint,signal_type) do update",
+  "revoke all on function public.afat_record_mobility_gap",
+])assert.ok(receiptSql.includes(token),'replayable demand signal receipt: '+token);
+const mobility=readFileSync('dashboard/src/services/mobilityEvidenceClient.ts','utf8');
+assert.ok(mobility.includes("if (!data || data.status !== 'pending' || data.automatic_truth !== false || !data.id)"));
+assert.ok(mobility.includes("acknowledgeMobilityEvidence(storage,item)"));
 console.log('PASS consented unmet departure demand and privacy-thresholded authorized planner metrics');
