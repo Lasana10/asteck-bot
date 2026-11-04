@@ -2205,6 +2205,45 @@ router.post('/mobility/vehicle-clearance/:id/review', async(req:Request,res:Resp
   }
 });
 
+// Exact departure seat check. Do not page through only the first 50 departures
+// when the passenger is already selecting seats for a known published route.
+router.get('/mobility/departures/:departureId/availability',async(req:Request,res:Response)=>{
+ const id=String(req.params.departureId||'');
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+  return res.status(400).json({error:'VALID_DEPARTURE_ID_REQUIRED'});
+ res.setHeader('Cache-Control','no-store');
+ try{
+  const {data:route,error}=await supabase.from('routes')
+   .select('id,operator_id,vehicle_id,name,origin,destination,departure_time,price_per_seat,capacity,vehicle_type,is_active')
+   .eq('id',id).eq('is_active',true).gt('departure_time',new Date().toISOString()).maybeSingle();
+  if(error)throw error;
+  if(!route)return res.status(404).json({error:'DEPARTURE_NOT_CURRENTLY_AVAILABLE'});
+  const [operator,vehicle,bookings]=await Promise.all([
+   supabase.from('profiles').select('id,full_name,verification_status,operator_application_status')
+     .eq('id',route.operator_id).maybeSingle(),
+   supabase.from('vehicles').select('id,plate_number,type,capacity,rating,clearance_status')
+     .eq('id',route.vehicle_id).maybeSingle(),
+   supabase.from('bookings').select('route_id,seat_label')
+     .eq('route_id',id).in('status',['pending','accepted','confirmed','boarded','in_progress']).limit(250),
+  ]);
+  if(operator.error||vehicle.error||bookings.error)throw operator.error||vehicle.error||bookings.error;
+  if(!operator.data||!vehicle.data||vehicle.data.clearance_status!=='verified')
+   return res.status(404).json({error:'DEPARTURE_NOT_CURRENTLY_AVAILABLE'});
+  const compliance=await supabase.rpc('afat_vehicle_compliance_current',{p_vehicle_id:route.vehicle_id});
+  if(compliance.error)throw compliance.error;
+  if(compliance.data!==true)return res.status(404).json({error:'DEPARTURE_NOT_CURRENTLY_AVAILABLE'});
+  const departures=projectPublishedDepartures({routes:[route],operators:[operator.data],
+    vehicles:[vehicle.data],bookings:bookings.data||[],nowMs:Date.now()});
+  const departure=departures[0];
+  if(!departure)return res.status(404).json({error:'DEPARTURE_NOT_CURRENTLY_AVAILABLE'});
+  return res.status(200).json({success:true,departure,seat_hold_required:true,
+   availability_is_provisional:true,checked_at:new Date().toISOString()});
+ }catch(error:any){
+  console.error('Selected departure availability lookup failed',error);
+  return res.status(503).json({error:'SELECTED_DEPARTURE_AVAILABILITY_UNAVAILABLE'});
+ }
+});
+
 router.get('/mobility/departures', async (_req: Request, res: Response) => {
   try {
     const { data: routes, error } = await supabase
