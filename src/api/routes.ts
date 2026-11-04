@@ -4336,7 +4336,7 @@ router.post('/booking/:bookingId/cancel-unpaid',async(req:Request,res:Response)=
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId))
     return res.status(400).json({error:'Valid booking ID required'});
   try{
-    const {data,error}=await supabase.rpc('afat_cancel_unpaid_passenger_booking',{p_booking_id:bookingId});
+    const {data,error}=await supabase.rpc('afat_cancel_unpaid_passenger_booking',{p_passenger_id:session.profile.id,p_booking_id:bookingId});
     if(error) {
       const denied=String(error.code||'')==='42501';
       const unavailable=String(error.code||'')==='P0002';
