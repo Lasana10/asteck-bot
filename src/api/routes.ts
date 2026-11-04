@@ -12,6 +12,7 @@ import { aiRouter } from '../services/AIRouter';
 import { brainService } from '../services/brain';
 import { PaymentService } from '../services/payment';
 import {guardianMinutes,guardianShareAllowed,guardianWatchAvailable,validGuardianToken} from '../services/guardianWatchPolicy';
+import {buildDepartureManifest} from '../services/departureManifest';
 import { evaluateCameroonCollectionReadiness } from '../services/paymentCollectionReadiness';
 import { ArkeselClient } from '../infra/arkesel';
 import { TermiiClient } from '../infra/termii';
@@ -1996,6 +1997,31 @@ router.post('/payment/reconcile', async (req: Request, res: Response) => {
 
 // Operator's authoritative future departure inventory. Never expose another
 // operator's private schedule or pretend published supply is a seat reservation.
+router.get('/mobility/departures/:departureId/boarding-manifest',async(req:Request,res:Response)=>{
+ const access=await requireAuthRole(req,res,['operator']);
+ if(!access)return;
+ const id=String(req.params.departureId||'');
+ if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id))return res.status(400).json({error:'INVALID_DEPARTURE_ID'});
+ try{
+  const {data:route,error}=await supabase.from('routes').select('id,operator_id,vehicle_id,capacity,departure_time,origin,destination').eq('id',id).maybeSingle();
+  if(error)throw error;
+  if(!route)return res.status(404).json({error:'DEPARTURE_NOT_FOUND'});
+  if(route.operator_id!==access.profile.id)return res.status(403).json({error:'OPERATOR_OWNERSHIP_REQUIRED'});
+  const [p,v,b]=await Promise.all([
+   supabase.from('profiles').select('operator_application_status,verification_status,is_active').eq('id',access.profile.id).maybeSingle(),
+   supabase.from('vehicles').select('capacity,clearance_status').eq('id',route.vehicle_id).maybeSingle(),
+   supabase.from('bookings').select('id,route_id,seat_label,status,payment_status').eq('route_id',id).limit(300),
+  ]);
+  if(p.error||v.error||b.error)throw p.error||v.error||b.error;
+  if(p.data?.operator_application_status!=='APPROVED'||p.data?.verification_status!=='verified'||p.data?.is_active!==true||v.data?.clearance_status!=='verified')
+   return res.status(403).json({error:'VERIFIED_OPERATOR_AND_VEHICLE_REQUIRED'});
+  const manifest=buildDepartureManifest(b.data||[],Math.min(Number(route.capacity),Number(v.data.capacity)));
+  res.setHeader('Cache-Control','no-store');
+  return res.json({success:true,departure:{id:route.id,origin:route.origin,destination:route.destination,departure_time:route.departure_time},
+   manifest,boarding_requires_signed_ticket:true,financial_settlement_claimed:false});
+ }catch(error:any){console.error('Manifest unavailable',error);return res.status(503).json({error:'MANIFEST_UNAVAILABLE'});}
+});
+
 router.get('/mobility/departures/mine', async (req: Request, res: Response) => {
   const access=await requireAuthRole(req,res,['operator']);
   if(!access)return;
