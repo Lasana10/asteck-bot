@@ -51,6 +51,7 @@ jobs:
       - run: npm run test:passenger-booking-cancellation
       - run: npm run test:guardian-sharing
       - run: npm run test:operator-departure-operations
+      - run: npm run test:operator-boarding-manifest
       - run: npm run test:demand-to-supply
       - run: npm run test:operator-route-opportunities
       - run: npm run test:cameroon-payment-readiness

@@ -1,6 +1,7 @@
 import React,{useCallback,useEffect,useState} from 'react';
 import {fetchMyScheduledDepartures,withdrawScheduledDeparture,type ManagedDeparture} from '../../services/operatorDeparturePublisher';
 import {OperatorRouteOpportunities} from './OperatorRouteOpportunities';
+import {OperatorBoardingManifest} from './OperatorBoardingManifest';
 
 /** Existing published routes remain operator-owned until capacity/booking rules permit withdrawal.
  * Financial or committed passenger journeys are deliberately not cancelled by this control.
@@ -13,6 +14,7 @@ export function OperatorDepartureOperations({reloadKey=0,onChanged,onPlanRoute}:
  const [selected,setSelected]=useState<string|null>(null);
  const [reason,setReason]=useState('');
  const [busy,setBusy]=useState(false);
+ const [manifestFor,setManifestFor]=useState<string|null>(null);
  const refresh=useCallback(async()=>{
   setLoading(true);
   const {data,error}=await fetchMyScheduledDepartures();
@@ -51,6 +53,14 @@ export function OperatorDepartureOperations({reloadKey=0,onChanged,onPlanRoute}:
        <p className="mt-1 text-[11px] text-white/55">{new Date(item.departure_time).toLocaleString()} · {Number(item.price_per_seat).toLocaleString()} XAF per seat</p>
        <p className="mt-2 text-[10px] text-cyan-100/65">Capacity {item.capacity} · {item.has_booking_history?'Booking history exists':item.has_active_holds?'Active seat holds':'No committed booking or active seat hold observed'}</p></div>
       <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-bold text-white/65">{withdrawn?'Withdrawn':future?'Published':'Departed / expired'}</span>
+     </div>
+     <div className="mt-3">
+       <button type="button" onClick={()=>setManifestFor(value=>value===item.id?null:item.id)}
+         className="min-h-10 rounded-lg border border-cyan-300/20 px-3 text-[10px] font-bold text-cyan-100"
+         aria-expanded={manifestFor===item.id}>
+         {manifestFor===item.id?'Hide boarding manifest':'Inspect real boarding manifest'}
+       </button>
+       {manifestFor===item.id&&<OperatorBoardingManifest departureId={item.id}/>}
      </div>
      {canWithdraw?<div className="mt-3">
       {selected===item.id?<div className="space-y-2">
