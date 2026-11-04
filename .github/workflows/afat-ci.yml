@@ -55,6 +55,7 @@ jobs:
       - run: npm run test:operator-boarding-manifest
       - run: npm run test:operator-ticket-scanner
       - run: npm run test:boarding-financial-truth
+      - run: npm run test:dual-cash-handover
       - run: npm run test:paid-ticket-recovery
       - run: npm run test:demand-to-supply
       - run: npm run test:operator-route-opportunities
