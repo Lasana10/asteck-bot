@@ -58,7 +58,8 @@
     "test:operator-ticket-scanner": "node --import tsx scripts/verify-operator-ticket-scanner.ts",
     "test:canonical-seat-capacity": "node --import tsx scripts/verify-canonical-seat-capacity.ts",
     "test:boarding-financial-truth": "node --import tsx scripts/verify-boarding-financial-truth.ts",
-    "test:paid-ticket-recovery": "node --import tsx scripts/verify-paid-ticket-recovery.ts"
+    "test:paid-ticket-recovery": "node --import tsx scripts/verify-paid-ticket-recovery.ts",
+    "test:confirmed-ticket-recovery": "node --import tsx scripts/verify-confirmed-ticket-recovery.ts"
   },
   "keywords": [],
   "author": "",
