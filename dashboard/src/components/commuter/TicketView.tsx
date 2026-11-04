@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Download, Share2, Clock, MapPin, User, QrCode, Shield } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { createGuardianToken, issueSecureTicket } from '../../supabaseClient';
+import { createGuardianToken, revokeGuardianToken, issueSecureTicket } from '../../supabaseClient';
 
 interface Props {
   booking: {
@@ -24,6 +24,9 @@ export function TicketView({ booking, onBack }: Props) {
   const [ticketPayload, setTicketPayload] = useState('');
   const [guardianUrl, setGuardianUrl] = useState('');
   const [guardianBusy, setGuardianBusy] = useState(false);
+  const [guardianToken,setGuardianToken]=useState('');
+  const [guardianExpiry,setGuardianExpiry]=useState('');
+  const [guardianNotice,setGuardianNotice]=useState('');
   const [ticketError, setTicketError] = useState('');
 
   useEffect(() => {
@@ -57,29 +60,44 @@ export function TicketView({ booking, onBack }: Props) {
   };
 
   const handleGuardianShare = async () => {
-    if (guardianBusy) return;
-    setGuardianBusy(true);
-
-    const { data, error } = await createGuardianToken(booking.id);
+    if(guardianBusy)return;
+    setGuardianBusy(true);setGuardianNotice('');
+    const {data,error}=await createGuardianToken(booking.id);
     setGuardianBusy(false);
-
-    if (error || !data?.watch_url) {
-      console.error('[AFAT] Guardian link creation failed:', error);
+    if(error||!data?.watch_url||!data.token){
+      setGuardianNotice(error?.message||'AFAT could not create an authenticated Guardian Watch link.');
       return;
     }
-
-    setGuardianUrl(data.watch_url);
-
-    if (navigator.share) {
-      await navigator.share({
-        title: `AFAT Guardian Watch — ${booking.routeName}`,
-        text: `Suivez ce trajet AFAT en direct: ${data.watch_url}`,
-        url: data.watch_url,
-      });
+    setGuardianUrl(data.watch_url);setGuardianToken(data.token);
+    setGuardianExpiry(String(data.expires_at||''));
+    try{
+      if(navigator.share){
+        await navigator.share({
+          title:`AFAT Guardian Watch — ${booking.routeName}`,
+          text:'View this trip’s booking progress. This link does not reveal live GPS or phone numbers.',
+          url:data.watch_url,
+        });
+      }else if(navigator.clipboard?.writeText){
+        await navigator.clipboard.writeText(data.watch_url);
+        setGuardianNotice('Private link copied. Share it only with someone you trust.');
+      }else{
+        setGuardianNotice('Private link created. Copy it from below to share with a trusted contact.');
+      }
+    }catch{
+      setGuardianNotice('Link created but not shared. You may copy it below or revoke it.');
+    }
+  };
+  const handleGuardianRevoke=async()=>{
+    if(!guardianToken||guardianBusy)return;
+    setGuardianBusy(true);setGuardianNotice('');
+    const {data,error}=await revokeGuardianToken(guardianToken);
+    setGuardianBusy(false);
+    if(error||!data?.revoked){
+      setGuardianNotice(error?.message||'Guardian link revocation could not be verified.');
       return;
     }
-
-    await navigator.clipboard.writeText(data.watch_url);
+    setGuardianToken('');setGuardianUrl('');setGuardianExpiry('');
+    setGuardianNotice('Guardian Watch access revoked. The old link no longer reveals trip progress.');
   };
 
   return (
@@ -102,18 +120,24 @@ export function TicketView({ booking, onBack }: Props) {
           </div>
           <div>
             <p className="text-[10px] font-mono uppercase tracking-widest text-emerald-300">Guardian Trip Sharing</p>
-            <p className="text-sm font-bold text-white">Share a live watch link with family or a trusted contact.</p>
+            <p className="text-sm font-bold text-white">Share time-limited booking progress with a trusted contact. No phone numbers or live GPS coordinates are shared.</p>
           </div>
         </div>
         <button
           onClick={handleGuardianShare}
           className="w-full rounded-2xl bg-emerald-500 text-slate-950 py-3 text-xs font-black uppercase tracking-widest"
         >
-          {guardianBusy ? 'Creating Guardian Link...' : 'Share Guardian Link'}
+          {guardianBusy ? 'Checking Guardian Watch…' : 'Create & Share Guardian Link'}
         </button>
-        {guardianUrl && (
+        {guardianUrl && <>
           <p className="mt-3 break-all text-[10px] font-mono text-emerald-200">{guardianUrl}</p>
-        )}
+          <p className="mt-2 text-[10px] text-white/55">Expires {guardianExpiry?new Date(guardianExpiry).toLocaleString():'soon'}; anyone with the link may view the limited status until expiry or revocation.</p>
+          <button type="button" disabled={guardianBusy} onClick={()=>void handleGuardianRevoke()}
+            className="mt-3 min-h-11 w-full rounded-xl border border-amber-300/25 bg-amber-300/5 px-3 text-xs font-bold text-amber-100 disabled:opacity-40">
+            Revoke this Guardian Watch link
+          </button>
+        </>}
+        {guardianNotice&&<p role="status" className="mt-3 text-xs text-amber-100">{guardianNotice}</p>
       </div>
 
       {/* Ticket Card */}
