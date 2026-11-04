@@ -5,7 +5,7 @@ import {OperatorRouteOpportunities} from './OperatorRouteOpportunities';
 /** Existing published routes remain operator-owned until capacity/booking rules permit withdrawal.
  * Financial or committed passenger journeys are deliberately not cancelled by this control.
  */
-export function OperatorDepartureOperations({reloadKey=0,onChanged}:{reloadKey?:number;onChanged:()=>void}){
+export function OperatorDepartureOperations({reloadKey=0,onChanged,onPlanRoute}:{reloadKey?:number;onChanged:()=>void;onPlanRoute?:(origin:string,destination:string)=>void}){
  const [items,setItems]=useState<ManagedDeparture[]>([]);
  const [loading,setLoading]=useState(false);
  const [notice,setNotice]=useState('');
@@ -62,7 +62,7 @@ export function OperatorDepartureOperations({reloadKey=0,onChanged}:{reloadKey?:
     </article>;
    })}
   </div>
-  <OperatorRouteOpportunities/>
+  <OperatorRouteOpportunities onPlanRoute={onPlanRoute}/>
   {notice&&<p role="status" className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-white/70">{notice}</p>}
  </section>;
 }

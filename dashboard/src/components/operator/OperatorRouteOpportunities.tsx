@@ -5,7 +5,7 @@ type Opportunity={corridor:string;reported_requests:number;last_reported_at:stri
 type Snapshot={status:'ok'|'city_not_configured';city_key?:string;corridors:Opportunity[];
   minimum_report_count_to_display:3;scheduled_departures_verified:false;
   represents_unique_passengers:false;automatic_truth:false;generated_at?:string};
-export function OperatorRouteOpportunities(){
+export function OperatorRouteOpportunities({onPlanRoute}:{onPlanRoute?:(origin:string,destination:string)=>void}){
  const [state,setState]=useState<Snapshot|null>(null);
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
@@ -47,6 +47,14 @@ export function OperatorRouteOpportunities(){
        <p className="text-xs font-black text-white">{item.corridor}</p>
        <p className="mt-1 text-[10px] text-violet-100/65">{item.reported_requests} recorded interest event(s), not distinct passengers</p>
        <p className="mt-2 text-[10px] text-white/45">To serve this corridor, publish a real future departure using your verified vehicle, approved capacity and authentic fare. AFAT does not auto-publish demand as supply.</p>
+       {onPlanRoute&&item.corridor.split(' → ').length===2&&<button type="button"
+         onClick={()=>{
+           const parts=item.corridor.split(' → ');
+           if(parts.length===2&&parts[0].trim()&&parts[1].trim())onPlanRoute(parts[0].trim(),parts[1].trim());
+         }}
+         className="mt-3 min-h-10 rounded-lg border border-violet-300/20 bg-violet-300/10 px-3 text-[10px] font-bold text-violet-100">
+         Plan a real departure for this corridor
+       </button>}
       </article>)}
     </div>)}
   {notice&&<p role="status" className="mt-3 text-xs text-amber-100">{notice}</p>}

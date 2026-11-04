@@ -21,5 +21,5 @@ for(const token of [
   "item.booking_confirmed===false",
   "AFAT does not auto-publish demand as supply",
 ])assert.ok(ui.includes(token),'operator display: '+token);
-assert.ok(mount.includes('<OperatorRouteOpportunities/>'));
+assert.ok(mount.includes('<OperatorRouteOpportunities onPlanRoute={onPlanRoute}/>'));
 console.log('PASS only verified operators see thresholded demand and cannot infer bookings');
