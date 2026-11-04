@@ -51,7 +51,8 @@
     "test:cameroon-payment-readiness": "node --import tsx scripts/verify-cameroon-payment-collection.ts",
     "test:unmet-departure-demand": "node --import tsx scripts/verify-unmet-departure-demand.ts",
     "test:operator-route-opportunities": "node --import tsx scripts/verify-operator-route-opportunities.ts",
-    "test:demand-to-supply": "node --import tsx scripts/verify-demand-to-supply.ts"
+    "test:demand-to-supply": "node --import tsx scripts/verify-demand-to-supply.ts",
+    "test:passenger-booking-cancellation": "node --import tsx scripts/verify-passenger-booking-cancellation.ts"
   },
   "keywords": [],
   "author": "",
