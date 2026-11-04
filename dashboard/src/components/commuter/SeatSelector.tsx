@@ -61,10 +61,27 @@ const BLUEPRINTS: Record<string, { rows: number; cols: number; visualStructure: 
 
 export function generateBlueprint(type: string, bookedLabels: string[], maxPassengers: number): { seats: SeatData[], layoutRows: any[], maxCols: number } {
   const seats: SeatData[] = [];
-  const bookedSet = new Set(bookedLabels);
+  const bookedSet = new Set(bookedLabels.flatMap(label=>{
+    const value=String(label||'').trim().toUpperCase();
+    const match=value.match(/^(?:[A-Z])?0*([1-9][0-9]{0,2})$/);
+    return match?[String(Number(match[1]))]:[];
+  }));
   const bp = BLUEPRINTS[type] || BLUEPRINTS['minibus'];
   
-  const layoutRows = bp.visualStructure.map((rowStr, rIdx) => {
+  // Base drawings are illustrative, not certified vehicle floor plans.
+  // Extend numbered seat positions up to the *server verified* capacity.
+  // The server issues canonical numeric labels 1..200 only.
+  const cap=Number.isSafeInteger(maxPassengers)&&maxPassengers>=1&&maxPassengers<=200?maxPassengers:0;
+  const baseMax=bp.visualStructure.flatMap(row=>row.split(' ')).reduce((highest,item)=>
+    /^\\d+$/.test(item)?Math.max(highest,Number(item)):highest,0);
+  const structure=[...bp.visualStructure];
+  const columns=type==='bus'?5:type==='moto'?1:type==='taxi'?3:4;
+  for(let next=baseMax+1;next<=cap;){
+    const row:string[]=[];
+    while(row.length<columns&&next<=cap)row.push(String(next++));
+    structure.push(row.join(' '));
+  }
+  const layoutRows = structure.map((rowStr, rIdx) => {
     const chars = rowStr.split(' ');
     return chars.map((char, cIdx) => {
       if (char === '_') return { type: 'aisle', key: `aisle-${rIdx}-${cIdx}` };
@@ -77,7 +94,7 @@ export function generateBlueprint(type: string, bookedLabels: string[], maxPasse
         id: `seat-${rIdx}-${cIdx}`,
         row: rIdx,
         col: cIdx,
-        status: Number(labelStr)>maxPassengers ? 'locked' : isBooked ? 'booked' : 'available',
+        status: cap===0||Number(labelStr)>cap ? 'locked' : isBooked ? 'booked' : 'available',
         label: labelStr,
       };
       seats.push(seatData);
@@ -125,9 +142,12 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
     setLoading(true);
     const { data,error } = await fetchPublishedDepartures();
     const current = data?.departures?.find((item: any) => item.id === departure.id);
-    const available = !error && current && Date.parse(current.departure_time)>Date.now() && Number(current.available_seats ?? current.total_seats-current.booked_seats)>0;
+    const available = !error && current && Date.parse(current.departure_time)>Date.now() &&
+      Number.isSafeInteger(Number(current.total_seats))&&Number(current.total_seats)>=1&&Number(current.total_seats)<=200&&
+      Number(current.available_seats ?? current.total_seats-current.booked_seats)>0;
     setFeedHealthy(Boolean(available));
-    if(!available)setSelectedSeat(null);
+    // A refresh invalidates the previous click until the new server state is reviewed.
+    setSelectedSeat(null);
     const bookedLabels = available ? (current.occupied_seats||[]) as string[] : [];
     const layout = generateBlueprint(departure.vehicle_type, bookedLabels, available?Number(current.total_seats):0);
     setSeats(layout.seats);
@@ -143,7 +163,7 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
       return s;
     }));
     if(!feedHealthy)return;
-    setSelectedSeat(seatId);
+    setSelectedSeat(previous=>previous===seatId?null:seatId);
   };
 
   const getTimeUntil = (isoTime: string) => {
@@ -163,7 +183,7 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
     }
   };
 
-  const cols = seats.length > 0 ? Math.max(...seats.map(s => s.col)) + 1 : 4;
+  const selectedIsAvailable=Boolean(realSeatLabelForSelection(seats,selectedSeat,feedHealthy));
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col font-sans">
@@ -200,6 +220,7 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
           </div>
         </div>
 
+        <p className="mb-3 max-w-sm text-center text-[11px] text-amber-100/65">Seat numbers follow the server-approved capacity. Row placement is an illustrative grid, not a verified physical vehicle seating plan.</p>
         {/* Vehicle Layout Visualization */}
         <div className="bg-slate-900/30 border border-white/5 rounded-3xl p-8 mb-8 relative">
           {/* Blueprint Layout Engine */}
@@ -261,9 +282,9 @@ export function SeatSelector({ departure, onBack, onConfirmSeat, errorText }: Pr
             const label=realSeatLabelForSelection(seats,selectedSeat,feedHealthy);
             if(label)onConfirmSeat(label);
           }}
-          disabled={!selectedSeat||!feedHealthy||loading}
+          disabled={!selectedIsAvailable||!feedHealthy||loading}
           className={`w-full max-w-sm py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${
-            selectedSeat 
+            selectedIsAvailable 
               ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]' 
               : 'bg-slate-800 text-slate-600 cursor-not-allowed'
           }`}
