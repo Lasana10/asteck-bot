@@ -27,3 +27,18 @@ describe('passenger seat → server hold contract',()=>{
   expect(realSeatLabelForSelection(blueprint.seats,seat.id,true)).toBeNull();
  });
 });
+
+describe('large verified capacity seats and label uniqueness',()=>{
+ it('offers 200 unique numeric seats when server capacity is 200',()=>{
+  const seats=generateBlueprint('bus',[],200).seats;
+  expect(seats.filter(s=>s.status==='available')).toHaveLength(200);
+  expect(new Set(seats.map(s=>s.label)).size).toBe(seats.length);
+  expect(seats.find(s=>s.label==='200')?.status).toBe('available');
+ });
+ it('rejects physical capacity beyond published 200 maximum and reserves aliases',()=>{
+  expect(generateBlueprint('bus',[],201).seats.every(s=>s.status==='locked')).toBe(true);
+  const seats=generateBlueprint('bus',['A1','02','3'],45).seats;
+  for(const label of ['1','2','3'])expect(seats.find(s=>s.label===label)?.status).toBe('booked');
+  expect(seats.find(s=>s.label==='45')?.status).toBe('available');
+ });
+});
