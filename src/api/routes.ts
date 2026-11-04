@@ -597,6 +597,16 @@ function isBoardablePaymentStatus(paymentStatus: string) {
   return ['paid', 'paid_momo'].includes(paymentStatus || '');
 }
 
+async function verifiedBoardablePayment(booking:{id:string;payment_status:string}):Promise<boolean>{
+ if(isBoardablePaymentStatus(booking.payment_status))return true;
+ if(booking.payment_status!=='paid_cash')return false;
+ const {data,error}=await supabase.from('afat_cash_handovers')
+  .select('booking_id,passenger_confirmed_at,operator_confirmed_at,confirmed_at')
+  .eq('booking_id',booking.id).maybeSingle();
+ if(error)throw error;
+ return Boolean(data?.confirmed_at&&data?.passenger_confirmed_at&&data?.operator_confirmed_at);
+}
+
 async function expireSeatHolds(routeId?: string, seatLabel?: string) {
   let query = supabase
     .from('seat_holds')
@@ -4371,6 +4381,80 @@ router.post('/booking/:bookingId/cancel-unpaid',async(req:Request,res:Response)=
   }
 });
 
+/** Two independent authenticated cash-handover attestations.
+ * No cash collection, provider settlement, or wallet balance is inferred.
+ */
+router.post('/booking/:bookingId/cash-handover/attest',async(req:Request,res:Response)=>{
+ const session=await requireAuthRole(req,res,['commuter','operator']);
+ if(!session)return;
+ const id=String(req.params.bookingId||'');
+ if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)||req.body?.confirm!==true)
+  return res.status(400).json({error:'VALID_BOOKING_AND_EXPLICIT_CASH_CONFIRMATION_REQUIRED'});
+ try{
+  const {data,error}=await supabase.rpc('afat_attest_cash_handover',{
+   p_booking_id:id,p_actor_id:session.profile.id,
+  });
+  if(error)return res.status(error.code==='42501'?403:409).json({error:error.message||'CASH_HANDOVER_REJECTED'});
+  if(!data||data.booking_id!==id||data.platform_holds_cash!==false||data.provider_settled!==false)
+   return res.status(503).json({error:'CASH_HANDOVER_RECEIPT_NOT_VERIFIED'});
+  res.setHeader('Cache-Control','no-store');
+  return res.json({success:true,handover:data});
+ }catch(error:any){return res.status(503).json({error:error?.message||'CASH_HANDOVER_UNAVAILABLE'});}
+});
+
+router.get('/booking/cash-handover/mine',async(req:Request,res:Response)=>{
+ const session=await requireAuthRole(req,res,['commuter']);
+ if(!session)return;
+ try{
+  const {data:bookings,error}=await supabase.from('bookings')
+    .select('id,status,payment_status,price_paid,seat_label,created_at,routes(origin,destination,departure_time)')
+    .eq('passenger_id',session.profile.id)
+    .in('payment_status',['cash_due','paid_cash'])
+    .in('status',['confirmed','accepted'])
+    .order('created_at',{ascending:false}).limit(15);
+  if(error)throw error;
+  const ids=(bookings||[]).map((b:any)=>b.id);
+  const receipts=ids.length?await supabase.from('afat_cash_handovers')
+    .select('booking_id,passenger_confirmed_at,operator_confirmed_at,confirmed_at').in('booking_id',ids)
+    :{data:[],error:null};
+  if(receipts.error)throw receipts.error;
+  const receiptById=new Map((receipts.data||[]).map((r:any)=>[r.booking_id,r]));
+  res.setHeader('Cache-Control','no-store');
+  return res.json({success:true,bookings:(bookings||[]).map((b:any)=>({
+   ...b,handover:receiptById.get(b.id)||null,
+  }))});
+ }catch(error:any){return res.status(503).json({error:'PASSENGER_CASH_HANDOVERS_UNAVAILABLE'});}
+});
+
+router.get('/mobility/departures/:departureId/cash-handovers',async(req:Request,res:Response)=>{
+ const session=await requireAuthRole(req,res,['operator']);
+ if(!session)return;
+ const id=String(req.params.departureId||'');
+ if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id))return res.status(400).json({error:'VALID_DEPARTURE_ID_REQUIRED'});
+ try{
+  const {data:route,error:routeError}=await supabase.from('routes')
+    .select('id,operator_id').eq('id',id).maybeSingle();
+  if(routeError)throw routeError;
+  if(!route)return res.status(404).json({error:'DEPARTURE_NOT_FOUND'});
+  if(route.operator_id!==session.profile.id)return res.status(403).json({error:'OPERATOR_OWNERSHIP_REQUIRED'});
+  const {data:bookings,error}=await supabase.from('bookings')
+    .select('id,status,payment_status,price_paid,seat_label')
+    .eq('route_id',id).eq('operator_id',session.profile.id)
+    .in('payment_status',['cash_due','paid_cash'])
+    .in('status',['confirmed','accepted']).limit(200);
+  if(error)throw error;
+  const ids=(bookings||[]).map((b:any)=>b.id);
+  const receipts=ids.length?await supabase.from('afat_cash_handovers')
+    .select('booking_id,passenger_confirmed_at,operator_confirmed_at,confirmed_at').in('booking_id',ids)
+    :{data:[],error:null};
+  if(receipts.error)throw receipts.error;
+  const byId=new Map((receipts.data||[]).map((r:any)=>[r.booking_id,r]));
+  res.setHeader('Cache-Control','no-store');
+  return res.json({success:true,bookings:(bookings||[]).map((b:any)=>({...b,handover:byId.get(b.id)||null})),
+    passenger_identifiers_exposed:false,cash_platform_custody:false});
+ }catch{return res.status(503).json({error:'OPERATOR_CASH_HANDOVERS_UNAVAILABLE'});}
+});
+
 router.get('/booking/:bookingId', async (req: Request, res: Response) => {
   try {
     const session = await requireAuthRole(req, res);
@@ -4558,7 +4642,7 @@ router.post('/ticket/issue', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    if (!isBoardablePaymentStatus(booking.payment_status) || booking.status !== 'confirmed') {
+    if (!(await verifiedBoardablePayment(booking)) || booking.status !== 'confirmed') {
       return res.status(400).json({ error: 'Booking is not ready for ticket issuance' });
     }
 
@@ -4633,7 +4717,7 @@ router.post('/ticket/verify-boarding', async (req: Request, res: Response) => {
        String(booking.seat_label)!==String(decoded.seat))
       return res.status(403).json({ error: 'Signed ticket no longer matches booking seat or route' });
 
-    if (!isBoardablePaymentStatus(booking.payment_status)) {
+    if (!(await verifiedBoardablePayment(booking))) {
       return res.status(409).json({ error: 'Payment not independently confirmed; cash-due cannot be boarded' });
     }
 
