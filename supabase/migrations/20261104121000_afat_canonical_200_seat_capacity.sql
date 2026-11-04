@@ -1,5 +1,4 @@
--- Canonical numeric 1–200 labels for capacity-authorized reservations.
--- Preserve existing locks, compliance checks and booking evidence.
+-- AFAT canonical 1..200 seat labels, source definitions read back from the applied functions.
 CREATE OR REPLACE FUNCTION public.afat_hold_seat(p_passenger_id uuid, p_route_id uuid, p_seat_label text, p_hold_minutes integer DEFAULT 8)
  RETURNS seat_holds
  LANGUAGE plpgsql
