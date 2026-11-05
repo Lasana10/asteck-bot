@@ -20,10 +20,44 @@ export function AtlasIngestionControl(){
  const city=useMemo(()=>cities.find(c=>c.city_key===cityKey),[cities,cityKey]);
  const choosePreset=(key:string)=>{setScope(key);const p=YAOUNDE_PRESETS[key];if(p)setBbox({south:String(p.south),west:String(p.west),north:String(p.north),east:String(p.east)});};
  const run=async()=>{
+   if(running)return;
    setRunning(true);setResult(null);
-   const payload={city_key:cityKey,scope_label:scope||'custom-cell',bbox:{south:Number(bbox.south),west:Number(bbox.west),north:Number(bbox.north),east:Number(bbox.east)}};
-   const {data,error}=await supabase.functions.invoke('afat-osm-city-ingest',{body:payload});
-   setRunning(false);setResult(error?{error:error.message}:data||{});
+   try{
+     const coordinates=Object.fromEntries((['south','west','north','east'] as const).map(k=>[k,Number(bbox[k])]));
+     const {south,west,north,east}=coordinates;
+     if(![south,west,north,east].every(Number.isFinite)||south>=north||west>=east||
+       south< -90||north>90||west< -180||east>180||
+       north-south>0.18||east-west>0.18||(north-south)*(east-west)>0.018){
+       setResult({error:'Invalid or oversized road cell. Choose smaller geographic bounds.'});return;
+     }
+     const payload={city_key:cityKey,scope_label:scope||'custom-cell',bbox:coordinates};
+     const {data,error}=await supabase.functions.invoke('afat-osm-city-ingest',{body:payload});
+     if(error||!data||typeof data!=='object'||data.error){
+       setResult({error:data?.error||error?.message||'Ingestion request failed. No completed import was verified.'});return;
+     }
+     const batchId=typeof data.batch_id==='string'&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(data.batch_id)?data.batch_id:null;
+     if(!batchId){setResult({error:'Ingestion did not return a valid import batch. Completion is unverified.'});return;}
+     // Compare with persisted, staff-authorized import evidence, not just the Edge Function reply.
+     const {data:batch,error:batchError}=await supabase.from('afat_geo_import_batches')
+       .select('id,status,input_count,inserted_count,rejected_count,source_key,import_mode,scope_label,finished_at,error_summary')
+       .eq('id',batchId).maybeSingle();
+     if(batchError||!batch){
+       setResult({error:'Import response received, but saved evidence could not be read or authorized. Do not treat it as verified.',batch_id:batchId});return;
+     }
+     const countsMatch=Number(batch.input_count)===Number(data.input_way_count)&&
+       Number(batch.inserted_count)===Number(data.accepted_count)&&
+       Number(batch.rejected_count||0)===Number(data.rejected_count||0);
+     const completed=['completed','completed_with_errors'].includes(batch.status);
+     const evidenceValid=completed&&batch.status===data.status&&batch.source_key==='openstreetmap'&&
+       batch.import_mode==='candidate_only'&&Boolean(batch.finished_at)&&countsMatch;
+     if(!evidenceValid){
+       setResult({error:'Import returned, but persisted source totals or final status do not agree. Manual review required.',batch_id:batchId});return;
+     }
+     setResult({...data,persisted_verified:true,confirmed_status:batch.status,confirmed_accepted:Number(batch.inserted_count),
+       confirmed_rejected:Number(batch.rejected_count||0),error_summary:batch.error_summary});
+   }catch(error:any){
+     setResult({error:error?.message||'Could not verify the ingestion result.'});
+   }finally{setRunning(false);}
  };
  return <section className="rounded-[1.5rem] border border-emerald-300/15 bg-emerald-500/[0.04] p-5">
    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -40,7 +74,7 @@ export function AtlasIngestionControl(){
     {(['south','west','north','east'] as const).map(k=><label key={k} className="text-[8px] font-black uppercase text-white/30">{k}<input value={bbox[k]} onChange={e=>setBbox(x=>({...x,[k]:e.target.value}))} inputMode="decimal" className="mt-1 min-h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm normal-case text-white"/></label>)}
    </div>
    <button onClick={run} disabled={running||!cityKey} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35">{running?<RefreshCw className="h-4 w-4 animate-spin"/>:<MapPinned className="h-4 w-4"/>}{running?'Ingesting controlled cell…':'Ingest city road cell'}</button>
-   {result&&<div className={`mt-4 rounded-xl border p-4 ${result.error?'border-rose-300/20 bg-rose-400/10':'border-emerald-300/15 bg-black/20'}`}>{result.error?<p className="text-xs font-bold text-rose-100">{result.error}</p>:<><div className="grid gap-3 sm:grid-cols-5"><K l="Status" v={result.status||'completed'}/><K l="Processed" v={result.processed_way_count||0}/><K l="Accepted source" v={result.accepted_count||0}/><K l="Rejected" v={result.rejected_count||0}/><K l="Topology" v={result.topology?.segments_prepared||0} icon/></div><p className="mt-3 text-[9px] leading-5 text-white/35">{result.note}</p></>}</div>}
+   {result&&<div role="status" className={`mt-4 rounded-xl border p-4 ${result.error?'border-rose-300/20 bg-rose-400/10':'border-emerald-300/15 bg-black/20'}`}>{result.error?<><p className="text-xs font-bold text-rose-100">{result.error}</p>{result.batch_id&&<p className="mt-2 break-all text-[9px] text-white/55">Import batch: {result.batch_id}</p>}</>:<><p className="mb-3 text-xs font-bold text-emerald-200">Persisted import evidence confirmed · candidate geography only</p><div className="grid gap-3 sm:grid-cols-5"><K l="Status" v={result.confirmed_status}/><K l="Processed" v={result.processed_way_count||0}/><K l="Accepted source" v={result.confirmed_accepted}/><K l="Rejected" v={result.confirmed_rejected}/><K l="Topology staged" v={result.topology?.segments_prepared||0} icon/></div><p className="mt-3 break-all text-[9px] text-white/55">Import batch: {result.batch_id}</p><p className="mt-2 text-[9px] leading-5 text-white/35">{result.note}</p>{result.error_summary&&<p className="mt-2 text-[9px] text-amber-200">Partial import: {result.error_summary}</p>}</>}</div>}
  </section>;
 }
 function K({l,v,icon}:{l:string;v:React.ReactNode;icon?:boolean}){return <div><p className="text-[8px] font-black uppercase text-white/30">{l}</p><p className="mt-1 flex items-center gap-1 text-xs font-black">{icon&&<Route className="h-3.5 w-3.5 text-cyan-300"/>}{v}</p></div>}
