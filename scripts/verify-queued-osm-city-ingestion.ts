@@ -10,7 +10,7 @@ for(const token of [
  "validatePersistedBatch(data)", "supabase.rpc('afat_complete_ingestion_cell'",
  "p_import_batch_id:verified.batchId", "candidate_only:true",
  "closed?.import_batch_id!==verified.batchId", "closed?.status!==verified.batch.status",
- "Reconcile the claimed cell before retrying", "Claim remains running; reconcile batch before retry",
+ "reconcile the running cell before retrying", "Claim remains running; reconcile batch before retry",
  "Process next queued road cell", "queueCounts.running||0"
 ])assert.ok(ui.includes(token),'authenticated queued ingestion integration: '+token);
 const start=ui.indexOf('const runQueuedCell=async()=>');
