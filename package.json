@@ -64,7 +64,8 @@
     "test:paginated-departure-discovery": "node --import tsx scripts/verify-paginated-departure-discovery.ts",
     "test:osm-ingestion-truth": "node --import tsx scripts/verify-osm-ingestion-truth.ts",
     "test:ingestion-persistence-ui": "node --import tsx scripts/verify-ingestion-persistence-ui.ts",
-    "test:queued-osm-city-ingestion": "node --import tsx scripts/verify-queued-osm-city-ingestion.ts"
+    "test:queued-osm-city-ingestion": "node --import tsx scripts/verify-queued-osm-city-ingestion.ts",
+    "test:ingestion-queue-custody": "node --import tsx scripts/verify-ingestion-queue-custody.ts"
   },
   "keywords": [],
   "author": "",
