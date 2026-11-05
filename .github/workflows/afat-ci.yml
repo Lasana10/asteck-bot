@@ -44,6 +44,7 @@ jobs:
       - run: npm run test:osm-ingestion-truth
       - run: npm run test:ingestion-persistence-ui
       - run: npm run test:queued-osm-city-ingestion
+      - run: npm run test:ingestion-queue-custody
       - run: npm run test:exact-departure-availability
       - run: npm run test:unmet-departure-demand
       - run: npm run test:map-signal-fleet
