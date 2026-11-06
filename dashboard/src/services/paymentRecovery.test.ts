@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 const {auth,rpc,from}=vi.hoisted(()=>({auth:vi.fn(),rpc:vi.fn(),from:vi.fn()}));
 vi.mock('../supabaseClient',()=>({supabase:{auth:{getUser:auth},rpc,from}}));
-import {paymentPhaseFromBooking,fetchRecoverablePassengerPayments} from './paymentRecovery';
+import {paymentPhaseFromBooking,fetchRecoverablePassengerPayments,fetchPassengerBookingHistory} from './paymentRecovery';
 describe('passenger payment duplicate prevention and account-scoped recovery',()=>{
  beforeEach(()=>{auth.mockReset();rpc.mockReset();from.mockReset();});
  it('holds collection_pending without transaction reference and never treats pending as paid',()=>{
@@ -35,4 +35,26 @@ describe('passenger payment duplicate prevention and account-scoped recovery',()
   expect(result.data[0]).toMatchObject({id:'booking1',seatLabel:'A2',amountXaf:3500});
   expect(rpc).not.toHaveBeenCalled();
  });
+ it('retrieves only account-owned paid and cash-due records while excluding cancelled tickets',async()=>{
+  auth.mockResolvedValue({data:{user:{id:'alice'}},error:null});
+  const rows=[
+    {id:'paid1',passenger_id:'alice',status:'confirmed',payment_status:'paid_momo',transaction_id:'provider-verified-ref',
+      price_paid:4000,seat_label:'2',routes:{name:'Trip',origin:'Mendong',destination:'Mvan',departure_time:'2026-12-03T12:00:00Z'}},
+    {id:'cash1',passenger_id:'alice',status:'pending',payment_status:'cash_due',
+      price_paid:3000,seat_label:'3',routes:{name:'Trip',origin:'Mendong',destination:'Mvan',departure_time:'2026-12-03T12:00:00Z'}},
+    {id:'cancelled1',passenger_id:'alice',status:'cancelled',payment_status:'paid',
+      price_paid:2000,seat_label:'4',routes:{name:'Trip',origin:'Mendong',destination:'Mvan',departure_time:'2026-12-03T12:00:00Z'}}
+  ];
+  const chain:any={};for(const key of ['select','eq','in','order'])chain[key]=vi.fn().mockReturnValue(chain);
+  chain.limit=vi.fn().mockResolvedValue({data:rows,error:null});from.mockReturnValue(chain);
+  const history=await fetchPassengerBookingHistory('alice');
+  expect(history.error).toBeNull();
+  expect(history.data).toHaveLength(2);
+  expect(history.data[0]).toMatchObject({id:'paid1',paymentPhase:'paid',transactionId:'provider-verified-ref'});
+  expect(history.data[1]).toMatchObject({id:'cash1',paymentPhase:'cash_due'});
+  expect(chain.eq).toHaveBeenCalledWith('passenger_id','alice');
+  expect(chain.in.mock.calls[0][1]).toContain('paid_momo');
+  expect(rpc).not.toHaveBeenCalled();
+ });
+
 });
