@@ -13,7 +13,7 @@ for(const token of [
  "Reconcile the claimed cell", "Claim remains running; reconcile batch before retry",
  "Process next queued road cell", "queueCounts.running||0"
 ])assert.ok(ui.includes(token),'authenticated queued ingestion integration: '+token);
-const start=ui.indexOf('const runQueuedCell=async()=>');
+const start=ui.indexOf("const runQueuedCell=async():Promise<'verified'|'empty'|'blocked'>=>");
 const end=ui.indexOf(' const run=async()=>',start);
 assert.ok(start>0&&end>start,'queue processor must exist before manual import');
 const body=ui.slice(start,end);
