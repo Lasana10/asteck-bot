@@ -54,6 +54,7 @@ jobs:
       - run: npm run test:staff-incident-review-desk
       - run: npm run test:fleet-position-freshness
       - run: npm run test:scheduled-departures
+      - run: npm run test:operator-departure-place-integrity
       - run: npm run test:canonical-seat-capacity
       - run: npm run test:passenger-booking-cancellation
       - run: npm run test:passenger-booking-recovery
