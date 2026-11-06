@@ -291,6 +291,23 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields: phone' });
     }
 
+    // Reject malformed vehicle declarations before changing the applicant profile.
+    // A partial pair must not silently become a successful no-vehicle application.
+    if (Boolean(vehicle_plate) !== Boolean(vehicle_type)) {
+      return res.status(400).json({ error: 'VEHICLE_PLATE_AND_TYPE_REQUIRED_TOGETHER' });
+    }
+    if (vehicle_plate && vehicle_type) {
+      try {
+        validateOperatorVehicleRegistration({
+          plate_number: vehicle_plate,
+          vehicle_type,
+          capacity: vehicle_capacity == null || vehicle_capacity === '' ? 4 : Number(vehicle_capacity),
+        });
+      } catch (error: any) {
+        return res.status(400).json({ error: String(error?.message || 'INVALID_VEHICLE') });
+      }
+    }
+
     const resolvedNationalId = normalizeOptionalText(national_id);
     const resolvedLicenseNumber = normalizeOptionalText(license_number);
     const intakeStatus =
