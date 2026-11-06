@@ -28,6 +28,7 @@
     "test:map-signal-fleet": "node --import tsx scripts/verify-map-signal-fleet-authority.ts",
     "test:fleet-position-freshness": "node --import tsx scripts/verify-live-fleet-position-freshness.ts",
     "test:scheduled-departures": "node --import tsx scripts/verify-scheduled-departure-publishing.ts",
+    "test:operator-departure-place-integrity": "node --import tsx scripts/verify-operator-departure-place-integrity.ts",
     "test:operator-departure-operations": "node --import tsx scripts/verify-operator-departure-operations.ts",
     "test:voice-field-report": "node --import tsx scripts/verify-voice-field-report.ts",
     "test:staff-vehicle-document-review": "node --import tsx scripts/verify-staff-vehicle-document-review.ts",
