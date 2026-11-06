@@ -2,6 +2,7 @@ import {reviewedSafetyFeed,urgentReviewedAlerts,incidentReviewLabel} from '../se
 import {validateScheduleDraft} from '../services/scheduledDeparturePublishing';
 import {departureWithdrawalEligibility} from '../services/operatorDepartureOperations';
 import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
+import {loadActiveDepartureSeatClaims} from '../services/departureSeatInventory';
 import express, { Request, Response } from 'express';
 import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
 import { IncidentType, Severity } from '../types';
@@ -2284,7 +2285,7 @@ router.get('/mobility/departures', async (req: Request, res: Response) => {
 
     const [bookingsResult, operatorsResult, vehiclesResult] = await Promise.all([
       routeIds.length
-        ? supabase.from('bookings').select('route_id, seat_label, status').in('route_id', routeIds).in('status', ['pending', 'accepted', 'confirmed', 'boarded', 'in_progress'])
+        ? loadActiveDepartureSeatClaims(supabase,routeIds).then(data=>({data,error:null}))
         : Promise.resolve({ data: [], error: null }),
       operatorIds.length
         ? supabase.from('profiles').select('id, full_name, verification_status, operator_application_status').in('id', operatorIds)
