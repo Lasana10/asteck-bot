@@ -19,7 +19,7 @@ assert.ok(planner.includes('disabled={!preferredCityKey(profile) || loading'),
  'unsupported city destination requests must be disabled');
 assert.ok(planner.includes('if (!preferredCityKey(profile) || resumeSnapshot?.cityKey !== preferredCityKey(profile))'),
  'saved navigation must not cross city boundaries');
-assert.ok(planner.includes("if (!preferredCityKey(profile)) {\\n      setStatusText('Transport requests"),
+assert.ok(planner.includes("setStatusText('Transport requests are unavailable until this city has AFAT journey coverage.')"),
  'unsupported city cannot submit a passenger booking');
 assert.ok(planner.includes("resolveAfatMappedCity(place.city)?.cityKey === preferredCityKey(profile)"),
  'recent places must be restricted to the currently mapped city');
