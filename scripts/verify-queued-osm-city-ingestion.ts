@@ -60,4 +60,38 @@ assert.ok(ui.includes("setBbox({south:'',west:'',north:'',east:''})"),
 assert.ok(ui.includes('onChange={e=>switchCity(e.target.value)}'),
  'changing city must reset geographic scope rather than keep former city bounds');
 
+
+const recovery=readFileSync(
+ 'supabase/migrations/20261106172752_afat_evidence_bound_ingestion_cell_reconciliation.sql','utf8');
+for(const must of [
+ 'afat_reconcile_ingestion_cell', 'security definer',
+ "auth.uid()", "City source reconciliation permission required",
+ "Only a running ingestion cell can be reconciled",
+ "interval '10 minutes'", "for update", "for share",
+ "v_batch.requested_by is distinct from v_cell.requested_by",
+ "v_batch.scope_bbox->>'city_key' is distinct from v_city_key",
+ "v_batch.import_mode <> 'candidate_only'",
+ "v_batch.input_count is distinct from",
+ "Import receipt is already assigned to another city cell",
+ "'reconciled_from_persisted_batch',true",
+ "'automatic_truth',false",
+ 'revoke all on function public.afat_reconcile_ingestion_cell(uuid,uuid)',
+ 'grant execute on function public.afat_reconcile_ingestion_cell(uuid,uuid)'
+])assert.ok(recovery.toLowerCase().includes(must.toLowerCase()), 'stale claim must retain authority and source evidence: '+must);
+const reconcileStart=ui.indexOf('const reconcileCell=async(cellId:string)=>');
+const reconcileEnd=ui.indexOf('// Operator-triggered bounded source ingestion',reconcileStart);
+assert.ok(reconcileStart>=0&&reconcileEnd>reconcileStart,
+ 'real staff reconciliation operation must exist');
+const reconcile=ui.slice(reconcileStart,reconcileEnd);
+assert.ok(reconcile.includes("supabase.rpc('afat_reconcile_ingestion_cell'"),
+ 'reconciliation must use server-authorized RPC, not browser row mutation');
+assert.ok(reconcile.includes("data?.reconciled_from_persisted_batch!==true")&&
+ reconcile.includes("data?.automatic_truth!==false"),
+ 'reconciliation must require an evidence-bound non-automatic-truth receipt');
+assert.ok(reconcile.includes(".from('afat_city_ingestion_cells')")&&
+ reconcile.includes("verified?.import_batch_id!==batchId"),
+ 'reconciliation must read back matching database completion');
+assert.ok(!reconcile.includes(".update("),
+ 'browser must not directly change queue status');
+
 console.log('PASS one-cell queued OSM ingestion: claim, invoke, verify, close, no unsafe retry');

@@ -34,6 +34,9 @@ export function AtlasIngestionControl(){
  const [batchRunning,setBatchRunning]=useState(false);
  const [batchProgress,setBatchProgress]=useState<{verified:number;requested:number}>({verified:0,requested:0});
  const [queueCounts,setQueueCounts]=useState<Record<string,number>>({});
+ const [runningCells,setRunningCells]=useState<any[]>([]);
+ const [reconcileBatchIds,setReconcileBatchIds]=useState<Record<string,string>>({});
+ const [reconciling,setReconciling]=useState(false);
  useEffect(()=>{void supabase.from('afat_city_profiles').select('id,city_key,city_name,country_code,learning_stage,metadata').eq('status','active').order('city_name').then(({data})=>setCities(data||[]));},[]);
  const city=useMemo(()=>cities.find(c=>c.city_key===cityKey),[cities,cityKey]);
  const choosePreset=(key:string)=>{
@@ -54,13 +57,15 @@ export function AtlasIngestionControl(){
  };
 
  const refreshQueue=async()=>{
-   if(!city?.id){setQueueCounts({});return;}
+   if(!city?.id){setQueueCounts({});setRunningCells([]);return;}
    const {data,error}=await supabase.from('afat_city_ingestion_cells')
-     .select('status').eq('city_profile_id',city.id).eq('source_key','openstreetmap').limit(1000);
+     .select('id,status,cell_key,scope_label,started_at,import_batch_id').eq('city_profile_id',city.id).eq('source_key','openstreetmap').limit(1000);
    if(error){setQueueNotice('Could not load authorized ingestion queue: '+error.message);return;}
    const counts:Record<string,number>={};
    for(const cell of data||[])counts[cell.status]=(counts[cell.status]||0)+1;
    setQueueCounts(counts);
+   setRunningCells((data||[]).filter(cell=>cell.status==='running')
+     .sort((a,b)=>String(a.started_at||'').localeCompare(String(b.started_at||''))));
  };
  useEffect(()=>{void refreshQueue();},[city?.id]);
  const validatePersistedBatch=async(data:any)=>{
@@ -132,6 +137,42 @@ export function AtlasIngestionControl(){
      }else setQueueNotice(error?.message||'Queue claim failed.');
      return 'blocked';
    }finally{setQueueBusy(false);await refreshQueue();}
+ };
+ // Only a genuine, already-finalized source batch can reconcile an uncertain
+ // claimed cell. The server locks the row and verifies owner, city, bounding
+ // box, counts, source and timing. This action never retries an import.
+ const reconcileCell=async(cellId:string)=>{
+   const batchId=(reconcileBatchIds[cellId]||'').trim();
+   if(running||queueBusy||batchRunning||reconciling)return;
+   if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(batchId)){
+     setQueueNotice('Enter the exact persisted import batch UUID before reconciliation.');
+     return;
+   }
+   setReconciling(true);setQueueNotice('');
+   try{
+     const {data,error}=await supabase.rpc('afat_reconcile_ingestion_cell',{
+       p_cell_id:cellId,p_import_batch_id:batchId,
+     });
+     if(error)throw error;
+     if(data?.cell_id!==cellId||data?.import_batch_id!==batchId||
+        data?.reconciled_from_persisted_batch!==true||
+        data?.candidate_only!==true||data?.automatic_truth!==false||
+        !['completed','completed_with_errors'].includes(data?.status))
+       throw new Error('Reconciliation returned no valid evidence-bound receipt.');
+     const {data:verified,error:verifyError}=await supabase.from('afat_city_ingestion_cells')
+       .select('id,status,import_batch_id').eq('id',cellId).maybeSingle();
+     if(verifyError||verified?.import_batch_id!==batchId||verified?.status!==data.status)
+       throw new Error('Server result could not be independently confirmed from the queue.');
+     setQueueNotice('Reconciled matching persisted source batch '+batchId+
+       ' for cell '+cellId+'. Imported geography remains candidate-only, pending review.');
+     setReconcileBatchIds(old=>({...old,[cellId]:''}));
+   }catch(error:any){
+     setQueueNotice('Reconciliation did not complete: '+(error?.message||String(error))+
+       '. No source import was retried or fabricated.');
+   }finally{
+     setReconciling(false);
+     await refreshQueue();
+   }
  };
  // Operator-triggered bounded source ingestion. Every cell must have a persisted,
  // matching import receipt before the next cell may be claimed. Stop on errors,
@@ -234,6 +275,22 @@ export function AtlasIngestionControl(){
          {batchRunning?' Processing remains sequential.':''}
        </p>}
      {queueNotice&&<p role="status" className="mt-3 break-words text-xs text-cyan-100">{queueNotice}</p>}
+     {!!runningCells.length&&<div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] p-3">
+       <p className="text-xs font-bold text-amber-100">Reconcile stalled source claims</p>
+       <p className="mt-1 text-xs text-white/50">Only enter the ID of an already persisted import batch. Claims younger than ten minutes cannot be reconciled. A missing or uncertain batch must remain under review.</p>
+       {runningCells.slice(0,8).map(cell=><div key={cell.id} className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 p-2 text-xs">
+         <span className="min-w-0 flex-1 break-all text-white/75">{cell.cell_key}<span className="block text-[10px] text-white/40">{cell.started_at||'Start time not recorded'}</span></span>
+         <input aria-label={'Persisted import batch for '+cell.cell_key} value={reconcileBatchIds[cell.id]||''}
+           onChange={e=>setReconcileBatchIds(old=>({...old,[cell.id]:e.target.value}))}
+           placeholder="Verified batch UUID" className="min-h-10 w-52 rounded-lg border border-white/10 bg-black/25 px-2 text-xs text-white"/>
+         <button type="button" onClick={()=>void reconcileCell(cell.id)}
+           disabled={reconciling||queueBusy||batchRunning||running||!reconcileBatchIds[cell.id]?.trim()}
+           className="min-h-10 rounded-lg border border-amber-300/30 px-3 text-xs font-bold text-amber-100 disabled:opacity-40">
+           {reconciling?'Checking…':'Reconcile evidence'}
+         </button>
+       </div>)}
+     </div>}
+
    </div>
    <button onClick={run} disabled={running||!cityKey||!reviewedEnvelope(city)} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35">{running?<RefreshCw className="h-4 w-4 animate-spin"/>:<MapPinned className="h-4 w-4"/>}{running?'Ingesting controlled cell…':'Ingest city road cell'}</button>
    {result&&<div role="status" className={`mt-4 rounded-xl border p-4 ${result.error?'border-rose-300/20 bg-rose-400/10':'border-emerald-300/15 bg-black/20'}`}>{result.error?<><p className="text-xs font-bold text-rose-100">{result.error}</p>{result.batch_id&&<p className="mt-2 break-all text-[9px] text-white/55">Import batch: {result.batch_id}</p>}</>:<><p className="mb-3 text-xs font-bold text-emerald-200">Persisted import evidence confirmed · candidate geography only</p><div className="grid gap-3 sm:grid-cols-5"><K l="Status" v={result.confirmed_status}/><K l="Processed" v={result.processed_way_count||0}/><K l="Accepted source" v={result.confirmed_accepted}/><K l="Rejected" v={result.confirmed_rejected}/><K l="Topology staged" v={result.topology?.segments_prepared||0} icon/></div><p className="mt-3 break-all text-[9px] text-white/55">Import batch: {result.batch_id}</p><p className="mt-2 text-[9px] leading-5 text-white/35">{result.note}</p>{result.error_summary&&<p className="mt-2 text-[9px] text-amber-200">Partial import: {result.error_summary}</p>}</>}</div>}
