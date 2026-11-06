@@ -8,6 +8,7 @@ const onboarding=readFileSync('dashboard/src/components/shared/RoleOnboarding.ts
 const ui=readFileSync('dashboard/src/components/operator/OperatorVehicleRegistration.tsx','utf8');
 const docs=readFileSync('dashboard/src/services/operatorComplianceDocuments.ts','utf8');
 const client=readFileSync('dashboard/src/services/operatorExecutionClient.ts','utf8');
+const accessClient=readFileSync('dashboard/src/supabaseClient.ts','utf8');
 
 assert.ok(access.includes(".eq('capability_key','operator')"),'only operator applications authorize preliminary evidence');
 assert.ok(access.includes(".in('status',['submitted','under_review','needs_information'])"),'rejected and withdrawn applicants excluded');
@@ -37,4 +38,7 @@ assert.ok(ui.includes('onRegistered(data.vehicle)'),'registration passes server 
 assert.ok(client.includes('/api/onboard/vehicle/mine'),'owner vehicle API connected');
 assert.ok(client.includes("'x-afat-workspace-role':'commuter'"),'unapproved applicant never impersonates operator role');
 assert.ok(docs.includes('ownerEvidence?'),'owner document upload scoped to commuter workspace');
+const ownApplications=accessClient.slice(accessClient.indexOf('export async function fetchMyAccessApplications'),accessClient.indexOf('export async function fetchAccessApprovalInbox'));
+assert.ok((ownApplications.match(/'x-afat-workspace-role':'commuter'/g)||[]).length>=2,
+ 'self-service application status and submission must work before operator role is approved');
 console.log('PASS operator application → owned vehicle → private ID/licence/insurance evidence with no self-approval');
