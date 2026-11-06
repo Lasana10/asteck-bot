@@ -10,9 +10,10 @@ const route=api.slice(start,end);
 for(const token of [
  ".eq('id',id).eq('is_active',true)",
  "gt('departure_time',new Date().toISOString())",
- "supabase.from('bookings').select('route_id,seat_label')",
+ "supabase.from('bookings').select('route_id,seat_label,status')",
  ".in('status',['pending','accepted','confirmed','boarded','in_progress'])",
  "afat_vehicle_compliance_current",
+ "EXACT_DEPARTURE_BOOKINGS_EXCEEDS_SAFE_LIMIT",
  "projectPublishedDepartures({routes:[route]",
  "seat_hold_required:true",
  "availability_is_provisional:true",
