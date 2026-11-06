@@ -42,8 +42,11 @@ assert.equal(project({departure_time:'2026-10-21T16:00:00Z'}, {}, {},[]).length,
 const api=readFileSync('src/api/routes.ts','utf8');
 assert.ok(api.includes(".select('route_id,seat_label,status')"),
  'exact departure must supply booking status to capacity projection');
-assert.ok(api.includes(".select('route_id, seat_label, status')"),
- 'public departure search must supply booking status to capacity projection');
+assert.ok(api.includes("loadActiveDepartureSeatClaims(supabase,routeIds)"),
+ 'public departure search must read all active booking records or fail closed');
+const reader=readFileSync('src/services/departureSeatInventory.ts','utf8');
+assert.ok(reader.includes(".select('id,route_id,seat_label,status')"),
+ 'paginated public departure search must propagate active booking status');
 assert.equal((api.match(/projectPublishedDepartures\(/g)||[]).length,2,
  'both public and exact-seat endpoints must use the same occupancy projection');
 console.log('PASS AFAT verified operator → published future departure → provisional seat inventory contract');
