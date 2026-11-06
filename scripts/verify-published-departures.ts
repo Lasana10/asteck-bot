@@ -42,6 +42,8 @@ assert.equal(project({departure_time:'2026-10-21T16:00:00Z'}, {}, {},[]).length,
 const api=readFileSync('src/api/routes.ts','utf8');
 assert.ok(api.includes(".select('route_id,seat_label,status')"),
  'exact departure must supply booking status to capacity projection');
+assert.ok(api.includes("EXACT_DEPARTURE_BOOKINGS_EXCEEDS_SAFE_LIMIT"),
+ 'exact departure may never claim free seats from a potentially truncated booking page');
 assert.ok(api.includes("loadActiveDepartureSeatClaims(supabase,routeIds)"),
  'public departure search must read all active booking records or fail closed');
 const reader=readFileSync('src/services/departureSeatInventory.ts','utf8');
