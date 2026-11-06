@@ -20,6 +20,7 @@ export interface MapPackDefinition {
 interface DownloadedRegion {
   id: string;
   lastAccessed: number;
+  bytes: number;
 }
 
 interface IntelligenceData {
@@ -99,7 +100,10 @@ class MapOfflineService {
       const pack = this.getPack(region.id);
       if (!pack || pack.status !== 'ready' || !pack.assetUrls.length) continue;
       const stored = await Promise.all(pack.assetUrls.map((url) => cache.match(new URL(url, window.location.origin).toString())));
-      if (stored.every((response) => response?.ok)) valid.push(region);
+      if (stored.every((response) => response?.ok)) {
+        const bytes = (await Promise.all(stored.map(response => response!.clone().blob().then(blob => blob.size)))).reduce((a,b)=>a+b,0);
+        valid.push({...region,bytes});
+      }
     }
     this.downloadedRegions = valid;
     this.verifiedAssets = true;
@@ -117,9 +121,9 @@ class MapOfflineService {
         this.downloadedRegions = downloaded
           .map((entry: any) =>
             typeof entry === 'string'
-              ? { id: entry, lastAccessed: Date.now() }
+              ? { id: entry, lastAccessed: Date.now(), bytes: 0 }
               : entry?.id
-                ? { id: entry.id, lastAccessed: entry.lastAccessed || Date.now() }
+                ? { id: entry.id, lastAccessed: entry.lastAccessed || Date.now(), bytes: 0 }
                 : null
           )
           .filter(Boolean) as DownloadedRegion[];
@@ -148,12 +152,13 @@ class MapOfflineService {
     );
   }
 
-  private markRegionInstalled(regionId: string) {
+  private markRegionInstalled(regionId: string, bytes: number) {
     const existing = this.downloadedRegions.find((region) => region.id === regionId);
     if (existing) {
       existing.lastAccessed = Date.now();
+      existing.bytes = bytes;
     } else {
-      this.downloadedRegions.push({ id: regionId, lastAccessed: Date.now() });
+      this.downloadedRegions.push({ id: regionId, lastAccessed: Date.now(), bytes });
     }
     localStorage.setItem(`${REGION_FLAG_PREFIX}${regionId}`, 'true');
     this.saveState();
@@ -189,10 +194,8 @@ class MapOfflineService {
   }
 
   public getStorageUsage() {
-    const used = this.downloadedRegions.reduce((acc, curr) => {
-      const region = this.getPack(curr.id);
-      return acc + (region?.sizeMb || 0);
-    }, 0);
+    // Cached files are measured, not guessed from a marketing pack estimate.
+    const used = this.downloadedRegions.reduce((acc, curr) => acc + (curr.bytes || 0), 0) / (1024 * 1024);
     return {
       used,
       limit: this.storageLimitMb,
@@ -201,22 +204,29 @@ class MapOfflineService {
   }
 
   private async enforceStorageLimit() {
-    const { used } = this.getStorageUsage();
-    if (used <= this.storageLimitMb) return;
-
-    this.downloadedRegions.sort((a, b) => a.lastAccessed - b.lastAccessed);
-    const purged = this.downloadedRegions.shift();
-    if (purged?.id) {
-      localStorage.removeItem(`${REGION_FLAG_PREFIX}${purged.id}`);
+    // Delete bytes and the installed flag together; a metadata-only eviction
+    // leaves the device full while AFAT incorrectly claims room was recovered.
+    const cache = typeof caches!=='undefined' ? await caches.open(OFFLINE_ASSET_CACHE):null;
+    while (this.getStorageUsage().used > this.storageLimitMb && this.downloadedRegions.length) {
+      this.downloadedRegions.sort((a,b)=>a.lastAccessed-b.lastAccessed);
+      const purged=this.downloadedRegions.shift();
+      if(!purged)break;
+      const pack=this.getPack(purged.id);
+      for(const url of pack?.assetUrls||[]) {
+        // Leave shared assets intact if another installed pack references them.
+        const shared=this.downloadedRegions.some(other=>this.getPack(other.id)?.assetUrls.includes(url));
+        if(!shared&&cache&&typeof window!=='undefined')
+          await cache.delete(new URL(url,window.location.origin).toString());
+      }
+      if(typeof localStorage!=='undefined') localStorage.removeItem(`${REGION_FLAG_PREFIX}${purged.id}`);
+      this.saveState();
     }
-    this.saveState();
-    await this.enforceStorageLimit();
   }
 
   // Storing a downloaded-region flag is not enough. Install files into
   // persistent CacheStorage, and only declare a pack available after every
   // required asset has been cached and verified.
-  private async cacheRegionAssets(assetUrls: string[], onProgress?: (progress: number) => void) {
+  private async cacheRegionAssets(assetUrls: string[], onProgress?: (progress: number) => void): Promise<number> {
     if (typeof caches === 'undefined') throw new Error('Offline asset storage is unavailable on this device.');
     const cache = await caches.open(OFFLINE_ASSET_CACHE);
     const staged: string[] = [];
@@ -242,6 +252,7 @@ class MapOfflineService {
       }
       const verified = await Promise.all(assetUrls.map((url) => cache.match(new URL(url, window.location.origin).toString())));
       if (verified.some((response) => !response?.ok)) throw new Error('Offline assets failed installation verification.');
+      return (await Promise.all(verified.map(response=>response!.clone().blob().then(blob=>blob.size)))).reduce((a,b)=>a+b,0);
     } catch (error) {
       for (const url of staged) await cache.delete(url);
       throw error;
@@ -251,7 +262,8 @@ class MapOfflineService {
   // Read actual preinstalled assets without requiring the network.
   public async readOfflineAsset(regionId: MapPackDefinition['id'], assetUrl: string): Promise<Response | null> {
     const pack = this.getPack(regionId);
-    if (!pack || !pack.assetUrls.includes(assetUrl) || typeof caches === 'undefined') return null;
+    if (!pack || !pack.assetUrls.includes(assetUrl) ||
+      !this.downloadedRegions.some(item=>item.id===regionId) || typeof caches === 'undefined') return null;
     const cached = await (await caches.open(OFFLINE_ASSET_CACHE)).match(new URL(assetUrl, window.location.origin).toString());
     return cached?.ok ? cached : null;
   }
@@ -313,9 +325,9 @@ class MapOfflineService {
 
 
     onProgress?.(15);
-    await this.cacheRegionAssets(region.assetUrls, onProgress);
+    const storedBytes=await this.cacheRegionAssets(region.assetUrls, onProgress);
     this.verifiedAssets = true;
-    this.markRegionInstalled(regionId);
+    this.markRegionInstalled(regionId, storedBytes);
     await this.enforceStorageLimit();
     onProgress?.(100);
   }
