@@ -4,6 +4,7 @@ import { GeoJSONSource, LngLatBounds, Map as MapLibreMap, Marker } from 'maplibr
 import { routeToLatLngs, type AfatCanonicalRoute } from '../../services/canonicalRouteClient';
 import { supabase } from '../../supabaseClient';
 import { AFAT_BASEMAPS, type AfatBasemapMode } from '../../services/mapBasemaps';
+import {resolveAfatMappedCity} from '../../services/mapCityResolution';
 import { fetchAtlasNearby, type AtlasEdge, type AtlasNearbyResponse, type AtlasNode } from '../../services/atlasClient';
 import { distanceMeters } from '../../services/journeyRuntime';
 import {calculateRouteProgress,nextRoadManeuver} from '../../services/routeGuidance';
@@ -26,8 +27,6 @@ type Props = {
 type MarkerKind='origin'|'destination'|'meeting'|'access';
 type BasemapMode=AfatBasemapMode;
 
-const YAOUNDE_CENTER:[number,number]=[11.514,3.866];
-const DOUALA_CENTER:[number,number]=[9.7043,4.0511];
 const ROUTE_SOURCE_ID='afat-canonical-route';
 const ATLAS_EDGE_SOURCE_ID='afat-atlas-edges';
 const ATLAS_NODE_SOURCE_ID='afat-atlas-nodes';
@@ -37,8 +36,8 @@ const REVIEWED_TRANSIT_SOURCE_ID='afat-reviewed-transit-stops';
 
 function validPoint(point?:SpatialPoint|null){const latitude=Number(point?.latitude),longitude=Number(point?.longitude);if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||latitude<-90||latitude>90||longitude<-180||longitude>180)return null;return{latitude,longitude}}
 function formatDistance(distanceM?:number){const value=Number(distanceM||0);if(!value)return'';return value<1000?`${Math.round(value)} m`:`${(value/1000).toFixed(value>=10000?0:1)} km`}
-function mapCenter(city?:string|null):[number,number]{return String(city||'').toLowerCase().includes('douala')?DOUALA_CENTER:YAOUNDE_CENTER}
-function cityKeyFor(city?:string|null){return String(city||'').toLowerCase().includes('douala')?'cm-douala':'cm-yaounde'}
+function mapCenter(city?:string|null):[number,number]{return resolveAfatMappedCity(city)?.center||[0,0]}
+function cityKeyFor(city?:string|null){return resolveAfatMappedCity(city)?.cityKey||null}
 function markerElement(kind:MarkerKind){const shell=document.createElement('div');shell.setAttribute('aria-label',kind==='origin'?'Your start point':kind==='meeting'?'Recommended meeting point':kind==='access'?'Recommended access point':'Destination');shell.style.width=kind==='origin'?'32px':'28px';shell.style.height=kind==='origin'?'32px':'28px';shell.style.display='grid';shell.style.placeItems='center';shell.style.borderRadius='9999px';shell.style.background=kind==='origin'?'rgba(14,165,233,.16)':'rgba(2,6,23,.42)';shell.style.boxShadow=kind==='origin'?'0 0 0 9px rgba(56,189,248,.08),0 12px 30px rgba(2,6,23,.46)':'0 10px 28px rgba(2,6,23,.48)';const core=document.createElement('div');core.style.width=kind==='origin'?'14px':'16px';core.style.height=kind==='origin'?'14px':'16px';core.style.borderRadius='9999px';core.style.border='3px solid rgba(255,255,255,.98)';core.style.background=kind==='origin'?'#0ea5e9':kind==='meeting'?'#f59e0b':kind==='access'?'#8b5cf6':'#10b981';shell.appendChild(core);return shell}
 function atlasEdgeCollection(atlas:AtlasNearbyResponse|null){const nodes=new Map<string,AtlasNode>();(atlas?.nodes||[]).forEach(node=>{if(node.id&&Number.isFinite(Number(node.latitude))&&Number.isFinite(Number(node.longitude)))nodes.set(node.id,node)});const features=(atlas?.edges||[]).map((edge:AtlasEdge)=>{const from=edge.from_node_id?nodes.get(edge.from_node_id):null,to=edge.to_node_id?nodes.get(edge.to_node_id):null;const geometry=edge.geometry_geojson&&edge.geometry_geojson.type==='LineString'?edge.geometry_geojson:from&&to?{type:'LineString' as const,coordinates:[[Number(from.longitude),Number(from.latitude)],[Number(to.longitude),Number(to.latitude)]]}:null;if(!geometry)return null;return{type:'Feature' as const,properties:{id:edge.id,name:edge.name||'',evidence_status:edge.evidence_status||'',confidence:Number(edge.confidence||0),modes:(edge.access_modes||edge.modes||[]).join(',')},geometry}}).filter(Boolean);return{type:'FeatureCollection' as const,features:features as any[]}}
 function atlasNodeCollection(atlas:AtlasNearbyResponse|null){return{type:'FeatureCollection' as const,features:(atlas?.nodes||[]).filter(node=>Number.isFinite(Number(node.latitude))&&Number.isFinite(Number(node.longitude))).map(node=>({type:'Feature' as const,properties:{id:node.id,name:node.name||node.canonical_name||node.node_type||'AFAT graph node',node_type:node.node_type||'place',evidence_status:node.evidence_status||'',confidence:Number(node.confidence||0)},geometry:{type:'Point' as const,coordinates:[Number(node.longitude),Number(node.latitude)]}}))}}
@@ -63,7 +62,9 @@ export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeA
 
   const loadPlacesInView=async(map:MapLibreMap)=>{
     const seq=++viewportRequestSequence.current;
-    const bounds=map.getBounds(),cityKey=cityKeyFor(city);
+    const cityKey=cityKeyFor(city);
+    if(!cityKey){setViewPlaces([]);setMapStatus('This city does not yet have an AFAT mapped city profile. No Yaoundé places are being substituted.');return;}
+    const bounds=map.getBounds();
     const request={cityKey,west:bounds.getWest(),south:bounds.getSouth(),east:bounds.getEast(),north:bounds.getNorth()};
     const currentZoom=map.getZoom();
     try{
@@ -105,9 +106,25 @@ export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeA
       setAtlas(null);setAtlasError(error?.message||'AFAT Atlas is temporarily unavailable.');
     }finally{if(seq===atlasRequestSequence.current)setAtlasLoading(false);}
   };
-  useEffect(()=>{const[longitude,latitude]=mapCenter(city);void loadAtlas(latitude,longitude)},[city]);
+  useEffect(()=>{
+    const mapped=resolveAfatMappedCity(city);
+    if(!mapped){
+      atlasRequestSequence.current+=1;
+      setAtlas(null);setAtlasLoading(false);
+      setAtlasError('Atlas coverage for this city has not been verified.');
+      return;
+    }
+    const [longitude,latitude]=mapped.center;
+    void loadAtlas(latitude,longitude);
+  },[city]);
 
-  useEffect(()=>{if(!containerRef.current)return;const basemap=AFAT_BASEMAPS.intel;const map=new MapLibreMap({container:containerRef.current,center:mapCenter(city),zoom:13.2,pitch:0,bearing:0,attributionControl:true,style:{version:8,sources:{basemap:{type:'raster',tiles:basemap.tiles,tileSize:256,attribution:basemap.attribution,maxzoom:19}},layers:[{id:'afat-background',type:'background',paint:{'background-color':'#06101a'}},{id:'basemap',type:'raster',source:'basemap',paint:{'raster-opacity':basemap.opacity,'raster-saturation':-0.18,'raster-contrast':0.12}}]}});map.once('load',()=>{setMapReady(true);setMapStatus('');setZoom(map.getZoom());void loadPlacesInView(map);window.setTimeout(()=>map.resize(),50)});map.on('moveend',()=>{setZoom(map.getZoom());void loadPlacesInView(map)});map.on('zoom',()=>setZoom(map.getZoom()));map.on('error',(event:any)=>{if(String(event?.error?.message||''))setMapStatus('Map tiles or map data failed to load. AFAT is not hiding the failure.')});const resizeObserver=new ResizeObserver(()=>map.resize());resizeObserver.observe(containerRef.current);map.on('click',event=>{if(!manualModeRef.current)return;const next={latitude:event.lngLat.lat,longitude:event.lngLat.lng,accuracy:null,source:'manual' as const,name:'Pinned start point',speedKph:null,heading:null};setOrigin(next);setManualMode(false);setLocationMessage('Start point pinned manually. This is user-selected, not GPS evidence.');onOriginResolvedRef.current?.({latitude:next.latitude,longitude:next.longitude,accuracy:null,speedKph:null,heading:null,label:'Pinned start point',source:'manual'});void loadAtlas(next.latitude,next.longitude)});mapRef.current=map;return()=>{viewportRequestSequence.current+=1;atlasRequestSequence.current+=1;resizeObserver.disconnect();markerRefs.current.forEach(marker=>marker.remove());markerRefs.current=[];map.remove();mapRef.current=null;setMapReady(false)}},[city]);
+  useEffect(()=>{if(!containerRef.current)return;
+    if(!resolveAfatMappedCity(city)){
+      setMapReady(false);setViewPlaces([]);
+      setMapStatus('AFAT map coverage is not yet established for this city. Select a supported city to see source-backed map data.');
+      return;
+    }
+    const basemap=AFAT_BASEMAPS.intel;const map=new MapLibreMap({container:containerRef.current,center:mapCenter(city),zoom:13.2,pitch:0,bearing:0,attributionControl:true,style:{version:8,sources:{basemap:{type:'raster',tiles:basemap.tiles,tileSize:256,attribution:basemap.attribution,maxzoom:19}},layers:[{id:'afat-background',type:'background',paint:{'background-color':'#06101a'}},{id:'basemap',type:'raster',source:'basemap',paint:{'raster-opacity':basemap.opacity,'raster-saturation':-0.18,'raster-contrast':0.12}}]}});map.once('load',()=>{setMapReady(true);setMapStatus('');setZoom(map.getZoom());void loadPlacesInView(map);window.setTimeout(()=>map.resize(),50)});map.on('moveend',()=>{setZoom(map.getZoom());void loadPlacesInView(map)});map.on('zoom',()=>setZoom(map.getZoom()));map.on('error',(event:any)=>{if(String(event?.error?.message||''))setMapStatus('Map tiles or map data failed to load. AFAT is not hiding the failure.')});const resizeObserver=new ResizeObserver(()=>map.resize());resizeObserver.observe(containerRef.current);map.on('click',event=>{if(!manualModeRef.current)return;const next={latitude:event.lngLat.lat,longitude:event.lngLat.lng,accuracy:null,source:'manual' as const,name:'Pinned start point',speedKph:null,heading:null};setOrigin(next);setManualMode(false);setLocationMessage('Start point pinned manually. This is user-selected, not GPS evidence.');onOriginResolvedRef.current?.({latitude:next.latitude,longitude:next.longitude,accuracy:null,speedKph:null,heading:null,label:'Pinned start point',source:'manual'});void loadAtlas(next.latitude,next.longitude)});mapRef.current=map;return()=>{viewportRequestSequence.current+=1;atlasRequestSequence.current+=1;resizeObserver.disconnect();markerRefs.current.forEach(marker=>marker.remove());markerRefs.current=[];map.remove();mapRef.current=null;setMapReady(false)}},[city]);
 
   useEffect(()=>{const map=mapRef.current;if(!map||!mapReady)return;const basemap=AFAT_BASEMAPS[basemapMode],source=map.getSource('basemap') as any;try{source?.setTiles?.(basemap.tiles);map.setPaintProperty('afat-background','background-color',basemapMode==='street'?'#d9e3ea':'#06101a');map.setPaintProperty('basemap','raster-opacity',basemap.opacity);map.setPaintProperty('basemap','raster-saturation',basemapMode==='satellite'?-0.08:-0.18);map.setPaintProperty('basemap','raster-contrast',basemapMode==='intel'?0.12:0.04)}catch{setMapStatus('Map layer switch could not complete. Your current map view was preserved.')}},[basemapMode,mapReady]);
 
@@ -199,6 +216,12 @@ export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeA
   return <section className="overflow-hidden rounded-[30px] border border-white/10 bg-[#040a11] shadow-[0_28px_90px_rgba(0,0,0,0.4)]">
     <div className="relative h-[500px] sm:h-[620px]">
       <div ref={containerRef} className="absolute inset-0 h-full w-full" aria-label="AFAT living mobility map"/>
+      {!resolveAfatMappedCity(city)&&<div role="alert" className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950 px-6 text-center">
+        <div className="max-w-md rounded-2xl border border-amber-300/20 bg-slate-900 p-6">
+          <p className="text-xl font-black text-white">Map coverage not yet established</p>
+          <p className="mt-3 text-sm leading-6 text-white/65">{String(city||'This city')} has no verified AFAT city-map profile. The app will not display Yaoundé map data as though it belonged here. You can browse Yaoundé or Douala while additional cities are prepared.</p>
+        </div>
+      </div>}
       {offline&&hasRoute&&<OfflineRouteSchematic route={route} progress={progress} label={meetingPoint?.name||accessPoint?.name||destination?.name}/>}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-slate-950/78 via-slate-950/22 to-transparent"/><div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-52 bg-gradient-to-t from-slate-950/78 via-slate-950/16 to-transparent"/>

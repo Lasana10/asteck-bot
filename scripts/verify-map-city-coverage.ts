@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const map=readFileSync('dashboard/src/components/commuter/PassengerSpatialMap.tsx','utf8');
+const resolver=readFileSync('dashboard/src/services/mapCityResolution.ts','utf8');
+assert.ok(resolver.includes('return null;'),'unknown city must not map to Yaoundé');
+assert.ok(map.includes('resolveAfatMappedCity(city)?.cityKey||null'),'unknown city must not enter source-backed city RPC');
+assert.ok(map.includes('if(!cityKey){setViewPlaces([])'),'clear invalid map place inventory');
+assert.ok(map.includes('if(!resolveAfatMappedCity(city)){'),'do not mount unrelated basemap');
+assert.ok(map.includes('Atlas coverage for this city has not been verified.'));
+assert.ok(map.includes('The app will not display Yaoundé map data as though it belonged here.'));
+console.log('PASS map city resolver prevents false atlas coverage on unsupported cities');
