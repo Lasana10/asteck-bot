@@ -14,3 +14,14 @@ export function validateOperatorVehicleRegistration(raw:unknown){
   throw Error('REAL_PASSENGER_CAPACITY_REQUIRED');
  return {plate_number:plate,type,capacity};
 }
+
+/** Resolve registration retries without converting ownership or clearance.
+ * 'recover' is a read of the same server record, never a new approval.
+ */
+export function vehicleRegistrationOwnership(
+ existing:{operator_id?:unknown}|null|undefined,
+ operatorId:string,
+):'absent'|'recover'|'conflict'{
+ if(!existing)return 'absent';
+ return existing.operator_id===operatorId?'recover':'conflict';
+}
