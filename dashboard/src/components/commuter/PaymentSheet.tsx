@@ -37,8 +37,15 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
     setServerPhase(state.phase);
     setPendingTransactionId(state.phase==='pending'?state.transactionId:'');
     if(state.phase==='paid'){
-      if(!state.transactionId){setErrorText('Payment confirmed but no server transaction reference is available. Contact AFAT support.');return state;}
-      deliverConfirmed(booking?.payment_status==='paid_cash'?'cash_confirmed':selectedMethod||'mobile_money',state.transactionId);
+      const verifiedCash=booking?.payment_status==='paid_cash';
+      // Physical cash settlement has dual-party evidence, not necessarily a
+      // provider transaction ID. Signed boarding still requires the server's
+      // independent dual-attestation check.
+      if(!verifiedCash&&!state.transactionId){
+        setErrorText('Payment confirmed but no server transaction reference is available. Contact AFAT support.');
+        return state;
+      }
+      deliverConfirmed(verifiedCash?'cash_confirmed':selectedMethod||'mobile_money',state.transactionId);
     }
     // Cash due is an unpaid obligation, not a completed payment or a signed boarding ticket.
     return state;
