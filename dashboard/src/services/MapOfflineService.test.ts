@@ -67,6 +67,41 @@ describe('AFAT real offline asset installation', () => {
     expect(await mapOfflineService.readVerifiedYaoundeSeed()).toBeNull();
   });
 
+  it('reports real cached bytes instead of the nominal 20 MB Yaoundé estimate', async()=>{
+    setupStorage();
+    const {mapOfflineService}=await import('./MapOfflineService');
+    await mapOfflineService.downloadRegion('yaounde');
+    const usage=mapOfflineService.getStorageUsage();
+    expect(usage.used).toBeGreaterThan(0);
+    expect(usage.used).toBeLessThan(1);
+    expect(mapOfflineService.getCatalog().find(p=>p.id==='yaounde')?.installed).toBe(true);
+  });
+
+  it('physically deletes cached files and flags when the real storage budget is exceeded', async()=>{
+    const {assets,values}=setupStorage();
+    const {mapOfflineService}=await import('./MapOfflineService');
+    // Explicitly force tiny test quota; no actual user quota is changed.
+    (mapOfflineService as any).storageLimitMb=0.000001;
+    await mapOfflineService.downloadRegion('yaounde');
+    expect(mapOfflineService.getCatalog().find(p=>p.id==='yaounde')?.installed).toBe(false);
+    expect(mapOfflineService.getStorageUsage().used).toBe(0);
+    expect(assets.size).toBe(0);
+    expect(values.get('afat_offline_yaounde')).toBeUndefined();
+    expect(await mapOfflineService.readOfflineAsset('yaounde','/data/yaounde_roads.geojson')).toBeNull();
+  });
+
+  it('rehydrates actual storage size from CacheStorage during reload, not legacy flags', async()=>{
+    setupStorage();
+    const previous=(await import('./MapOfflineService')).mapOfflineService;
+    await previous.downloadRegion('yaounde');
+    const used=previous.getStorageUsage().used;
+    vi.resetModules();
+    vi.mock('../supabaseClient',()=>({supabase:{}}));
+    const fresh=(await import('./MapOfflineService')).mapOfflineService;
+    await vi.waitFor(()=>expect(fresh.getStorageUsage().used).toBeCloseTo(used,8));
+    expect(fresh.getCatalog().find(p=>p.id==='yaounde')?.installed).toBe(true);
+  });
+
   it('rejects a simulated national pack as genuine offline coverage', async () => {
     setupStorage();
     const { mapOfflineService } = await import('./MapOfflineService');
