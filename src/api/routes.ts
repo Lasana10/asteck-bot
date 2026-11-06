@@ -4571,67 +4571,17 @@ router.post('/booking/create-from-hold', async (req: Request, res: Response) => 
 });
 
 // ── WALLET WITHDRAWAL REQUESTS ──────────────────────────────────────────────
-router.post('/wallet/withdraw', async (req: Request, res: Response) => {
-  try {
-    const session = await requireAuthRole(req, res, ['operator']);
-    if (!session) return;
-    const operator_id = session.profile.id;
-    const { amount } = req.body;
-
-    if (!amount) {
-      return res.status(400).json({ error: 'amount is required' });
-    }
-
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid withdrawal amount' });
-    }
-
-    const { data: wallet, error: walletError } = await supabase
-      .from('operator_wallets')
-      .select('balance_xaf')
-      .eq('operator_id', operator_id)
-      .single();
-
-    if (walletError || !wallet) {
-      return res.status(404).json({ error: 'Operator wallet not found' });
-    }
-
-    if (Number(wallet.balance_xaf || 0) < parsedAmount) {
-      return res.status(400).json({ error: 'Insufficient wallet balance' });
-    }
-
-    const reference = `WD-${Date.now().toString(36).toUpperCase()}`;
-
-    await appendWalletLedgerEntry({
-      operator_id,
-      entry_type: 'withdrawal',
-      direction: 'debit',
-      gross_amount: parsedAmount,
-      commission_amount: 0,
-      net_amount: parsedAmount,
-      status: 'requested',
-      reference,
-    });
-
-    const { error: updateError } = await supabase
-      .from('operator_wallets')
-      .update({
-        balance_xaf: Number(wallet.balance_xaf || 0) - parsedAmount,
-        updated_at: new Date().toISOString()
-      })
-      .eq('operator_id', operator_id);
-
-    if (updateError) throw updateError;
-
-    res.status(200).json({
-      success: true,
-      withdrawal: { amount: parsedAmount, reference, status: 'requested' }
-    });
-  } catch (error: any) {
-    console.error('Wallet withdrawal error:', error);
-    res.status(500).json({ error: error.message || 'Withdrawal request failed' });
-  }
+// The old amount-only payout path directly changed ledger and wallet balance
+// in separate statements, without a destination or atomic reservation.
+// It must never be used: the authenticated operator payout RPC is the one
+// financial source of truth, and staff/provider confirmation is separate.
+router.post('/wallet/withdraw', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control','no-store');
+  return res.status(410).json({
+    error:'LEGACY_WITHDRAWAL_DISABLED',
+    message:'Use the authenticated operator payout request with provider and destination. No funds were moved.',
+    payout_executed:false,
+  });
 });
 
 // ── SECURE TICKET ISSUE ─────────────────────────────────────────────────────
