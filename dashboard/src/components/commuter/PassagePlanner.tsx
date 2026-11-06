@@ -255,7 +255,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       setSuggestionLoading(false);
       if (error) { setSuggestions([]); return; }
       const discovered = (data?.results || []) as AfatPlaceCandidate[];
-      const fallback = !query && !discovered.length ? recentPlaces : discovered;
+      const fallback = !query && !discovered.length ? recentPlaces.filter(place => resolveAfatMappedCity(place.city)?.cityKey === preferredCityKey(profile)) : discovered;
       setSuggestions(fallback);
       setSuggestionsOpen(Boolean(fallback.length));
     }, query ? 220 : 400);
@@ -501,10 +501,14 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   }, [selectedPlace?.id, intentType, vehicleType]);
 
   const selectCandidate = (candidate: AfatPlaceCandidate) => {
+    if (!preferredCityKey(profile)) {
+      setStatusText('This city has no verified AFAT journey coverage. A stored place cannot be presented as a local destination.');
+      return;
+    }
     setDestination(candidate.name);
     setSuggestions([]);
     setSuggestionsOpen(false);
-    const nextRecents = [candidate, ...recentPlaces.filter((item) => item.id !== candidate.id)].slice(0, 5);
+    const nextRecents = [candidate, ...recentPlaces.filter((item) => item.id !== candidate.id && resolveAfatMappedCity(item.city)?.cityKey === preferredCityKey(profile))].slice(0, 5);
     setRecentPlaces(nextRecents);
     try { localStorage.setItem('afat_recent_places_v1', JSON.stringify(nextRecents)); } catch {}
     setSelectedPlace(candidate);
@@ -580,6 +584,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const handleMapPlaceSelected = async (place: { id: string; name: string; latitude: number; longitude: number; kind?: string | null; evidence_status?: string | null; source_only?: boolean }) => {
+    if (!preferredCityKey(profile)) return;
     setDestination(place.name);
     setStatusText(`Opening ${place.name} from the map…`);
     if(typeof navigator!=='undefined'&&!navigator.onLine){
@@ -640,7 +645,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const navigateOnly = async () => {
-    if (!selectedPlace || !originFix || canonicalRoute?.status !== 'ok') return;
+    if (!preferredCityKey(profile) || !selectedPlace || !originFix || canonicalRoute?.status !== 'ok') return;
     storeOfflineJourneyRoute({
       profileId:String(profile?.id||''),placeId:String(selectedPlace.id),placeName:selectedPlace.name,
       latitude:Number(arrivalPoint?.latitude||selectedPlace.latitude),
@@ -805,6 +810,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const createPassage = async () => {
+    if (!preferredCityKey(profile)) {
+      setStatusText('Transport requests are unavailable until this city has AFAT journey coverage.');
+      return;
+    }
     if (!profile?.id || !selectedPlace || !arrivalPoint) return;
     if (selectedPlace.source !== 'afat_places') {
       setStatusText('This location is a mapped reference without a current Atlas place identity. Search online for a listed destination before requesting transport.');
