@@ -43,4 +43,21 @@ assert.ok(ui.includes("p_import_batch_id:verified.batchId") &&
  ui.includes("closed?.status!==verified.batch.status"),
  'batch advances only after persisted queue completion checks');
 
+
+const edge=readFileSync('supabase/functions/afat-osm-city-ingest/index.ts','utf8');
+assert.ok(edge.includes('"id,city_key,city_name,country_code,status,metadata"'),
+ 'OSM import must load current city coverage metadata');
+assert.ok(edge.includes('CITY_REVIEWED_WORKING_ENVELOPE_REQUIRED') &&
+ edge.includes('INGEST_BBOX_OUTSIDE_CITY_WORKING_ENVELOPE'),
+ 'privileged API must refuse unconfigured or cross-city import bounds');
+assert.ok(edge.indexOf('INGEST_BBOX_OUTSIDE_CITY_WORKING_ENVELOPE') <
+ edge.indexOf('const query='),
+ 'city custody must be checked before Overpass fetch or import batch write');
+assert.ok(ui.includes('withinCityEnvelope({south,west,north,east},city)'),
+ 'manual and queued imports must respect current selected city bounds');
+assert.ok(ui.includes("setBbox({south:'',west:'',north:'',east:''})"),
+ 'unconfigured city switch must clear stale Yaoundé coordinates');
+assert.ok(ui.includes('onChange={e=>switchCity(e.target.value)}'),
+ 'changing city must reset geographic scope rather than keep former city bounds');
+
 console.log('PASS one-cell queued OSM ingestion: claim, invoke, verify, close, no unsafe retry');
