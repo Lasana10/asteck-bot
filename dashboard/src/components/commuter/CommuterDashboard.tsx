@@ -609,7 +609,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   };
 
   const openVerifiedPaidTicket=(record:PassengerBookingEntry)=>{
-    if(record.paymentPhase!=='paid')return;
+    if(record.paymentPhase!=='paid'||!record.ticketEligible)return;
     // TicketView requests the signed boarding credential from AFAT using
     // the existing booking ID. Client-side details are display hints only.
     setBookingResult({
