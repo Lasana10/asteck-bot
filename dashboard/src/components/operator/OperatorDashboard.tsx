@@ -5,7 +5,8 @@ import {
   MessageCircle, Shield, Star, ChevronRight, AlertTriangle, DollarSign, Fingerprint, Radio, Megaphone,
   Database, Download, CheckCircle, Activity, Layout, Layers, Box, Cloud, Wifi, RefreshCw, ArrowUpRight
 } from 'lucide-react';
-import { completeOperatorTrip, fetchLiveMapOps, fetchPassageIntents, getOperatorWalletLedger, reportPassageOutcome, requestOperatorWithdrawal, submitNegotiationOffer, supabase, updatePassageIntentStatus } from '../../supabaseClient';
+import { completeOperatorTrip, fetchLiveMapOps, fetchPassageIntents, getOperatorWalletLedger, reportPassageOutcome, submitNegotiationOffer, supabase, updatePassageIntentStatus } from '../../supabaseClient';
+import {requestOperatorPayout} from '../../services/operatorExecutionClient';
 import { mapOfflineService } from '../../services/MapOfflineService';
 import { VoiceReporter } from '../shared/VoiceReporter';
 import { QRCodeGenerator } from '../shared/QRCodeGenerator';
@@ -50,6 +51,11 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   const [showTontineHub, setShowTontineHub] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawDestination,setWithdrawDestination]=useState('');
+  const [withdrawProvider,setWithdrawProvider]=useState('mobile_money');
+  const [withdrawBusy,setWithdrawBusy]=useState(false);
+  const [withdrawError,setWithdrawError]=useState('');
+
   const [rideHistory, setRideHistory] = useState<any[]>([]);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
   const [lastBoardedBookingId, setLastBoardedBookingId] = useState<string | null>(null);
@@ -392,15 +398,28 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
   };
 
   const handleWithdraw = async () => {
-    const amount = parseFloat(withdrawAmount);
-    if (!amount || amount <= 0) return;
-    const { error } = await requestOperatorWithdrawal(profile?.id, amount);
-    if (!error) {
-      setShowWithdraw(false);
-      setWithdrawAmount('');
-      fetchWallet();
-      fetchWalletLedger();
+    if(withdrawBusy)return;
+    const amount=Number(withdrawAmount),destination=withdrawDestination.trim();
+    if(!profile?.id||!Number.isSafeInteger(amount)||amount<=0||
+       !['mobile_money','bank'].includes(withdrawProvider)||destination.length<5||destination.length>120){
+      setWithdrawError('Enter a whole-number XAF amount, supported provider and real payout destination.');return;
     }
+    setWithdrawBusy(true);setWithdrawError('');
+    try{
+      // This RPC locks the wallet, reserves available funds and creates a
+      // payout request. It never claims the provider actually disbursed money.
+      const {data,error}=await requestOperatorPayout({
+        amountXaf:amount,provider:withdrawProvider,destinationRef:destination,
+      });
+      if(error||data?.status!=='requested'||!data?.id){
+        setWithdrawError(error?.message||'Payout request is not confirmed. Check your payouts before retrying.');return;
+      }
+      setShowWithdraw(false);setWithdrawAmount('');setWithdrawDestination('');
+      setOperatorNotice(`Payout request ${data.id} recorded for ${amount.toLocaleString()} XAF. Funds are reserved, not yet disbursed.`);
+      void fetchWallet();void fetchWalletLedger();
+    }catch{
+      setWithdrawError('Payout outcome uncertain. Check your actual payout requests before retrying.');
+    }finally{setWithdrawBusy(false);}
   };
 
   const shiftHours = Math.floor(driveTimeMinutes / 60);
@@ -1424,14 +1443,14 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
       {showWithdraw && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end justify-center z-[2000] p-4 pb-8 animate-in fade-in duration-200">
           <div className="bg-[#0f1520] border border-white/10 w-full max-w-sm rounded-3xl p-6 relative text-center">
-            <button onClick={() => setShowWithdraw(false)} className="absolute top-5 right-5 text-white/30 hover:text-white">
+            <button disabled={withdrawBusy} onClick={() => setShowWithdraw(false)} className="absolute top-5 right-5 text-white/30 hover:text-white">
               <X className="w-5 h-5" />
             </button>
             <div className="w-16 h-16 bg-green-500/15 border border-green-500/25 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <CreditCard className="w-8 h-8 text-green-400" />
             </div>
             <h3 className="text-[18px] font-black text-white mb-1">Cash Out</h3>
-            <p className="text-[10px] text-white/25 uppercase font-mono tracking-widest mb-5">Mobile Money Terminal - MoMo / Orange</p>
+            <p className="text-[10px] text-white/55 uppercase font-mono tracking-widest mb-5">Payout request · approval and provider settlement required</p>
             <div className="bg-black/40 border border-white/6 rounded-xl p-4 mb-4 text-left">
               <p className="text-[10px] text-white/25 uppercase font-mono mb-1">Solde Disponible</p>
               <p className="text-2xl font-black text-green-400">{wallet?.balance_xaf?.toLocaleString() || 0} XAF</p>
@@ -1443,11 +1462,23 @@ export function OperatorDashboard({ onSignOut, profile, activeTab = 'home' }: Pr
               placeholder="Montant a retirer"
               className="w-full bg-black/40 border border-white/8 text-white text-[18px] font-black p-4 rounded-xl outline-none focus:border-green-500/50 transition-colors placeholder:text-white/15 text-center mb-4"
             />
-            <button
-              onClick={handleWithdraw}
-              className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[12px] transition-all shadow-lg shadow-green-900/40 active:scale-[0.98]"
-            >
-              Confirmer le retrait
+            <label className="mb-3 block text-left text-xs text-white/65">Payout provider
+              <select disabled={withdrawBusy} value={withdrawProvider} onChange={e=>setWithdrawProvider(e.target.value)}
+                className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-white">
+                <option value="mobile_money">Mobile Money</option>
+                <option value="bank">Bank transfer</option>
+              </select>
+            </label>
+            <label className="mb-3 block text-left text-xs text-white/65">Verified payout destination
+              <input disabled={withdrawBusy} value={withdrawDestination}
+                onChange={e=>setWithdrawDestination(e.target.value)} maxLength={120} autoComplete="off"
+                placeholder="Account or wallet reference" className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-white"/>
+            </label>
+            <p className="mb-3 text-left text-[11px] text-amber-100/75">Submitting reserves eligible balance. It does not mean money has been transferred.</p>
+            {withdrawError&&<p role="alert" className="mb-3 rounded-xl border border-rose-400/20 bg-rose-400/10 p-3 text-xs text-rose-100">{withdrawError}</p>}
+            <button type="button" disabled={withdrawBusy} onClick={()=>void handleWithdraw()}
+              className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[12px] transition-all shadow-lg shadow-green-900/40 active:scale-[0.98]">
+              {withdrawBusy?'Recording request…':'Request payout · not yet paid'}
             </button>
           </div>
         </div>
