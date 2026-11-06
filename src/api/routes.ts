@@ -2,6 +2,7 @@ import {reviewedSafetyFeed,urgentReviewedAlerts,incidentReviewLabel} from '../se
 import {validateScheduleDraft} from '../services/scheduledDeparturePublishing';
 import {departureWithdrawalEligibility} from '../services/operatorDepartureOperations';
 import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
+import {normalizeCameroonWalletPhone,validCameroonCollectionNetwork} from '../services/cameroonWalletPhone';
 import {loadActiveDepartureSeatClaims} from '../services/departureSeatInventory';
 import express, { Request, Response } from 'express';
 import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
@@ -1781,6 +1782,13 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
     if (!booking_id || !phone) {
       return res.status(400).json({ error: 'booking_id and phone are required' });
     }
+    const walletPhone=normalizeCameroonWalletPhone(phone);
+    if(!walletPhone||!validCameroonCollectionNetwork(mobile_network)){
+      return res.status(400).json({
+        error:'VALID_CAMEROON_WALLET_AND_NETWORK_REQUIRED',
+        collection_initiated:false,
+      });
+    }
 
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
@@ -1838,9 +1846,10 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'A payment attempt is already active for this booking' });
     }
 
-    console.log(`💳 Payment checkout: ${parsedAmount} XAF from ${phone} via ${normalizedProvider || 'auto-fallback'}`);
+    // Never print the passenger's full mobile-money number in server logs.
+    console.log(`AFAT payment checkout reserved for ${parsedAmount} XAF via ${normalizedProvider || 'auto-fallback'}`);
     const payment = await paymentService.initiateMomoPayment(
-      phone,
+      walletPhone,
       parsedAmount,
       `Booking ${booking_id || 'direct'}`,
       process.env.NODE_ENV==='production' ? 'pawapay' : normalizedProvider,
@@ -1868,7 +1877,7 @@ router.post('/payment/checkout', async (req: Request, res: Response) => {
       event_type: 'checkout_initiated',
       event_status: 'pending',
       amount_xaf: parsedAmount,
-      phone_number: String(phone || ''),
+      phone_number: walletPhone,
       metadata: {
         requested_provider: provider || null,
         mobile_network: mobile_network || null,

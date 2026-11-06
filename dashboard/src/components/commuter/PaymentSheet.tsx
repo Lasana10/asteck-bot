@@ -72,6 +72,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
   const readinessMode = providerReadiness?.mode || 'unknown';
   const livePawaPay = Boolean(providerReadiness?.ready?.pawapay);
   const mobileCollectionReady = providerReadiness?.collection_ready === true;
+  const validLocalWalletNumber=/^6\d{8}$/.test(phone.replace(/[\s().-]/g,''));
   const securityBadge = livePawaPay
     ? 'Confirmation fournisseur PawaPay requise'
     : readinessMode === 'live_or_hybrid'
@@ -80,6 +81,10 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
 
   const handlePay=async()=>{
     if(!selectedMethod||!bookingId||processing||serverPhase!=='ready')return;
+    if(selectedMethod!=='cash'&&!validLocalWalletNumber){
+      setErrorText('Saisissez un numéro mobile camerounais valide à 9 chiffres commençant par 6. Aucune collecte lancée.');
+      return;
+    }
     if(selectedMethod!=='cash'&&!mobileCollectionReady){
       setErrorText('Live Cameroon mobile-money collection is not verified. No collection was started. You can choose cash due, or try again after provider activation.');
       return;
@@ -260,7 +265,9 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
             <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-[2px] mb-3">Numéro de téléphone</label>
             <div className="flex bg-slate-800/50 rounded-xl overflow-hidden border border-white/5 focus-within:ring-2 ring-blue-500/50">
               <span className="flex items-center justify-center px-4 text-slate-400 font-mono text-sm border-r border-white/5">+237</span>
-              <input type="tel" placeholder="6XX XXX XXX" value={phone} onChange={e => setPhone(e.target.value)} className="flex-1 bg-transparent px-4 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
+              <input type="tel" inputMode="tel" autoComplete="tel-national" maxLength={16} placeholder="6XX XXX XXX" value={phone}
+                onChange={e => setPhone(e.target.value)} aria-invalid={phone.trim().length>0&&!validLocalWalletNumber}
+                className="flex-1 bg-transparent px-4 py-4 text-white placeholder-slate-600 focus:outline-none font-mono" />
             </div>
           </div>
         )}
@@ -268,7 +275,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
         <div className="flex-1" />
         <div className="flex items-center justify-center gap-2 mb-4 text-slate-500"><Shield className="w-4 h-4" /><span className="text-[10px] font-mono uppercase tracking-widest">{securityBadge}</span></div>
 
-        <button onClick={handlePay} disabled={!selectedMethod || processing || serverPhase!=='ready' || (selectedMethod !== 'cash' && phone.length < 8)} className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${selectedMethod && !processing ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
+        <button onClick={handlePay} disabled={!selectedMethod || processing || serverPhase!=='ready' || (selectedMethod !== 'cash' && !validLocalWalletNumber)} className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all ${selectedMethod && !processing ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/30 active:scale-[0.98]' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
           {processing ? <><Loader2 className="w-6 h-6 animate-spin" />Traitement en cours...</> : <><CreditCard className="w-6 h-6" />{selectedMethod === 'cash' ? `CONFIRMER ESPÈCES · ${amount} FCFA` : `PAYER ${amount} FCFA`}</>}
         </button>
       </main>
