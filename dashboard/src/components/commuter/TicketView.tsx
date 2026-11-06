@@ -33,6 +33,14 @@ export function TicketView({ booking, onBack }: Props) {
 
   useEffect(() => {
     let active = true;
+    setTicketPayload('');
+    setTicketError('');
+    // A cash-due reservation is not eligible for a signed boarding credential.
+    // The server requires confirmed payment or both physical handover attestations.
+    if(cashDue){
+      setTicketError('Paiement non collecté : aucun QR d’embarquement émis.');
+      return()=>{active=false;};
+    }
 
     issueSecureTicket(booking.id).then(({ data, error }) => {
       if (!active) return;
@@ -50,7 +58,7 @@ export function TicketView({ booking, onBack }: Props) {
     return () => {
       active = false;
     };
-  }, [booking.id]);
+  }, [booking.id,cashDue]);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -190,12 +198,12 @@ export function TicketView({ booking, onBack }: Props) {
               </div>
             ) : (
               <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-center text-sm font-bold text-red-200">
-                {ticketError || 'Emission du billet signe en cours…'}
+                {cashDue?'Aucun QR d’embarquement avant confirmation du paiement.':ticketError || 'Emission du billet signé en cours…'}
               </div>
             )}
           </div>
           <p className="text-center text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-6">
-            Présentez ce code au chauffeur
+            {cashDue?'Conservez cette référence pour confirmer le règlement.':'Présentez ce code au chauffeur uniquement après émission signée.'}
           </p>
 
           {/* Trip Details */}

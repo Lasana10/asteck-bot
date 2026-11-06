@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {paymentPhaseFromBooking,type PaymentPhase} from '../../services/paymentRecovery';
+import {CashHandoverPanel} from '../shared/CashHandoverPanel';
 import { ArrowLeft, CreditCard, Check, Loader2, Shield } from 'lucide-react';
 import { fetchBookingStatus, fetchPaymentProviderReadiness, finalizeBookingPayment, startBookingMobilePayment, reconcileBookingPayment } from '../../supabaseClient';
 
@@ -39,7 +40,7 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
       if(!state.transactionId){setErrorText('Payment confirmed but no server transaction reference is available. Contact AFAT support.');return state;}
       deliverConfirmed(booking?.payment_status==='paid_cash'?'cash_confirmed':selectedMethod||'mobile_money',state.transactionId);
     }
-    if(state.phase==='cash_due')deliverConfirmed('cash',state.transactionId);
+    // Cash due is an unpaid obligation, not a completed payment or a signed boarding ticket.
     return state;
   };
   const refreshBooking=async()=>{
@@ -151,6 +152,36 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
     setProcessing(false);
     setErrorText('Payment is still awaiting confirmed provider settlement. Do not initiate a second collection. You can recheck this booking later.');
   };
+
+  if(serverPhase==='cash_due'&&!completed){
+    return <section className="min-h-screen bg-slate-950 p-6 pt-14 text-white">
+      <div className="mx-auto max-w-lg">
+        <h1 className="text-2xl font-black text-amber-100">Réservation · paiement en espèces dû</h1>
+        <p role="status" className="mt-4 rounded-xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
+          Aucun paiement n’est confirmé. Ce document est une réservation, pas un billet QR autorisant l'embarquement.
+          Remettez les espèces uniquement au bon opérateur, puis confirmez le transfert réel des deux côtés.
+        </p>
+        <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900 p-5">
+          <p className="text-xs text-white/50">Réservation serveur</p>
+          <p className="mt-1 break-all font-mono text-xs text-white">{bookingId||'Unverified'}</p>
+          <p className="mt-3 text-sm text-white/70">{routeName} · Place {seatLabel} · {operatorName}</p>
+          <p className="mt-3 text-xl font-black text-white">{Number(amount).toLocaleString('fr-CM')} FCFA à remettre</p>
+        </div>
+        {bookingId&&<CashHandoverPanel bookingId={bookingId} side="passenger" onDualAttested={()=>void refreshBooking()}/>}
+        {errorText&&<p role="alert" className="mt-4 text-xs text-rose-200">{errorText}</p>}
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button type="button" disabled={processing} onClick={()=>void refreshBooking()}
+            className="min-h-11 rounded-xl border border-cyan-300/25 px-4 text-xs font-bold text-cyan-100 disabled:opacity-40">
+            Vérifier le statut du paiement
+          </button>
+          <button type="button" onClick={onBack}
+            className="min-h-11 rounded-xl border border-white/15 px-4 text-xs font-bold text-white/70">
+            Retour à mes réservations
+          </button>
+        </div>
+      </div>
+    </section>;
+  }
 
   if (completed) {
     const isCashDue = serverPhase === 'cash_due';
