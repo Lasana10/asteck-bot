@@ -35,7 +35,7 @@ export async function registerOperatorVehicle(input:{plate_number:string;vehicle
   });
   const body=await res.json().catch(()=>null);
   if(!res.ok||!body?.vehicle?.id)return {data:null,error:{message:body?.error||'Vehicle registration is unavailable.'}};
-  if(!body.success||body.vehicle.is_available===true)
+  if(!body.success||(body.vehicle.is_available===true&&!body.resumed))
    return {data:null,error:{message:'AFAT vehicle registration returned an inconsistent live-supply state.'}};
   if(!['unreviewed','pending','needs_review','verified','rejected','suspended'].includes(String(body.vehicle.clearance_status)))
    return {data:null,error:{message:'AFAT returned an unrecognized clearance state.'}};
