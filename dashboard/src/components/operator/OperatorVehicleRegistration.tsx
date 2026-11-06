@@ -35,7 +35,7 @@ export function OperatorVehicleRegistration({onRegistered}:{onRegistered:(vehicl
  return <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.045] p-5">
   <p className="text-[9px] font-black uppercase tracking-wider text-amber-100">Operator onboarding · vehicle clearance</p>
   <h2 className="mt-2 text-lg font-black">Register your real vehicle</h2>
-  <p className="mt-2 text-xs leading-5 text-white/60">Approved operators cannot publish transport or go online until a vehicle is registered and independently cleared by AFAT. Registration is not approval.</p>
+  <p className="mt-2 text-xs leading-5 text-white/60">Operator applicants may register a real vehicle and submit documents before approval. Publication, dispatch and passenger bookings stay disabled until both operator access and vehicle clearance are independently verified.</p>
   {!registered&&<div className="mt-4 grid gap-3 sm:grid-cols-3">
    <label className="text-[10px] font-semibold text-white/75">Plate number
      <input value={plate} onChange={e=>setPlate(e.target.value.toUpperCase())} placeholder="Real plate number"
