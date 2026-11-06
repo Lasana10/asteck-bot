@@ -10,6 +10,8 @@ import { distanceMeters } from '../../services/journeyRuntime';
 import {calculateRouteProgress,nextRoadManeuver} from '../../services/routeGuidance';
 import { cacheSpatialViewport, readCachedPlaces } from '../../services/offlineSpatialCache';
 import { OfflineRouteSchematic } from './OfflineRouteSchematic';
+import { mapOfflineService } from '../../services/MapOfflineService';
+import type {OfflineSeedCollection} from '../../services/offlineMapSeed';
 import {evaluateSpatialFix,type SpatialFix} from '../../services/spatialPositioning';
 import {assessArrivalCandidate,readyForPassengerArrivalConfirmation,type ArrivalCandidate} from '../../services/arrivalEvidence';
 
@@ -33,6 +35,8 @@ const ATLAS_NODE_SOURCE_ID='afat-atlas-nodes';
 const VIEW_PLACE_SOURCE_ID='afat-view-places';
 const SELECTED_PLACE_SOURCE_ID='afat-selected-place';
 const REVIEWED_TRANSIT_SOURCE_ID='afat-reviewed-transit-stops';
+const OFFLINE_ROAD_SOURCE_ID='afat-offline-seed-roads';
+const OFFLINE_PLACE_SOURCE_ID='afat-offline-seed-places';
 
 function validPoint(point?:SpatialPoint|null){const latitude=Number(point?.latitude),longitude=Number(point?.longitude);if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||latitude<-90||latitude>90||longitude<-180||longitude>180)return null;return{latitude,longitude}}
 function formatDistance(distanceM?:number){const value=Number(distanceM||0);if(!value)return'';return value<1000?`${Math.round(value)} m`:`${(value/1000).toFixed(value>=10000?0:1)} km`}
@@ -51,11 +55,67 @@ export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeA
   const [locating,setLocating]=useState(false),[locationMessage,setLocationMessage]=useState(''),[mapReady,setMapReady]=useState(false),[basemapMode,setBasemapMode]=useState<BasemapMode>('intel'),[atlas,setAtlas]=useState<AtlasNearbyResponse|null>(null),[atlasLoading,setAtlasLoading]=useState(false),[atlasError,setAtlasError]=useState(''),[viewPlaces,setViewPlaces]=useState<any[]>([]),[mapStatus,setMapStatus]=useState(''),[manualMode,setManualMode]=useState(false),[selectedMapPlace,setSelectedMapPlace]=useState<SelectedMapPlace|null>(null),[zoom,setZoom]=useState(13.2),[progress,setProgress]=useState(0),[arrived,setArrived]=useState(false);
   const [arrivalCandidate,setArrivalCandidate]=useState<ArrivalCandidate|null>(null);
   const [offline,setOffline]=useState(()=>typeof navigator!=='undefined'&&!navigator.onLine);
+  const [offlineSeed,setOfflineSeed]=useState<{roads:OfflineSeedCollection;places:OfflineSeedCollection}|null>(null);
+  const [offlineSeedNotice,setOfflineSeedNotice]=useState('');
   useEffect(()=>{
     const refresh=()=>setOffline(!navigator.onLine);
     window.addEventListener('online',refresh);window.addEventListener('offline',refresh);
     return()=>{window.removeEventListener('online',refresh);window.removeEventListener('offline',refresh)};
   },[]);
+  // Only Yaoundé's installed AFAT seed may paint an offline street overlay.
+  // A cached road is not a verified route and does not imply live traffic.
+  useEffect(()=>{
+    let active=true;
+    setOfflineSeed(null);
+    setOfflineSeedNotice('');
+    if(!offline||cityKeyFor(city)!=='cm-yaounde')return ()=>{active=false};
+    void mapOfflineService.readVerifiedYaoundeSeed()
+      .then(seed=>{
+        if(!active)return;
+        setOfflineSeed(seed);
+        setOfflineSeedNotice(seed?
+          'Offline Yaoundé seed roads and places · source-only geometry, not live conditions or verified routing.':
+          'No installed Yaoundé offline road pack. A saved route may be shown as a schematic only.');
+      })
+      .catch(()=>{
+        if(!active)return;
+        setOfflineSeed(null);
+        setOfflineSeedNotice('Installed offline road data could not be validated. AFAT will not claim offline street coverage.');
+      });
+    return()=>{active=false};
+  },[offline,city]);
+
+  // Render the validated locally installed seed within the existing MapLibre
+  // canvas. It is deliberately non-interactive and visually distinct from
+  // reviewed AFAT Atlas edges and live passenger places.
+  useEffect(()=>{
+    const map=mapRef.current;
+    if(!map||!mapReady)return;
+    const empty={type:'FeatureCollection' as const,features:[]};
+    const roads=offlineSeed?.roads||empty;
+    const places=offlineSeed?.places||empty;
+    const previousRoads=map.getSource(OFFLINE_ROAD_SOURCE_ID) as GeoJSONSource|undefined;
+    if(previousRoads)previousRoads.setData(roads as any);
+    else{
+      map.addSource(OFFLINE_ROAD_SOURCE_ID,{type:'geojson',data:roads as any});
+      map.addLayer({id:'afat-offline-seed-roads-line',type:'line',
+        source:OFFLINE_ROAD_SOURCE_ID,
+        paint:{'line-color':'#fbbf24','line-width':['interpolate',['linear'],['zoom'],11,1.4,16,3] as any,
+          'line-opacity':0.86,'line-dasharray':[2,2]},
+      });
+    }
+    const previousPlaces=map.getSource(OFFLINE_PLACE_SOURCE_ID) as GeoJSONSource|undefined;
+    if(previousPlaces)previousPlaces.setData(places as any);
+    else{
+      map.addSource(OFFLINE_PLACE_SOURCE_ID,{type:'geojson',data:places as any});
+      map.addLayer({id:'afat-offline-seed-places-dot',type:'circle',
+        source:OFFLINE_PLACE_SOURCE_ID,
+        paint:{'circle-radius':4,'circle-color':'#fbbf24',
+          'circle-stroke-width':1,'circle-stroke-color':'#020617','circle-opacity':0.8},
+      });
+    }
+  },[mapReady,offlineSeed,city]);
+
   useEffect(()=>{manualModeRef.current=manualMode},[manualMode]);useEffect(()=>{onOriginResolvedRef.current=onOriginResolved},[onOriginResolved]);useEffect(()=>{onNavigationPositionRef.current=onNavigationPosition},[onNavigationPosition]);useEffect(()=>{onArrivedRef.current=onArrived},[onArrived]);useEffect(()=>{onPlaceSelectedRef.current=onPlaceSelected},[onPlaceSelected]);
   const arrivalPoint=useMemo(()=>validPoint(routeArrivalPoint)?routeArrivalPoint:validPoint(meetingPoint)?meetingPoint:validPoint(accessPoint)?accessPoint:destination,[routeArrivalPoint,meetingPoint,accessPoint,destination]);
   const routePoints=useMemo(()=>routeToLatLngs(route),[route]);const originPoint=validPoint(origin),destinationPoint=validPoint(destination),meeting=validPoint(meetingPoint),access=validPoint(accessPoint),hasRoute=route?.status==='ok'&&routePoints.length>1;const atlasEdges=useMemo(()=>atlasEdgeCollection(atlas),[atlas]),atlasNodes=useMemo(()=>atlasNodeCollection(atlas),[atlas]),edgeCount=atlas?.edges?.length||0;
@@ -222,8 +282,9 @@ export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeA
           <p className="mt-3 text-sm leading-6 text-white/65">{String(city||'This city')} has no verified AFAT city-map profile. The app will not display Yaoundé map data as though it belonged here. You can browse Yaoundé or Douala while additional cities are prepared.</p>
         </div>
       </div>}
-      {offline&&hasRoute&&<OfflineRouteSchematic route={route} progress={progress} label={meetingPoint?.name||accessPoint?.name||destination?.name}/>}
+      {offline&&!offlineSeed&&hasRoute&&<OfflineRouteSchematic route={route} progress={progress} label={meetingPoint?.name||accessPoint?.name||destination?.name}/>}
 
+      {offline&&offlineSeedNotice&&<div role="status" className="absolute inset-x-3 top-24 z-20 rounded-xl border border-amber-300/30 bg-slate-950/90 px-3 py-2 text-[10px] text-amber-100">{offlineSeedNotice}</div>}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-slate-950/78 via-slate-950/22 to-transparent"/><div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-52 bg-gradient-to-t from-slate-950/78 via-slate-950/16 to-transparent"/>
       <div className="absolute left-3 right-3 top-3 z-20 flex items-start justify-between gap-3"><div className="max-w-[72%] rounded-[20px] border border-white/10 bg-slate-950/76 px-4 py-3 shadow-xl backdrop-blur-2xl"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${arrived?'bg-emerald-200':navigationActive?'bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,.85)]':hasRoute?'bg-cyan-300':'bg-blue-300'}`}/><p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/45">{arrived?'Arrival':navigationActive?(offline?'Offline guidance':'Moving with AFAT'):hasRoute?'Route ready':'Living map'}</p></div><p className="mt-1 truncate text-[15px] font-black text-white">{meetingPoint?.name||accessPoint?.name||destination?.name||selectedMapPlace?.name||(String(city).toLowerCase().includes('douala')?'Douala':'Yaoundé')}</p>{hasRoute?<p className="mt-1 text-[11px] font-semibold text-cyan-100/85">{navigationActive&&progress>0?`${Math.round(progress*100)}% · ${formatDistance(remainingDistance)} remaining`:`${formatDistance(route?.distance_m)}${route?.eta_seconds?` · ${Math.ceil(route.eta_seconds/60)} min ${route?.route_source==='osrm'||route?.route_source==='google'?'baseline estimate, no live traffic':'evidence-based ETA'}`:' · ETA requires route evidence'}`}</p>:<p className="mt-1 text-[10px] text-white/45">{atlasLoading?'Reading nearby mobility…':`${viewPlaces.length} useful places visible`}</p>}</div><div className="flex rounded-2xl border border-white/10 bg-slate-950/74 p-1 shadow-xl backdrop-blur-2xl">{modeButton('intel','AFAT intelligence',Layers3)}{modeButton('street','Street',MapPin)}{modeButton('satellite','Satellite',Satellite)}</div></div>
       {!navigationActive&&!arrived&&<div className="absolute right-3 top-[78px] z-20 flex flex-col gap-2"><button type="button" onClick={locate} disabled={locating} className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-slate-950/76 text-cyan-100 shadow-xl backdrop-blur-2xl disabled:opacity-50" aria-label="Find my location">{locating?<Crosshair className="h-4 w-4 animate-pulse"/>:<LocateFixed className="h-4 w-4"/>}</button><button type="button" onClick={()=>{setManualMode(value=>!value);setLocationMessage(manualMode?'':'Tap the map to choose your start point.')}} className={`grid h-11 w-11 place-items-center rounded-2xl border shadow-xl backdrop-blur-2xl ${manualMode?'border-amber-300/35 bg-amber-400/20 text-amber-100':'border-white/10 bg-slate-950/76 text-white/65'}`} aria-label="Pin a start point"><MapPin className="h-4 w-4"/></button></div>}

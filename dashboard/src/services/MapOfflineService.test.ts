@@ -52,6 +52,21 @@ describe('AFAT real offline asset installation', () => {
     expect(assets.size).toBe(2);
   });
 
+  it('shows installed source geometry to the real map, never a network fallback', async () => {
+    const { assets } = setupStorage();
+    const { mapOfflineService } = await import('./MapOfflineService');
+    expect(await mapOfflineService.readVerifiedYaoundeSeed()).toBeNull();
+    await mapOfflineService.downloadRegion('yaounde');
+    const seed = await mapOfflineService.readVerifiedYaoundeSeed();
+    expect(seed?.roads.features).toHaveLength(1);
+    expect(seed?.roads.features[0].properties).toEqual({
+      name:'AFAT offline seed',source_only:true,review_status:'seed_unverified',kind:'road_seed',
+    });
+    expect(seed?.places.features).toHaveLength(0);
+    assets.clear();
+    expect(await mapOfflineService.readVerifiedYaoundeSeed()).toBeNull();
+  });
+
   it('rejects a simulated national pack as genuine offline coverage', async () => {
     setupStorage();
     const { mapOfflineService } = await import('./MapOfflineService');

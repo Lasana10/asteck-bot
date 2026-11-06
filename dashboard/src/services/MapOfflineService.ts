@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import {validateOfflineYaoundeSeed, type OfflineSeedCollection} from './offlineMapSeed';
 
 type Bounds = [[number, number], [number, number]];
 
@@ -253,6 +254,22 @@ class MapOfflineService {
     if (!pack || !pack.assetUrls.includes(assetUrl) || typeof caches === 'undefined') return null;
     const cached = await (await caches.open(OFFLINE_ASSET_CACHE)).match(new URL(assetUrl, window.location.origin).toString());
     return cached?.ok ? cached : null;
+  }
+
+  // A cached install flag is not proof of usable geometry. Read CacheStorage only
+  // after the existing asset reconciliation; never fetch network data as fallback.
+  public async readVerifiedYaoundeSeed(): Promise<{
+    roads:OfflineSeedCollection;places:OfflineSeedCollection
+  }|null> {
+    await this.initialVerification;
+    if(!this.verifiedAssets||!this.downloadedRegions.some(entry=>entry.id==='yaounde'))return null;
+    const roads=await this.readOfflineAsset('yaounde','/data/yaounde_roads.geojson');
+    const places=await this.readOfflineAsset('yaounde','/data/yaounde_pois.geojson');
+    if(!roads||!places)return null;
+    const [roadJson,placeJson]=await Promise.all([
+      roads.clone().json().catch(()=>null),places.clone().json().catch(()=>null),
+    ]);
+    return validateOfflineYaoundeSeed(roadJson,placeJson);
   }
 
   public async checkPosition(lat: number, lng: number, onMessage: (msg: string) => void) {
