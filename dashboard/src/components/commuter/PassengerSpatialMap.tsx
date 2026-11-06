@@ -45,6 +45,7 @@ function atlasNodeCollection(atlas:AtlasNearbyResponse|null){return{type:'Featur
 function evidenceCopy(place:SelectedMapPlace|null){if(!place)return'';if(place.evidence_status==='field_verified')return'Field verified';if(place.evidence_status==='corroborated')return'Corroborated';if(place.evidence_status==='disputed')return'Evidence disputed';return place.source_only?'Source-backed · reachability learning':'AFAT learning'}
 
 export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeArrivalPoint,city='yaounde',route=null,routeLoading=false,routeMessage=null,navigationActive=false,reviewedTransitStops=[],onOriginResolved,onNavigationPosition,onArrived,onPlaceSelected}:Props){
+  const viewportRequestSequence=useRef(0),atlasRequestSequence=useRef(0);
   const containerRef=useRef<HTMLDivElement|null>(null),mapRef=useRef<MapLibreMap|null>(null),markerRefs=useRef<Marker[]>([]),navigationWatchRef=useRef<number|null>(null),lastRuntimePushAt=useRef(0),arrivalNotified=useRef(false),arrivalCandidateRef=useRef<ArrivalCandidate|null>(null),manualModeRef=useRef(false),lastAcceptedGpsRef=useRef<{latitude:number;longitude:number;accuracy?:number|null}|null>(null);const acceptedSpatialFixRef=useRef<SpatialFix|null>(null);
   const onOriginResolvedRef=useRef(onOriginResolved),onNavigationPositionRef=useRef(onNavigationPosition),onArrivedRef=useRef(onArrived),onPlaceSelectedRef=useRef(onPlaceSelected);
   const [origin,setOrigin]=useState<(SpatialPoint&{accuracy?:number|null;source?:'gps'|'manual';speedKph?:number|null;heading?:number|null})|null>(null);
@@ -60,11 +61,53 @@ export function PassengerSpatialMap({destination,meetingPoint,accessPoint,routeA
   const arrivalPoint=useMemo(()=>validPoint(routeArrivalPoint)?routeArrivalPoint:validPoint(meetingPoint)?meetingPoint:validPoint(accessPoint)?accessPoint:destination,[routeArrivalPoint,meetingPoint,accessPoint,destination]);
   const routePoints=useMemo(()=>routeToLatLngs(route),[route]);const originPoint=validPoint(origin),destinationPoint=validPoint(destination),meeting=validPoint(meetingPoint),access=validPoint(accessPoint),hasRoute=route?.status==='ok'&&routePoints.length>1;const atlasEdges=useMemo(()=>atlasEdgeCollection(atlas),[atlas]),atlasNodes=useMemo(()=>atlasNodeCollection(atlas),[atlas]),edgeCount=atlas?.edges?.length||0;
 
-  const loadPlacesInView=async(map:MapLibreMap)=>{const bounds=map.getBounds(),cityKey=cityKeyFor(city),request={cityKey,west:bounds.getWest(),south:bounds.getSouth(),east:bounds.getEast(),north:bounds.getNorth()},currentZoom=map.getZoom();const{data,error}=await supabase.rpc('afat_places_in_view_v2',{p_city_key:cityKey,p_west:request.west,p_south:request.south,p_east:request.east,p_north:request.north,p_zoom:currentZoom,p_limit:currentZoom>=15?1000:currentZoom>=13?800:500});if(error){const cached=readCachedPlaces(request);if(cached.places.length){setViewPlaces(cached.places);const age=cached.capturedAt?Math.max(0,Math.round((Date.now()-Date.parse(cached.capturedAt))/60000)):null;setMapStatus(`Offline map intelligence · showing ${cached.places.length} cached places${age!=null?` from ${age<60?`${age} min`:`${Math.round(age/60)} h`} ago`:''}. Live conditions are unavailable.`)}else setMapStatus('AFAT places could not be loaded and this area is not cached yet.');return}const places=Array.isArray(data?.places)?data.places:[];setMapStatus('');setViewPlaces(places);cacheSpatialViewport({...request,places})};
-  const loadAtlas=async(latitude:number,longitude:number)=>{setAtlasLoading(true);setAtlasError('');try{setAtlas(await fetchAtlasNearby({latitude,longitude,radiusM:navigationActive?2200:4200,limit:navigationActive?220:320}))}catch(error:any){setAtlas(null);setAtlasError(error?.message||'AFAT Atlas is temporarily unavailable.')}finally{setAtlasLoading(false)}};
+  const loadPlacesInView=async(map:MapLibreMap)=>{
+    const seq=++viewportRequestSequence.current;
+    const bounds=map.getBounds(),cityKey=cityKeyFor(city);
+    const request={cityKey,west:bounds.getWest(),south:bounds.getSouth(),east:bounds.getEast(),north:bounds.getNorth()};
+    const currentZoom=map.getZoom();
+    try{
+      const {data,error}=await supabase.rpc('afat_places_in_view_v2',{
+        p_city_key:cityKey,p_west:request.west,p_south:request.south,p_east:request.east,
+        p_north:request.north,p_zoom:currentZoom,p_limit:currentZoom>=15?1000:currentZoom>=13?800:500,
+      });
+      // A later pan, city switch or map unmount owns the viewport. Old API
+      // responses must never repaint it or poison the offline cache.
+      if(seq!==viewportRequestSequence.current||mapRef.current!==map)return;
+      if(error){
+        const cached=readCachedPlaces(request);
+        if(cached.places.length){
+          setViewPlaces(cached.places);
+          const age=cached.capturedAt?Math.max(0,Math.round((Date.now()-Date.parse(cached.capturedAt))/60000)):null;
+          setMapStatus(`Offline map intelligence · showing ${cached.places.length} cached places${age!=null?` from ${age<60?`${age} min`:`${Math.round(age/60)} h`} ago`:''}. Live conditions are unavailable.`);
+        }else{setViewPlaces([]);setMapStatus('AFAT places could not be loaded and this area is not cached yet.');}
+        return;
+      }
+      if(!Array.isArray(data?.places)){setViewPlaces([]);setMapStatus('AFAT viewport returned an invalid place list.');return;}
+      setMapStatus('');setViewPlaces(data.places);
+      cacheSpatialViewport({...request,places:data.places});
+    }catch{
+      if(seq!==viewportRequestSequence.current||mapRef.current!==map)return;
+      const cached=readCachedPlaces(request);
+      setViewPlaces(cached.places);
+      setMapStatus(cached.places.length?'Showing cached places; live map data is unavailable.':'Map places unavailable and no local cache exists for this viewport.');
+    }
+  };
+  const loadAtlas=async(latitude:number,longitude:number)=>{
+    const seq=++atlasRequestSequence.current;
+    setAtlasLoading(true);setAtlasError('');
+    try{
+      const data=await fetchAtlasNearby({latitude,longitude,radiusM:navigationActive?2200:4200,limit:navigationActive?220:320});
+      if(seq!==atlasRequestSequence.current)return;
+      setAtlas(data);
+    }catch(error:any){
+      if(seq!==atlasRequestSequence.current)return;
+      setAtlas(null);setAtlasError(error?.message||'AFAT Atlas is temporarily unavailable.');
+    }finally{if(seq===atlasRequestSequence.current)setAtlasLoading(false);}
+  };
   useEffect(()=>{const[longitude,latitude]=mapCenter(city);void loadAtlas(latitude,longitude)},[city]);
 
-  useEffect(()=>{if(!containerRef.current)return;const basemap=AFAT_BASEMAPS.intel;const map=new MapLibreMap({container:containerRef.current,center:mapCenter(city),zoom:13.2,pitch:0,bearing:0,attributionControl:true,style:{version:8,sources:{basemap:{type:'raster',tiles:basemap.tiles,tileSize:256,attribution:basemap.attribution,maxzoom:19}},layers:[{id:'afat-background',type:'background',paint:{'background-color':'#06101a'}},{id:'basemap',type:'raster',source:'basemap',paint:{'raster-opacity':basemap.opacity,'raster-saturation':-0.18,'raster-contrast':0.12}}]}});map.once('load',()=>{setMapReady(true);setMapStatus('');setZoom(map.getZoom());void loadPlacesInView(map);window.setTimeout(()=>map.resize(),50)});map.on('moveend',()=>{setZoom(map.getZoom());void loadPlacesInView(map)});map.on('zoom',()=>setZoom(map.getZoom()));map.on('error',(event:any)=>{if(String(event?.error?.message||''))setMapStatus('Map tiles or map data failed to load. AFAT is not hiding the failure.')});const resizeObserver=new ResizeObserver(()=>map.resize());resizeObserver.observe(containerRef.current);map.on('click',event=>{if(!manualModeRef.current)return;const next={latitude:event.lngLat.lat,longitude:event.lngLat.lng,accuracy:null,source:'manual' as const,name:'Pinned start point',speedKph:null,heading:null};setOrigin(next);setManualMode(false);setLocationMessage('Start point pinned manually. This is user-selected, not GPS evidence.');onOriginResolvedRef.current?.({latitude:next.latitude,longitude:next.longitude,accuracy:null,speedKph:null,heading:null,label:'Pinned start point',source:'manual'});void loadAtlas(next.latitude,next.longitude)});mapRef.current=map;return()=>{resizeObserver.disconnect();markerRefs.current.forEach(marker=>marker.remove());markerRefs.current=[];map.remove();mapRef.current=null;setMapReady(false)}},[city]);
+  useEffect(()=>{if(!containerRef.current)return;const basemap=AFAT_BASEMAPS.intel;const map=new MapLibreMap({container:containerRef.current,center:mapCenter(city),zoom:13.2,pitch:0,bearing:0,attributionControl:true,style:{version:8,sources:{basemap:{type:'raster',tiles:basemap.tiles,tileSize:256,attribution:basemap.attribution,maxzoom:19}},layers:[{id:'afat-background',type:'background',paint:{'background-color':'#06101a'}},{id:'basemap',type:'raster',source:'basemap',paint:{'raster-opacity':basemap.opacity,'raster-saturation':-0.18,'raster-contrast':0.12}}]}});map.once('load',()=>{setMapReady(true);setMapStatus('');setZoom(map.getZoom());void loadPlacesInView(map);window.setTimeout(()=>map.resize(),50)});map.on('moveend',()=>{setZoom(map.getZoom());void loadPlacesInView(map)});map.on('zoom',()=>setZoom(map.getZoom()));map.on('error',(event:any)=>{if(String(event?.error?.message||''))setMapStatus('Map tiles or map data failed to load. AFAT is not hiding the failure.')});const resizeObserver=new ResizeObserver(()=>map.resize());resizeObserver.observe(containerRef.current);map.on('click',event=>{if(!manualModeRef.current)return;const next={latitude:event.lngLat.lat,longitude:event.lngLat.lng,accuracy:null,source:'manual' as const,name:'Pinned start point',speedKph:null,heading:null};setOrigin(next);setManualMode(false);setLocationMessage('Start point pinned manually. This is user-selected, not GPS evidence.');onOriginResolvedRef.current?.({latitude:next.latitude,longitude:next.longitude,accuracy:null,speedKph:null,heading:null,label:'Pinned start point',source:'manual'});void loadAtlas(next.latitude,next.longitude)});mapRef.current=map;return()=>{viewportRequestSequence.current+=1;atlasRequestSequence.current+=1;resizeObserver.disconnect();markerRefs.current.forEach(marker=>marker.remove());markerRefs.current=[];map.remove();mapRef.current=null;setMapReady(false)}},[city]);
 
   useEffect(()=>{const map=mapRef.current;if(!map||!mapReady)return;const basemap=AFAT_BASEMAPS[basemapMode],source=map.getSource('basemap') as any;try{source?.setTiles?.(basemap.tiles);map.setPaintProperty('afat-background','background-color',basemapMode==='street'?'#d9e3ea':'#06101a');map.setPaintProperty('basemap','raster-opacity',basemap.opacity);map.setPaintProperty('basemap','raster-saturation',basemapMode==='satellite'?-0.08:-0.18);map.setPaintProperty('basemap','raster-contrast',basemapMode==='intel'?0.12:0.04)}catch{setMapStatus('Map layer switch could not complete. Your current map view was preserved.')}},[basemapMode,mapReady]);
 
