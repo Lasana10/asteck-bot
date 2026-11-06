@@ -3,6 +3,20 @@ import { DatabaseZap, MapPinned, RefreshCw, Route, ShieldCheck } from 'lucide-re
 import { supabase } from '../../supabaseClient';
 import { useAfatLocale } from '../../localization';
 
+type CoverageBox = { south:number;west:number;north:number;east:number };
+function reviewedEnvelope(city:any):CoverageBox|null {
+ const raw=city?.metadata?.coverage_working_envelope;
+ if(!raw || raw.automatic_truth!==false) return null;
+ const box={south:raw.south,west:raw.west,north:raw.north,east:raw.east};
+ if(!Object.values(box).every(v=>typeof v==='number'&&Number.isFinite(v))||
+   box.south>=box.north||box.west>=box.east)return null;
+ return box;
+}
+function withinCityEnvelope(box:CoverageBox,city:any){
+ const envelope=reviewedEnvelope(city);
+ return Boolean(envelope && box.south>=envelope.south&&box.north<=envelope.north&&
+   box.west>=envelope.west&&box.east<=envelope.east);
+}
 const YAOUNDE_PRESETS: Record<string,{label:string;south:number;west:number;north:number;east:number}> = {
   central:{label:'Central Yaoundé',south:3.84,west:11.495,north:3.89,east:11.545},
   west:{label:'West Yaoundé',south:3.82,west:11.445,north:3.89,east:11.495},
@@ -20,9 +34,24 @@ export function AtlasIngestionControl(){
  const [batchRunning,setBatchRunning]=useState(false);
  const [batchProgress,setBatchProgress]=useState<{verified:number;requested:number}>({verified:0,requested:0});
  const [queueCounts,setQueueCounts]=useState<Record<string,number>>({});
- useEffect(()=>{void supabase.from('afat_city_profiles').select('id,city_key,city_name,country_code,learning_stage').eq('status','active').order('city_name').then(({data})=>setCities(data||[]));},[]);
+ useEffect(()=>{void supabase.from('afat_city_profiles').select('id,city_key,city_name,country_code,learning_stage,metadata').eq('status','active').order('city_name').then(({data})=>setCities(data||[]));},[]);
  const city=useMemo(()=>cities.find(c=>c.city_key===cityKey),[cities,cityKey]);
- const choosePreset=(key:string)=>{setScope(key);const p=YAOUNDE_PRESETS[key];if(p)setBbox({south:String(p.south),west:String(p.west),north:String(p.north),east:String(p.east)});};
+ const choosePreset=(key:string)=>{
+  setScope(key);
+  const p=YAOUNDE_PRESETS[key];
+  if(p&&cityKey==='cm-yaounde'&&withinCityEnvelope(p,city))
+   setBbox({south:String(p.south),west:String(p.west),north:String(p.north),east:String(p.east)});
+ };
+ const switchCity=(key:string)=>{
+   setCityKey(key);setScope('custom-cell');setResult(null);setQueueNotice('');
+   setBatchProgress({verified:0,requested:0});
+   const next=cities.find(x=>x.city_key===key);
+   const envelope=reviewedEnvelope(next);
+   if(!envelope){setBbox({south:'',west:'',north:'',east:''});return;}
+   const midLat=(envelope.south+envelope.north)/2,midLon=(envelope.west+envelope.east)/2;
+   const half=Math.min(0.01,(envelope.north-envelope.south)/4,(envelope.east-envelope.west)/4);
+   setBbox({south:String(midLat-half),west:String(midLon-half),north:String(midLat+half),east:String(midLon+half)});
+ };
 
  const refreshQueue=async()=>{
    if(!city?.id){setQueueCounts({});return;}
@@ -62,6 +91,7 @@ export function AtlasIngestionControl(){
      if(claim?.status!=='claimed'||!claim.cell?.id)throw new Error('Queue claim was not confirmed.');
      claimed=claim.cell;
      const {south,west,north,east}=claimed;
+     if(!withinCityEnvelope({south,west,north,east},city))throw new Error('Queued cell lies outside the reviewed city coverage envelope. Reconcile before importing.');
      if(![south,west,north,east].every((v:unknown)=>typeof v==='number'&&Number.isFinite(v))||
        south>=north||west>=east||south< -90||north>90||west< -180||east>180||
        north-south>0.18||east-west>0.18||(north-south)*(east-west)>0.018)
@@ -132,7 +162,7 @@ export function AtlasIngestionControl(){
    try{
      const coordinates=Object.fromEntries((['south','west','north','east'] as const).map(k=>[k,Number(bbox[k])]));
      const {south,west,north,east}=coordinates;
-     if(![south,west,north,east].every(Number.isFinite)||south>=north||west>=east||
+     if(![south,west,north,east].every(Number.isFinite)||!withinCityEnvelope({south,west,north,east},city)||south>=north||west>=east||
        south< -90||north>90||west< -180||east>180||
        north-south>0.18||east-west>0.18||(north-south)*(east-west)>0.018){
        setResult({error:'Invalid or oversized road cell. Choose smaller geographic bounds.'});return;
@@ -172,7 +202,7 @@ export function AtlasIngestionControl(){
     <div className="flex items-center gap-2 rounded-lg border border-emerald-300/15 bg-black/20 px-3 py-2 text-[9px] font-bold text-emerald-100/70"><ShieldCheck className="h-3.5 w-3.5"/>JWT + planner/admin gate</div>
    </div>
    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-    <label className="text-[9px] font-black uppercase text-white/35">City<select value={cityKey} onChange={e=>setCityKey(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 text-sm text-white">{cities.map(c=><option key={c.city_key} value={c.city_key}>{c.city_name} · {c.country_code}</option>)}</select></label>
+    <label className="text-[9px] font-black uppercase text-white/35">City<select value={cityKey} onChange={e=>switchCity(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 text-sm text-white">{cities.map(c=><option key={c.city_key} value={c.city_key}>{c.city_name} · {c.country_code}</option>)}</select></label>
     <label className="text-[9px] font-black uppercase text-white/35">Scope label<input value={scope} onChange={e=>setScope(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 text-sm normal-case text-white" placeholder="central-1"/></label>
     {cityKey==='cm-yaounde'&&<label className="text-[9px] font-black uppercase text-white/35">Yaoundé preset<select value={scope} onChange={e=>choosePreset(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 text-sm text-white">{Object.entries(YAOUNDE_PRESETS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></label>}
     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-[9px] text-white/45"><p className="font-black uppercase">Target</p><p className="mt-2 text-sm font-black text-white">{city?.city_name||cityKey}</p><p className="mt-1 capitalize">{city?.learning_stage||'seed'} stage</p></div>
@@ -183,17 +213,18 @@ export function AtlasIngestionControl(){
    <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.05] p-4">
      <p className="text-[10px] font-black uppercase tracking-wide text-cyan-200">Controlled queued OpenStreetMap ingestion</p>
      <p className="mt-1 text-xs text-white/50">Each import is independently claimed and checked against the persisted source batch. You can process one cell or up to five sequentially; any unverified response stops the sequence without automatic retry.</p>
+     {!reviewedEnvelope(city)&&<p role="alert" className="mt-2 text-xs text-amber-200">This city lacks a reviewed geographic working envelope. Ingestion is disabled until coverage is configured by authorised staff.</p>}
      <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
        <span>Pending: {queueCounts.pending||0}</span><span>Running / review: {queueCounts.running||0}</span>
        <span>Completed: {queueCounts.completed||0}</span><span>Partial: {queueCounts.completed_with_errors||0}</span>
        <span>Failed: {queueCounts.failed||0}</span>
      </div>
-     <button type="button" onClick={()=>void runQueuedCell()} disabled={queueBusy||batchRunning||running||!city?.id}
+     <button type="button" onClick={()=>void runQueuedCell()} disabled={queueBusy||batchRunning||running||!city?.id||!reviewedEnvelope(city)}
        className="mt-3 min-h-11 rounded-lg border border-cyan-300/30 bg-cyan-300/15 px-4 text-xs font-bold text-cyan-100 disabled:opacity-40">
        {queueBusy?'Processing claimed cell…':'Process next queued road cell'}
      </button>
      <button type="button" onClick={()=>void processVerifiedBatch()}
-       disabled={queueBusy||batchRunning||running||!city?.id||!(queueCounts.pending>0)}
+       disabled={queueBusy||batchRunning||running||!city?.id||!reviewedEnvelope(city)||!(queueCounts.pending>0)}
        className="mt-3 ml-2 min-h-11 rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-4 text-xs font-bold text-emerald-100 disabled:opacity-40">
        {batchRunning?'Processing verified batch…':'Process up to 5 queued cells'}
      </button>
@@ -204,7 +235,7 @@ export function AtlasIngestionControl(){
        </p>}
      {queueNotice&&<p role="status" className="mt-3 break-words text-xs text-cyan-100">{queueNotice}</p>}
    </div>
-   <button onClick={run} disabled={running||!cityKey} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35">{running?<RefreshCw className="h-4 w-4 animate-spin"/>:<MapPinned className="h-4 w-4"/>}{running?'Ingesting controlled cell…':'Ingest city road cell'}</button>
+   <button onClick={run} disabled={running||!cityKey||!reviewedEnvelope(city)} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35">{running?<RefreshCw className="h-4 w-4 animate-spin"/>:<MapPinned className="h-4 w-4"/>}{running?'Ingesting controlled cell…':'Ingest city road cell'}</button>
    {result&&<div role="status" className={`mt-4 rounded-xl border p-4 ${result.error?'border-rose-300/20 bg-rose-400/10':'border-emerald-300/15 bg-black/20'}`}>{result.error?<><p className="text-xs font-bold text-rose-100">{result.error}</p>{result.batch_id&&<p className="mt-2 break-all text-[9px] text-white/55">Import batch: {result.batch_id}</p>}</>:<><p className="mb-3 text-xs font-bold text-emerald-200">Persisted import evidence confirmed · candidate geography only</p><div className="grid gap-3 sm:grid-cols-5"><K l="Status" v={result.confirmed_status}/><K l="Processed" v={result.processed_way_count||0}/><K l="Accepted source" v={result.confirmed_accepted}/><K l="Rejected" v={result.confirmed_rejected}/><K l="Topology staged" v={result.topology?.segments_prepared||0} icon/></div><p className="mt-3 break-all text-[9px] text-white/55">Import batch: {result.batch_id}</p><p className="mt-2 text-[9px] leading-5 text-white/35">{result.note}</p>{result.error_summary&&<p className="mt-2 text-[9px] text-amber-200">Partial import: {result.error_summary}</p>}</>}</div>}
  </section>;
 }
