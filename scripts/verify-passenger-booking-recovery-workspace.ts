@@ -13,18 +13,23 @@ for(const token of [
   "setCurrentSeatHoldId(null)",
   "setView('payment')",
   "onResume={resumeExistingBooking}",
-  "setView('recover')",
-])assert.ok(dashboard.includes(token),'dashboard account-booking continuity: '+token);
+  "onViewTicket={openVerifiedPaidTicket}",
+  "const openVerifiedPaidTicket=(record:PassengerBookingEntry)=>",
+  "if(record.paymentPhase!=='paid')return",
+  "setView('ticket')",
+])assert.ok(dashboard.includes(token),'dashboard booking continuity: '+token);
 for(const token of [
-  "fetchRecoverablePassengerPayments(profileId)",
-  "if(!profileId)",
-  "setRecords(fetchError?[]:data)",
-  "onClick={()=>onResume(record)}",
-  "Cash due · not collected",
-  "Provider confirmation pending",
-  "does not indicate that no paid tickets exist"
-])assert.ok(recovery.includes(token),'passenger recovery truth: '+token);
-assert.ok(service.includes("identity.user?.id!==profileId"),'owner identity check');
-assert.ok(service.includes(".eq('passenger_id',profileId)"),'owner-filtered database query');
-assert.ok(service.includes(".in('payment_status',['unpaid','failed','collection_pending','cash_due'])"),'no invented paid tickets');
-console.log('PASS AFAT passenger bookings tab recovers only account-owned unpaid/pending/cash-due tickets');
+  'fetchPassengerBookingHistory(profileId)',
+  'if(!profileId)',
+  'setRecords(fetchError?[]:data)',
+  "record.paymentPhase==='paid'?onViewTicket(record):onResume(record)",
+  'Cash due · not collected',
+  'Provider confirmation pending',
+  'Retrieve signed ticket',
+])assert.ok(recovery.includes(token),'passenger recovery: '+token);
+assert.ok(service.includes("identity.user?.id!==profileId"),'owner identity');
+assert.ok(service.includes(".eq('passenger_id',profileId)"),'owner database query');
+assert.ok(service.includes("paid_momo','paid_cash"),'paid provider statuses included');
+assert.ok(service.includes("if(!['ready','pending','cash_due','paid'].includes(decision.phase))return []"),
+  'blocked and refunded tickets excluded');
+console.log('PASS AFAT paid ticket retrieval and outstanding booking recovery linked to owner identity');
