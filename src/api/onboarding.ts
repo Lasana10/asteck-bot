@@ -557,7 +557,7 @@ router.get('/vehicle/mine',async(req:Request,res:Response)=>{
  try{
   const access=await requireAuthRole(req,res);
   if(!access)return;
-  if(access.workspaceRole!=='operator'&&!await hasPendingOperatorApplication(access.profile.id))
+  if(!access.capabilities.includes('operator')&&!await hasPendingOperatorApplication(access.profile.id))
    return res.status(403).json({error:'OPERATOR_APPLICATION_REQUIRED'});
   const {data,error}=await supabase.from('vehicles')
    .select('id,plate_number,type,capacity,clearance_status,is_available,created_at')
