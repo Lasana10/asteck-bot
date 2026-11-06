@@ -2223,7 +2223,7 @@ router.get('/mobility/departures/:departureId/availability',async(req:Request,re
      .eq('id',route.operator_id).maybeSingle(),
    supabase.from('vehicles').select('id,plate_number,type,capacity,rating,clearance_status')
      .eq('id',route.vehicle_id).maybeSingle(),
-   supabase.from('bookings').select('route_id,seat_label')
+   supabase.from('bookings').select('route_id,seat_label,status')
      .eq('route_id',id).in('status',['pending','accepted','confirmed','boarded','in_progress']).limit(250),
   ]);
   if(operator.error||vehicle.error||bookings.error)throw operator.error||vehicle.error||bookings.error;
@@ -2284,7 +2284,7 @@ router.get('/mobility/departures', async (req: Request, res: Response) => {
 
     const [bookingsResult, operatorsResult, vehiclesResult] = await Promise.all([
       routeIds.length
-        ? supabase.from('bookings').select('route_id, seat_label').in('route_id', routeIds).in('status', ['pending', 'accepted', 'confirmed', 'boarded', 'in_progress'])
+        ? supabase.from('bookings').select('route_id, seat_label, status').in('route_id', routeIds).in('status', ['pending', 'accepted', 'confirmed', 'boarded', 'in_progress'])
         : Promise.resolve({ data: [], error: null }),
       operatorIds.length
         ? supabase.from('profiles').select('id, full_name, verification_status, operator_application_status').in('id', operatorIds)
