@@ -99,7 +99,7 @@ export class PaymentService {
     const formattedPhone = this.normalizeCameroonPhone(payerPhone);
     const transactionId = idempotencyKey || nodeCrypto.randomUUID();
     
-    console.log(`💰 [Payment] ${provider.toUpperCase()} Push: ${amount} XAF from ${formattedPhone}`);
+    console.log(`[Payment] ${provider.toUpperCase()} collection initiated for ${amount} XAF (phone redacted)`);
 
     // ── PROVIDER: PawaPay (Elite/QR/Modern) ───────────────────────────────
     if (provider === 'pawapay' && this.apiKey) {
@@ -215,7 +215,7 @@ export class PaymentService {
     const payoutId = nodeCrypto.randomUUID();
     const mobileProvider = this.inferCameroonProvider(formattedPhone);
 
-    console.log(`🏦 [Cash-Out] PawaPay Payout: ${amount} XAF to ${formattedPhone} (${mobileProvider})`);
+    console.log(`[Cash-Out] PawaPay request for ${amount} XAF via ${mobileProvider} (destination redacted)`);
 
     if (this.provider === 'pawapay' && this.apiKey) {
       try {
