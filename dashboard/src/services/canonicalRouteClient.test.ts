@@ -217,6 +217,18 @@ describe('canonical route integration', () => {
     expect(route.status).toBe('unavailable');
   });
 
+  it('rejects provider routes that belong to a different city',async()=>{
+    rpc.mockResolvedValue({data:{status:'unavailable',mode:'car'},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+      source:'osrm',travel_mode:'driving',primary:{
+        distanceMeters:1200,durationValue:180,
+        geometry:{type:'LineString',coordinates:[[9.7,4.05],[9.71,4.06]]}
+      }
+    })}));
+    const route=await fetchCanonicalAfatRoute(input);
+    expect(route.status).toBe('unavailable');
+  });
+
   it('rejects malformed external road geometry', async () => {
     rpc.mockResolvedValue({ data: { status: 'unavailable', mode: 'car' }, error: null });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
