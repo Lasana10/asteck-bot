@@ -498,12 +498,18 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
     let declared;
     try{declared=validateOperatorVehicleRegistration(req.body);}
     catch(error:any){return res.status(400).json({error:String(error?.message||'INVALID_VEHICLE')});}
-    const existing=await supabase.from('vehicles').select('id,operator_id,clearance_status')
-      .ilike('plate_number',declared.plate_number).limit(1);
+    // Service-only normalized lookup is backed by a global unique plate index:
+    // casing, hyphens and whitespace cannot bypass vehicle ownership custody.
+    const lookup=async()=>supabase.rpc('afat_find_vehicle_by_plate',{p_plate:declared.plate_number})
+      .limit(1).maybeSingle();
+    const existing=await lookup();
     if(existing.error)throw existing.error;
-    if(existing.data?.length){
-      return res.status(409).json({error:'REGISTRATION_PLATE_ALREADY_RECORDED',
-        existing_vehicle_owned_by_you:existing.data[0].operator_id===resolvedOperatorId});
+    if(existing.data){
+      if(existing.data.operator_id!==resolvedOperatorId)
+        return res.status(409).json({error:'REGISTRATION_PLATE_ALREADY_RECORDED',existing_vehicle_owned_by_you:false});
+      return res.status(200).json({success:true,resumed:true,vehicle:existing.data,
+        ready_for_dispatch:false,ready_for_published_departures:false,
+        message:'Existing vehicle registration recovered. Current clearance is preserved; no new approval was issued.'});
     }
     const { data, error } = await supabase
       .from('vehicles')
@@ -514,8 +520,20 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
       })
       .select('id,operator_id,plate_number,type,capacity,clearance_status,is_available')
       .single();
+    if(error?.code==='23505'){
+      // Another request may have committed this plate after our lookup.
+      // Recover only the owner's own row, never transfer ownership.
+      const concurrent=await lookup();
+      if(concurrent.error)throw concurrent.error;
+      if(concurrent.data?.operator_id===resolvedOperatorId){
+        return res.status(200).json({success:true,resumed:true,vehicle:concurrent.data,
+          ready_for_dispatch:false,ready_for_published_departures:false,
+          message:'Existing vehicle registration recovered after a concurrent submission.'});
+      }
+      return res.status(409).json({error:'REGISTRATION_PLATE_ALREADY_RECORDED',existing_vehicle_owned_by_you:false});
+    }
     if(error)throw error;
-    return res.status(201).json({success:true,vehicle:data,
+    return res.status(201).json({success:true,resumed:false,vehicle:data,
       ready_for_dispatch:false,ready_for_published_departures:false,
       message:'Vehicle registered for independent human clearance. No live supply or bookings permitted until verified.'});
   } catch (error: any) {
