@@ -37,6 +37,7 @@ jobs:
       - run: npm run test:reviewed-field-mission-custody
       - run: npm run test:atlas-source-understanding
       - run: npm run test:spatial-map-request-custody
+      - run: npm run test:map-city-coverage
       - run: npm run test:api-contract
       - run: npm run test:reachability:reviewed-access
       - run: npm run test:transit-review-authority
