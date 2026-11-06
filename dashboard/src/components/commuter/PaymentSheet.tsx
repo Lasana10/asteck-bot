@@ -153,14 +153,14 @@ export function PaymentSheet({ amount, operatorName, routeName, seatLabel, onBac
   };
 
   if (completed) {
-    const isCash = selectedMethod === 'cash';
+    const isCashDue = serverPhase === 'cash_due';
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 font-sans">
         <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mb-6">
           <Check className="w-10 h-10 text-white" />
         </div>
-        <h2 className="text-2xl font-black mb-2">{isCash ? 'Paiement en espèces choisi' : 'Paiement confirmé'}</h2>
-        <p className="max-w-sm text-slate-400 text-center">{isCash ? 'Le montant reste dû au chauffeur jusqu’à confirmation de la collecte. AFAT ne le compte pas encore comme payé.' : 'Le fournisseur a confirmé le paiement. Votre réservation peut continuer.'}</p>
+        <h2 className="text-2xl font-black mb-2">{isCashDue ? 'Paiement en espèces à effectuer' : 'Paiement confirmé'}</h2>
+        <p className="max-w-sm text-slate-400 text-center">{isCashDue ? 'Le montant reste dû au chauffeur jusqu’à confirmation de la collecte. AFAT ne le compte pas encore comme payé.' : 'Le fournisseur a confirmé le paiement. Votre réservation peut continuer.'}</p>
       </div>
     );
   }

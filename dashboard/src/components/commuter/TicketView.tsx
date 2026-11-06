@@ -21,6 +21,8 @@ interface Props {
 }
 
 export function TicketView({ booking, onBack }: Props) {
+  const cashDue = booking.paymentMethod === 'cash';
+
   const [ticketPayload, setTicketPayload] = useState('');
   const [guardianUrl, setGuardianUrl] = useState('');
   const [guardianBusy, setGuardianBusy] = useState(false);
@@ -140,6 +142,10 @@ export function TicketView({ booking, onBack }: Props) {
         {guardianNotice&&<p role="status" className="mt-3 text-xs text-amber-100">{guardianNotice}</p>}
       </div>
 
+      {cashDue&&<p role="status" className="mb-4 w-full max-w-sm rounded-xl border border-amber-300/30 bg-amber-400/10 p-3 text-xs font-bold text-amber-100">
+        Paiement en espèces non collecté. Le montant reste dû jusqu’à confirmation par l’opérateur. Aucun paiement n’est considéré reçu.
+      </p>}
+
       {/* Ticket Card */}
       <div className="w-full max-w-sm relative">
         {/* Top Section */}
@@ -149,7 +155,7 @@ export function TicketView({ booking, onBack }: Props) {
               <QrCode className="w-5 h-5 text-blue-200" />
               <span className="text-xs font-mono text-blue-200 uppercase tracking-widest">MobilityOS</span>
             </div>
-            <span className="text-[10px] font-mono text-blue-200 uppercase">#{booking.transactionId}</span>
+            <span className="text-[10px] font-mono text-blue-200 uppercase">{cashDue?'Billet': 'Transaction'} #{cashDue?booking.id.slice(0,8):booking.transactionId||'non disponible'}</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -208,7 +214,7 @@ export function TicketView({ booking, onBack }: Props) {
             </div>
             <div className="h-px bg-white/5"></div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-bold text-slate-300">Total payé</span>
+              <span className="text-sm font-bold text-slate-300">{cashDue?'Montant dû en espèces':'Total payé'}</span>
               <span className="text-lg font-black text-blue-400">{booking.price} FCFA</span>
             </div>
           </div>
@@ -216,8 +222,8 @@ export function TicketView({ booking, onBack }: Props) {
       </div>
 
       {/* Save Offline Button */}
-      <button className="mt-6 flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
-        <Download className="w-4 h-4" /> Sauvegarder hors ligne
+      <button type="button" onClick={()=>window.print()} className="mt-6 flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
+        <Download className="w-4 h-4" /> Imprimer ou enregistrer en PDF
       </button>
     </div>
   );
