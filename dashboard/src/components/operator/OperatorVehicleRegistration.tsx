@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useRef,useState} from 'react';
 import {registerOperatorVehicle} from '../../services/operatorExecutionClient';
 
 export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>void}){
@@ -6,22 +6,31 @@ export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>voi
  const [type,setType]=useState('taxi');
  const [capacity,setCapacity]=useState('4');
  const [saving,setSaving]=useState(false);
+ const inFlight=useRef(false);
  const [notice,setNotice]=useState('');
  const [registered,setRegistered]=useState(false);
  const submit=async()=>{
+  if(inFlight.current||registered)return;
   const seats=Number(capacity);
   if(plate.trim().length<4||!Number.isSafeInteger(seats)||seats<1||seats>200){
    setNotice('Provide a real registration plate and passenger capacity between 1 and 200.');return;
   }
-  setSaving(true);setNotice('');
-  const {data,error}=await registerOperatorVehicle({
-   plate_number:plate.trim(),vehicle_type:type,capacity:seats,
-  });
-  setSaving(false);
-  if(error){setNotice(error.message);return;}
-  setRegistered(true);
-  setNotice(`Vehicle ${data.vehicle.plate_number} registered. Clearance: unreviewed. AFAT will not advertise it or accept bookings until independent verification.`);
-  onRegistered();
+  inFlight.current=true;setSaving(true);setNotice('');
+  try{
+   const {data,error}=await registerOperatorVehicle({
+    plate_number:plate.trim(),vehicle_type:type,capacity:seats,
+   });
+   if(error||!data?.vehicle?.id){
+    setNotice(error?.message||'Registration outcome unconfirmed. Retry with the same plate; AFAT will recover an existing registration.');
+    return;
+   }
+   setRegistered(true);
+   const clearance=String(data.vehicle.clearance_status||'unreviewed');
+   setNotice(`Vehicle ${data.vehicle.plate_number} ${data.resumed?'recovered':'registered'}. Current clearance: ${clearance}. Independent AFAT review is required before publishing transport unless this existing vehicle was already verified.`);
+   onRegistered();
+  }catch{
+   setNotice('Registration response unavailable. Retry the same plate; AFAT will not create a second vehicle registration.');
+  }finally{inFlight.current=false;setSaving(false);}
  };
  return <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.045] p-5">
   <p className="text-[9px] font-black uppercase tracking-wider text-amber-100">Operator onboarding · vehicle clearance</p>
