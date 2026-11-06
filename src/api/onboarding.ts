@@ -1,4 +1,5 @@
 import {validateOperatorVehicleRegistration,vehicleRegistrationOwnership} from '../services/operatorVehicleRegistration';
+import {hasPendingOperatorApplication} from '../services/operatorApplicantAccess';
 /**
  * AFAT OS — Onboarding & Registration System
  * Handles: Driver registration, Vehicle registration, Passenger registration
@@ -279,7 +280,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           operator_review_notes: applicationStatus === 'APPROVED'
             ? existing.operator_review_notes || 'Operator remains approved.'
             : 'Operator intake refreshed and queued for AFAT review.',
-          is_active: applicationStatus === 'APPROVED',
+          // Pending operator status must never disable an otherwise active passenger account.
+          is_active: existing.is_active !== false,
           updated_at: new Date().toISOString()
         })
         .eq('id', existing.id)
@@ -377,7 +379,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           prompt: 'Verify this is a real person selfie for driver registration. Check for: clear face visible, no masks, good lighting. Return JSON: { verified: boolean, confidence: number, issues: [] }'
         });
         const parsed = JSON.parse(result.text);
-        verificationStatus = parsed.verified ? 'verified' : 'needs_review';
+        // Vision output is extraction evidence, never an identity approval decision.
+        verificationStatus = 'needs_review';
       } catch {
         verificationStatus = 'pending'; // Manual review fallback
       }
@@ -410,7 +413,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         operator_review_notes: applicationStatus === 'UNDER_REVIEW'
           ? 'Operator intake received and waiting for approval.'
           : 'Operator intake saved; more documents are still needed before approval.',
-        is_active: false,
+        // Passenger account remains usable while operator access awaits human review.
+        is_active: true,
         created_at: new Date().toISOString()
       })
       .select()
@@ -490,11 +494,17 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 // ── VEHICLE REGISTRATION ─────────────────────────────────────────────────────
 router.post('/vehicle/register', async (req: Request, res: Response) => {
   try {
-    const access = await requireAuthRole(req, res, ['operator', 'admin', 'planner']);
-    if (!access) return;
-    const isOperator=access.workspaceRole==='operator'||access.profile.role==='operator';
-    const resolvedOperatorId=isOperator ? access.profile.id : req.body?.driver_id;
-    if(!resolvedOperatorId)return res.status(400).json({error:'OPERATOR_ID_REQUIRED'});
+    const access=await requireAuthRole(req,res);
+    if(!access)return;
+    const staff=['admin','planner'].includes(access.workspaceRole);
+    const approvedOperator=access.capabilities.includes('operator');
+    if(!staff&&!approvedOperator&&!await hasPendingOperatorApplication(access.profile.id))
+      return res.status(403).json({error:'SUBMITTED_OPERATOR_APPLICATION_REQUIRED'});
+    if(!staff&&req.body?.driver_id&&req.body.driver_id!==access.profile.id)
+      return res.status(403).json({error:'VEHICLE_OWNER_IMPERSONATION_FORBIDDEN'});
+    const resolvedOperatorId=staff ? String(req.body?.driver_id||'') : access.profile.id;
+    if(!/^[0-9a-f-]{36}$/i.test(resolvedOperatorId))
+      return res.status(400).json({error:'VALID_OPERATOR_ID_REQUIRED'});
     let declared;
     try{declared=validateOperatorVehicleRegistration(req.body);}
     catch(error:any){return res.status(400).json({error:String(error?.message||'INVALID_VEHICLE')});}
@@ -539,6 +549,26 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Vehicle registration failed' });
   }
+});
+
+// Applicants can inspect their own vehicle records before operator approval.
+// This route does not expose anyone else's vehicles or imply clearance.
+router.get('/vehicle/mine',async(req:Request,res:Response)=>{
+ try{
+  const access=await requireAuthRole(req,res);
+  if(!access)return;
+  if(!access.capabilities.includes('operator')&&!await hasPendingOperatorApplication(access.profile.id))
+   return res.status(403).json({error:'OPERATOR_APPLICATION_REQUIRED'});
+  const {data,error}=await supabase.from('vehicles')
+   .select('id,plate_number,type,capacity,clearance_status,is_available,created_at')
+   .eq('operator_id',access.profile.id)
+   .order('created_at',{ascending:false}).limit(20);
+  if(error)throw error;
+  return res.status(200).json({success:true,vehicles:data||[],
+   source:'owner_scoped_vehicle_registry',automatically_verified:false});
+ }catch{
+  return res.status(503).json({error:'OWNED_VEHICLE_LOOKUP_UNAVAILABLE'});
+ }
 });
 
 // ── PASSENGER REGISTRATION ───────────────────────────────────────────────────

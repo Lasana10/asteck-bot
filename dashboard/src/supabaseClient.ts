@@ -2668,7 +2668,7 @@ export async function fetchMyAccessApplications() {
   try {
     const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/access/applications/mine`, {
-      headers: { ...authHeaders },
+      headers: { ...authHeaders, 'x-afat-workspace-role':'commuter' },
     });
     const data = await res.json();
     if (!res.ok) return { data: null, error: { message: data.error || 'Access application lookup failed.' } };
@@ -2690,7 +2690,7 @@ export async function submitAccessApplication(payload: {
     const authHeaders = await authenticatedApiHeaders();
     const res = await fetch(`${getApiBaseUrl()}/api/access/applications`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      headers: { 'Content-Type': 'application/json', ...authHeaders, 'x-afat-workspace-role':'commuter' },
       body: JSON.stringify(payload),
     });
     const data = await res.json();

@@ -30,7 +30,7 @@ export async function registerOperatorVehicle(input:{plate_number:string;vehicle
  try{
   const headers=await authenticatedApiHeaders();
   const res=await fetch(`${getApiBaseUrl()}/api/onboard/vehicle/register`,{
-   method:'POST',headers:{'content-type':'application/json',...headers},
+   method:'POST',headers:{'content-type':'application/json',...headers,'x-afat-workspace-role':'commuter'},
    body:JSON.stringify(input),signal:AbortSignal.timeout(25000),
   });
   const body=await res.json().catch(()=>null);
@@ -47,5 +47,26 @@ export async function registerOperatorVehicle(input:{plate_number:string;vehicle
   return {data:body,error:null};
  }catch(error:any){
   return {data:null,error:{message:error?.message||'Vehicle registration service unavailable.'}};
+ }
+}
+
+export type OwnedOperatorVehicle={
+ id:string;plate_number:string;type:string;capacity:number;
+ clearance_status:string;is_available:boolean;created_at:string;
+};
+export async function fetchOwnOperatorVehicles():Promise<{data:OwnedOperatorVehicle[];error:{message:string}|null}>{
+ try{
+  const headers=await authenticatedApiHeaders();
+  const response=await fetch(`${getApiBaseUrl()}/api/onboard/vehicle/mine`,{
+   method:'GET',headers:{...headers,'x-afat-workspace-role':'commuter'},
+   signal:AbortSignal.timeout(25000),
+  });
+  const body=await response.json().catch(()=>null);
+  if(!response.ok||body?.success!==true||!Array.isArray(body?.vehicles))
+   return {data:[],error:{message:body?.error||'Owned vehicle registry unavailable.'}};
+  const vehicles=body.vehicles.filter((v:any)=>typeof v?.id==='string'&&typeof v?.plate_number==='string');
+  return {data:vehicles as OwnedOperatorVehicle[],error:null};
+ }catch(error:any){
+  return {data:[],error:{message:error?.message||'Unable to retrieve registered vehicles.'}};
  }
 }

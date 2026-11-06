@@ -4,6 +4,9 @@ import {
   ShieldCheck, UserCheck, X,
 } from 'lucide-react';
 import { fetchMyAccessApplications, submitAccessApplication } from '../../supabaseClient';
+import {OperatorVehicleRegistration} from '../operator/OperatorVehicleRegistration';
+import {OperatorComplianceEvidence} from '../operator/OperatorComplianceEvidence';
+import {fetchOwnOperatorVehicles,type OwnedOperatorVehicle} from '../../services/operatorExecutionClient';
 
 interface Props {
   role: 'commuter' | 'operator' | 'admin' | 'planner';
@@ -74,6 +77,11 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState('');
+  const [vehicles,setVehicles]=useState<OwnedOperatorVehicle[]>([]);
+  const [vehicleRefresh,setVehicleRefresh]=useState(0);
+  const [selectedVehicleId,setSelectedVehicleId]=useState('');
+  const [vehicleLoadError,setVehicleLoadError]=useState('');
+  const [loadingVehicles,setLoadingVehicles]=useState(false);
 
   const meta = ROLE_COPY[role];
   const Icon = meta.icon;
@@ -87,6 +95,22 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
     () => applications.find((item) => item.capability_key === role),
     [applications, role],
   );
+  const canPrepareOperatorEvidence=role==='operator'&&
+    (capabilityActive||['submitted','under_review','needs_information'].includes(String(application?.status||'').toLowerCase()));
+  const selectedVehicle=vehicles.find(v=>v.id===selectedVehicleId)||vehicles[0]||null;
+
+  useEffect(()=>{
+    if(!isVisible||!canPrepareOperatorEvidence)return;
+    let active=true;setLoadingVehicles(true);setVehicleLoadError('');
+    void fetchOwnOperatorVehicles().then(({data,error})=>{
+      if(!active)return;
+      if(error){setVehicleLoadError(error.message);setVehicles([]);}
+      else setVehicles(data);
+    }).catch(()=>{if(active)setVehicleLoadError('Unable to retrieve registered vehicles.');})
+      .finally(()=>{if(active)setLoadingVehicles(false);});
+    return()=>{active=false;};
+  },[isVisible,canPrepareOperatorEvidence,vehicleRefresh]);
+
 
   useEffect(() => {
     if (!isVisible || role === 'commuter' || role === 'admin') return;
@@ -154,7 +178,7 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
 
   return (
     <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-[#030611]/92 p-4 backdrop-blur-xl">
-      <div className="relative w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 p-6 shadow-2xl sm:p-8">
+      <div className="relative max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[2rem] border border-white/10 bg-slate-950 p-6 shadow-2xl sm:p-8">
         <button onClick={onClose} aria-label="Close onboarding" className="absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/45 hover:text-white">
           <X className="h-4 w-4" />
         </button>
@@ -201,6 +225,33 @@ export function RoleOnboarding({ role, isVisible, onClose, profile }: Props) {
         </div>
 
         {notice && <p role="status" className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4 text-xs font-semibold text-white/60">{notice}</p>}
+
+        {canPrepareOperatorEvidence && profile?.id && (
+          <section className="mt-5 space-y-4 border-t border-white/10 pt-5">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wider text-cyan-200">Operator application · real evidence</p>
+              <p className="mt-2 text-xs leading-5 text-white/60">
+                Register your real vehicle and submit its private documents while your application is being reviewed.
+                This does not approve the operator, vehicle, dispatch or fare publication.
+              </p>
+            </div>
+            <OperatorVehicleRegistration onRegistered={vehicle=>{
+              if(vehicle?.id)setSelectedVehicleId(vehicle.id);
+              setVehicleRefresh(v=>v+1);
+            }}/>
+            {loadingVehicles&&<p role="status" className="text-xs text-white/55">Checking your registered vehicles…</p>}
+            {vehicleLoadError&&<p role="alert" className="text-xs text-amber-100">{vehicleLoadError}</p>}
+            {vehicles.length>1&&<label className="block text-xs text-white/65">Select your vehicle for document review
+              <select value={selectedVehicle?.id||''} onChange={e=>setSelectedVehicleId(e.target.value)}
+                className="mt-2 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950 px-3 text-white">
+                {vehicles.map(v=><option key={v.id} value={v.id}>{v.plate_number} · {v.clearance_status}</option>)}
+              </select>
+            </label>}
+            {selectedVehicle&&<OperatorComplianceEvidence
+              profileId={profile.id} vehicle={{id:selectedVehicle.id,plate_number:selectedVehicle.plate_number,type:selectedVehicle.type}}
+              onChanged={()=>setVehicleRefresh(v=>v+1)}/>}
+          </section>
+        )}
 
         <div className="mt-6 flex flex-col gap-2 sm:flex-row">
           {!capabilityActive && !application && (role === 'operator' || role === 'planner') && (

@@ -15,7 +15,9 @@ for(const part of [
  'insert into public.access_audit_events',
 ])assert.ok(sql.includes(part),part);
 const ensure=routes.slice(routes.indexOf("router.post('/compliance/operator/ensure-required'"),routes.indexOf("router.get('/compliance/summary/:profileId'"));
-assert.ok(ensure.includes("requireAuthRole(req,res,['operator'])"));
+assert.ok(ensure.includes('requireAuthRole(req,res)'));
+assert.ok(ensure.includes("!access.capabilities.includes('operator')&&!await hasPendingOperatorApplication(access.profile.id)"),
+ 'only existing approved operators or authenticated applicants may prepare documents');
 assert.ok(ensure.includes(".eq('operator_id',operatorId)"));
 assert.ok(ensure.includes('vehicle_id:vehicleId'));
 const queue=routes.slice(routes.indexOf("router.get('/mobility/vehicle-clearance/queue'"),routes.indexOf("router.post('/mobility/vehicle-clearance/:id/review'"));

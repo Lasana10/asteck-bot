@@ -1,7 +1,7 @@
 import React,{useRef,useState} from 'react';
 import {registerOperatorVehicle} from '../../services/operatorExecutionClient';
 
-export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>void}){
+export function OperatorVehicleRegistration({onRegistered}:{onRegistered:(vehicle?:{id:string;plate_number?:string|null;type?:string|null})=>void}){
  const [plate,setPlate]=useState('');
  const [type,setType]=useState('taxi');
  const [capacity,setCapacity]=useState('4');
@@ -27,7 +27,7 @@ export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>voi
    setRegistered(true);
    const clearance=String(data.vehicle.clearance_status||'unreviewed');
    setNotice(`Vehicle ${data.vehicle.plate_number} ${data.resumed?'recovered':'registered'}. Current clearance: ${clearance}. Independent AFAT review is required before publishing transport unless this existing vehicle was already verified.`);
-   onRegistered();
+   onRegistered(data.vehicle);
   }catch{
    setNotice('Registration response unavailable. Retry the same plate; AFAT will not create a second vehicle registration.');
   }finally{inFlight.current=false;setSaving(false);}
@@ -35,7 +35,7 @@ export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>voi
  return <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.045] p-5">
   <p className="text-[9px] font-black uppercase tracking-wider text-amber-100">Operator onboarding · vehicle clearance</p>
   <h2 className="mt-2 text-lg font-black">Register your real vehicle</h2>
-  <p className="mt-2 text-xs leading-5 text-white/60">Approved operators cannot publish transport or go online until a vehicle is registered and independently cleared by AFAT. Registration is not approval.</p>
+  <p className="mt-2 text-xs leading-5 text-white/60">Operator applicants may register a real vehicle and submit documents before approval. Publication, dispatch and passenger bookings stay disabled until both operator access and vehicle clearance are independently verified.</p>
   {!registered&&<div className="mt-4 grid gap-3 sm:grid-cols-3">
    <label className="text-[10px] font-semibold text-white/75">Plate number
      <input value={plate} onChange={e=>setPlate(e.target.value.toUpperCase())} placeholder="Real plate number"
