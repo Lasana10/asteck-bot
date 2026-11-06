@@ -3962,7 +3962,7 @@ router.get('/compliance/:id/review-file',async(req:Request,res:Response)=>{
 router.post('/compliance/operator/ensure-required',async(req:Request,res:Response)=>{
  const access=await requireAuthRole(req,res);
  if(!access)return;
- if(access.workspaceRole!=='operator'&&!await hasPendingOperatorApplication(access.profile.id))
+ if(!access.capabilities.includes('operator')&&!await hasPendingOperatorApplication(access.profile.id))
    return res.status(403).json({error:'OPERATOR_APPLICATION_REQUIRED'});
  const operatorId=access.profile.id;
  const vehicleId=String(req.body?.vehicle_id||'');
