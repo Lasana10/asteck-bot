@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 
 const ui=readFileSync('dashboard/src/components/shared/AtlasIngestionControl.tsx','utf8');
 for(const token of [
- "runQueuedCell=async()=>", "if(running||queueBusy||!cityKey)return",
+ "runQueuedCell=async():Promise<\'verified\'|\'empty\'|\'blocked\'>=>", "if(running||queueBusy||!cityKey)return",
  "supabase.rpc('afat_claim_next_ingestion_cell'",
  "p_source_key:'openstreetmap'", "claim?.status==='empty'",
  "claim?.status!=='claimed'", "supabase.functions.invoke('afat-osm-city-ingest'",
