@@ -2228,6 +2228,9 @@ router.get('/mobility/departures/:departureId/availability',async(req:Request,re
      .eq('route_id',id).in('status',['pending','accepted','confirmed','boarded','in_progress']).limit(250),
   ]);
   if(operator.error||vehicle.error||bookings.error)throw operator.error||vehicle.error||bookings.error;
+  // A capped result cannot be treated as complete availability. With verified
+  // capacity <=200, >=250 active rows indicate duplicates or an unsafe partial read.
+  if((bookings.data||[]).length>=250)throw new Error('EXACT_DEPARTURE_BOOKINGS_EXCEEDS_SAFE_LIMIT');
   if(!operator.data||!vehicle.data||vehicle.data.clearance_status!=='verified')
    return res.status(404).json({error:'DEPARTURE_NOT_CURRENTLY_AVAILABLE'});
   const compliance=await supabase.rpc('afat_vehicle_compliance_current',{p_vehicle_id:route.vehicle_id});
