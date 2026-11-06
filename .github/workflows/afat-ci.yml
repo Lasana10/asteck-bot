@@ -64,6 +64,7 @@ jobs:
       - run: npm run test:passenger-booking-recovery-workspace
       - run: npm run test:cash-due-ticket-ui
       - run: npm run test:cash-due-boarding-gate
+      - run: npm run test:confirmed-cash-ticket-recovery
       - run: npm run test:cameroon-wallet-collection
       - run: npm run test:guardian-sharing
       - run: npm run test:operator-departure-operations
