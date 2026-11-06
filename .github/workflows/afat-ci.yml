@@ -40,6 +40,7 @@ jobs:
       - run: npm run test:reachability:reviewed-access
       - run: npm run test:transit-review-authority
       - run: npm run test:published-departures
+      - run: npm run test:departure-seat-inventory
       - run: npm run test:paginated-departure-discovery
       - run: npm run test:osm-ingestion-truth
       - run: npm run test:ingestion-persistence-ui
