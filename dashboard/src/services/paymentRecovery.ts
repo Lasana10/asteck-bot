@@ -35,7 +35,7 @@ export type RecoverablePaymentBooking={
  paymentStatus:string;
  canSelfCancel:boolean;
 };
-export type PassengerBookingEntry=RecoverablePaymentBooking & {paymentPhase:PaymentPhase;transactionId:string};
+export type PassengerBookingEntry=RecoverablePaymentBooking & {paymentPhase:PaymentPhase;transactionId:string;bookingStatus:string;ticketEligible:boolean};
 export async function fetchPassengerBookingHistory(profileId:string){
  const {data:identity,error:identityError}=await supabase.auth.getUser();
  if(identityError||identity.user?.id!==profileId)
@@ -62,6 +62,10 @@ export async function fetchPassengerBookingHistory(profileId:string){
    operatorName:String(operator?.full_name||'Verified operator (details unavailable)'),
    plateNumber:String(vehicle?.plate_number||'Not displayed'),
    paymentStatus:String(raw.payment_status),paymentPhase:decision.phase,transactionId:decision.transactionId,
+   bookingStatus:String(raw.status),
+   ticketEligible:decision.phase==='paid'&&String(raw.status)==='confirmed'&&
+    Number.isFinite(Date.parse(String(route?.departure_time||'')))&&
+    Date.parse(String(route?.departure_time))>=Date.now()-2*60*60*1000,
    canSelfCancel:String(raw.status)==='pending'&&
     ['unpaid','failed'].includes(String(raw.payment_status))&&
     !raw.transaction_id&&Number.isFinite(Date.parse(String(route?.departure_time||'')))&&
