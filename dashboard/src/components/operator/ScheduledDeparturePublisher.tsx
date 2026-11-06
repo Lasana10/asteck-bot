@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {discoverAfatPlaces,type AfatPlaceCandidate} from '../../supabaseClient';
 import {publishScheduledDeparture} from '../../services/operatorDeparturePublisher';
 type Point=Pick<AfatPlaceCandidate,'id'|'name'|'latitude'|'longitude'>;
@@ -23,6 +23,13 @@ export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished,
  const [departAt,setDepartAt]=useState('');
  const [fare,setFare]=useState('');
  const [lookupKind,setLookupKind]=useState<Kind>('origin');
+ const requestSequence=useRef(0);
+ const currentInputs=useRef({originQuery,destinationQuery,originCity,destinationCity});
+ currentInputs.current={originQuery,destinationQuery,originCity,destinationCity};
+ const invalidatePlaceLookup=()=>{
+  requestSequence.current+=1;
+  setOptions([]);setSearching(null);setBusy(false);
+ };
  useEffect(()=>{
   if(!suggestedRoute)return;
   // A voluntary demand signal only pre-fills text. The operator must still
@@ -36,22 +43,33 @@ export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished,
 
  const search=async(kind:Kind)=>{
   const query=(kind==='origin'?originQuery:destinationQuery).trim();
-  if(query.length<2)return;
-  setBusy(true);setSearching(kind);setLookupKind(kind);setNotice('');
-  const {data,error}=await discoverAfatPlaces({query,city:kind==='origin'?originCity:destinationCity,limit:12});
-  setBusy(false);setSearching(null);
-  if(error){setOptions([]);setNotice(error.message);return;}
-  const found=(data?.results||[]).filter((p:AfatPlaceCandidate)=>
-    p?.id&&p?.name&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude)) &&
-    Math.abs(Number(p.latitude))<=90&&Math.abs(Number(p.longitude))<=180);
-  setOptions(found);
-  if(!found.length)setNotice('No real source-mapped location matched. Search a landmark or nearby area instead.');
+  const city=(kind==='origin'?originCity:destinationCity).trim();
+  if(query.length<2||!city)return;
+  const seq=++requestSequence.current;
+  setBusy(true);setSearching(kind);setLookupKind(kind);setNotice('');setOptions([]);
+  try{
+   const {data,error}=await discoverAfatPlaces({query,city,limit:12});
+   const latest=currentInputs.current;
+   const latestQuery=(kind==='origin'?latest.originQuery:latest.destinationQuery).trim();
+   const latestCity=(kind==='origin'?latest.originCity:latest.destinationCity).trim();
+   if(seq!==requestSequence.current||query!==latestQuery||city!==latestCity)return;
+   if(error){setNotice(error.message);return;}
+   const found=(data?.results||[]).filter((p:AfatPlaceCandidate)=>
+     p?.id&&p?.name&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude)) &&
+     Math.abs(Number(p.latitude))<=90&&Math.abs(Number(p.longitude))<=180);
+   setOptions(found);
+   if(!found.length)setNotice('No real source-mapped location matched. Search a landmark or nearby area instead.');
+  }catch{
+   if(seq===requestSequence.current)setNotice('Place search failed. No geographic point was selected.');
+  }finally{
+   if(seq===requestSequence.current){setBusy(false);setSearching(null);}
+  }
  };
  const choose=(point:AfatPlaceCandidate)=>{
   const value:Point={id:point.id,name:point.name,latitude:Number(point.latitude),longitude:Number(point.longitude)};
   if(lookupKind==='origin'){setOrigin(value);setOriginQuery(value.name);}
   else{setDestination(value);setDestinationQuery(value.name);}
-  setOptions([]);
+  invalidatePlaceLookup();
  };
  const publish=async()=>{
   if(!vehicle||vehicle.clearance_status!=='verified'){
@@ -59,8 +77,12 @@ export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished,
   }
   if(!origin||!destination){setNotice('Select both boarding and destination places from actual geographic discovery.');return;}
   const instant=Date.parse(departAt),amount=Number(fare);
-  if(!Number.isFinite(instant)||!Number.isSafeInteger(amount)||amount<=0){
-    setNotice('Enter a real departure date/time and a valid published fare in XAF.');return;
+  if(!Number.isFinite(instant)||instant<Date.now()+10*60_000||instant>Date.now()+30*24*60*60_000||
+    !Number.isSafeInteger(amount)||amount<=0||amount>2_000_000){
+    setNotice('Choose a departure 10 minutes to 30 days ahead and a fare of 1–2,000,000 XAF.');return;
+  }
+  if(origin.id===destination.id||(Math.abs(origin.latitude-destination.latitude)<0.0001&&Math.abs(origin.longitude-destination.longitude)<0.0001)){
+    setNotice('Boarding and destination must be distinct real mapped places.');return;
   }
   setBusy(true);setNotice('');
   const {data,error}=await publishScheduledDeparture({
@@ -82,11 +104,11 @@ export function ScheduledDeparturePublisher({vehicle,city='yaounde',onPublished,
    <label className="block text-[10px] font-bold text-white/65">{isOrigin?'Boarding landmark / point':'Arrival landmark / point'}</label>
    <div className="flex gap-2">
     <input value={isOrigin?originCity:destinationCity}
-      onChange={e=>{isOrigin?setOriginCity(e.target.value):setDestinationCity(e.target.value);isOrigin?setOrigin(null):setDestination(null);}}
+      onChange={e=>{invalidatePlaceLookup();isOrigin?setOriginCity(e.target.value):setDestinationCity(e.target.value);isOrigin?setOrigin(null):setDestination(null);}}
       placeholder="City" aria-label={isOrigin?'Boarding city':'Destination city'}
       className="min-h-10 w-24 rounded-lg border border-white/10 bg-slate-950 px-2 text-xs"/>
     <input value={query} placeholder={isOrigin?'Real departure landmark':'Real arrival landmark'}
-      onChange={e=>{isOrigin?setOriginQuery(e.target.value):setDestinationQuery(e.target.value);isOrigin?setOrigin(null):setDestination(null);setOptions([]);}}
+      onChange={e=>{invalidatePlaceLookup();isOrigin?setOriginQuery(e.target.value):setDestinationQuery(e.target.value);isOrigin?setOrigin(null):setDestination(null);}}
       className="min-h-10 min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 text-xs"/>
     <button disabled={busy||query.trim().length<2} onClick={()=>void search(kind)}
       className="min-h-10 rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 text-xs text-cyan-100 disabled:opacity-40">
