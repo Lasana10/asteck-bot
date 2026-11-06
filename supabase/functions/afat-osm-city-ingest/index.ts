@@ -56,8 +56,20 @@ Deno.serve(async (req: Request) => {
   if (latSpan>0.18 || lonSpan>0.18 || latSpan*lonSpan>0.018) return json({ error: "BBox exceeds AFAT controlled-ingestion limit" }, 413);
 
   const { data: city } = await service.from("afat_city_profiles")
-    .select("id,city_key,city_name,country_code,status").eq("city_key",cityKey).eq("status","active").maybeSingle();
+    .select("id,city_key,city_name,country_code,status,metadata").eq("city_key",cityKey).eq("status","active").maybeSingle();
   if (!city) return json({ error: "Active AFAT city profile required" }, 404);
+  // A city profile is an administrative container, not proven map coverage.
+  // Keep source acquisition inside its explicitly configured working envelope.
+  // This prevents authenticated callers from importing another city's roads.
+  const envelope = city.metadata?.coverage_working_envelope;
+  const bounds = [envelope?.south,envelope?.west,envelope?.north,envelope?.east];
+  if (envelope?.automatic_truth !== false ||
+      !bounds.every((n:unknown)=>typeof n==="number"&&Number.isFinite(n)) ||
+      !(envelope.south<envelope.north&&envelope.west<envelope.east))
+    return json({error:"CITY_REVIEWED_WORKING_ENVELOPE_REQUIRED"},409);
+  if (south!<envelope.south || north!>envelope.north ||
+      west!<envelope.west || east!>envelope.east)
+    return json({error:"INGEST_BBOX_OUTSIDE_CITY_WORKING_ENVELOPE"},422);
 
   const scopeLabel=normalizeName(payload?.scope_label)||"custom-cell";
   const query=`[out:json][timeout:45];way["highway"](${south},${west},${north},${east});out body geom;`;
