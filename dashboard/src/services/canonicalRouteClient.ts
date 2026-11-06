@@ -132,7 +132,7 @@ async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRo
     // A provider response can be syntactically valid but geographically unrelated
     // to the passenger's requested journey. Refuse such routes before rendering.
     const firstPoint=coordinates[0],lastPoint=coordinates[coordinates.length-1];
-    const maxSnap=Math.min(2500,Math.max(30,input.snapRadiusM??1200)+50);
+    const maxSnap=Math.min(2500,Math.max(30,input.snapRadiusM??2500)+50);
     if(geometryDistanceMeters(firstPoint,[input.originLongitude,input.originLatitude])>maxSnap||
       geometryDistanceMeters(lastPoint,[input.destinationLongitude,input.destinationLatitude])>maxSnap)return null;
     if (!coordinates.every((point: unknown) =>
