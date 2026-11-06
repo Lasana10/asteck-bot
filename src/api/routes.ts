@@ -3976,14 +3976,18 @@ router.post('/compliance/operator/ensure-required',async(req:Request,res:Respons
    if(!vehicle.data)return res.status(404).json({error:'OWNED_VEHICLE_NOT_FOUND'});
    const isMoto=vehicle.data.type==='moto';
    const role=isMoto?'bike_rider':'operator';
-   const required=isMoto?[
+   const baseDocuments=[
+     {document_type:'national_id',document_label:'Operator national ID'},
+     {document_type:'license',document_label:'Operator driving licence'},
+   ];
+   const required=[...baseDocuments,...(isMoto?[
      {document_type:'bike_registration',document_label:'Motorcycle registration'},
      {document_type:'insurance',document_label:'Motorcycle insurance'},
      {document_type:'helmet_compliance',document_label:'Helmet and rider safety'},
    ]:[
      {document_type:'vehicle_registration',document_label:'Vehicle registration'},
      {document_type:'insurance',document_label:'Vehicle insurance'},
-   ];
+   ])];
    const existing=await supabase.from('compliance_records')
      .select('id,vehicle_id,document_type')
      .eq('profile_id',operatorId).eq('vehicle_id',vehicleId);
