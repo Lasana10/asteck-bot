@@ -38,6 +38,34 @@ assert.ok(registration.includes("vehicleRegistrationOwnership(concurrent.data,re
 assert.ok(registration.includes('resumed:true'),'retry must not create another vehicle');
 assert.ok(registration.includes("clearance_status:'unreviewed',is_available:false"),
  'new vehicle registration never approves itself');
+// Both legacy driver intake paths must be subject to the same global plate custody.
+const legacyStart=api.indexOf("router.post('/driver/register'");
+const legacyEnd=api.indexOf("router.post('/vehicle/register'",legacyStart);
+assert.ok(legacyStart>=0&&legacyEnd>legacyStart,'legacy driver intake route must exist');
+const legacy=api.slice(legacyStart,legacyEnd);
+assert.equal((legacy.match(/registerIntakeVehicle\(/g)||[]).length,2,
+ 'new and resumed driver intake must both use the guarded vehicle registration');
+assert.ok(legacy.includes('VEHICLE_PLATE_AND_TYPE_REQUIRED_TOGETHER'),
+ 'partial vehicle declarations must fail instead of reporting success');
+assert.ok(legacy.indexOf('validateOperatorVehicleRegistration({') <
+ legacy.indexOf(".from('profiles')"),'vehicle payload must be validated before profile mutation');
+assert.equal((legacy.match(/\.from\('vehicles'\)/g)||[]).length,0,
+ 'legacy route must never insert vehicles outside custody helper');
+const helperStart=api.indexOf('async function registerIntakeVehicle(');
+const helperEnd=api.indexOf('// ── DRIVER ONBOARDING',helperStart);
+assert.ok(helperStart>=0&&helperEnd>helperStart);
+const helper=api.slice(helperStart,helperEnd);
+assert.ok(helper.includes("supabase.rpc('afat_find_vehicle_by_plate'"),
+ 'legacy helper must consult normalized global custody lookup');
+assert.ok(helper.includes("inserted.error?.code === '23505'"),
+ 'legacy helper must handle concurrent duplicate insertion');
+assert.ok(helper.includes("clearance_status: 'unreviewed'") &&
+ helper.includes('is_available: false'),
+ 'legacy driver onboarding cannot make unapproved vehicles live');
+assert.ok(helper.includes("vehicleRegistrationOwnership(prior.data, ownerId)") &&
+ helper.includes("vehicleRegistrationOwnership(concurrent.data, ownerId)"),
+ 'legacy retry and concurrent recovery must enforce same-owner custody');
+
 const index=readFileSync('supabase/migrations/20261106143436_afat_global_vehicle_plate_custody.sql','utf8');
 assert.ok(index.includes('create unique index if not exists vehicles_plate_global_normalized_uidx'));
 const lookup=readFileSync('supabase/migrations/20261106144753_afat_vehicle_plate_owner_lookup.sql','utf8');
