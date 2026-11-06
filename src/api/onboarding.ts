@@ -280,7 +280,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           operator_review_notes: applicationStatus === 'APPROVED'
             ? existing.operator_review_notes || 'Operator remains approved.'
             : 'Operator intake refreshed and queued for AFAT review.',
-          is_active: applicationStatus === 'APPROVED',
+          // Pending operator status must never disable an otherwise active passenger account.
+          is_active: existing.is_active !== false,
           updated_at: new Date().toISOString()
         })
         .eq('id', existing.id)
@@ -378,7 +379,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           prompt: 'Verify this is a real person selfie for driver registration. Check for: clear face visible, no masks, good lighting. Return JSON: { verified: boolean, confidence: number, issues: [] }'
         });
         const parsed = JSON.parse(result.text);
-        verificationStatus = parsed.verified ? 'verified' : 'needs_review';
+        // Vision output is extraction evidence, never an identity approval decision.
+        verificationStatus = 'needs_review';
       } catch {
         verificationStatus = 'pending'; // Manual review fallback
       }
@@ -411,7 +413,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         operator_review_notes: applicationStatus === 'UNDER_REVIEW'
           ? 'Operator intake received and waiting for approval.'
           : 'Operator intake saved; more documents are still needed before approval.',
-        is_active: false,
+        // Passenger account remains usable while operator access awaits human review.
+        is_active: true,
         created_at: new Date().toISOString()
       })
       .select()
