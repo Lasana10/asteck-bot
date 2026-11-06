@@ -39,6 +39,8 @@ import { AFATStrategicLayer } from '../shared/AFATStrategicLayer';
 import { TurnstileGate } from '../shared/TurnstileGate';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 import { PassagePlanner } from './PassagePlanner';
+import { PassengerBookingRecovery } from './PassengerBookingRecovery';
+import type { RecoverablePaymentBooking } from '../../services/paymentRecovery';
 import { captureCurrentFieldGps } from '../../services/spatialPositioning';
 
 interface Props {
@@ -48,7 +50,7 @@ interface Props {
   isGuest?: boolean;
 }
 
-type ViewState = 'home' | 'departures' | 'seats' | 'waiting' | 'fare' | 'payment' | 'ticket' | 'alerts';
+type ViewState = 'home' | 'departures' | 'seats' | 'waiting' | 'fare' | 'payment' | 'ticket' | 'alerts' | 'recover';
 
 export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGuest = false }: Props) {
   const [view, setView] = useState<ViewState>('home');
@@ -118,7 +120,8 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
 
   useEffect(() => {
     if (activeTab === 'home') setView('home');
-    if (activeTab === 'book' || activeTab === 'bookings') setView('departures');
+    if (activeTab === 'book') setView('departures');
+    if (activeTab === 'bookings') setView('recover');
     if (activeTab === 'notifications') setView('alerts');
   }, [activeTab]);
 
@@ -586,7 +589,28 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     );
   };
 
+  // Recovery never creates a new booking; it resumes one belonging to
+  // the authenticated passenger and lets PaymentSheet recheck server truth.
+  const resumeExistingBooking=(record:RecoverablePaymentBooking)=>{
+    setSelectedDeparture({
+      id:record.id,route_name:record.routeName,origin:record.origin,
+      destination:record.destination,departure_time:record.departureTime,
+      price_xaf:record.amountXaf,operator_name:record.operatorName,
+      plate_number:record.plateNumber,
+    });
+    setSelectedSeatId(record.seatLabel);
+    setCurrentSeatHoldId(null);
+    setCurrentSeatHoldExpiresAt(null);
+    setCurrentBookingId(record.id);
+    setBookingResult(null);
+    setBookingOutcomeUncertain(false);
+    setBookingError(null);
+    setView('payment');
+  };
+
   // Sub-views
+  if(view==='recover')return <PassengerBookingRecovery profileId={isGuest?null:profile?.id||null}
+    onBack={()=>setView('home')} onResume={resumeExistingBooking}/>;
   if (view === 'departures') return <DepartureBoard onSelectDeparture={handleDepartureSelect} onBack={() => setView('home')} />;
   if (view === 'seats' && selectedDeparture) return <SeatSelector departure={selectedDeparture} onConfirmSeat={handleSeatSelect} errorText={bookingError} onBack={() => setView('departures')} />;
   
@@ -602,6 +626,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           <p className="mt-5 text-3xl font-black text-cyan-100">{currentBookingId&&bookingError?'Tarif du billet non vérifié':`${Number(selectedDeparture.price_xaf).toLocaleString('fr-CM')} FCFA`}</p>
           <p className="mt-3 text-xs leading-5 text-white/55">Ce tarif a été publié par l'opérateur. AFAT ne négocie pas automatiquement et n'affirme pas qu'un chauffeur a accepté une offre. Le serveur confirmera le prix lors de la création du billet.</p>
           {bookingError&&<p role="alert" className="mt-4 rounded-xl border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-100">{bookingError}</p>}
+          {(bookingOutcomeUncertain||currentBookingId)&&<button type="button" onClick={()=>setView('recover')} className="mt-4 min-h-11 w-full rounded-xl border border-cyan-300/25 px-4 text-xs font-bold text-cyan-100">Consulter mes réservations existantes</button>}
           {bookingOutcomeUncertain&&<p role="alert" className="mt-4 rounded-xl border border-amber-300/20 bg-amber-400/10 p-3 text-xs text-amber-100">La réponse du serveur est incertaine. Consultez vos réservations avant de relancer une demande.</p>}
           {currentBookingId&&<button type="button" disabled={bookingInFlight} onClick={()=>void recoverCreatedBooking(currentBookingId)}
             className="mt-4 w-full rounded-xl border border-amber-300/35 bg-amber-300/10 px-4 py-3 text-xs font-bold text-amber-100 disabled:opacity-40">
