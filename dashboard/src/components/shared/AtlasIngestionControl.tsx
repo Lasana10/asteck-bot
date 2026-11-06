@@ -17,6 +17,8 @@ export function AtlasIngestionControl(){
  const [bbox,setBbox]=useState({south:'3.84',west:'11.495',north:'3.89',east:'11.545'});
  const [running,setRunning]=useState(false); const [result,setResult]=useState<any>(null);
  const [queueBusy,setQueueBusy]=useState(false);const [queueNotice,setQueueNotice]=useState('');
+ const [batchRunning,setBatchRunning]=useState(false);
+ const [batchProgress,setBatchProgress]=useState<{verified:number;requested:number}>({verified:0,requested:0});
  const [queueCounts,setQueueCounts]=useState<Record<string,number>>({});
  useEffect(()=>{void supabase.from('afat_city_profiles').select('id,city_key,city_name,country_code,learning_stage').eq('status','active').order('city_name').then(({data})=>setCities(data||[]));},[]);
  const city=useMemo(()=>cities.find(c=>c.city_key===cityKey),[cities,cityKey]);
@@ -48,15 +50,15 @@ export function AtlasIngestionControl(){
    if(!valid)return {error:'Persisted source totals or batch status do not match. Manual review required.',batchId};
    return {batchId,batch};
  };
- const runQueuedCell=async()=>{
-   if(running||queueBusy||!cityKey)return;
+ const runQueuedCell=async():Promise<'verified'|'empty'|'blocked'>=>{
+   if(running||queueBusy||!cityKey)return 'blocked';
    setQueueBusy(true);setQueueNotice('');
    let claimed:any=null;
    try{
      const {data:claim,error:claimError}=await supabase.rpc('afat_claim_next_ingestion_cell',
        {p_city_key:cityKey,p_source_key:'openstreetmap'});
      if(claimError)throw new Error('Cannot claim next authorized cell: '+claimError.message);
-     if(claim?.status==='empty'){setQueueNotice('No pending or failed OSM cells remain in this city.');return;}
+     if(claim?.status==='empty'){setQueueNotice('No pending or failed OSM cells remain in this city.');return 'empty';}
      if(claim?.status!=='claimed'||!claim.cell?.id)throw new Error('Queue claim was not confirmed.');
      claimed=claim.cell;
      const {south,west,north,east}=claimed;
@@ -74,7 +76,7 @@ export function AtlasIngestionControl(){
        // A remote call may have written data even if verification fails.
        // Retain the claimed cell for operator reconciliation; never retry it blindly.
        setQueueNotice('Cell '+claimed.cell_key+': '+verified.error+' Claim remains running; reconcile batch before retry.');
-       return;
+       return 'blocked';
      }
      const {data:closed,error:closeError}=await supabase.rpc('afat_complete_ingestion_cell',{
        p_cell_id:claimed.id,p_status:verified.batch.status,p_import_batch_id:verified.batchId,
@@ -85,11 +87,12 @@ export function AtlasIngestionControl(){
      if(closeError||closed?.import_batch_id!==verified.batchId||closed?.status!==verified.batch.status){
        setQueueNotice('Import evidence confirmed for '+verified.batchId+
          ', but queue completion is unverified. Reconcile the claimed cell before retry.');
-       return;
+       return 'blocked';
      }
      setQueueNotice('Queue cell completed: '+claimed.cell_key+
        '. Candidate roads accepted: '+Number(verified.batch.inserted_count||0)+
        '. Batch '+verified.batchId+'. Review is required before map promotion.');
+     return 'verified';
    }catch(error:any){
      if(claimed){
        // An ambiguous network/remote failure must not reset a claimed cell
@@ -97,7 +100,31 @@ export function AtlasIngestionControl(){
        setQueueNotice('Claimed cell '+claimed.cell_key+' could not be verified: '+
          (error?.message||String(error))+'. Reconcile the running cell before retrying.');
      }else setQueueNotice(error?.message||'Queue claim failed.');
+     return 'blocked';
    }finally{setQueueBusy(false);await refreshQueue();}
+ };
+ // Operator-triggered bounded source ingestion. Every cell must have a persisted,
+ // matching import receipt before the next cell may be claimed. Stop on errors,
+ // empty queue or ambiguous remote writes: never automatically retry uncertainty.
+ const processVerifiedBatch=async()=>{
+   if(running||queueBusy||batchRunning||!city?.id)return;
+   const requested=Math.min(5,Math.max(1,queueCounts.pending||0));
+   setBatchProgress({verified:0,requested});
+   setBatchRunning(true);
+   let verified=0;
+   try{
+     for(let i=0;i<requested;i++){
+       const outcome=await runQueuedCell();
+       if(outcome!=='verified')break;
+       verified++;
+       setBatchProgress({verified,requested});
+       // Small pause avoids hammering the shared Overpass source.
+       if(i+1<requested)await new Promise<void>(resolve=>setTimeout(resolve,1200));
+     }
+   }finally{
+     setBatchRunning(false);
+     await refreshQueue();
+   }
  };
  const run=async()=>{
    if(running)return;
@@ -155,16 +182,26 @@ export function AtlasIngestionControl(){
    </div>
    <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.05] p-4">
      <p className="text-[10px] font-black uppercase tracking-wide text-cyan-200">Controlled queued OpenStreetMap ingestion</p>
-     <p className="mt-1 text-xs text-white/50">Processes one authorized city cell at a time. Never silently retries a cell when a remote import may have written data.</p>
+     <p className="mt-1 text-xs text-white/50">Each import is independently claimed and checked against the persisted source batch. You can process one cell or up to five sequentially; any unverified response stops the sequence without automatic retry.</p>
      <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
        <span>Pending: {queueCounts.pending||0}</span><span>Running / review: {queueCounts.running||0}</span>
        <span>Completed: {queueCounts.completed||0}</span><span>Partial: {queueCounts.completed_with_errors||0}</span>
        <span>Failed: {queueCounts.failed||0}</span>
      </div>
-     <button type="button" onClick={()=>void runQueuedCell()} disabled={queueBusy||running||!city?.id}
+     <button type="button" onClick={()=>void runQueuedCell()} disabled={queueBusy||batchRunning||running||!city?.id}
        className="mt-3 min-h-11 rounded-lg border border-cyan-300/30 bg-cyan-300/15 px-4 text-xs font-bold text-cyan-100 disabled:opacity-40">
        {queueBusy?'Processing claimed cell…':'Process next queued road cell'}
      </button>
+     <button type="button" onClick={()=>void processVerifiedBatch()}
+       disabled={queueBusy||batchRunning||running||!city?.id||!(queueCounts.pending>0)}
+       className="mt-3 ml-2 min-h-11 rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-4 text-xs font-bold text-emerald-100 disabled:opacity-40">
+       {batchRunning?'Processing verified batch…':'Process up to 5 queued cells'}
+     </button>
+     {(batchRunning||batchProgress.requested>0)&&
+       <p role="status" className="mt-2 text-xs text-emerald-100">
+         Batch: {batchProgress.verified} of {batchProgress.requested} cells independently verified.
+         {batchRunning?' Processing remains sequential.':''}
+       </p>}
      {queueNotice&&<p role="status" className="mt-3 break-words text-xs text-cyan-100">{queueNotice}</p>}
    </div>
    <button onClick={run} disabled={running||!cityKey} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[10px] font-black uppercase text-slate-950 disabled:opacity-35">{running?<RefreshCw className="h-4 w-4 animate-spin"/>:<MapPinned className="h-4 w-4"/>}{running?'Ingesting controlled cell…':'Ingest city road cell'}</button>
