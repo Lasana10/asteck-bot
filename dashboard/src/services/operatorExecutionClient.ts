@@ -35,8 +35,15 @@ export async function registerOperatorVehicle(input:{plate_number:string;vehicle
   });
   const body=await res.json().catch(()=>null);
   if(!res.ok||!body?.vehicle?.id)return {data:null,error:{message:body?.error||'Vehicle registration is unavailable.'}};
-  if(body.vehicle.clearance_status==='verified'||body.vehicle.is_available===true)
-   return {data:null,error:{message:'Unexpected vehicle clearance state; contact AFAT operations.'}};
+  if(!body.success||(body.vehicle.is_available===true&&!body.resumed))
+   return {data:null,error:{message:'AFAT vehicle registration returned an inconsistent live-supply state.'}};
+  if(!['unreviewed','pending','needs_review','verified','rejected','suspended'].includes(String(body.vehicle.clearance_status)))
+   return {data:null,error:{message:'AFAT returned an unrecognized clearance state.'}};
+  if(body.resumed&&body.vehicle.clearance_status==='verified'){
+   // An already verified registration can be recovered without granting a
+   // new clearance decision or creating duplicate vehicle inventory.
+   return {data:body,error:null};
+  }
   return {data:body,error:null};
  }catch(error:any){
   return {data:null,error:{message:error?.message||'Vehicle registration service unavailable.'}};
