@@ -25,6 +25,7 @@ function mockClient(records:any[],options:{errorOnPage?:number;truncate?:boolean
    return chain;
   }};
 }
+async function main(){
 const rows=[
  {id:'001',route_id:'route-1',status:'confirmed',seat_label:'1'},
  {id:'002',route_id:'route-1',status:'cancelled',seat_label:'2'},
@@ -48,3 +49,6 @@ await assert.rejects(loadActiveDepartureSeatClaims(mockClient(rows,{errorOnPage:
 await assert.rejects(loadActiveDepartureSeatClaims(mockClient(rows),['route-1'],{pageSize:2,maximumPages:2}),/EXCEEDS_SAFE_PAGINATION/);
 assert.deepEqual(await loadActiveDepartureSeatClaims(mockClient(rows),[]),[]);
 console.log('PASS multi-page active booking inventory → canonical seat projection; query failures fail closed');
+
+}
+void main().catch(error=>{console.error(error);process.exitCode=1;});
