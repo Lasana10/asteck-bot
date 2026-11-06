@@ -2172,7 +2172,7 @@ router.get('/mobility/vehicle-clearance/queue', async (req: Request, res: Respon
       ids.length?supabase.from('compliance_records')
         .select('id,profile_id,vehicle_id,document_type,status,due_at,verified_at,file_url')
         .in('profile_id',ids).in('role',['operator','bike_rider'])
-        .in('document_type',['vehicle_registration','bike_registration','helmet_compliance','insurance','license'])
+        .in('document_type',['vehicle_registration','bike_registration','helmet_compliance','insurance','license','national_id'])
         :Promise.resolve({data:[],error:null}),
     ]);
     if(people.error||documents.error)throw people.error||documents.error;

@@ -37,6 +37,7 @@
     "test:voice-field-report": "node --import tsx scripts/verify-voice-field-report.ts",
     "test:staff-vehicle-document-review": "node --import tsx scripts/verify-staff-vehicle-document-review.ts",
     "test:vehicle-bound-compliance": "node --import tsx scripts/verify-vehicle-bound-compliance.ts",
+    "test:operator-identity-clearance": "node --import tsx scripts/verify-operator-identity-clearance.ts",
     "test:operator-vehicle-registration": "node --import tsx scripts/verify-operator-vehicle-registration.ts",
     "test:operator-applicant-evidence": "node --import tsx scripts/verify-operator-applicant-evidence.ts",
     "test:reachability:reviewed-access": "node scripts/verify-reviewed-access-reachability.mjs",

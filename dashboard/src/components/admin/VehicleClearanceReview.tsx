@@ -73,14 +73,16 @@ export function VehicleClearanceReview(){
  return <section className="rounded-3xl border border-white/10 bg-slate-950/85 p-4 text-white">
   <div className="flex items-start justify-between gap-3"><div>
    <h3 className="text-sm font-black">Vehicle clearance · human review</h3>
-   <p className="mt-1 text-xs text-white/50">Registration is not clearance. Verified vehicle registration and insurance documents, approved operator and human inspection are required for approval.</p>
+   <p className="mt-1 text-xs text-white/50">Registration is not clearance. Current operator ID, driving licence, vehicle registration and insurance documents, approved operator status and physical inspection are required for approval.</p>
   </div><button type="button" disabled={busy} onClick={()=>void refresh()} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-40">Refresh</button></div>
   {notice&&<p role="status" className="mt-3 rounded-lg border border-amber-200/20 p-3 text-xs text-amber-100">{notice}</p>}
   <div className="mt-4 max-h-96 space-y-3 overflow-auto">
    {cases.map(item=>{
-    const documents=[item.type==='moto'?'bike_registration':'vehicle_registration','insurance',...(item.type==='moto'?['helmet_compliance']:[])].map(type=>({
+    const documents=['national_id','license',item.type==='moto'?'bike_registration':'vehicle_registration','insurance',...(item.type==='moto'?['helmet_compliance']:[])].map(type=>({
       type,matched:item.documents.filter(d=>d.document_type===type),
     }));
+    // Identity and vehicle-specific transport documents must be inspected
+    // independently; the backend repeats this gate in database custody.
     const eligible=item.operator?.verification_status==='verified'&&item.operator?.operator_application_status==='APPROVED'&&
       documents.every(d=>d.matched.some(x=>x.status==='verified'&&Boolean(x.verified_at)&&x.has_document&&(!x.due_at||Date.parse(x.due_at)>Date.now())));
     return <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
