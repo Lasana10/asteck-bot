@@ -224,6 +224,49 @@ function buildCompanyComplianceRecords(params: {
   }));
 }
 
+
+/**
+ * Legacy driver intake must use the same physical-plate custody as the dedicated
+ * vehicle endpoint. Never suppress an insert error or grant clearance here.
+ */
+async function registerIntakeVehicle(ownerId: string, plate: unknown, type: unknown, capacity: unknown) {
+  const declared = validateOperatorVehicleRegistration({
+    plate_number: plate,
+    vehicle_type: type,
+    capacity: capacity == null || capacity === '' ? 4 : Number(capacity),
+  });
+  const lookup = () => supabase.rpc('afat_find_vehicle_by_plate', { p_plate: declared.plate_number })
+    .limit(1).maybeSingle();
+  const prior = await lookup();
+  if (prior.error) throw prior.error;
+  if (prior.data) {
+    if (vehicleRegistrationOwnership(prior.data, ownerId) !== 'recover') {
+      const conflict = new Error('REGISTRATION_PLATE_ALREADY_RECORDED');
+      (conflict as any).status = 409;
+      throw conflict;
+    }
+    return prior.data;
+  }
+  const inserted = await supabase.from('vehicles').insert({
+    operator_id: ownerId,
+    plate_number: declared.plate_number,
+    type: declared.type,
+    capacity: declared.capacity,
+    clearance_status: 'unreviewed',
+    is_available: false,
+  }).select('id,operator_id,plate_number,type,capacity,clearance_status,is_available').single();
+  if (inserted.error?.code === '23505') {
+    const concurrent = await lookup();
+    if (concurrent.error) throw concurrent.error;
+    if (vehicleRegistrationOwnership(concurrent.data, ownerId) === 'recover') return concurrent.data;
+    const conflict = new Error('REGISTRATION_PLATE_ALREADY_RECORDED');
+    (conflict as any).status = 409;
+    throw conflict;
+  }
+  if (inserted.error) throw inserted.error;
+  return inserted.data;
+}
+
 // ── DRIVER ONBOARDING ────────────────────────────────────────────────────────
 router.post('/driver/register', async (req: Request, res: Response) => {
   try {
@@ -248,6 +291,23 @@ router.post('/driver/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields: phone' });
     }
 
+    // Reject malformed vehicle declarations before changing the applicant profile.
+    // A partial pair must not silently become a successful no-vehicle application.
+    if (Boolean(vehicle_plate) !== Boolean(vehicle_type)) {
+      return res.status(400).json({ error: 'VEHICLE_PLATE_AND_TYPE_REQUIRED_TOGETHER' });
+    }
+    if (vehicle_plate && vehicle_type) {
+      try {
+        validateOperatorVehicleRegistration({
+          plate_number: vehicle_plate,
+          vehicle_type,
+          capacity: vehicle_capacity == null || vehicle_capacity === '' ? 4 : Number(vehicle_capacity),
+        });
+      } catch (error: any) {
+        return res.status(400).json({ error: String(error?.message || 'INVALID_VEHICLE') });
+      }
+    }
+
     const resolvedNationalId = normalizeOptionalText(national_id);
     const resolvedLicenseNumber = normalizeOptionalText(license_number);
     const intakeStatus =
@@ -256,6 +316,23 @@ router.post('/driver/register', async (req: Request, res: Response) => {
         : resolvedNationalId || resolvedLicenseNumber
           ? 'partial_documents'
           : 'field_followup_required';
+
+    // Reject a plate already held by another owner before modifying the profile.
+    // The guarded insert still handles races after this initial check.
+    if (vehicle_plate && vehicle_type) {
+      const registration = validateOperatorVehicleRegistration({
+        plate_number: vehicle_plate,
+        vehicle_type,
+        capacity: vehicle_capacity == null || vehicle_capacity === '' ? 4 : Number(vehicle_capacity),
+      });
+      const { data: claimed, error: claimError } = await supabase
+        .rpc('afat_find_vehicle_by_plate', { p_plate: registration.plate_number })
+        .limit(1).maybeSingle();
+      if (claimError) throw claimError;
+      if (claimed && vehicleRegistrationOwnership(claimed, authUser.id) !== 'recover') {
+        return res.status(409).json({ error: 'REGISTRATION_PLATE_ALREADY_RECORDED' });
+      }
+    }
 
     const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
@@ -290,33 +367,9 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 
       if (updateError) throw updateError;
 
-      let vehicle = null;
-      if (vehicle_plate && vehicle_type) {
-        const { data: existingVehicle } = await supabase
-          .from('vehicles')
-          .select('*')
-          .eq('operator_id', existing.id)
-          .eq('plate_number', vehicle_plate)
-          .maybeSingle();
-
-        if (existingVehicle) {
-          vehicle = existingVehicle;
-        } else {
-          const { data: v } = await supabase
-            .from('vehicles')
-            .insert({
-              operator_id: existing.id,
-              plate_number: vehicle_plate,
-              type: vehicle_type,
-              capacity: vehicle_capacity || 4,
-              status: 'inactive',
-              created_at: new Date().toISOString()
-            })
-            .select()
-            .single();
-          vehicle = v;
-        }
-      }
+      const vehicle = vehicle_plate && vehicle_type
+        ? await registerIntakeVehicle(existing.id, vehicle_plate, vehicle_type, vehicle_capacity)
+        : null;
 
       await seedComplianceRecords(
         buildOperatorComplianceRecords({
@@ -422,23 +475,10 @@ router.post('/driver/register', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    // Register vehicle if provided
-    let vehicle = null;
-    if (vehicle_plate && vehicle_type) {
-      const { data: v } = await supabase
-        .from('vehicles')
-        .insert({
-          operator_id: profile.id,
-          plate_number: vehicle_plate,
-          type: vehicle_type,
-          capacity: vehicle_capacity || 4,
-          status: 'inactive',
-          created_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-      vehicle = v;
-    }
+    // Reuse the same owner-only idempotent custody as /vehicle/register.
+    const vehicle = vehicle_plate && vehicle_type
+      ? await registerIntakeVehicle(profile.id, vehicle_plate, vehicle_type, vehicle_capacity)
+      : null;
 
     await seedComplianceRecords(
       buildOperatorComplianceRecords({
@@ -487,7 +527,8 @@ router.post('/driver/register', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Driver registration error:', error);
-    res.status(500).json({ error: error.message || 'Registration failed' });
+    res.status(error?.status === 409 ? 409 : error?.message?.startsWith('VALID_REGISTRATION_') || error?.message?.startsWith('SUPPORTED_TRANSPORT_') || error?.message?.startsWith('REAL_PASSENGER_') ? 400 : 500)
+      .json({ error: error.message || 'Registration failed' });
   }
 });
 
