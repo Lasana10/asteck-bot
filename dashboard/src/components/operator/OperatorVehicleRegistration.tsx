@@ -1,7 +1,7 @@
 import React,{useRef,useState} from 'react';
 import {registerOperatorVehicle} from '../../services/operatorExecutionClient';
 
-export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>void}){
+export function OperatorVehicleRegistration({onRegistered}:{onRegistered:(vehicle?:{id:string;plate_number?:string|null;type?:string|null})=>void}){
  const [plate,setPlate]=useState('');
  const [type,setType]=useState('taxi');
  const [capacity,setCapacity]=useState('4');
@@ -27,7 +27,7 @@ export function OperatorVehicleRegistration({onRegistered}:{onRegistered:()=>voi
    setRegistered(true);
    const clearance=String(data.vehicle.clearance_status||'unreviewed');
    setNotice(`Vehicle ${data.vehicle.plate_number} ${data.resumed?'recovered':'registered'}. Current clearance: ${clearance}. Independent AFAT review is required before publishing transport unless this existing vehicle was already verified.`);
-   onRegistered();
+   onRegistered(data.vehicle);
   }catch{
    setNotice('Registration response unavailable. Retry the same plate; AFAT will not create a second vehicle registration.');
   }finally{inFlight.current=false;setSaving(false);}
