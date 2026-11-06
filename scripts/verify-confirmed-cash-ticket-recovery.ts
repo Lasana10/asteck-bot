@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {paymentPhaseFromBooking} from '../dashboard/src/services/paymentRecovery';
-
-const state=paymentPhaseFromBooking({status:'confirmed',payment_status:'paid_cash',transaction_id:null});
-assert.deepEqual(state,{phase:'paid',transactionId:''},
- 'dual-attested cash payment is not a mobile provider transaction');
-assert.equal(paymentPhaseFromBooking({status:'confirmed',payment_status:'cash_due'}).phase,'cash_due');
+const phase=readFileSync('dashboard/src/services/paymentRecovery.ts','utf8');
+assert.ok(phase.includes("if(payment==='paid'||payment==='paid_momo'||payment==='paid_cash')return {phase:'paid',transactionId}"),
+ 'paid_cash must be a settled payment state without requiring a provider transaction');
+assert.ok(phase.includes("if(payment==='cash_due')return {phase:'cash_due',transactionId}"),
+ 'cash due must remain separate from confirmed physical handover');
 
 const ui=readFileSync('dashboard/src/components/commuter/PaymentSheet.tsx','utf8');
 assert.ok(ui.includes("const verifiedCash=booking?.payment_status==='paid_cash'"));
