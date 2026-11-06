@@ -56,6 +56,7 @@ jobs:
       - run: npm run test:scheduled-departures
       - run: npm run test:canonical-seat-capacity
       - run: npm run test:passenger-booking-cancellation
+      - run: npm run test:passenger-booking-recovery
       - run: npm run test:guardian-sharing
       - run: npm run test:operator-departure-operations
       - run: npm run test:operator-boarding-manifest
