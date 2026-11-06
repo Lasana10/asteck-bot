@@ -42,6 +42,44 @@ describe('canonical route integration', () => {
     expect(nextRoadManeuver(route,{latitude:3.866,longitude:11.522,accuracy:180})).toBeNull();
   });
 
+  it('rejects disconnected Atlas segments instead of drawing a teleporting route',async()=>{
+    rpc.mockResolvedValue({data:{status:'ok',mode:'car',distance_m:1900,segments:[
+      {seq:0,edge_id:'a',distance_m:900,geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.520,3.870]]}},
+      {seq:1,edge_id:'b',distance_m:1000,geometry:{type:'LineString',coordinates:[[11.525,3.874],[11.526,3.875]]}}
+    ]},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:false,status:503}));
+    const route=await fetchCanonicalAfatRoute(input);
+    expect(route.status).toBe('unavailable');
+    expect(route.reason).toBe('invalid_atlas_route_geometry');
+  });
+
+  it('rejects Atlas routes that end far from the requested destination',async()=>{
+    rpc.mockResolvedValue({data:{status:'ok',mode:'car',distance_m:800,segments:[{
+      seq:0,edge_id:'wrong-area',distance_m:800,
+      geometry:{type:'LineString',coordinates:[[11.516,3.866],[11.518,3.868]]}
+    }]},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:false,status:503}));
+    const route=await fetchCanonicalAfatRoute({...input,snapRadiusM:120});
+    expect(route.status).toBe('unavailable');
+    expect(route.reason).toBe('invalid_atlas_route_geometry');
+  });
+
+  it('rejects zero-length and wildly inconsistent route geometries',async()=>{
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:false,status:503}));
+    for(const coordinates of [
+      [[11.516,3.866],[11.516,3.866]],
+      [[11.516,3.866],[11.526,3.875]]
+    ]){
+      clearCanonicalRouteCache();
+      rpc.mockResolvedValueOnce({data:{status:'ok',mode:'car',distance_m:coordinates[0][0]===coordinates[1][0]?1200:20000,segments:[{
+        seq:0,edge_id:'inconsistent',distance_m:1200,
+        geometry:{type:'LineString',coordinates}
+      }]},error:null});
+      const route=await fetchCanonicalAfatRoute(input);
+      expect(route.status).toBe('unavailable');
+    }
+  });
+
   it('preserves authoritative AFAT route without requesting external routing', async () => {
     rpc.mockResolvedValue({ data: { status: 'ok', mode: 'car', distance_m:1200, segments: [{
       seq:0,edge_id:'atlas-real-segment',distance_m:1200,
@@ -176,6 +214,18 @@ describe('canonical route integration', () => {
       } }),
     }));
     const route = await fetchCanonicalAfatRoute(input);
+    expect(route.status).toBe('unavailable');
+  });
+
+  it('rejects provider routes that belong to a different city',async()=>{
+    rpc.mockResolvedValue({data:{status:'unavailable',mode:'car'},error:null});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({
+      source:'osrm',travel_mode:'driving',primary:{
+        distanceMeters:1200,durationValue:180,
+        geometry:{type:'LineString',coordinates:[[9.7,4.05],[9.71,4.06]]}
+      }
+    })}));
+    const route=await fetchCanonicalAfatRoute(input);
     expect(route.status).toBe('unavailable');
   });
 

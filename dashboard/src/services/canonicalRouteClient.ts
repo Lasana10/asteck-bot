@@ -47,6 +47,24 @@ type RouteInput = {
   snapRadiusM?: number;
 };
 
+const EARTH_RADIUS_M = 6371000;
+function geometryDistanceMeters(a:number[],b:number[]) {
+  const lat1=a[1]*Math.PI/180,lat2=b[1]*Math.PI/180;
+  const deltaLat=(b[1]-a[1])*Math.PI/180,deltaLon=(b[0]-a[0])*Math.PI/180;
+  const hav=Math.sin(deltaLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(deltaLon/2)**2;
+  return 2*EARTH_RADIUS_M*Math.asin(Math.min(1,Math.sqrt(hav)));
+}
+function routeEndpointsMatch(route:AfatCanonicalRoute,input:RouteInput) {
+  const segments=route.segments||[];
+  const first=segments[0]?.geometry?.coordinates?.[0];
+  const lastCoordinates=segments[segments.length-1]?.geometry?.coordinates;
+  const last=lastCoordinates?.[lastCoordinates.length-1];
+  if(!first||!last)return false;
+  const snapLimit=Math.min(2500,Math.max(30,input.snapRadiusM??1200)+50);
+  return geometryDistanceMeters(first,[input.originLongitude,input.originLatitude])<=snapLimit &&
+    geometryDistanceMeters(last,[input.destinationLongitude,input.destinationLatitude])<=snapLimit;
+}
+
 // Route status alone is not proof of a navigable path. A purported Atlas
 // success must contain bounded real coordinates, consistent mode and distance.
 // This validator is shared at the passenger trust boundary, before caching.
@@ -57,6 +75,8 @@ export function isUsableCanonicalRoute(value: unknown, mode: AfatRouteMode): val
      typeof route.distance_m!=='number' || !Number.isFinite(route.distance_m) || route.distance_m<=0 ||
      !Array.isArray(route.segments) || !route.segments.length || route.segments.length>200) return false;
   let points=0;
+  let previousEnd:number[]|null=null;
+  let geometryLength=0;
   for(const segment of route.segments){
     if(!segment || typeof segment.distance_m!=='number' ||
        !Number.isFinite(segment.distance_m) || segment.distance_m<0 ||
@@ -68,7 +88,15 @@ export function isUsableCanonicalRoute(value: unknown, mode: AfatRouteMode): val
       typeof point[0]==='number'&&typeof point[1]==='number'&&
       Number.isFinite(point[0])&&Number.isFinite(point[1])&&
       Math.abs(point[0])<=180&&Math.abs(point[1])<=90))return false;
+    const coordinates=segment.geometry.coordinates;
+    if(previousEnd&&geometryDistanceMeters(previousEnd,coordinates[0])>35)return false;
+    for(let i=1;i<coordinates.length;i++)geometryLength+=geometryDistanceMeters(coordinates[i-1],coordinates[i]);
+    previousEnd=coordinates[coordinates.length-1];
   }
+  // Reject disconnected, zero-length or implausibly inconsistent routes rather than
+  // displaying a path that cannot support physical navigation.
+  if(geometryLength<1||geometryLength>route.distance_m*3+150||
+    geometryLength<route.distance_m/3-150)return false;
   if(route.eta_seconds!=null &&
      (typeof route.eta_seconds!=='number' || !Number.isFinite(route.eta_seconds) || route.eta_seconds<=0))return false;
   return true;
@@ -101,6 +129,12 @@ async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRo
     if (!geometry || geometry.type !== 'LineString' || !Array.isArray(geometry.coordinates) ||
         geometry.coordinates.length < 2 || geometry.coordinates.length > 50000) return null;
     const coordinates = geometry.coordinates;
+    // A provider response can be syntactically valid but geographically unrelated
+    // to the passenger's requested journey. Refuse such routes before rendering.
+    const firstPoint=coordinates[0],lastPoint=coordinates[coordinates.length-1];
+    const maxSnap=Math.min(2500,Math.max(30,input.snapRadiusM??2500)+50);
+    if(geometryDistanceMeters(firstPoint,[input.originLongitude,input.originLatitude])>maxSnap||
+      geometryDistanceMeters(lastPoint,[input.destinationLongitude,input.destinationLatitude])>maxSnap)return null;
     if (!coordinates.every((point: unknown) =>
       Array.isArray(point) && point.length >= 2 &&
       Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
@@ -195,7 +229,7 @@ export async function fetchCanonicalAfatRoute(input: RouteInput): Promise<AfatCa
       });
       if (error) throw new Error(error.message || 'AFAT could not calculate a trusted route.');
       const canonical = (data || { status: 'unavailable', mode: input.mode, reason: 'route_service_returned_no_result' }) as AfatCanonicalRoute;
-      const route = isUsableCanonicalRoute(canonical,input.mode)
+      const route = isUsableCanonicalRoute(canonical,input.mode)&&routeEndpointsMatch(canonical,input)
         ? { ...canonical, route_source: 'afat_atlas' as const }
         : (await externalCameroonRoute(input)) || {
             status:'unavailable' as const,mode:input.mode,
