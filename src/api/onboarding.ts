@@ -497,7 +497,7 @@ router.post('/vehicle/register', async (req: Request, res: Response) => {
     const access=await requireAuthRole(req,res);
     if(!access)return;
     const staff=['admin','planner'].includes(access.workspaceRole);
-    const approvedOperator=access.workspaceRole==='operator';
+    const approvedOperator=access.capabilities.includes('operator');
     if(!staff&&!approvedOperator&&!await hasPendingOperatorApplication(access.profile.id))
       return res.status(403).json({error:'SUBMITTED_OPERATOR_APPLICATION_REQUIRED'});
     if(!staff&&req.body?.driver_id&&req.body.driver_id!==access.profile.id)
