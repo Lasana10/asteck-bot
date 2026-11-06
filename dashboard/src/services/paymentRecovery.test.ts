@@ -35,6 +35,27 @@ describe('passenger payment duplicate prevention and account-scoped recovery',()
   expect(result.data[0]).toMatchObject({id:'booking1',seatLabel:'A2',amountXaf:3500});
   expect(rpc).not.toHaveBeenCalled();
  });
+ it('permits signed ticket retrieval only for a confirmed paid departure in a valid time window',async()=>{
+  auth.mockResolvedValue({data:{user:{id:'alice'}},error:null});
+  const future=new Date(Date.now()+86400000).toISOString();
+  const old=new Date(Date.now()-3*3600000).toISOString();
+  const base={passenger_id:'alice',payment_status:'paid_cash',price_paid:5000,seat_label:'1',
+   routes:{name:'Trip',origin:'Mendong',destination:'Mvan',departure_time:future}};
+  const rows=[
+   {...base,id:'confirmed',status:'confirmed'},
+   {...base,id:'pending',status:'pending'},
+   {...base,id:'boarded',status:'boarded'},
+   {...base,id:'expired',status:'confirmed',routes:{...base.routes,departure_time:old}},
+  ];
+  const chain:any={};for(const key of ['select','eq','in','order'])chain[key]=vi.fn().mockReturnValue(chain);
+  chain.limit=vi.fn().mockResolvedValue({data:rows,error:null});from.mockReturnValue(chain);
+  const result=await fetchPassengerBookingHistory('alice');
+  expect(result.error).toBeNull();
+  expect(result.data.map(x=>[x.id,x.ticketEligible])).toEqual([
+   ['confirmed',true],['pending',false],['boarded',false],['expired',false],
+  ]);
+  expect(result.data.every(x=>x.paymentPhase==='paid')).toBe(true);
+ });
  it('retrieves only account-owned paid and cash-due records while excluding cancelled tickets',async()=>{
   auth.mockResolvedValue({data:{user:{id:'alice'}},error:null});
   const rows=[
@@ -50,7 +71,7 @@ describe('passenger payment duplicate prevention and account-scoped recovery',()
   const history=await fetchPassengerBookingHistory('alice');
   expect(history.error).toBeNull();
   expect(history.data).toHaveLength(2);
-  expect(history.data[0]).toMatchObject({id:'paid1',paymentPhase:'paid',transactionId:'provider-verified-ref'});
+  expect(history.data[0]).toMatchObject({id:'paid1',paymentPhase:'paid',transactionId:'provider-verified-ref',bookingStatus:'confirmed'});
   expect(history.data[1]).toMatchObject({id:'cash1',paymentPhase:'cash_due'});
   expect(chain.eq).toHaveBeenCalledWith('passenger_id','alice');
   expect(chain.in.mock.calls[0][1]).toContain('paid_momo');

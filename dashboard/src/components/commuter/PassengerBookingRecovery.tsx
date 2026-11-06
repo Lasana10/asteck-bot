@@ -62,8 +62,18 @@ export function PassengerBookingRecovery({profileId,onBack,onResume,onViewTicket
           <div><p className="text-white/35">Operator</p><p className="mt-1 font-bold">{record.operatorName}</p></div>
           <div className="col-span-2 flex items-center gap-2"><Clock3 className="h-4 w-4 text-white/50"/>{Number.isFinite(Date.parse(record.departureTime))?new Date(record.departureTime).toLocaleString('fr-CM'):'Departure time unverified'}</div>
         </div>
-        <button type="button" onClick={()=>record.paymentPhase==='paid'?onViewTicket(record):onResume(record)} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-black text-slate-950">
-          <ShieldCheck className="h-4 w-4"/>{record.paymentPhase==='paid'?'Retrieve signed ticket':record.paymentPhase==='cash_due'?'View cash-due ticket':'Resume existing booking'}
+        {record.paymentPhase==='paid'&&!record.ticketEligible&&<p role="status" className="mt-4 rounded-lg border border-amber-300/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+          {record.bookingStatus==='boarded'||record.bookingStatus==='in_progress'||record.bookingStatus==='completed'?
+            'This trip has already reached boarding or a later stage. A new boarding QR cannot be issued from this booking.':
+            record.bookingStatus!=='confirmed'?
+            'Payment is recorded, but the operator has not confirmed this booking for boarding. Refresh this status later.':
+            'The departure is outside the supported boarding window. Contact AFAT operations if this is incorrect.'}
+        </p>}
+        <button type="button" disabled={record.paymentPhase==='paid'&&!record.ticketEligible}
+          onClick={()=>record.paymentPhase==='paid'?record.ticketEligible&&onViewTicket(record):onResume(record)}
+          className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
+          <ShieldCheck className="h-4 w-4"/>{record.paymentPhase==='paid'?record.ticketEligible?'Retrieve signed ticket':'Boarding not yet available':
+            record.paymentPhase==='cash_due'?'Review cash-due handover':'Resume existing booking'}
         </button>
         <p className="mt-2 break-all text-[10px] text-white/35">Booking {record.id}</p>
       </article>)}</div>
