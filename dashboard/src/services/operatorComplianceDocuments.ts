@@ -1,10 +1,10 @@
 import {authenticatedApiHeaders,getApiBaseUrl,supabase} from '../supabaseClient';
 
 type ComplianceRecord={id:string;profile_id:string;vehicle_id?:string|null;role:string;document_type:string;status:string;file_url?:string|null;verified_at?:string|null;due_at?:string|null};
-async function api(path:string,init:RequestInit={}){
+async function api(path:string,init:RequestInit={},ownerEvidence=false){
  const auth=await authenticatedApiHeaders();
  const response=await fetch(`${getApiBaseUrl()}${path}`,{
-  ...init,headers:{'content-type':'application/json',...auth,...init.headers},
+  ...init,headers:{'content-type':'application/json',...auth,...init.headers,...(ownerEvidence?{'x-afat-workspace-role':'commuter'}:{})},
   signal:AbortSignal.timeout(25000),
  });
  const data=await response.json().catch(()=>null);
@@ -12,7 +12,7 @@ async function api(path:string,init:RequestInit={}){
  return data;
 }
 export async function getOperatorComplianceRecords(profileId:string,vehicleId:string):Promise<ComplianceRecord[]>{
- const result=await api(`/api/compliance/summary/${encodeURIComponent(profileId)}`);
+ const result=await api(`/api/compliance/summary/${encodeURIComponent(profileId)}`,{},true);
  return (result.records||[]).filter((r:ComplianceRecord)=>r.profile_id===profileId&&r.vehicle_id===vehicleId&&['operator','bike_rider'].includes(r.role));
 }
 export async function submitOperatorComplianceDocument(recordId:string,file:File){
@@ -22,7 +22,7 @@ export async function submitOperatorComplianceDocument(recordId:string,file:File
   throw new Error('Choose a PDF or JPEG/PNG/WebP document of 8 MB maximum.');
  const permit=await api(`/api/compliance/${encodeURIComponent(recordId)}/upload-authorize`,{
   method:'POST',body:JSON.stringify({mime_type:mime,bytes:file.size}),
- });
+ },true);
  if(!permit.private||permit.review_status!=='not_verified'||!permit.token)
   throw new Error('Secure private upload authorization missing');
  const uploaded=await supabase.storage.from(permit.bucket)
@@ -30,7 +30,7 @@ export async function submitOperatorComplianceDocument(recordId:string,file:File
  if(uploaded.error)throw new Error(uploaded.error.message);
  return api(`/api/compliance/${encodeURIComponent(recordId)}/upload-confirm`,{
   method:'POST',body:JSON.stringify({path:permit.path}),
- });
+ },true);
 }
 export async function getStaffComplianceReviewFile(recordId:string):Promise<string>{
  const data=await api(`/api/compliance/${encodeURIComponent(recordId)}/review-file`);
@@ -43,7 +43,7 @@ export async function getStaffComplianceReviewFile(recordId:string):Promise<stri
 export async function ensureOperatorRequiredDocuments(vehicleId:string){
  const result=await api('/api/compliance/operator/ensure-required',{
   method:'POST',body:JSON.stringify({vehicle_id:vehicleId}),
- });
+ },true);
  if(result.automatically_verified!==false||result.review_required!==true||result.vehicle_id!==vehicleId)
   throw new Error('Operator credential safety contract not confirmed');
  return result.created_missing as string[];
