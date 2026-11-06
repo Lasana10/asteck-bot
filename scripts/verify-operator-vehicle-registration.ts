@@ -45,6 +45,11 @@ assert.ok(legacyStart>=0&&legacyEnd>legacyStart,'legacy driver intake route must
 const legacy=api.slice(legacyStart,legacyEnd);
 assert.equal((legacy.match(/registerIntakeVehicle\(/g)||[]).length,2,
  'new and resumed driver intake must both use the guarded vehicle registration');
+assert.ok(legacy.includes("vehicleRegistrationOwnership(claimed, authUser.id) !== 'recover'"),
+ 'legacy intake must prevent cross-owner plate claims before mutating profile');
+assert.ok(legacy.indexOf("vehicleRegistrationOwnership(claimed, authUser.id)") <
+ legacy.indexOf(".from('profiles')"),
+ 'cross-owner plate claim rejection must precede profile write');
 assert.ok(legacy.includes('VEHICLE_PLATE_AND_TYPE_REQUIRED_TOGETHER'),
  'partial vehicle declarations must fail instead of reporting success');
 assert.ok(legacy.indexOf('validateOperatorVehicleRegistration({') <
