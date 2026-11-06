@@ -2,6 +2,7 @@ import {reviewedSafetyFeed,urgentReviewedAlerts,incidentReviewLabel} from '../se
 import {validateScheduleDraft} from '../services/scheduledDeparturePublishing';
 import {departureWithdrawalEligibility} from '../services/operatorDepartureOperations';
 import {projectPublishedDepartures} from '../services/publishedDepartureTruth';
+import {loadActiveDepartureSeatClaims} from '../services/departureSeatInventory';
 import express, { Request, Response } from 'express';
 import { createIncident, getActiveIncidents, supabase } from '../infra/supabase';
 import { IncidentType, Severity } from '../types';
@@ -2223,10 +2224,13 @@ router.get('/mobility/departures/:departureId/availability',async(req:Request,re
      .eq('id',route.operator_id).maybeSingle(),
    supabase.from('vehicles').select('id,plate_number,type,capacity,rating,clearance_status')
      .eq('id',route.vehicle_id).maybeSingle(),
-   supabase.from('bookings').select('route_id,seat_label')
+   supabase.from('bookings').select('route_id,seat_label,status')
      .eq('route_id',id).in('status',['pending','accepted','confirmed','boarded','in_progress']).limit(250),
   ]);
   if(operator.error||vehicle.error||bookings.error)throw operator.error||vehicle.error||bookings.error;
+  // A capped result cannot be treated as complete availability. With verified
+  // capacity <=200, >=250 active rows indicate duplicates or an unsafe partial read.
+  if((bookings.data||[]).length>=250)throw new Error('EXACT_DEPARTURE_BOOKINGS_EXCEEDS_SAFE_LIMIT');
   if(!operator.data||!vehicle.data||vehicle.data.clearance_status!=='verified')
    return res.status(404).json({error:'DEPARTURE_NOT_CURRENTLY_AVAILABLE'});
   const compliance=await supabase.rpc('afat_vehicle_compliance_current',{p_vehicle_id:route.vehicle_id});
@@ -2284,7 +2288,7 @@ router.get('/mobility/departures', async (req: Request, res: Response) => {
 
     const [bookingsResult, operatorsResult, vehiclesResult] = await Promise.all([
       routeIds.length
-        ? supabase.from('bookings').select('route_id, seat_label').in('route_id', routeIds).in('status', ['pending', 'accepted', 'confirmed', 'boarded', 'in_progress'])
+        ? loadActiveDepartureSeatClaims(supabase,routeIds).then(data=>({data,error:null}))
         : Promise.resolve({ data: [], error: null }),
       operatorIds.length
         ? supabase.from('profiles').select('id, full_name, verification_status, operator_application_status').in('id', operatorIds)

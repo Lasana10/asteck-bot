@@ -11,10 +11,18 @@ export function projectPublishedDepartures(input:{
  const operators=new Map(input.operators.map(o=>[o.id,o]));
  const vehicles=new Map(input.vehicles.map(v=>[v.id,v]));
  const booked=new Map<string,Set<string>>();
+ const bookingOccupiesSeat=new Set(['pending','accepted','confirmed','boarded','in_progress','completed']);
  for(const b of input.bookings){
-  if(typeof b?.route_id!=='string'||typeof b?.seat_label!=='string'||!b.seat_label.trim())continue;
+  // Only actual seat claims consume published capacity. Cancellation, expiry,
+  // refunds and no-shows must not permanently block a passenger seat.
+  if(!bookingOccupiesSeat.has(String(b?.status||'').toLowerCase())||
+     typeof b?.route_id!=='string'||typeof b?.seat_label!=='string')continue;
+  const raw=b.seat_label.trim().toUpperCase();
+  const match=raw.match(/^(?:[A-Z])?0*([1-9][0-9]{0,2})$/);
+  if(!match)continue;
+  const label=String(Number(match[1]));
   if(!booked.has(b.route_id))booked.set(b.route_id,new Set());
-  booked.get(b.route_id)!.add(b.seat_label);
+  booked.get(b.route_id)!.add(label);
  }
  return input.routes.flatMap(route=>{
   const operator=operators.get(route?.operator_id);
@@ -26,7 +34,8 @@ export function projectPublishedDepartures(input:{
   const validCapacity=(n:number)=>Number.isSafeInteger(n)&&n>=1&&n<=200;
   const capacity=Math.min(routeCapacity,vehicleCapacity);
   const price=Number(route?.price_per_seat);
-  const occupied=Array.from(booked.get(route.id)||[]);
+  const occupied=Array.from(booked.get(route.id)||[]).filter(label=>Number(label)<=capacity)
+    .sort((a,b)=>Number(a)-Number(b));
   if(!Number.isFinite(departure)||departure<=input.nowMs||
      !validCapacity(routeCapacity)||!validCapacity(vehicleCapacity)||
      !Number.isSafeInteger(price)||price<=0||
