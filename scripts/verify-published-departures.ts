@@ -7,7 +7,7 @@ const operator={id:'operator-1',full_name:'Approved transport',operator_applicat
 const vehicle={id:'vehicle-1',type:'minibus',capacity:14,clearance_status:'verified',plate_number:'CE-123'};
 const project=(patch={},operatorPatch={},vehiclePatch={},bookings=[])=>projectPublishedDepartures({
  routes:[{...route,...patch}],operators:[{...operator,...operatorPatch}],vehicles:[{...vehicle,...vehiclePatch}],bookings,nowMs:now});
-const accepted=project({}, {}, {},[{route_id:'route-1',seat_label:'1A'},{route_id:'route-1',seat_label:'1A'},{route_id:'route-1',seat_label:'1B'}]);
+const accepted=project({}, {}, {},[{route_id:'route-1',seat_label:'1',status:'confirmed'},{route_id:'route-1',seat_label:'01',status:'confirmed'},{route_id:'route-1',seat_label:'2',status:'pending'}]);
 assert.equal(accepted.length,1);
 assert.equal(accepted[0].available_seats,12);
 assert.equal(accepted[0].booked_seats,2);
@@ -20,6 +20,22 @@ for(const patch of [
 assert.equal(project({}, {verification_status:'pending'}).length,0);
 assert.equal(project({}, {operator_application_status:'DRAFT'}).length,0);
 assert.equal(project({}, {}, {clearance_status:'pending'}).length,0);
-assert.equal(project({}, {}, {},Array.from({length:14},(_,i)=>({route_id:'route-1',seat_label:String(i+1)}))).length,0);
+assert.equal(project({}, {}, {},Array.from({length:14},(_,i)=>({route_id:'route-1',seat_label:String(i+1),status:'confirmed'}))).length,0);
+const reclaimed=project({}, {}, {},[
+ {route_id:'route-1',seat_label:'1',status:'confirmed'},
+ {route_id:'route-1',seat_label:'2',status:'cancelled'},
+ {route_id:'route-1',seat_label:'3',status:'expired'},
+ {route_id:'route-1',seat_label:'4',status:'refunded'},
+ {route_id:'route-1',seat_label:'5',status:'no_show'},
+ {route_id:'route-1',seat_label:'06',status:'accepted'},
+ {route_id:'route-1',seat_label:'6',status:'pending'},
+ {route_id:'route-1',seat_label:'999',status:'confirmed'},
+ {route_id:'route-1',seat_label:'not-a-seat',status:'confirmed'},
+]);
+assert.equal(reclaimed.length,1);
+assert.deepEqual(reclaimed[0].occupied_seats,['1','6']);
+assert.equal(reclaimed[0].available_seats,12);
+assert.equal(project({}, {}, {},[{route_id:'route-1',seat_label:'1'}])[0].booked_seats,0,
+ 'unknown booking status must not consume inventory');
 assert.equal(project({departure_time:'2026-10-21T16:00:00Z'}, {}, {},[]).length,1);
 console.log('PASS AFAT verified operator → published future departure → provisional seat inventory contract');
