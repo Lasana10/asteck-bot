@@ -81,6 +81,7 @@ jobs:
       - run: npm run test:operator-vehicle-registration
       - run: npm run test:operator-applicant-evidence
       - run: npm run test:vehicle-bound-compliance
+      - run: npm run test:operator-identity-clearance
       - run: npm run test:staff-vehicle-document-review
       - run: npm run test:place-candidate-contract
       - run: npm run test:private-visual-evidence
