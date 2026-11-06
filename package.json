@@ -61,6 +61,7 @@
     "test:passenger-booking-recovery-workspace": "node --import tsx scripts/verify-passenger-booking-recovery-workspace.ts",
     "test:cash-due-ticket-ui": "node --import tsx scripts/verify-cash-due-ticket-ui.ts",
     "test:cash-due-boarding-gate": "node --import tsx scripts/verify-cash-due-boarding-gate.ts",
+    "test:confirmed-cash-ticket-recovery": "node --import tsx scripts/verify-confirmed-cash-ticket-recovery.ts",
     "test:cameroon-wallet-collection": "node --import tsx scripts/verify-cameroon-wallet-collection.ts",
     "test:guardian-sharing": "node --import tsx scripts/verify-guardian-sharing.ts",
     "test:operator-boarding-manifest": "node --import tsx scripts/verify-operator-boarding-manifest.ts",
