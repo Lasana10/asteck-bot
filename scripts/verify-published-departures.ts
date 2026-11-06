@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {projectPublishedDepartures} from '../src/services/publishedDepartureTruth';
 const now=Date.parse('2026-10-21T12:00:00Z');
 const route={id:'route-1',is_active:true,operator_id:'operator-1',vehicle_id:'vehicle-1',name:'Yaounde to Douala',
@@ -38,4 +39,11 @@ assert.equal(reclaimed[0].available_seats,12);
 assert.equal(project({}, {}, {},[{route_id:'route-1',seat_label:'1'}])[0].booked_seats,0,
  'unknown booking status must not consume inventory');
 assert.equal(project({departure_time:'2026-10-21T16:00:00Z'}, {}, {},[]).length,1);
+const api=readFileSync('src/api/routes.ts','utf8');
+assert.ok(api.includes(".select('route_id,seat_label,status')"),
+ 'exact departure must supply booking status to capacity projection');
+assert.ok(api.includes(".select('route_id, seat_label, status')"),
+ 'public departure search must supply booking status to capacity projection');
+assert.equal((api.match(/projectPublishedDepartures\(/g)||[]).length,2,
+ 'both public and exact-seat endpoints must use the same occupancy projection');
 console.log('PASS AFAT verified operator → published future departure → provisional seat inventory contract');
