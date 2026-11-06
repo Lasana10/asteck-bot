@@ -27,6 +27,20 @@ describe('GPS evidence must be reliable before rerouting', () => {
     expect(decision.reason).toBe('off_route');
     expect(decision.shouldReroute).toBe(true);
   });
+  it('refuses stale or future GPS samples as a rerouting trigger',()=>{
+    const now=100000;
+    for(const recordedAt of [new Date(now-31000).toISOString(),new Date(now+6000).toISOString(),'invalid']){
+      const decision=decideReroute({route,position:{...offRoute,accuracy:8,recordedAt},now});
+      expect(decision.shouldReroute).toBe(false);
+      expect(decision.reason).toBe('gps_uncertain');
+    }
+    expect(decideReroute({route,position:{...offRoute,accuracy:8,recordedAt:new Date(now-5000).toISOString()},now}).shouldReroute).toBe(true);
+  });
+  it('never matches impossible GPS coordinates to a physical route',()=>{
+    expect(calculateRouteProgress(route,{latitude:Infinity,longitude:11.5,accuracy:5})).toBeNull();
+    expect(calculateRouteProgress(route,{latitude:95,longitude:11.5,accuracy:5})).toBeNull();
+    expect(decideReroute({route,position:{latitude:95,longitude:11.5,accuracy:5}}).reason).toBe('insufficient_route');
+  });
   it('does not claim high confidence without measured accuracy', () => {
     expect(calculateRouteProgress(route,{latitude:3.866,longitude:11.516})?.confidence).toBe('low');
   });

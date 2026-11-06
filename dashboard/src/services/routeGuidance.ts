@@ -67,6 +67,8 @@ export function calculateRouteProgress(
   route: AfatCanonicalRoute | null | undefined,
   position: RoutePosition,
 ): AfatRouteProgress | null {
+  if(!Number.isFinite(position.latitude)||!Number.isFinite(position.longitude)||
+    Math.abs(position.latitude)>90||Math.abs(position.longitude)>180)return null;
   const points = routeToLatLngs(route).map(([latitude, longitude]) => ({ latitude, longitude }));
   if (route?.status !== 'ok' || points.length < 2) return null;
 
@@ -118,11 +120,16 @@ export function decideReroute(input: {
   const progress = calculateRouteProgress(input.route, input.position);
   if (!progress) return { shouldReroute: false, reason: 'insufficient_route', progress: null };
 
+  const now = input.now ?? Date.now();
+  if(input.position.recordedAt!=null){
+    const timestamp=Date.parse(input.position.recordedAt);
+    if(!Number.isFinite(timestamp)||timestamp>now+5000||now-timestamp>30000)
+      return {shouldReroute:false,reason:'gps_uncertain',progress};
+  }
   const accuracy = input.position.accuracy == null ? Number.POSITIVE_INFINITY : Number(input.position.accuracy);
   if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 120) return { shouldReroute: false, reason: 'gps_uncertain', progress };
   if (!progress.offRoute) return { shouldReroute: false, reason: 'on_route', progress };
 
-  const now = input.now ?? Date.now();
   const cooldownMs = input.cooldownMs ?? 20_000;
   if (input.lastRerouteAt && now - input.lastRerouteAt < cooldownMs) {
     return { shouldReroute: false, reason: 'cooldown', progress };
