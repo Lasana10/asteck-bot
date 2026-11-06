@@ -129,6 +129,12 @@ async function externalCameroonRoute(input: RouteInput): Promise<AfatCanonicalRo
     if (!geometry || geometry.type !== 'LineString' || !Array.isArray(geometry.coordinates) ||
         geometry.coordinates.length < 2 || geometry.coordinates.length > 50000) return null;
     const coordinates = geometry.coordinates;
+    // A provider response can be syntactically valid but geographically unrelated
+    // to the passenger's requested journey. Refuse such routes before rendering.
+    const firstPoint=coordinates[0],lastPoint=coordinates[coordinates.length-1];
+    const maxSnap=Math.min(2500,Math.max(30,input.snapRadiusM??1200)+50);
+    if(geometryDistanceMeters(firstPoint,[input.originLongitude,input.originLatitude])>maxSnap||
+      geometryDistanceMeters(lastPoint,[input.destinationLongitude,input.destinationLatitude])>maxSnap)return null;
     if (!coordinates.every((point: unknown) =>
       Array.isArray(point) && point.length >= 2 &&
       Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
