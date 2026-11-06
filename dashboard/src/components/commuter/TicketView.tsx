@@ -22,6 +22,7 @@ interface Props {
 
 export function TicketView({ booking, onBack }: Props) {
   const cashDue = booking.paymentMethod === 'cash';
+  const cashConfirmed = booking.paymentMethod === 'cash_confirmed';
 
   const [ticketPayload, setTicketPayload] = useState('');
   const [guardianUrl, setGuardianUrl] = useState('');
@@ -154,6 +155,10 @@ export function TicketView({ booking, onBack }: Props) {
         Paiement en espèces non collecté. Le montant reste dû jusqu’à confirmation par l’opérateur. Aucun paiement n’est considéré reçu.
       </p>}
 
+      {cashConfirmed&&<p role="status" className="mb-4 w-full max-w-sm rounded-xl border border-emerald-300/25 bg-emerald-400/10 p-3 text-xs font-bold text-emerald-100">
+        Handover confirmed by both parties. This is evidence of physical cash exchange, not bank or provider settlement.
+      </p>}
+      
       {/* Ticket Card */}
       <div className="w-full max-w-sm relative">
         {/* Top Section */}
@@ -163,7 +168,7 @@ export function TicketView({ booking, onBack }: Props) {
               <QrCode className="w-5 h-5 text-blue-200" />
               <span className="text-xs font-mono text-blue-200 uppercase tracking-widest">MobilityOS</span>
             </div>
-            <span className="text-[10px] font-mono text-blue-200 uppercase">{cashDue?'Billet': 'Transaction'} #{cashDue?booking.id.slice(0,8):booking.transactionId||'non disponible'}</span>
+            <span className="text-[10px] font-mono text-blue-200 uppercase">{cashDue||cashConfirmed?'Réservation': 'Transaction'} #{cashDue||cashConfirmed?booking.id.slice(0,8):booking.transactionId||'non disponible'}</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -222,7 +227,7 @@ export function TicketView({ booking, onBack }: Props) {
             </div>
             <div className="h-px bg-white/5"></div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-bold text-slate-300">{cashDue?'Montant dû en espèces':'Total payé'}</span>
+              <span className="text-sm font-bold text-slate-300">{cashDue?'Montant dû en espèces':cashConfirmed?'Espèces remises · double attestation':'Total payé'}</span>
               <span className="text-lg font-black text-blue-400">{booking.price} FCFA</span>
             </div>
           </div>
