@@ -317,6 +317,23 @@ router.post('/driver/register', async (req: Request, res: Response) => {
           ? 'partial_documents'
           : 'field_followup_required';
 
+    // Reject a plate already held by another owner before modifying the profile.
+    // The guarded insert still handles races after this initial check.
+    if (vehicle_plate && vehicle_type) {
+      const registration = validateOperatorVehicleRegistration({
+        plate_number: vehicle_plate,
+        vehicle_type,
+        capacity: vehicle_capacity == null || vehicle_capacity === '' ? 4 : Number(vehicle_capacity),
+      });
+      const { data: claimed, error: claimError } = await supabase
+        .rpc('afat_find_vehicle_by_plate', { p_plate: registration.plate_number })
+        .limit(1).maybeSingle();
+      if (claimError) throw claimError;
+      if (claimed && vehicleRegistrationOwnership(claimed, authUser.id) !== 'recover') {
+        return res.status(409).json({ error: 'REGISTRATION_PLATE_ALREADY_RECORDED' });
+      }
+    }
+
     const existing = await findExistingProfile({ authUserId: authUser?.id, phone: normalizedPhone });
 
     if (existing) {
