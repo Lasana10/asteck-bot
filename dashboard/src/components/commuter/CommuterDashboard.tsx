@@ -40,7 +40,7 @@ import { TurnstileGate } from '../shared/TurnstileGate';
 import { IntelligenceEngine } from '../../core/SentinelIntelligence';
 import { PassagePlanner } from './PassagePlanner';
 import { PassengerBookingRecovery } from './PassengerBookingRecovery';
-import type { RecoverablePaymentBooking } from '../../services/paymentRecovery';
+import type { RecoverablePaymentBooking,PassengerBookingEntry } from '../../services/paymentRecovery';
 import { captureCurrentFieldGps } from '../../services/spatialPositioning';
 
 interface Props {
@@ -608,9 +608,26 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setView('payment');
   };
 
+  const openVerifiedPaidTicket=(record:PassengerBookingEntry)=>{
+    if(record.paymentPhase!=='paid')return;
+    // TicketView requests the signed boarding credential from AFAT using
+    // the existing booking ID. Client-side details are display hints only.
+    setBookingResult({
+      id:record.id,routeName:record.routeName,origin:record.origin,
+      destination:record.destination,seatLabel:record.seatLabel,
+      price:record.amountXaf,operatorName:record.operatorName,
+      plateNumber:record.plateNumber,departureTime:record.departureTime,
+      transactionId:record.transactionId,
+      paymentMethod:record.paymentStatus==='paid_cash'?'cash_confirmed':'provider_confirmed',
+    });
+    setCurrentBookingId(record.id);
+    setBookingError(null);
+    setView('ticket');
+  };
+
   // Sub-views
   if(view==='recover')return <PassengerBookingRecovery profileId={isGuest?null:profile?.id||null}
-    onBack={()=>setView('home')} onResume={resumeExistingBooking}/>;
+    onBack={()=>setView('home')} onResume={resumeExistingBooking} onViewTicket={openVerifiedPaidTicket}/>;
   if (view === 'departures') return <DepartureBoard onSelectDeparture={handleDepartureSelect} onBack={() => setView('home')} />;
   if (view === 'seats' && selectedDeparture) return <SeatSelector departure={selectedDeparture} onConfirmSeat={handleSeatSelect} errorText={bookingError} onBack={() => setView('departures')} />;
   
