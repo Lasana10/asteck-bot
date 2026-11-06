@@ -11,7 +11,7 @@ for(const token of [
  '<CashHandoverPanel bookingId={bookingId} side="passenger"',
  "onDualAttested={()=>void refreshBooking()}",
  'pas un billet QR',
- 'aucun paiement',
+ 'Aucun paiement',
  "onClick={()=>void refreshBooking()}"
 ])assert.ok(payment.includes(token),'cash-due passenger receipt: '+token);
 const cashDuePos=payment.indexOf("if(serverPhase==='cash_due'&&!completed)");
