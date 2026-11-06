@@ -113,6 +113,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
   const [liveOpsLabel, setLiveOpsLabel] = useState('Cameroon');
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingInFlight, setBookingInFlight] = useState(false);
+  const [bookingOutcomeUncertain,setBookingOutcomeUncertain]=useState(false);
   const [missionInFlight, setMissionInFlight] = useState<string | null>(null);
 
   useEffect(() => {
@@ -311,6 +312,7 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setCurrentBookingId(null);
     setBookingResult(null);
     setBookingError(null);
+    setBookingOutcomeUncertain(false);
     setView('seats');
   };
 
@@ -359,13 +361,16 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
         setBookingError('La réservation existe, mais son tarif serveur reste invérifiable. Ne créez pas de second billet.');return;
       }
       setSelectedDeparture(previous=>previous?{...previous,price_xaf:fare}:previous);
+      setBookingOutcomeUncertain(false);
       setView('payment');
+    }catch{
+      setBookingError('Impossible de vérifier le billet existant. Réessayez la vérification, sans créer de nouveau billet.');
     }finally{setBookingInFlight(false);}
   };
   const handleBookingConfirm = (result: any) => { setBookingResult(result); setCurrentBookingId(result?.booking?.id); setView('ticket'); };
 
   const handleFareConfirm = async () => {
-    if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId || bookingInFlight || currentBookingId) return;
+    if (!selectedDeparture || !selectedSeatId || !profile?.id || !currentSeatHoldId || bookingInFlight || currentBookingId || bookingOutcomeUncertain) return;
     if(!currentSeatHoldExpiresAt||Date.parse(currentSeatHoldExpiresAt)<=Date.now()){
       setBookingError('La réservation temporaire a expiré. Sélectionnez de nouveau votre place.');
       setCurrentSeatHoldId(null);setView('seats');return;
@@ -375,29 +380,30 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
     setBookingError(null);
     setBookingInFlight(true);
 
-    const { data, error } = await createBookingFromHold({
-      hold_id: currentSeatHoldId,
-    });
+    try{
+      const { data, error } = await createBookingFromHold({ hold_id: currentSeatHoldId });
+      if (error || !data?.booking?.id) {
+        // A timeout can occur AFTER the booking was committed. Never invite
+        // another hold or charge while the server outcome is ambiguous.
+        setBookingOutcomeUncertain(true);
+        setBookingError('Résultat de réservation non confirmé. Vérifiez vos réservations avant toute nouvelle tentative afin d’éviter un billet en double.');
+        return;
+      }
 
-    setBookingInFlight(false);
-
-    if (error || !data?.booking?.id) {
-      console.error('[AFAT] Failed to create booking before payment:', error);
-      setBookingError('Cette place vient d\'etre prise ou la reservation a echoue. Veuillez reessayer.');
-      setView('seats');
-      return;
-    }
-
-    const serverFare = Number(data.booking.price_paid ?? data.booking.price_xaf);
-    if(!Number.isSafeInteger(serverFare)||serverFare<=0){
+      // Keep the durable server identity before accepting fare or payment state.
       setCurrentBookingId(data.booking.id);
-      setBookingError('Le billet existe, mais son tarif reste invérifiable. Vérifiez le billet existant; ne créez pas une autre réservation.');
-      setView('fare');
-      return;
-    }
-    setSelectedDeparture({ ...selectedDeparture, price_xaf: serverFare });
-    setCurrentBookingId(data.booking.id);
-    setView('payment');
+      const serverFare = Number(data.booking.price_paid ?? data.booking.price_xaf);
+      if(!Number.isSafeInteger(serverFare)||serverFare<=0){
+        setBookingError('Le billet existe, mais son tarif reste invérifiable. Vérifiez le billet existant; ne créez pas une autre réservation.');
+        setView('fare');
+        return;
+      }
+      setSelectedDeparture({ ...selectedDeparture, price_xaf: serverFare });
+      setView('payment');
+    }catch{
+      setBookingOutcomeUncertain(true);
+      setBookingError('Connexion interrompue après la demande. Vérifiez vos réservations avant toute nouvelle tentative.');
+    }finally{setBookingInFlight(false);}
   };
 
   const publishMissionSignal = async (mission: any) => {
@@ -593,18 +599,19 @@ export function CommuterDashboard({ onSignOut, profile, activeTab = 'home', isGu
           <p className="mt-3 text-sm text-white/65">{selectedDeparture.origin} → {selectedDeparture.destination}</p>
           <p className="mt-2 text-sm text-white/65">Place {selectedSeatId} · Départ {new Date(selectedDeparture.departure_time).toLocaleString('fr-CM')}</p>
           {currentSeatHoldExpiresAt&&<p className="mt-3 text-xs text-amber-200">Place retenue temporairement jusqu’à {new Date(currentSeatHoldExpiresAt).toLocaleTimeString('fr-CM')} (confirmation serveur requise).</p>}
-          <p className="mt-5 text-3xl font-black text-cyan-100">{Number(selectedDeparture.price_xaf).toLocaleString('fr-CM')} FCFA</p>
+          <p className="mt-5 text-3xl font-black text-cyan-100">{currentBookingId&&bookingError?'Tarif du billet non vérifié':`${Number(selectedDeparture.price_xaf).toLocaleString('fr-CM')} FCFA`}</p>
           <p className="mt-3 text-xs leading-5 text-white/55">Ce tarif a été publié par l'opérateur. AFAT ne négocie pas automatiquement et n'affirme pas qu'un chauffeur a accepté une offre. Le serveur confirmera le prix lors de la création du billet.</p>
           {bookingError&&<p role="alert" className="mt-4 rounded-xl border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-100">{bookingError}</p>}
+          {bookingOutcomeUncertain&&<p role="alert" className="mt-4 rounded-xl border border-amber-300/20 bg-amber-400/10 p-3 text-xs text-amber-100">La réponse du serveur est incertaine. Consultez vos réservations avant de relancer une demande.</p>}
           {currentBookingId&&<button type="button" disabled={bookingInFlight} onClick={()=>void recoverCreatedBooking(currentBookingId)}
             className="mt-4 w-full rounded-xl border border-amber-300/35 bg-amber-300/10 px-4 py-3 text-xs font-bold text-amber-100 disabled:opacity-40">
             {bookingInFlight?'Vérification du billet…':'Reprendre le billet déjà créé'}
           </button>}
-          <button type="button" disabled={bookingInFlight||!!currentBookingId||!currentSeatHoldId||!selectedSeatId} onClick={()=>{void handleFareConfirm();}}
+          <button type="button" disabled={bookingInFlight||!!currentBookingId||bookingOutcomeUncertain||!currentSeatHoldId||!selectedSeatId} onClick={()=>{void handleFareConfirm();}}
             className="mt-6 w-full rounded-xl bg-cyan-300 px-4 py-4 text-sm font-black text-slate-950 disabled:opacity-40">
             {bookingInFlight?'Vérification en cours…':'Confirmer le billet au tarif publié'}
           </button>
-          <button type="button" disabled={bookingInFlight} onClick={()=>{if(currentBookingId){setBookingError('Un billet existe déjà. Retrouvez-le dans vos réservations avant de choisir une autre place.');return;}if(currentSeatHoldId)void releaseSeatHold(currentSeatHoldId);setCurrentSeatHoldId(null);setCurrentSeatHoldExpiresAt(null);setSelectedSeatId(null);setView('seats');}}
+          <button type="button" disabled={bookingInFlight} onClick={()=>{if(currentBookingId||bookingOutcomeUncertain){setBookingError('Un billet existe peut-être déjà. Retrouvez-le dans vos réservations avant de choisir une autre place.');return;}if(currentSeatHoldId)void releaseSeatHold(currentSeatHoldId);setCurrentSeatHoldId(null);setCurrentSeatHoldExpiresAt(null);setSelectedSeatId(null);setView('seats');}}
             className="mt-3 w-full rounded-xl border border-white/15 px-4 py-3 text-xs font-bold text-white/75 disabled:opacity-40">
             Choisir une autre place
           </button>
