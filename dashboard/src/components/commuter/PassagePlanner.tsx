@@ -239,7 +239,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       if (query.length > 0 && query.length < 2) { setSuggestions([]); return; }
       setSuggestionLoading(true);
       if(typeof navigator!=='undefined'&&!navigator.onLine){
-        const cached=query.length>=2?searchCachedPlaces(preferredCityKey(profile),query,10)
+        const cached=query.length>=2?searchCachedPlaces(preferredCityKey(profile)!,query,10)
           .map(place=>offlinePlaceCandidate(place,profile?.preferred_city||'yaounde')):[];
         if(active){setSuggestions(cached);setSuggestionsOpen(Boolean(cached.length));setSuggestionLoading(false);}
         return;
@@ -554,7 +554,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     setReachability(null);
     setMultimodal(null);
     if(typeof navigator!=='undefined'&&!navigator.onLine){
-      const cached=searchCachedPlaces(preferredCityKey(profile),destination.trim(),12)
+      const cached=searchCachedPlaces(preferredCityKey(profile)!,destination.trim(),12)
         .map(place=>offlinePlaceCandidate(place,profile?.preferred_city||'yaounde'));
       setLoading(false);
       setCandidates(cached);
@@ -765,6 +765,10 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
   };
 
   const resumeNavigation = async () => {
+    if (!preferredCityKey(profile) || resumeSnapshot?.cityKey !== preferredCityKey(profile)) {
+      setStatusText('Saved navigation belongs to a different or unsupported city. Recheck your destination under a supported city.');
+      return;
+    }
     const snapshot=loadJourneyRuntime();
     if(!snapshot?.placeName||!snapshot.placeId||snapshot.state!=='navigating')return;
     // Fail closed on account changes. A navigation session belongs to its
@@ -910,7 +914,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
     } catch { setShareNotice('ReachLink ready to share.'); }
   };
 
-  const resumable = resumeSnapshot?.state === 'navigating' && resumeSnapshot?.placeName && Boolean(profile?.id && resumeSnapshot.profileId===profile.id);
+  const resumable = resumeSnapshot?.state === 'navigating' && resumeSnapshot?.placeName && Boolean(profile?.id && resumeSnapshot.profileId===profile.id && resumeSnapshot.cityKey===preferredCityKey(profile));
 
   return <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl sm:p-5">
     <div className="mb-4 flex items-start justify-between gap-4">
@@ -1045,7 +1049,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       </div>
     )}
 
-    {profile?.id && !navigationActive && <PassengerTransitObservationPanel cityKey={cityKey}/>}
+    {preferredCityKey(profile) && profile?.id && !navigationActive && <PassengerTransitObservationPanel cityKey={cityKey}/>}
 
     {selectedPlace && canonicalRoute?.status==='ok' && <ReviewedRouteEnvironment
       cityKey={cityKey} route={canonicalRoute} online={online} hasAccount={Boolean(profile?.id)}/>}
@@ -1072,7 +1076,7 @@ export function PassagePlanner({ profile, originText = '', initialDestination = 
       {!originFix && <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-4 text-xs text-amber-100/80">Confirm your current location on the map before starting navigation or requesting transport.</div>}
       {!navigationActive && <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]"><button onClick={() => { setSelectedPlace(null); setSelectedMeetingPoint(null); setSelectedAccessPoint(null); setRouteOptions({}); setCanonicalRoute(null); setReachability(null); setMultimodal(null); setRouteProgress(null); clearJourneyRuntime('cancelled'); }} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/55">Back</button><button onClick={navigateOnly} disabled={loading || !originFix || canonicalRoute?.status !== 'ok'} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-cyan-100 disabled:opacity-40">Start live navigation</button><button onClick={createPassage} disabled={loading || !originFix || !arrivalPoint || selectedPlace.source !== 'afat_places' || (vehicleType === 'walk' || vehicleType === 'bike') || canonicalRoute?.status !== 'ok'} className="rounded-2xl bg-emerald-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-950 disabled:opacity-50"><Clock className="mr-2 inline h-4 w-4" />Request transport</button>{selectedPlace.source==='afat_places'&&<button type="button" onClick={shareReach} className="rounded-2xl border border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/65"><Share2 className="mr-2 inline h-4 w-4"/>Share</button>}</div>}
       {selectedPlace.source !== 'afat_places' && <p className="text-xs text-amber-200">This mapped point has no current Atlas identity for a transport request. Search online for a listed destination; navigation to the point remains available.</p>}
-      {profile?.id&&selectedPlace.source==='afat_places'&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
+      {preferredCityKey(profile) && profile?.id&&selectedPlace.source==='afat_places'&&<PassengerJourneyEvidence profileId={String(profile.id)} placeId={selectedPlace.id} placeName={selectedPlace.name} cityKey={cityKey} routeMode={vehicleType} routeSource={canonicalRoute?.route_source||null}/>}
        {shareNotice&&<p className="text-[10px] text-cyan-100/70">{shareNotice}</p>}
     </div>}
     {sosOpen && profile?.id && <EmergencySOS userId={String(profile.id)} userName={String(profile?.full_name||'AFAT passenger')} activeDispatchId={selectedPlace?.id===sosDispatchPlaceId?sosDispatchId:null} onClose={()=>setSosOpen(false)} />}
